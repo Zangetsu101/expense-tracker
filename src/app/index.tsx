@@ -32,6 +32,7 @@ export default function HomeScreen() {
     data={rows} keyExtractor={(row) => String(row.id)}
     ListHeaderComponent={<View style={{ gap: 12 }}>
       <Link href="/quick-add" asChild><Pressable accessibilityRole="button" style={{ padding: 16, backgroundColor: '#315fcb', borderRadius: 12 }}><Text style={{ color: 'white', fontWeight: 'bold' }}>Add transaction</Text></Pressable></Link>
+      <Link href="./transactions" asChild><Pressable accessibilityRole="button" style={{ padding: 16, backgroundColor: '#e8eaf0', borderRadius: 12 }}><Text style={{ fontWeight: '600' }}>Search transactions</Text></Pressable></Link>
       <Link href="/reports" asChild><Pressable accessibilityRole="button" style={{ padding: 16, backgroundColor: '#e8eaf0', borderRadius: 12 }}><Text style={{ fontWeight: '600' }}>Balances and reports</Text></Pressable></Link>
       <Link href="./review-queue" asChild><Pressable accessibilityRole="button" style={{ padding: 16, backgroundColor: '#e8eaf0', borderRadius: 12 }}><Text style={{ fontWeight: '600' }}>Review transfer candidates</Text></Pressable></Link>
       <Pressable accessibilityRole="button" onPress={() => void run(() => exportBackup(backupStore, backupDocuments))}><Text>Export JSON to chosen folder</Text></Pressable>

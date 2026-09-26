@@ -50,7 +50,7 @@ registerHooks({
 });
 globalThis.__testSqlite = adapter;
 globalThis.__testCsv = () => csv;
-const { database } = await import('./database.ts');
+const { database, listAccounts, listCategories, setFavoriteAccount } = await import('./database.ts');
 const { importMoneyLoverFile } = await import('./import-csv.ts');
 const { listReviewCandidates, confirmCandidate, rejectCandidate } = await import('./review-queue.ts');
 
@@ -70,6 +70,21 @@ async function reset() {
     sql.exec('DROP TRIGGER IF EXISTS fail_second');
   }
 }
+
+test('favorite Account persists and Category choices put recent use first', async () => {
+  await reset();
+  const bank = await adapter.runAsync("INSERT INTO accounts (name, currencyCode) VALUES ('Bank', 'BDT')");
+  await setFavoriteAccount(bank.lastInsertRowId);
+  assert.equal((await listAccounts())[0].name, 'Bank');
+  assert.equal((await listAccounts()).filter((account) => account.isFavorite).length, 1);
+  await assert.rejects(setFavoriteAccount(-1), /Account not found/);
+  assert.equal((await listAccounts())[0].name, 'Bank');
+  const food = await adapter.runAsync("INSERT INTO categories (name, type) VALUES ('Food', 'EXPENSE')");
+  const fuel = await adapter.runAsync("INSERT INTO categories (name, type) VALUES ('Fuel', 'EXPENSE')");
+  await adapter.runAsync("INSERT INTO transactions (type, amountMinor, date, accountId, categoryId) VALUES ('EXPENSE', 100, 100, ?, ?)", [bank.lastInsertRowId, food.lastInsertRowId]);
+  await adapter.runAsync("INSERT INTO transactions (type, amountMinor, date, accountId, categoryId) VALUES ('EXPENSE', 100, 101, ?, ?)", [bank.lastInsertRowId, fuel.lastInsertRowId]);
+  assert.deepEqual((await listCategories('EXPENSE')).slice(0, 2).map((category) => category.name), ['Fuel', 'Food']);
+});
 
 test('high-confidence reimport retains one Transfer and both row keys', async () => {
   await reset();

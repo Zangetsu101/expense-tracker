@@ -1,6 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 
-export type Account = { id: number; name: string; currencyCode: string };
+export type Account = { id: number; name: string; currencyCode: string; isFavorite: number };
 export type Category = { id: number; name: string; type: 'EXPENSE' | 'INCOME' };
 export type TransactionRow = {
   id: number; type: 'EXPENSE' | 'INCOME' | 'TRANSFER'; amountMinor: number;
@@ -29,10 +29,21 @@ export function database() {
 }
 
 export async function listAccounts() {
-  return (await database()).getAllAsync<Account>('SELECT id, name, currencyCode FROM accounts ORDER BY isFavorite DESC, name');
+  return (await database()).getAllAsync<Account>('SELECT id, name, currencyCode, isFavorite FROM accounts ORDER BY isFavorite DESC, name, id');
 }
 export async function listCategories(type: 'EXPENSE' | 'INCOME') {
-  return (await database()).getAllAsync<Category>('SELECT id, name, type FROM categories WHERE type = ? ORDER BY name', [type]);
+  return (await database()).getAllAsync<Category>(`SELECT c.id, c.name, c.type FROM categories c
+    LEFT JOIN transactions t ON t.categoryId = c.id AND t.type = c.type
+    WHERE c.type = ? GROUP BY c.id
+    ORDER BY MAX(t.date) DESC, MAX(t.id) DESC, c.name COLLATE NOCASE, c.id`, [type]);
+}
+export async function setFavoriteAccount(accountId: number) {
+  const db = await database();
+  await db.withExclusiveTransactionAsync(async (tx) => {
+    const account = await tx.getFirstAsync<{ id: number }>('SELECT id FROM accounts WHERE id = ?', [accountId]);
+    if (!account) throw new Error('Account not found.');
+    await tx.runAsync('UPDATE accounts SET isFavorite = CASE WHEN id = ? THEN 1 ELSE 0 END', [accountId]);
+  });
 }
 export async function recentTransactions() {
   return (await database()).getAllAsync<TransactionRow>(`SELECT t.id, t.type, t.amountMinor, t.date, a.name AS accountName, c.name AS categoryName, t.note
