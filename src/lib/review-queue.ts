@@ -1,0 +1,68 @@
+import { database } from './database';
+
+export type ReviewCandidate = {
+  id: number; confidenceNote: string; date: number; amountMinor: number;
+  outgoingAccount: string; incomingAccount: string; currencyCode: string;
+  outgoingNote: string | null; incomingNote: string | null;
+};
+
+export async function listReviewCandidates(): Promise<ReviewCandidate[]> {
+  const db = await database();
+  return db.getAllAsync<ReviewCandidate>(`SELECT c.id, c.confidenceNote, o.date, o.amountMinor,
+    oa.name AS outgoingAccount, ia.name AS incomingAccount, oa.currencyCode,
+    o.note AS outgoingNote, i.note AS incomingNote
+    FROM transfer_candidates c
+    JOIN transactions o ON o.id = c.outgoingTxnId
+    JOIN transactions i ON i.id = c.incomingTxnId
+    JOIN accounts oa ON oa.id = o.accountId
+    JOIN accounts ia ON ia.id = i.accountId
+    WHERE c.resolved = 0 ORDER BY o.date DESC, c.id DESC`);
+}
+
+export async function rejectCandidate(id: number) {
+  const db = await database();
+  const result = await db.runAsync('UPDATE transfer_candidates SET resolved = 1 WHERE id = ? AND resolved = 0', [id]);
+  if (result.changes !== 1) throw new Error('Candidate is no longer available. Refresh the queue.');
+}
+
+export async function confirmCandidate(id: number) {
+  const db = await database();
+  await db.withExclusiveTransactionAsync(async (tx) => {
+    const pair = await tx.getFirstAsync<{
+      outgoingTxnId: number; incomingTxnId: number; outgoingType: string; incomingType: string;
+      outgoingDate: number; incomingDate: number; outgoingAmount: number; incomingAmount: number;
+      outgoingAccountId: number; incomingAccountId: number; outgoingCurrency: string; incomingCurrency: string;
+    }>(`SELECT c.outgoingTxnId, c.incomingTxnId, o.type AS outgoingType, i.type AS incomingType,
+      o.date AS outgoingDate, i.date AS incomingDate, o.amountMinor AS outgoingAmount, i.amountMinor AS incomingAmount,
+      o.accountId AS outgoingAccountId, i.accountId AS incomingAccountId,
+      oa.currencyCode AS outgoingCurrency, ia.currencyCode AS incomingCurrency
+      FROM transfer_candidates c
+      JOIN transactions o ON o.id = c.outgoingTxnId
+      JOIN transactions i ON i.id = c.incomingTxnId
+      JOIN accounts oa ON oa.id = o.accountId
+      JOIN accounts ia ON ia.id = i.accountId
+      WHERE c.id = ? AND c.resolved = 0`, [id]);
+    if (!pair) throw new Error('Candidate is no longer available. Refresh the queue.');
+    if (pair.outgoingType !== 'EXPENSE' || pair.incomingType !== 'INCOME' ||
+      pair.outgoingDate !== pair.incomingDate || pair.outgoingAmount !== pair.incomingAmount ||
+      pair.outgoingCurrency !== pair.incomingCurrency || pair.outgoingAccountId === pair.incomingAccountId ||
+      pair.outgoingTxnId === pair.incomingTxnId) {
+      throw new Error('The two transactions no longer form a valid same-currency transfer.');
+    }
+    const incomingDetails = await tx.getFirstAsync<{ count: number }>(`SELECT
+      (SELECT COUNT(*) FROM line_items WHERE transactionId = ?) +
+      (SELECT COUNT(*) FROM transaction_tags WHERE transactionId = ?) AS count`,
+      [pair.incomingTxnId, pair.incomingTxnId]);
+    if (incomingDetails?.count) throw new Error('The incoming Transaction has Line Items or tags. Remove them before confirming the Transfer.');
+    // Preserve both CSV row identities before deleting the incoming transaction (which cascades its keys).
+    await tx.runAsync('UPDATE moneylover_import_rows SET transactionId = ? WHERE transactionId = ?', [pair.outgoingTxnId, pair.incomingTxnId]);
+    await tx.runAsync('DELETE FROM transfer_candidates WHERE outgoingTxnId = ? OR incomingTxnId = ?',
+      [pair.incomingTxnId, pair.incomingTxnId]);
+    await tx.runAsync('UPDATE transfer_candidates SET resolved = 1 WHERE outgoingTxnId = ? OR incomingTxnId = ?',
+      [pair.outgoingTxnId, pair.outgoingTxnId]);
+    await tx.runAsync(`UPDATE transactions SET type = 'TRANSFER', transferAccountId = ?, categoryId = NULL,
+      note = COALESCE(NULLIF(note, ''), (SELECT note FROM transactions WHERE id = ?)),
+      excludeFromReport = 1 WHERE id = ?`, [pair.incomingAccountId, pair.incomingTxnId, pair.outgoingTxnId]);
+    await tx.runAsync('DELETE FROM transactions WHERE id = ?', [pair.incomingTxnId]);
+  });
+}
