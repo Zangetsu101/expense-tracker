@@ -88,16 +88,17 @@ test('synthetic 10k-row SQLite import keeps ambiguous legs separate, reimports i
   assert.equal(new Set(importedLegs.map((row) => row.transactionId)).size, 3);
   assert.equal(Number(sql.prepare("SELECT COUNT(*) AS count FROM transactions WHERE type = 'TRANSFER'").get().count), 1);
   assert.equal(Number(sql.prepare('SELECT COUNT(*) AS count FROM transactions WHERE excludeFromReport = 1').get().count), 1);
-  const before = ['accounts', 'categories', 'transactions', 'moneylover_import_rows', 'transfer_candidates'].map(count);
+  const tables = ['accounts', 'categories', 'transactions', 'moneylover_import_rows', 'transfer_candidates'];
+  const before = tables.map((table) => sql.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all());
   const repeat = performance.now();
   assert.equal(await importMoneyLoverFile(), 0);
   t.diagnostic(`repeat synthetic import: ${Math.round(performance.now() - repeat)} ms (observation only)`);
-  assert.deepEqual(['accounts', 'categories', 'transactions', 'moneylover_import_rows', 'transfer_candidates'].map(count), before);
+  assert.deepEqual(tables.map((table) => sql.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()), before);
 
   csv += '\n10001,,-501.00,Food,New account,BDT,01/02/2025,,false\n10002,,-502.00,New category,Cash,BDT,01/02/2025,,false';
   sql.exec("CREATE TRIGGER fail_late BEFORE INSERT ON moneylover_import_rows WHEN (SELECT COUNT(*) FROM moneylover_import_rows) = 10001 BEGIN SELECT RAISE(ABORT, 'forced late failure'); END");
   await assert.rejects(importMoneyLoverFile(), /forced late failure/);
-  assert.deepEqual(['accounts', 'categories', 'transactions', 'moneylover_import_rows', 'transfer_candidates'].map(count), before);
+  assert.deepEqual(tables.map((table) => sql.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()), before);
   assert.deepEqual(sql.prepare('SELECT rowKey, transactionId FROM moneylover_import_rows ORDER BY rowKey').all(), keyed);
   assert.equal(Number(sql.prepare("SELECT COUNT(*) AS count FROM accounts WHERE name = 'New account'").get().count), 0);
 });
