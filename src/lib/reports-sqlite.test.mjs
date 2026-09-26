@@ -40,6 +40,7 @@ const add = (id, type, amount, date, accountId, categoryId = null, excluded = 0,
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(id, type, amount, date, accountId, categoryId, excluded, transferAccountId);
 
 add(1, 'EXPENSE', 100, day(2025, 1, 1), 1, 1);
+sqlite.prepare("INSERT INTO line_items (transactionId, name, amountMinor) VALUES (1, 'Partial', 25)").run();
 add(2, 'EXPENSE', 50, day(2025, 1, 31), 1, null);
 add(3, 'INCOME', 400, day(2025, 1, 15), 1, 2);
 add(4, 'TRANSFER', 250, day(2025, 1, 15), 1, null, 0, 2);

@@ -4,6 +4,7 @@ import { Host, Switch } from '@expo/ui';
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { loadEditableTransaction, saveTransactionEdit, type EditableTransaction, type LineItem } from '@/lib/transaction-edit';
 import { formatEpochDay, formatTransactionAmount } from '@/lib/transaction-format';
+import { formatLineItemAmount, parseLineItemAmount } from '@/lib/line-item-amount';
 
 type LoadState = 'loading' | 'missing' | 'ready' | 'error';
 
@@ -33,7 +34,7 @@ export default function EditTransactionScreen() {
       setNote(row.note ?? '');
       setTags(row.tags.map((tag) => tag.name).join(', '));
       setExcluded(row.excludeFromReport !== 0);
-      setItems(row.lineItems.map((item) => ({ id: item.id, name: item.name, amount: (item.amountMinor / 100).toFixed(2), quantity: item.quantity?.toString() ?? '' })));
+      setItems(row.lineItems.map((item) => ({ id: item.id, name: item.name, amount: formatLineItemAmount(item.amountMinor), quantity: item.quantity?.toString() ?? '' })));
       setState('ready');
     }).catch((cause) => { if (active) { setError(String(cause)); setState('error'); } });
     return () => { active = false; };
@@ -44,10 +45,7 @@ export default function EditTransactionScreen() {
     setError(undefined);
     try {
       const lineItems: LineItem[] = items.map((item) => {
-        const amount = item.amount.trim();
-        if (!/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(amount)) throw new Error('Line item amount must be positive with at most two decimals.');
-        const [whole, fraction = ''] = amount.split('.');
-        const amountMinor = Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
+        const amountMinor = parseLineItemAmount(item.amount);
         const quantity = item.quantity.trim() === '' ? null : Number(item.quantity.trim());
         return { id: item.id, name: item.name, amountMinor, quantity };
       });

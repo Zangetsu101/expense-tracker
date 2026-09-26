@@ -97,20 +97,31 @@ test('line items are optional, editable, and independent of transaction amount',
   assert.equal(sqlite.prepare('SELECT amountMinor FROM transactions WHERE id = 1').get().amountMinor, 999);
   assert.deepEqual((await loadEditableTransaction(1)).lineItems.map(({ name, amountMinor }) => [name, amountMinor]), [['Tea', 75], ['Snack', 9000]]);
   const latest = await loadEditableTransaction(1);
-  for (const item of [{ name: '', amountMinor: 1, quantity: null }, { name: 'x', amountMinor: 0, quantity: null }, { name: 'x', amountMinor: Number.MAX_SAFE_INTEGER + 1, quantity: null }, { name: 'x', amountMinor: 1, quantity: Infinity }]) {
+  for (const item of [{ name: '', amountMinor: 1, quantity: null }, { name: 'x', amountMinor: NaN, quantity: null }, { name: 'x', amountMinor: Number.MAX_SAFE_INTEGER + 1, quantity: null }, { name: 'x', amountMinor: 1, quantity: Infinity }]) {
     await assert.rejects(() => saveTransactionEdit(latest, 'bad', true, '', [item]), /Line item/);
   }
   sqlite.prepare('UPDATE line_items SET name = ? WHERE id = 1').run('External');
   await assert.rejects(() => saveTransactionEdit(latest, 'stale', true, '', []), /changed or removed/);
   assert.notEqual((await loadEditableTransaction(1)).note, 'stale');
   const fresh = await loadEditableTransaction(1);
+  const priorLinks = sqlite.prepare('SELECT * FROM transaction_tags WHERE transactionId = 1 ORDER BY tagId').all();
+  const priorTags = sqlite.prepare('SELECT * FROM tags ORDER BY id').all();
   failItem = true;
   try { await assert.rejects(() => saveTransactionEdit(fresh, 'rollback item', true, 'NewTag', [{ name: 'Failure', amountMinor: 1, quantity: null }]), /item failed/); }
   finally { failItem = false; }
   assert.deepEqual((await loadEditableTransaction(1)).lineItems, fresh.lineItems);
   assert.equal((await loadEditableTransaction(1)).note, fresh.note);
+  assert.deepEqual(sqlite.prepare('SELECT * FROM transaction_tags WHERE transactionId = 1 ORDER BY tagId').all(), priorLinks);
+  assert.deepEqual(sqlite.prepare('SELECT * FROM tags ORDER BY id').all(), priorTags);
   await saveTransactionEdit(fresh, '', false, '', []);
   assert.deepEqual((await loadEditableTransaction(1)).lineItems, []);
+});
+
+test('note-only edits preserve restored zero and negative Line Item amounts', async () => {
+  sqlite.prepare("INSERT INTO line_items (transactionId, name, amountMinor) VALUES (1, 'Credit', -125), (1, 'Free', 0)").run();
+  const original = await loadEditableTransaction(1);
+  await saveTransactionEdit(original, 'updated', false, '', original.lineItems);
+  assert.deepEqual((await loadEditableTransaction(1)).lineItems.map((item) => item.amountMinor), [-125, 0]);
 });
 
 test('rolls back note, links and new tags on SQLite failure', async () => {

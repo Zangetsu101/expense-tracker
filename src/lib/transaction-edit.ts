@@ -28,7 +28,7 @@ function validateLineItems(items: LineItem[]) {
       ids.add(item.id);
     }
     if (!item.name.trim()) throw new Error('Line item name is required.');
-    if (!Number.isSafeInteger(item.amountMinor) || item.amountMinor <= 0) throw new Error('Line item amount must be a positive safe integer.');
+    if (!Number.isSafeInteger(item.amountMinor)) throw new Error('Line item amount must be a safe integer.');
     if (item.quantity !== null && (!Number.isFinite(item.quantity) || item.quantity <= 0)) throw new Error('Line item quantity must be positive and finite.');
   }
 }
@@ -84,11 +84,14 @@ export async function saveTransactionEdit(original: EditableTransaction, note: s
     await tx.runAsync('DELETE FROM transaction_tags WHERE transactionId = ?', [original.id]);
     for (const tagId of ids) await tx.runAsync('INSERT INTO transaction_tags (transactionId, tagId) VALUES (?, ?)', [original.id, tagId]);
     await tx.runAsync('DELETE FROM line_items WHERE transactionId = ?', [original.id]);
+    // Reinsert retained IDs before auto-assigning IDs to new Line Items.
     for (const item of lineItems.filter((entry) => entry.id !== undefined)) {
-      await tx.runAsync('INSERT INTO line_items (id, transactionId, name, amountMinor, quantity) VALUES (?, ?, ?, ?, ?)', [item.id!, original.id, item.name.trim(), item.amountMinor, item.quantity]);
+      await tx.runAsync('INSERT INTO line_items (id, transactionId, name, amountMinor, quantity) VALUES (?, ?, ?, ?, ?)',
+        [item.id!, original.id, item.name.trim(), item.amountMinor, item.quantity]);
     }
     for (const item of lineItems.filter((entry) => entry.id === undefined)) {
-      await tx.runAsync('INSERT INTO line_items (transactionId, name, amountMinor, quantity) VALUES (?, ?, ?, ?)', [original.id, item.name.trim(), item.amountMinor, item.quantity]);
+      await tx.runAsync('INSERT INTO line_items (transactionId, name, amountMinor, quantity) VALUES (?, ?, ?, ?)',
+        [original.id, item.name.trim(), item.amountMinor, item.quantity]);
     }
   });
 }
