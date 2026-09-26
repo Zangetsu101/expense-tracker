@@ -11,6 +11,7 @@ export default function Layout() {
       <Stack.Screen name="transactions" options={{ title: 'Search transactions' }} />
       <Stack.Screen name="reports" options={{ title: 'Reports' }} />
       <Stack.Screen name="accounts" options={{ title: 'Accounts' }} />
+      <Stack.Screen name="categories" options={{ title: 'Categories' }} />
       <Stack.Screen name="review-queue" options={{ title: 'Review Queue' }} />
     </Stack>
   </ThemeProvider>;

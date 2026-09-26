@@ -13,6 +13,7 @@ export default function EditTransactionScreen() {
   const [transaction, setTransaction] = useState<EditableTransaction | null>(null);
   const [state, setState] = useState<LoadState>('loading');
   const [note, setNote] = useState('');
+  const [tags, setTags] = useState('');
   const [excluded, setExcluded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
@@ -29,6 +30,7 @@ export default function EditTransactionScreen() {
       if (!row) { setState('missing'); return; }
       setTransaction(row);
       setNote(row.note ?? '');
+      setTags(row.tags.map((tag) => tag.name).join(', '));
       setExcluded(row.excludeFromReport !== 0);
       setState('ready');
     }).catch((cause) => { if (active) { setError(String(cause)); setState('error'); } });
@@ -39,7 +41,7 @@ export default function EditTransactionScreen() {
     setSaving(true);
     setError(undefined);
     try {
-      await saveTransactionEdit(transaction, note, excluded);
+      await saveTransactionEdit(transaction, note, excluded, tags);
       router.back();
     } catch (cause) {
       setError(String(cause));
@@ -60,6 +62,12 @@ export default function EditTransactionScreen() {
         <Text>Note</Text>
         <TextInput accessibilityLabel="Note" multiline value={note} onChangeText={setNote} editable={!saving}
           placeholder="Optional note" style={{ backgroundColor: 'white', minHeight: 100, padding: 12, borderRadius: 10, textAlignVertical: 'top' }} />
+      </View>
+      <View style={{ gap: 8 }}>
+        <Text>Tags</Text>
+        <TextInput accessibilityLabel="Tags" value={tags} onChangeText={setTags} editable={!saving}
+          placeholder="Comma-separated tags" autoCapitalize="words"
+          style={{ backgroundColor: 'white', padding: 12, borderRadius: 10 }} />
       </View>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
         <Host matchContents><Switch label="Exclude from reports" value={excluded} onValueChange={setExcluded} disabled={saving} /></Host>
