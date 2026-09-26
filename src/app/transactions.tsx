@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
-import { useFocusEffect } from 'expo-router';
+import { Link, useFocusEffect } from 'expo-router';
 import { ActivityIndicator, FlatList, Pressable, Text, TextInput, View } from 'react-native';
 import { listAccounts, type Account } from '@/lib/database';
 import { PAGE_SIZE, searchTransactions, type SearchFilters, type SearchRow } from '@/lib/transaction-search';
@@ -63,11 +63,18 @@ export default function TransactionsScreen() {
       {error && <Text accessibilityRole="alert" selectable>{error}</Text>}
       {!loading && !error && rows.length === 0 && <Text>No matching transactions.</Text>}
     </View>}
-    renderItem={({ item }) => <View style={{ padding: 14, borderRadius: 10, backgroundColor: 'white', gap: 4 }}>
-      <Text style={{ fontWeight: '600' }}>{item.categoryName ?? item.type} · {item.accountName}{item.transferAccountName ? ` → ${item.transferAccountName}` : ''}</Text>
-      <Text>{item.type === 'EXPENSE' ? '−' : item.type === 'INCOME' ? '+' : ''}{new Intl.NumberFormat(undefined, { style: 'currency', currency: item.currencyCode }).format(item.amountMinor / 100)} · {new Date(item.date * 86400000).toISOString().slice(0, 10)}</Text>
-      {!!item.note && <Text selectable>{item.note}</Text>}
-    </View>}
+    renderItem={({ item }) => {
+      const details = <>
+        <Text style={{ fontWeight: '600' }}>{item.categoryName ?? item.type} · {item.accountName}{item.transferAccountName ? ` → ${item.transferAccountName}` : ''}</Text>
+        <Text>{item.type === 'EXPENSE' ? '−' : item.type === 'INCOME' ? '+' : ''}{new Intl.NumberFormat(undefined, { style: 'currency', currency: item.currencyCode }).format(item.amountMinor / 100)} · {new Date(item.date * 86400000).toISOString().slice(0, 10)}</Text>
+        {!!item.note && <Text selectable>{item.note}</Text>}
+      </>;
+      const style = { padding: 14, borderRadius: 10, backgroundColor: 'white', gap: 4 } as const;
+      if (item.type === 'TRANSFER') return <View style={style}>{details}</View>;
+      return <Link href={{ pathname: '/transaction/[id]', params: { id: String(item.id) } }} asChild>
+        <Pressable accessibilityRole="button" accessibilityLabel={`Edit ${item.type.toLowerCase()} transaction, ${item.categoryName ?? item.accountName}`} style={style}>{details}</Pressable>
+      </Link>;
+    }}
     ListFooterComponent={loading ? <ActivityIndicator /> : more ? <Pressable accessibilityRole="button" onPress={() => void loadMore()} style={{ padding: 16 }}><Text>Load more</Text></Pressable> : null}
   />;
 }
