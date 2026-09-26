@@ -33,9 +33,10 @@ export async function listAccounts() {
 }
 export async function listCategories(type: 'EXPENSE' | 'INCOME') {
   return (await database()).getAllAsync<Category>(`SELECT c.id, c.name, c.type FROM categories c
-    LEFT JOIN transactions t ON t.categoryId = c.id AND t.type = c.type
-    WHERE c.type = ? GROUP BY c.id
-    ORDER BY MAX(t.date) DESC, MAX(t.id) DESC, c.name COLLATE NOCASE, c.id`, [type]);
+    LEFT JOIN transactions t ON t.id = (
+      SELECT id FROM transactions WHERE categoryId = c.id AND type = c.type ORDER BY date DESC, id DESC LIMIT 1
+    ) WHERE c.type = ?
+    ORDER BY t.date DESC, t.id DESC, c.name COLLATE NOCASE, c.id`, [type]);
 }
 export async function setFavoriteAccount(accountId: number) {
   const db = await database();

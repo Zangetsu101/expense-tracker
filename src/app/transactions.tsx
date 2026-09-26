@@ -5,8 +5,10 @@ import { listAccounts, type Account } from '@/lib/database';
 import { PAGE_SIZE, searchTransactions, type SearchFilters, type SearchRow } from '@/lib/transaction-search';
 
 const types: SearchFilters['type'][] = ['ALL', 'EXPENSE', 'INCOME', 'TRANSFER'];
-const today = new Date();
-const currentMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+function currentMonth() {
+  const today = new Date();
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+}
 
 export default function TransactionsScreen() {
   const [filters, setFilters] = useState<SearchFilters>({ query: '', type: 'ALL', accountId: null, month: '' });
@@ -30,6 +32,7 @@ export default function TransactionsScreen() {
     setLoading(true);
     setError(undefined);
     setRows([]);
+    setMore(false);
     searchTransactions(filters).then((items) => {
       if (active && request.current === generation) { setRows(items); setMore(items.length === PAGE_SIZE); }
     }).catch((e) => { if (active && request.current === generation) setError(String(e)); }).finally(() => { if (active && request.current === generation) setLoading(false); });
@@ -55,7 +58,7 @@ export default function TransactionsScreen() {
       <Text style={{ fontWeight: '600' }}>Account</Text>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>{[{ id: null, name: 'All accounts' }, ...accounts].map((account) => <Pressable key={account.id ?? 'all'} accessibilityRole="button" accessibilityState={{ selected: filters.accountId === account.id }} onPress={() => change({ accountId: account.id })} style={{ padding: 10, borderRadius: 10, backgroundColor: filters.accountId === account.id ? '#315fcb' : '#e8eaf0' }}><Text style={{ color: filters.accountId === account.id ? 'white' : '#222' }}>{account.name}</Text></Pressable>)}</View>
       <Text style={{ fontWeight: '600' }}>Month</Text>
-      <View style={{ flexDirection: 'row', gap: 8 }}>{['', currentMonth].map((month) => <Pressable key={month} accessibilityRole="button" accessibilityState={{ selected: filters.month === month }} onPress={() => change({ month })} style={{ padding: 10, borderRadius: 10, backgroundColor: filters.month === month ? '#315fcb' : '#e8eaf0' }}><Text style={{ color: filters.month === month ? 'white' : '#222' }}>{month || 'Any month'}</Text></Pressable>)}</View>
+      <View style={{ flexDirection: 'row', gap: 8 }}>{['', currentMonth()].map((month) => <Pressable key={month} accessibilityRole="button" accessibilityState={{ selected: filters.month === month }} onPress={() => change({ month })} style={{ padding: 10, borderRadius: 10, backgroundColor: filters.month === month ? '#315fcb' : '#e8eaf0' }}><Text style={{ color: filters.month === month ? 'white' : '#222' }}>{month || 'Any month'}</Text></Pressable>)}</View>
       <TextInput accessibilityLabel="Month (YYYY-MM)" placeholder="YYYY-MM (optional)" value={filters.month} onChangeText={(month) => change({ month })} autoCapitalize="none" keyboardType="numbers-and-punctuation" style={{ backgroundColor: 'white', padding: 12, borderRadius: 10 }} />
       {error && <Text accessibilityRole="alert" selectable>{error}</Text>}
       {!loading && !error && rows.length === 0 && <Text>No matching transactions.</Text>}

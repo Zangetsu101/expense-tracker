@@ -86,6 +86,16 @@ test('favorite Account persists and Category choices put recent use first', asyn
   assert.deepEqual((await listCategories('EXPENSE')).slice(0, 2).map((category) => category.name), ['Fuel', 'Food']);
 });
 
+test('Category recency uses the ID from the latest date, not an older maximum ID', async () => {
+  await reset();
+  const food = await adapter.runAsync("INSERT INTO categories (name, type) VALUES ('Food', 'EXPENSE')");
+  const fuel = await adapter.runAsync("INSERT INTO categories (name, type) VALUES ('Fuel', 'EXPENSE')");
+  for (const [id, date, categoryId] of [[100, 100, food.lastInsertRowId], [1, 101, food.lastInsertRowId], [50, 101, fuel.lastInsertRowId]]) {
+    await adapter.runAsync("INSERT INTO transactions (id, type, amountMinor, date, accountId, categoryId) VALUES (?, 'EXPENSE', 100, ?, 1, ?)", [id, date, categoryId]);
+  }
+  assert.deepEqual((await listCategories('EXPENSE')).slice(0, 2).map((category) => category.name), ['Fuel', 'Food']);
+});
+
 test('high-confidence reimport retains one Transfer and both row keys', async () => {
   await reset();
   rows(['1', 'Send to Bank', -10, 'Withdrawal', 'Cash'], ['2', 'From Cash', 10, 'Deposit', 'Bank']);

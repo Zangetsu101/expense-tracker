@@ -4,11 +4,15 @@ The native app was never used for real data. Historical data comes from the Mone
 
 ## Exercised on Android in Expo Go
 
-- The transaction list reads SQLite. Quick-add saves Expense and Income amounts in minor units, with today's local date and a selected Account and Category. Quick-add now selects a persisted favorite Account and orders Categories by recent use. A separate Transaction screen searches notes, Categories, and Accounts with type, Account, and month filters; reporting shows Account balances and monthly spending by Category and currency.
+- The transaction list reads SQLite. Quick-add saves Expense and Income amounts in minor units, with today's local date and a selected Account and Category.
 - A synthetic MoneyLover nine-column CSV selected from Documents imported an Expense. The initial spike duplicated rows on reimport. New imports record row identities, so reimporting the same file skips those rows; Transactions without import identities, including those imported before that change, may overlap a CSV; a matching CSV now stops with an ambiguity error instead of silently duplicating them. Expo JSON backups carry import identities, while native v1 backups do not. The initial spike wrote signed rows individually. The current importer merges uniquely corroborated Transfer pairs, queues uncertain pairs, plans curated parent Categories, and asks before splitting Mixed Categories into Expense and Income Categories. These newer paths have automated tests but have not been checked against representative MoneyLover data on Android.
 - JSON export created a document in a user-selected local Documents folder. Restore read a selected document via its `content://` URI and replaced SQLite rows after confirmation. An Android restore check confirmed that restoring a backup retained an earlier 12.34 Transaction and removed a 98.76 Transaction added after export.
 - A synthetic backup modeled on the native serializer's unit-test sample restored Accounts, nested Categories, Transfers, Line Items, tags, transfer candidates, and display rate. Exporting after restore retained their row counts and rate. This was not a test with real user data.
 - TypeScript, expo-doctor, and the backup-format fixture check passed during the spike.
+
+## Implemented after the Android spike, not yet device-verified
+
+- Quick-add selects a persisted favorite Account and orders Categories by recent use. A separate Transaction screen searches notes, Categories, and Accounts with type, Account, and month filters. Reporting shows Account balances and monthly spending by Category and currency. These paths have automated tests but have not been checked on Android since implementation.
 
 ## Observed limits
 

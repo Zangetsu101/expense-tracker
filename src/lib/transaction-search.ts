@@ -9,7 +9,6 @@ export function searchStatement(filters: SearchFilters, offset = 0) {
   const params: (string | number)[] = [];
   const query = filters.query.trim();
   if (query) {
-    // Escape LIKE wildcards so a search is literal, not a pattern supplied by the user.
     const pattern = `%${query.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
     clauses.push("(t.note LIKE ? ESCAPE '\\' COLLATE NOCASE OR c.name LIKE ? ESCAPE '\\' COLLATE NOCASE OR a.name LIKE ? ESCAPE '\\' COLLATE NOCASE OR dest.name LIKE ? ESCAPE '\\' COLLATE NOCASE)");
     params.push(pattern, pattern, pattern, pattern);
