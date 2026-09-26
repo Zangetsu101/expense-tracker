@@ -19,13 +19,16 @@ export async function importMoneyLoverFile(confirmMixedCategories?: (names: stri
     const currency = row.currency.trim().toUpperCase();
     if (!row.account || !currency || !row.category || !Number.isSafeInteger(row.amount * 100) || row.amount === 0) throw new Error('CSV contains an unsupported account, category, or amount.');
   }
-  const plan = planImportCategories(matches.singleSided);
-  const mixed = plan.categories.filter((category) => category.needsConfirmation).map((category) => category.name);
+  const db = await database();
+  const alreadyImported = new Set((await db.getAllAsync<{ rowKey: string }>('SELECT rowKey FROM moneylover_import_rows')).map((row) => row.rowKey));
+  const allImported = keys.every((key) => alreadyImported.has(key));
+  if (allImported && matches.highConfidence.length === 0) return 0;
+  const plan = planImportCategories(rows);
+  const mixed = allImported ? [] : plan.categories.filter((category) => category.needsConfirmation).map((category) => category.name);
   if (mixed.length && (!confirmMixedCategories || !(await confirmMixedCategories(mixed)))) {
     throw new Error(`Mixed Categories require confirmation before import: ${mixed.join(', ')}.`);
   }
 
-  const db = await database();
   let inserted = 0;
   await db.withExclusiveTransactionAsync(async (tx) => {
     const legacy = await tx.getAllAsync<LegacyImportRow>(`SELECT t.date, a.name AS account, a.currencyCode AS currency, c.name AS category,
@@ -43,15 +46,13 @@ export async function importMoneyLoverFile(confirmMixedCategories?: (names: stri
     }
     const id = (row: MoneyLoverRow) => indices.get(row)!;
     const merged = new Set<number>();
-    // Only merge complete pairs. An already imported leg retains its original transaction.
+    const reviewPairs = [...matches.uncertain];
     for (const pair of matches.highConfidence) {
       const out = id(pair.outgoing);
       const inc = id(pair.incoming);
       const oldOut = existing.get(keys[out]);
       const oldInc = existing.get(keys[inc]);
       if (oldOut || oldInc) {
-        // A partial key set can arise from an older import or restore. Reuse only a
-        // verified matching Transfer; never attach a leg to a single-sided record.
         const oldId = oldOut ?? oldInc!;
         const stored = await tx.getFirstAsync<{ type: string; amountMinor: number; date: number; sourceName: string; destinationName: string; currency: string }>(`SELECT t.type, t.amountMinor, t.date, a.name AS sourceName, b.name AS destinationName, a.currencyCode AS currency
           FROM transactions t JOIN accounts a ON a.id = t.accountId LEFT JOIN accounts b ON b.id = t.transferAccountId WHERE t.id = ?`, [oldId]);
@@ -62,8 +63,8 @@ export async function importMoneyLoverFile(confirmMixedCategories?: (names: stri
             if (!existing.has(keys[index])) await tx.runAsync('INSERT INTO moneylover_import_rows (rowKey, transactionId) VALUES (?, ?)', [keys[index], oldId]);
             merged.add(index);
           }
-        } else if (!oldOut || !oldInc) {
-          throw new Error('A transfer pair overlaps a previously imported single-sided row. Import stopped to avoid duplicates.');
+        } else {
+          reviewPairs.push(pair);
         }
         continue;
       }
@@ -92,7 +93,7 @@ export async function importMoneyLoverFile(confirmMixedCategories?: (names: stri
       inserted++;
     }
     const candidateEdges = new Set<string>();
-    for (const pair of matches.uncertain) {
+    for (const pair of reviewPairs) {
       const outgoing = existing.get(keys[id(pair.outgoing)]);
       const incoming = existing.get(keys[id(pair.incoming)]);
       if (!outgoing || !incoming || outgoing === incoming) continue;
