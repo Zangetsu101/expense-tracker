@@ -36,7 +36,7 @@ globalThis.__transactionEditTestDb = {
 registerHooks({
   resolve(specifier, context, next) {
     if (specifier === './database') return { url: 'test:database', shortCircuit: true };
-    if (specifier === './quick-add-tags') return next('./quick-add-tags.ts', context);
+    if (specifier === './quick-add-tags' || specifier === './tag-store') return next(`${specifier}.ts`, context);
     return next(specifier, context);
   },
   load(url, context, next) {

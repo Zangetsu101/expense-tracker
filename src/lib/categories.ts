@@ -27,9 +27,10 @@ export async function createCategory(input: { name: string; type: CategoryType; 
   });
 }
 
-export async function markCategoryReviewed(id: number): Promise<void> {
+export async function markCategoryReviewed(id: number, confirmedType: CategoryType): Promise<void> {
   if (!Number.isSafeInteger(id) || id <= 0) throw new Error('Invalid Category.');
   const db = await database();
-  const result = await db.runAsync('UPDATE categories SET needsReview = 0 WHERE id = ? AND needsReview = 1', [id]);
+  if (confirmedType !== 'EXPENSE' && confirmedType !== 'INCOME') throw new Error('Choose Expense or Income.');
+  const result = await db.runAsync('UPDATE categories SET needsReview = 0 WHERE id = ? AND type = ? AND needsReview = 1', [id, confirmedType]);
   if (!result.changes) throw new Error('Category is not awaiting review.');
 }

@@ -52,8 +52,9 @@ test('creates typed categories with same-type parents and rejects duplicate name
 
 test('review clears only the selected pending category', async () => {
   db.prepare('UPDATE categories SET needsReview = 1 WHERE id IN (1, 3)').run();
-  await markCategoryReviewed(1);
+  await assert.rejects(markCategoryReviewed(1, 'INCOME'));
+  await markCategoryReviewed(1, 'EXPENSE');
   assert.deepEqual((await listManagedCategories()).map(({ needsReview }) => needsReview), [0, 0, 1]);
-  await assert.rejects(markCategoryReviewed(1));
-  await assert.rejects(markCategoryReviewed(999));
+  await assert.rejects(markCategoryReviewed(1, 'EXPENSE'));
+  await assert.rejects(markCategoryReviewed(999, 'EXPENSE'));
 });

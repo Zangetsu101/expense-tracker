@@ -1,5 +1,6 @@
 import { database } from './database';
 import { parseQuickAddTags } from './quick-add-tags';
+import { findOrCreateTag } from './tag-store';
 
 export type EditableTransaction = {
   id: number;
@@ -42,7 +43,9 @@ export async function saveTransactionEdit(original: EditableTransaction, note: s
   await db.withExclusiveTransactionAsync(async (tx) => {
     const current = await tx.getAllAsync<{ id: number; name: string }>(`SELECT tags.id, tags.name FROM tags
       JOIN transaction_tags tt ON tt.tagId = tags.id WHERE tt.transactionId = ? ORDER BY tags.id`, [original.id]);
-    if (JSON.stringify(current) !== JSON.stringify(original.tags)) throw new Error('Transaction was changed or removed. Reload before saving.');
+    if (current.length !== original.tags.length || current.some((tag, index) => tag.id !== original.tags[index].id)) {
+      throw new Error('Transaction was changed or removed. Reload before saving.');
+    }
     const result = await tx.runAsync(`UPDATE transactions SET note = ?, excludeFromReport = ?
       WHERE id = ? AND type = ? AND amountMinor = ? AND date = ? AND accountId = ?
         AND categoryId IS ? AND note IS ? AND excludeFromReport = ?`,
@@ -51,8 +54,7 @@ export async function saveTransactionEdit(original: EditableTransaction, note: s
     if (result.changes !== 1) throw new Error('Transaction was changed or removed. Reload before saving.');
     const ids: number[] = [];
     for (const name of names) {
-      const existing = await tx.getFirstAsync<{ id: number }>('SELECT id FROM tags WHERE name = ? COLLATE NOCASE ORDER BY id LIMIT 1', [name]);
-      ids.push(existing?.id ?? (await tx.runAsync('INSERT INTO tags (name) VALUES (?)', [name])).lastInsertRowId);
+      ids.push(await findOrCreateTag(tx, name));
     }
     await tx.runAsync('DELETE FROM transaction_tags WHERE transactionId = ?', [original.id]);
     for (const tagId of ids) await tx.runAsync('INSERT INTO transaction_tags (transactionId, tagId) VALUES (?, ?)', [original.id, tagId]);

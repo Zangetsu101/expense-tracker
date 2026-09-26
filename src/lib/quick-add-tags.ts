@@ -1,4 +1,5 @@
 import { database, epochDay } from './database';
+import { findOrCreateTag } from './tag-store';
 
 type QuickAddInput = {
   type: 'EXPENSE' | 'INCOME'; amountMinor: number; accountId: number; categoryId: number; note: string | null;
@@ -28,11 +29,7 @@ export async function addQuickTransaction(input: QuickAddInput, tagText: string)
     const result = await tx.runAsync('INSERT INTO transactions (type, amountMinor, date, accountId, categoryId, note) VALUES (?, ?, ?, ?, ?, ?)',
       [input.type, input.amountMinor, epochDay(new Date()), input.accountId, input.categoryId, input.note]);
     for (const name of tags) {
-      const existing = await tx.getFirstAsync<{ id: number }>('SELECT id FROM tags WHERE name = ? COLLATE NOCASE ORDER BY id LIMIT 1', [name]);
-      let tagId = existing?.id;
-      if (tagId === undefined) {
-        tagId = (await tx.runAsync('INSERT INTO tags (name) VALUES (?)', [name])).lastInsertRowId;
-      }
+      const tagId = await findOrCreateTag(tx, name);
       await tx.runAsync('INSERT INTO transaction_tags (transactionId, tagId) VALUES (?, ?)', [result.lastInsertRowId, tagId]);
     }
   });

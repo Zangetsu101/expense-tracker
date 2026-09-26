@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
-import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { createCategory, listManagedCategories, markCategoryReviewed, type CategoryType, type ManagedCategory } from '@/lib/categories';
 
 export default function CategoriesScreen() {
@@ -26,11 +26,18 @@ export default function CategoriesScreen() {
     catch (e) { setError(String(e)); }
     finally { setPending(false); }
   }
-  async function review(id: number) {
-    setPending(true); setError(undefined);
-    try { await markCategoryReviewed(id); await load(); }
-    catch (e) { setError(String(e)); }
-    finally { setPending(false); }
+  function confirmReview(category: ManagedCategory) {
+    Alert.alert('Confirm Category type', `Is "${category.name}" an ${category.type === 'EXPENSE' ? 'Expense' : 'Income'} Category? If not, leave it awaiting review.`, [
+      { text: 'Not sure', style: 'cancel' },
+      { text: `Confirm ${category.type === 'EXPENSE' ? 'Expense' : 'Income'}`, onPress: () => {
+        void (async () => {
+          setPending(true); setError(undefined);
+          try { await markCategoryReviewed(category.id, category.type); await load(); }
+          catch (e) { setError(String(e)); }
+          finally { setPending(false); }
+        })();
+      } },
+    ]);
   }
 
   return <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 20, gap: 16 }}>
@@ -50,7 +57,7 @@ export default function CategoriesScreen() {
       {categories.filter((category) => category.type === group).map((category) => <View key={category.id} style={{ padding: 16, backgroundColor: '#e8eaf0', borderRadius: 12, gap: 8 }}>
         <Text selectable style={{ fontWeight: '600' }}>{category.name}</Text>
         {category.parentName && <Text selectable>Parent: {category.parentName}</Text>}
-        {!!category.needsReview && <><Text>Imported Mixed Category · needs review</Text><Pressable accessibilityRole="button" disabled={pending} onPress={() => void review(category.id)}><Text>Mark reviewed</Text></Pressable></>}
+        {!!category.needsReview && <><Text>Imported Mixed Category · needs review</Text><Pressable accessibilityRole="button" disabled={pending} onPress={() => confirmReview(category)}><Text>Confirm {category.type === 'EXPENSE' ? 'Expense' : 'Income'} type</Text></Pressable></>}
       </View>)}
       {!categories.some((category) => category.type === group) && <Text>No categories yet.</Text>}
     </View>)}
