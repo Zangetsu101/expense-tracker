@@ -1,0 +1,15 @@
+export function formatTransactionAmount(type: 'EXPENSE' | 'INCOME' | 'TRANSFER', amountMinor: number, currencyCode: string): string {
+  const sign = type === 'EXPENSE' ? '−' : type === 'INCOME' ? '+' : '';
+  let value: string;
+  try {
+    value = new Intl.NumberFormat(undefined, { style: 'currency', currency: currencyCode }).format(amountMinor / 100);
+  } catch (error) {
+    if (!(error instanceof RangeError)) throw error;
+    value = `${(amountMinor / 100).toFixed(2)} ${currencyCode}`;
+  }
+  return sign + value;
+}
+
+export function formatEpochDay(day: number): string {
+  return new Date(day * 86400000).toISOString().slice(0, 10);
+}

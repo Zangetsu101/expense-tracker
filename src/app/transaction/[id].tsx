@@ -3,6 +3,7 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Host, Switch } from '@expo/ui';
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { loadEditableTransaction, saveTransactionEdit, type EditableTransaction } from '@/lib/transaction-edit';
+import { formatEpochDay, formatTransactionAmount } from '@/lib/transaction-format';
 
 type LoadState = 'loading' | 'missing' | 'ready' | 'error';
 
@@ -54,7 +55,7 @@ export default function EditTransactionScreen() {
     {state === 'error' && <Text accessibilityRole="alert" selectable>{error}</Text>}
     {state === 'ready' && transaction && <>
       <Text selectable style={{ fontSize: 18, fontWeight: '600' }}>{transaction.categoryName ?? transaction.type} · {transaction.accountName}</Text>
-      <Text selectable>{new Intl.NumberFormat(undefined, { style: 'currency', currency: transaction.currencyCode }).format(transaction.amountMinor / 100)} · {new Date(transaction.date * 86400000).toISOString().slice(0, 10)}</Text>
+      <Text selectable>{formatTransactionAmount(transaction.type, transaction.amountMinor, transaction.currencyCode)} · {formatEpochDay(transaction.date)}</Text>
       <View style={{ gap: 8 }}>
         <Text>Note</Text>
         <TextInput accessibilityLabel="Note" multiline value={note} onChangeText={setNote} editable={!saving}

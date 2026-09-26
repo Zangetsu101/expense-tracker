@@ -51,4 +51,10 @@ test('rejects missing and transfer transactions, and stale edits', async () => {
   await assert.rejects(() => saveTransactionEdit(original, 'overwrite', true), /changed or removed/);
   assert.equal(sqlite.prepare('SELECT note FROM transactions WHERE id = 1').get().note, 'another edit');
   await assert.rejects(() => saveTransactionEdit({ ...original, id: 2, type: 'TRANSFER' }, 'x', true), /Transfers/);
+  const beforeAmountChange = await loadEditableTransaction(1);
+  sqlite.prepare('UPDATE transactions SET amountMinor = ? WHERE id = 1').run(999);
+  await assert.rejects(() => saveTransactionEdit(beforeAmountChange, 'overwrite', true), /changed or removed/);
+  const beforeCategoryChange = await loadEditableTransaction(1);
+  sqlite.prepare('UPDATE transactions SET categoryId = NULL WHERE id = 1').run();
+  await assert.rejects(() => saveTransactionEdit(beforeCategoryChange, 'overwrite', true), /changed or removed/);
 });
