@@ -58,9 +58,3 @@ export async function recentTransactions() {
 export function epochDay(date: Date) {
   return Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000);
 }
-export async function addTransaction(input: { type: 'EXPENSE' | 'INCOME'; amountMinor: number; accountId: number; categoryId: number; note: string | null }) {
-  if (!Number.isSafeInteger(input.amountMinor) || input.amountMinor <= 0) throw new Error('Enter a positive amount.');
-  const db = await database();
-  await db.runAsync('INSERT INTO transactions (type, amountMinor, date, accountId, categoryId, note) VALUES (?, ?, ?, ?, ?, ?)',
-    [input.type, input.amountMinor, epochDay(new Date()), input.accountId, input.categoryId, input.note]);
-}
