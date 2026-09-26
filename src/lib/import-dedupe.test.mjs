@@ -15,6 +15,7 @@ test('unkeyed legacy overlap cannot distinguish an old row from another identica
   assert.equal(hasAmbiguousLegacyImport([row, row], [legacy]), true);
   assert.equal(hasAmbiguousLegacyImport([{ ...row, amount: -20 }], [legacy]), false);
   assert.equal(hasAmbiguousLegacyImport([row], [{ ...legacy, category: null }]), true);
+  assert.equal(hasAmbiguousLegacyImport([{ ...row, amount: -20 }], [{ ...legacy, category: null }]), false);
   assert.equal(hasAmbiguousLegacyImport([row], []), false);
 });
 

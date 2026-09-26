@@ -33,11 +33,8 @@ export const backupStore: BackupStore = {
         return result;
       });
     }
-    const importTable = await db.getFirstAsync<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'moneylover_import_rows'");
-    if (importTable) {
-      data.moneyLoverImportRows = await db.getAllAsync<{ rowKey: string; transactionId: number }>(
-        'SELECT rowKey, transactionId FROM moneylover_import_rows ORDER BY rowKey');
-    }
+    data.moneyLoverImportRows = await db.getAllAsync<{ rowKey: string; transactionId: number }>(
+      'SELECT rowKey, transactionId FROM moneylover_import_rows ORDER BY rowKey');
     const favorite = await db.getFirstAsync<{ id: number }>('SELECT id FROM accounts WHERE isFavorite = 1 LIMIT 1');
     const settings = await db.getFirstAsync<{ value: string }>("SELECT value FROM app_settings WHERE key = 'backupSettings'");
     data.settings = settings ? JSON.parse(settings.value) : { favoriteAccountId: favorite?.id ?? null, displayRate: null }; 
@@ -46,7 +43,6 @@ export const backupStore: BackupStore = {
   async replace(data) {
     const db = await database();
     await db.withExclusiveTransactionAsync(async (tx) => {
-      await tx.execAsync('CREATE TABLE IF NOT EXISTS moneylover_import_rows (rowKey TEXT PRIMARY KEY, transactionId INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE)');
       await tx.execAsync('DELETE FROM moneylover_import_rows');
       for (const table of ['transaction_tags', 'transfer_candidates', 'line_items', 'transactions', 'tags', 'categories', 'accounts']) await tx.execAsync(`DELETE FROM ${table}`);
       for (const [key, table] of tables) {

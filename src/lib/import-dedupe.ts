@@ -12,14 +12,18 @@ function identity(row: MoneyLoverRow): string {
   ]);
 }
 
-/** An unkeyed Transaction cannot be assigned to a particular identical CSV occurrence. */
 export function hasAmbiguousLegacyImport(rows: MoneyLoverRow[], legacy: LegacyImportRow[]): boolean {
   const identities = new Set(rows.map(identity));
   return legacy.some((row) => {
-    if (row.category === null || !Number.isSafeInteger(row.amountMinor) ||
+    if (!Number.isSafeInteger(row.amountMinor) ||
         !Number.isSafeInteger(row.date) || !['EXPENSE', 'INCOME'].includes(row.type)) return true;
     const date = new Date(row.date * 86400000).toISOString().slice(0, 10);
     const amount = row.amountMinor / 100 * (row.type === 'EXPENSE' ? -1 : 1);
+    if (row.category === null) return rows.some((candidate) =>
+      candidate.date === date && candidate.amount === amount &&
+      candidate.account.trim().toLowerCase() === row.account.trim().toLowerCase() &&
+      candidate.currency.trim().toUpperCase() === row.currency.trim().toUpperCase() &&
+      candidate.note === (row.note ?? '') && candidate.excludeFromReport === Boolean(row.excludeFromReport));
     return identities.has(identity({
       date, account: row.account, currency: row.currency, category: row.category,
       amount, note: row.note ?? '', excludeFromReport: Boolean(row.excludeFromReport), sourceId: '',

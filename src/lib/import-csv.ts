@@ -13,14 +13,13 @@ export async function importMoneyLoverFile(): Promise<number | null> {
   const db = await database();
   let inserted = 0;
   await db.withExclusiveTransactionAsync(async (tx) => {
-    await tx.execAsync('CREATE TABLE IF NOT EXISTS moneylover_import_rows (rowKey TEXT PRIMARY KEY, transactionId INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE)');
     const legacy = await tx.getAllAsync<LegacyImportRow>(`SELECT t.date, a.name AS account, a.currencyCode AS currency, c.name AS category,
       t.amountMinor, t.type, t.note, t.excludeFromReport FROM transactions t
       JOIN accounts a ON a.id = t.accountId LEFT JOIN categories c ON c.id = t.categoryId
-      WHERE t.source = 'IMPORT' AND NOT EXISTS
+      WHERE t.type IN ('EXPENSE', 'INCOME') AND NOT EXISTS
       (SELECT 1 FROM moneylover_import_rows r WHERE r.transactionId = t.id)`);
     if (hasAmbiguousLegacyImport(rows, legacy)) {
-      throw new Error('CSV overlaps previously imported Transactions without row identities. Import stopped to avoid duplicates; review or remove the legacy import before retrying.');
+      throw new Error('CSV overlaps existing Transactions without row identities. Import stopped to avoid duplicates; review the existing data before retrying.');
     }
     for (const [index, row] of rows.entries()) {
       const currency = row.currency.trim().toUpperCase();
