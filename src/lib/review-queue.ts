@@ -31,11 +31,12 @@ export async function confirmCandidate(id: number) {
     const pair = await tx.getFirstAsync<{
       outgoingTxnId: number; incomingTxnId: number; outgoingType: string; incomingType: string;
       outgoingDate: number; incomingDate: number; outgoingAmount: number; incomingAmount: number;
-      outgoingExcluded: number; incomingExcluded: number;
+      outgoingExcluded: number; incomingExcluded: number; outgoingNote: string | null; incomingNote: string | null;
       outgoingAccountId: number; incomingAccountId: number; outgoingCurrency: string; incomingCurrency: string;
     }>(`SELECT c.outgoingTxnId, c.incomingTxnId, o.type AS outgoingType, i.type AS incomingType,
       o.date AS outgoingDate, i.date AS incomingDate, o.amountMinor AS outgoingAmount, i.amountMinor AS incomingAmount,
       o.excludeFromReport AS outgoingExcluded, i.excludeFromReport AS incomingExcluded,
+      o.note AS outgoingNote, i.note AS incomingNote,
       o.accountId AS outgoingAccountId, i.accountId AS incomingAccountId,
       oa.currencyCode AS outgoingCurrency, ia.currencyCode AS incomingCurrency
       FROM transfer_candidates c
@@ -56,15 +57,14 @@ export async function confirmCandidate(id: number) {
       (SELECT COUNT(*) FROM transaction_tags WHERE transactionId IN (?, ?)) AS count`,
       [pair.outgoingTxnId, pair.incomingTxnId, pair.outgoingTxnId, pair.incomingTxnId]);
     if (details?.count) throw new Error('These Transactions have Line Items or tags. Remove them before confirming the Transfer.');
-    // Preserve both CSV row identities before deleting the incoming transaction (which cascades its keys).
     await tx.runAsync('UPDATE moneylover_import_rows SET transactionId = ? WHERE transactionId = ?', [pair.outgoingTxnId, pair.incomingTxnId]);
     await tx.runAsync('DELETE FROM transfer_candidates WHERE outgoingTxnId = ? OR incomingTxnId = ?',
       [pair.incomingTxnId, pair.incomingTxnId]);
     await tx.runAsync('UPDATE transfer_candidates SET resolved = 1 WHERE outgoingTxnId = ? OR incomingTxnId = ?',
       [pair.outgoingTxnId, pair.outgoingTxnId]);
+    const notes = [pair.outgoingNote, pair.incomingNote].filter((note, index, values) => note && values.indexOf(note) === index);
     await tx.runAsync(`UPDATE transactions SET type = 'TRANSFER', transferAccountId = ?, categoryId = NULL,
-      note = COALESCE(NULLIF(note, ''), (SELECT note FROM transactions WHERE id = ?)),
-      excludeFromReport = ? WHERE id = ?`, [pair.incomingAccountId, pair.incomingTxnId,
+      note = ?, excludeFromReport = ? WHERE id = ?`, [pair.incomingAccountId, notes.join('\n') || null,
         Number(Boolean(pair.outgoingExcluded || pair.incomingExcluded)), pair.outgoingTxnId]);
     await tx.runAsync('DELETE FROM transactions WHERE id = ?', [pair.incomingTxnId]);
   });

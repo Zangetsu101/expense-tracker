@@ -20,11 +20,18 @@ export async function importMoneyLoverFile(confirmMixedCategories?: (names: stri
     if (!row.account || !currency || !row.category || !Number.isSafeInteger(row.amount * 100) || row.amount === 0) throw new Error('CSV contains an unsupported account, category, or amount.');
   }
   const db = await database();
-  const alreadyImported = new Set((await db.getAllAsync<{ rowKey: string }>('SELECT rowKey FROM moneylover_import_rows')).map((row) => row.rowKey));
-  const allImported = keys.every((key) => alreadyImported.has(key));
-  if (allImported && matches.highConfidence.length === 0) return 0;
-  const plan = planImportCategories(rows);
-  const mixed = allImported ? [] : plan.categories.filter((category) => category.needsConfirmation).map((category) => category.name);
+  const alreadyImported = new Map((await db.getAllAsync<{ rowKey: string; transactionId: number }>(
+    'SELECT rowKey, transactionId FROM moneylover_import_rows')).map((row) => [row.rowKey, row.transactionId]));
+  const categoryRows = [...matches.singleSided];
+  for (const pair of matches.highConfidence) {
+    const outgoingId = alreadyImported.get(keys[indices.get(pair.outgoing)!]);
+    const incomingId = alreadyImported.get(keys[indices.get(pair.incoming)!]);
+    if (outgoingId || incomingId) categoryRows.push(pair.outgoing, pair.incoming);
+  }
+  const plan = planImportCategories(categoryRows);
+  const mixed = plan.categories.filter((category) => category.needsConfirmation &&
+    categoryRows.some((row) => row.category.trim() === category.name && !alreadyImported.has(keys[indices.get(row)!])))
+    .map((category) => category.name);
   if (mixed.length && (!confirmMixedCategories || !(await confirmMixedCategories(mixed)))) {
     throw new Error(`Mixed Categories require confirmation before import: ${mixed.join(', ')}.`);
   }
