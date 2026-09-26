@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Host, Switch } from '@expo/ui';
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { loadEditableTransaction, saveTransactionEdit, type EditableTransaction } from '@/lib/transaction-edit';
+import { loadEditableTransaction, saveTransactionEdit, type EditableTransaction, type LineItem } from '@/lib/transaction-edit';
 import { formatEpochDay, formatTransactionAmount } from '@/lib/transaction-format';
 
 type LoadState = 'loading' | 'missing' | 'ready' | 'error';
@@ -15,6 +15,7 @@ export default function EditTransactionScreen() {
   const [note, setNote] = useState('');
   const [tags, setTags] = useState('');
   const [excluded, setExcluded] = useState(false);
+  const [items, setItems] = useState<{ id?: number; name: string; amount: string; quantity: string }[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
   useEffect(() => {
@@ -32,6 +33,7 @@ export default function EditTransactionScreen() {
       setNote(row.note ?? '');
       setTags(row.tags.map((tag) => tag.name).join(', '));
       setExcluded(row.excludeFromReport !== 0);
+      setItems(row.lineItems.map((item) => ({ id: item.id, name: item.name, amount: (item.amountMinor / 100).toFixed(2), quantity: item.quantity?.toString() ?? '' })));
       setState('ready');
     }).catch((cause) => { if (active) { setError(String(cause)); setState('error'); } });
     return () => { active = false; };
@@ -41,7 +43,15 @@ export default function EditTransactionScreen() {
     setSaving(true);
     setError(undefined);
     try {
-      await saveTransactionEdit(transaction, note, excluded, tags);
+      const lineItems: LineItem[] = items.map((item) => {
+        const amount = item.amount.trim();
+        if (!/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(amount)) throw new Error('Line item amount must be positive with at most two decimals.');
+        const [whole, fraction = ''] = amount.split('.');
+        const amountMinor = Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
+        const quantity = item.quantity.trim() === '' ? null : Number(item.quantity.trim());
+        return { id: item.id, name: item.name, amountMinor, quantity };
+      });
+      await saveTransactionEdit(transaction, note, excluded, tags, lineItems);
       router.back();
     } catch (cause) {
       setError(String(cause));
@@ -68,6 +78,24 @@ export default function EditTransactionScreen() {
         <TextInput accessibilityLabel="Tags" value={tags} onChangeText={setTags} editable={!saving}
           placeholder="Comma-separated tags" autoCapitalize="words"
           style={{ backgroundColor: 'white', padding: 12, borderRadius: 10 }} />
+      </View>
+      <View style={{ gap: 8 }}>
+        <Text style={{ fontSize: 17, fontWeight: '600' }}>Line items (optional)</Text>
+        <Text selectable>Transaction amount stays unchanged. Line items do not need to add up to it.</Text>
+        {items.map((item, index) => <View key={item.id ?? `new-${index}`} style={{ gap: 8, padding: 12, backgroundColor: 'white', borderRadius: 10 }}>
+          <TextInput accessibilityLabel={`Line item ${index + 1} name`} placeholder="Name" value={item.name} editable={!saving}
+            onChangeText={(name) => setItems((current) => current.map((entry, i) => i === index ? { ...entry, name } : entry))} />
+          <TextInput accessibilityLabel={`Line item ${index + 1} amount`} placeholder="Amount (major units)" value={item.amount} editable={!saving}
+            keyboardType="decimal-pad" onChangeText={(amount) => setItems((current) => current.map((entry, i) => i === index ? { ...entry, amount } : entry))} />
+          <TextInput accessibilityLabel={`Line item ${index + 1} quantity`} placeholder="Quantity (optional)" value={item.quantity} editable={!saving}
+            keyboardType="decimal-pad" onChangeText={(quantity) => setItems((current) => current.map((entry, i) => i === index ? { ...entry, quantity } : entry))} />
+          <Pressable accessibilityRole="button" disabled={saving} onPress={() => setItems((current) => current.filter((_, i) => i !== index))}>
+            <Text style={{ color: '#b33' }}>Remove line item</Text>
+          </Pressable>
+        </View>)}
+        <Pressable accessibilityRole="button" disabled={saving} onPress={() => setItems((current) => [...current, { name: '', amount: '', quantity: '' }])}>
+          <Text style={{ color: '#315fcb' }}>Add line item</Text>
+        </Pressable>
       </View>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
         <Host matchContents><Switch label="Exclude from reports" value={excluded} onValueChange={setExcluded} disabled={saving} /></Host>

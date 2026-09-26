@@ -9,18 +9,22 @@ CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT, currencyCode TEXT);
 CREATE TABLE categories (id INTEGER PRIMARY KEY, name TEXT);
 CREATE TABLE transactions (id INTEGER PRIMARY KEY, type TEXT, amountMinor INTEGER, date INTEGER, accountId INTEGER, categoryId INTEGER, note TEXT, excludeFromReport INTEGER);
 CREATE TABLE tags (id INTEGER PRIMARY KEY, name TEXT UNIQUE);
+CREATE TABLE line_items (id INTEGER PRIMARY KEY, transactionId INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE, name TEXT NOT NULL, amountMinor INTEGER NOT NULL, quantity REAL);
 CREATE TABLE transaction_tags (transactionId INTEGER REFERENCES transactions(id), tagId INTEGER REFERENCES tags(id), PRIMARY KEY(transactionId, tagId));
 INSERT INTO accounts VALUES (1, 'Cash', 'BDT');
 INSERT INTO categories VALUES (1, 'Food');
 INSERT INTO transactions VALUES (1, 'EXPENSE', 1234, 20000, 1, 1, 'old', 0), (2, 'TRANSFER', 500, 20001, 1, NULL, 'move', 0);
 INSERT INTO tags VALUES (1, 'Food'), (2, 'Shared');
-INSERT INTO transaction_tags VALUES (1, 1), (2, 2);`);
+INSERT INTO transaction_tags VALUES (1, 1), (2, 2);
+INSERT INTO line_items VALUES (1, 1, 'Coffee', 100, 2);`);
 let failLink = false;
+let failItem = false;
 const tx = {
   getFirstAsync: async (sql, params) => sqlite.prepare(sql).get(...params) ?? null,
   getAllAsync: async (sql, params) => sqlite.prepare(sql).all(...params),
   runAsync: async (sql, params) => {
     if (failLink && sql.startsWith('INSERT INTO transaction_tags')) throw new Error('link failed');
+    if (failItem && sql.startsWith('INSERT INTO line_items')) throw new Error('item failed');
     const result = sqlite.prepare(sql).run(...params);
     return { changes: result.changes, lastInsertRowId: Number(result.lastInsertRowid) };
   },
@@ -84,6 +88,29 @@ test('rejects invalid input, missing and transfer transactions, and stale edits'
   const beforeTagChange = await loadEditableTransaction(1);
   sqlite.prepare('INSERT INTO transaction_tags VALUES (1, 2)').run();
   await assert.rejects(() => saveTransactionEdit(beforeTagChange, 'overwrite', true, ''), /changed or removed/);
+});
+
+test('line items are optional, editable, and independent of transaction amount', async () => {
+  const original = await loadEditableTransaction(1);
+  assert.deepEqual(original.lineItems.map((item) => ({ ...item })), [{ id: 1, name: 'Coffee', amountMinor: 100, quantity: 2 }]);
+  await saveTransactionEdit(original, '', false, '', [{ name: 'Snack', amountMinor: 9000, quantity: 1.5 }, { id: 1, name: 'Tea', amountMinor: 75, quantity: null }]);
+  assert.equal(sqlite.prepare('SELECT amountMinor FROM transactions WHERE id = 1').get().amountMinor, 999);
+  assert.deepEqual((await loadEditableTransaction(1)).lineItems.map(({ name, amountMinor }) => [name, amountMinor]), [['Tea', 75], ['Snack', 9000]]);
+  const latest = await loadEditableTransaction(1);
+  for (const item of [{ name: '', amountMinor: 1, quantity: null }, { name: 'x', amountMinor: 0, quantity: null }, { name: 'x', amountMinor: Number.MAX_SAFE_INTEGER + 1, quantity: null }, { name: 'x', amountMinor: 1, quantity: Infinity }]) {
+    await assert.rejects(() => saveTransactionEdit(latest, 'bad', true, '', [item]), /Line item/);
+  }
+  sqlite.prepare('UPDATE line_items SET name = ? WHERE id = 1').run('External');
+  await assert.rejects(() => saveTransactionEdit(latest, 'stale', true, '', []), /changed or removed/);
+  assert.notEqual((await loadEditableTransaction(1)).note, 'stale');
+  const fresh = await loadEditableTransaction(1);
+  failItem = true;
+  try { await assert.rejects(() => saveTransactionEdit(fresh, 'rollback item', true, 'NewTag', [{ name: 'Failure', amountMinor: 1, quantity: null }]), /item failed/); }
+  finally { failItem = false; }
+  assert.deepEqual((await loadEditableTransaction(1)).lineItems, fresh.lineItems);
+  assert.equal((await loadEditableTransaction(1)).note, fresh.note);
+  await saveTransactionEdit(fresh, '', false, '', []);
+  assert.deepEqual((await loadEditableTransaction(1)).lineItems, []);
 });
 
 test('rolls back note, links and new tags on SQLite failure', async () => {
