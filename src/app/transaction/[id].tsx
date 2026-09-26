@@ -95,9 +95,9 @@ export default function EditTransactionScreen() {
           <Text style={{ color: '#315fcb' }}>Add line item</Text>
         </Pressable>
       </View>
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-        <Host matchContents><Switch label="Exclude from reports" value={excluded} onValueChange={setExcluded} disabled={saving} /></Host>
-      </View>
+      <Host style={{ width: '100%', height: 56 }}>
+        <Switch label="Exclude from reports" value={excluded} onValueChange={setExcluded} disabled={saving} />
+      </Host>
       {error && <Text accessibilityRole="alert" selectable>{error}</Text>}
       <Pressable accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving} onPress={() => void save()}
         style={{ backgroundColor: '#315fcb', padding: 14, borderRadius: 10, alignItems: 'center' }}>
