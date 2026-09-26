@@ -1,0 +1,76 @@
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system/legacy';
+import { File } from 'expo-file-system';
+import { database } from '@/lib/database';
+import type { BackupData, BackupDocuments, BackupStore } from '@/lib/backup';
+
+const tables = [
+  ['accounts', 'accounts'], ['categories', 'categories'], ['transactions', 'transactions'],
+  ['lineItems', 'line_items'], ['tags', 'tags'], ['transactionTags', 'transaction_tags'],
+  ['transferCandidates', 'transfer_candidates'],
+] as const;
+const boolFields = ['isFavorite', 'needsReview', 'excludeFromReport', 'resolved'];
+const columnsByTable: Record<string, readonly string[]> = {
+  accounts: ['id', 'name', 'currencyCode', 'openingBalanceMinor', 'isFavorite'],
+  categories: ['id', 'name', 'type', 'parentId', 'iconKey', 'needsReview'],
+  transactions: ['id', 'type', 'amountMinor', 'date', 'accountId', 'transferAccountId', 'categoryId', 'note', 'excludeFromReport', 'source'],
+  line_items: ['id', 'transactionId', 'name', 'amountMinor', 'quantity'],
+  tags: ['id', 'name'],
+  transaction_tags: ['transactionId', 'tagId'],
+  transfer_candidates: ['id', 'outgoingTxnId', 'incomingTxnId', 'confidenceNote', 'resolved'],
+};
+
+export const backupStore: BackupStore = {
+  async snapshot() {
+    const db = await database();
+    const data: Record<string, unknown> = { schemaVersion: 1 };
+    for (const [key, table] of tables) {
+      const rows = await db.getAllAsync<Record<string, unknown>>(`SELECT * FROM ${table} ORDER BY ${table === 'transaction_tags' ? 'transactionId, tagId' : 'id'}`);
+      data[key] = rows.map((row) => {
+        const result = { ...row };
+        for (const field of boolFields) if (field in result) result[field] = Boolean(result[field]);
+        if (table === 'transactions') { result.dateEpochDay = result.date; delete result.date; }
+        return result;
+      });
+    }
+    const favorite = await db.getFirstAsync<{ id: number }>('SELECT id FROM accounts WHERE isFavorite = 1 LIMIT 1');
+    const settings = await db.getFirstAsync<{ value: string }>("SELECT value FROM app_settings WHERE key = 'backupSettings'");
+    data.settings = settings ? JSON.parse(settings.value) : { favoriteAccountId: favorite?.id ?? null, displayRate: null }; 
+    return data as unknown as BackupData;
+  },
+  async replace(data) {
+    const db = await database();
+    await db.withExclusiveTransactionAsync(async (tx) => {
+      for (const table of ['transaction_tags', 'transfer_candidates', 'line_items', 'transactions', 'tags', 'categories', 'accounts']) await tx.execAsync(`DELETE FROM ${table}`);
+      for (const [key, table] of tables) {
+        for (const row of data[key]) {
+          const values = { ...row } as Record<string, unknown>;
+          if (table === 'transactions') { values.date = values.dateEpochDay; delete values.dateEpochDay; }
+          if (table === 'categories') values.parentId = null;
+          const columns = Object.keys(values).filter((column) => columnsByTable[table].includes(column));
+          await tx.runAsync(`INSERT INTO ${table} (${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')})`,
+            columns.map((column) => typeof values[column] === 'boolean' ? Number(values[column]) : values[column] as SQLiteValue));
+        }
+      }
+      for (const category of data.categories) {
+        if (category.parentId != null) await tx.runAsync('UPDATE categories SET parentId = ? WHERE id = ?', [category.parentId, category.id]);
+      }
+      await tx.runAsync("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('backupSettings', ?)", [JSON.stringify(data.settings)]);
+    });
+  },
+};
+type SQLiteValue = string | number | null;
+
+export const backupDocuments: BackupDocuments = {
+  async createJsonDocument(name) {
+    const permission = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+    if (!permission.granted) return null;
+    return FileSystem.StorageAccessFramework.createFileAsync(permission.directoryUri, name, 'application/json');
+  },
+  async pickJsonDocument() {
+    const result = await DocumentPicker.getDocumentAsync({ type: 'application/json', copyToCacheDirectory: false });
+    return result.canceled ? null : result.assets[0].uri;
+  },
+  writeText: (uri, text) => FileSystem.writeAsStringAsync(uri, text),
+  readText: (uri) => new File(uri).text(),
+};
