@@ -74,7 +74,10 @@ async function reset() {
 test('favorite Account persists and Category choices put recent use first', async () => {
   await reset();
   const bank = await adapter.runAsync("INSERT INTO accounts (name, currencyCode) VALUES ('Bank', 'BDT')");
+  await adapter.runAsync("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('backupSettings', ?)",
+    [JSON.stringify({ favoriteAccountId: 1, displayRate: { base: 'USD', quote: 'BDT', rate: 100 } })]);
   await setFavoriteAccount(bank.lastInsertRowId);
+  assert.equal(JSON.parse((await adapter.getFirstAsync("SELECT value FROM app_settings WHERE key = 'backupSettings'")).value).favoriteAccountId, bank.lastInsertRowId);
   assert.equal((await listAccounts())[0].name, 'Bank');
   assert.equal((await listAccounts()).filter((account) => account.isFavorite).length, 1);
   await assert.rejects(setFavoriteAccount(-1), /Account not found/);

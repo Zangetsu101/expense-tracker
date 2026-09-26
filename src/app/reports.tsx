@@ -1,7 +1,7 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { combinedMinor, getDisplayRate, saveDisplayRate, validDisplayRate, type DisplayRate } from '@/lib/display-rate';
+import { combinedCategorySpending, combinedMinor, getDisplayRate, saveDisplayRate, validDisplayRate, type DisplayRate } from '@/lib/display-rate';
 import { accountBalances, monthlyReport, type AccountBalance, type CategorySpending, type MonthlySummary } from '@/lib/reports';
 
 type Report = { balances: AccountBalance[]; spending: CategorySpending[]; summaries: MonthlySummary[] };
@@ -21,6 +21,7 @@ export default function ReportsScreen() {
   const [rateText, setRateText] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string>();
+  const rateDraftChanged = useRef(false);
   const load = useCallback(() => {
     let active = true;
     setLoading(true);
@@ -30,9 +31,11 @@ export default function ReportsScreen() {
         if (active) {
           setReport({ balances, ...monthly });
           setRate(storedRate);
-          setBase(storedRate?.base ?? '');
-          setQuote(storedRate?.quote ?? '');
-          setRateText(storedRate ? String(storedRate.rate) : '');
+          if (!rateDraftChanged.current) {
+            setBase(storedRate?.base ?? '');
+            setQuote(storedRate?.quote ?? '');
+            setRateText(storedRate ? String(storedRate.rate) : '');
+          }
         }
       })
       .catch((e) => { if (active) setError(String(e)); })
@@ -52,6 +55,7 @@ export default function ReportsScreen() {
     try {
       await saveDisplayRate(next);
       setRate(next);
+      rateDraftChanged.current = false;
       if (!next) { setBase(''); setQuote(''); setRateText(''); }
     } catch (e) { setSaveError(String(e)); }
     finally { setSaving(false); }
@@ -60,6 +64,7 @@ export default function ReportsScreen() {
   const combinedBalance = report ? combinedMinor(report.balances.map((row) => ({ currencyCode: row.currencyCode, amountMinor: row.balanceMinor })), rate) : null;
   const combinedIncome = report ? combinedMinor(report.summaries.map((row) => ({ currencyCode: row.currencyCode, amountMinor: row.incomeMinor })), rate) : null;
   const combinedExpense = report ? combinedMinor(report.summaries.map((row) => ({ currencyCode: row.currencyCode, amountMinor: row.expenseMinor })), rate) : null;
+  const combinedSpending = report && rate && currencies.size === 2 ? combinedCategorySpending(report.spending, rate) : [];
 
   return <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 20, gap: 24 }}>
     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -72,10 +77,10 @@ export default function ReportsScreen() {
         <Text style={{ fontSize: 20, fontWeight: '600' }}>Display rate</Text>
         <Text selectable>1 base currency = rate × quote currency. Used for display only.</Text>
         <View style={{ flexDirection: 'row', gap: 8 }}>
-          <TextInput accessibilityLabel="Base currency" placeholder="Base (USD)" autoCapitalize="characters" maxLength={3} value={base} onChangeText={setBase} style={{ flex: 1, borderWidth: 1, padding: 10 }} />
-          <TextInput accessibilityLabel="Quote currency" placeholder="Quote (BDT)" autoCapitalize="characters" maxLength={3} value={quote} onChangeText={setQuote} style={{ flex: 1, borderWidth: 1, padding: 10 }} />
+          <TextInput accessibilityLabel="Base currency" placeholder="Base (USD)" autoCapitalize="characters" maxLength={3} value={base} onChangeText={(value) => { rateDraftChanged.current = true; setBase(value); }} style={{ flex: 1, borderWidth: 1, padding: 10 }} />
+          <TextInput accessibilityLabel="Quote currency" placeholder="Quote (BDT)" autoCapitalize="characters" maxLength={3} value={quote} onChangeText={(value) => { rateDraftChanged.current = true; setQuote(value); }} style={{ flex: 1, borderWidth: 1, padding: 10 }} />
         </View>
-        <TextInput accessibilityLabel="Quote units per base unit" placeholder="Rate" keyboardType="decimal-pad" value={rateText} onChangeText={setRateText} style={{ borderWidth: 1, padding: 10 }} />
+        <TextInput accessibilityLabel="Quote units per base unit" placeholder="Rate" keyboardType="decimal-pad" value={rateText} onChangeText={(value) => { rateDraftChanged.current = true; setRateText(value); }} style={{ borderWidth: 1, padding: 10 }} />
         <View style={{ flexDirection: 'row', gap: 20 }}>
           <Pressable accessibilityRole="button" disabled={saving || !validDisplayRate(draft)} onPress={() => save(draft)}><Text style={{ opacity: saving || !validDisplayRate(draft) ? 0.4 : 1 }}>Save rate</Text></Pressable>
           {rate && <Pressable accessibilityRole="button" disabled={saving} onPress={() => save(null)}><Text>Clear rate</Text></Pressable>}
@@ -97,6 +102,9 @@ export default function ReportsScreen() {
       </View>
       <View style={{ gap: 8 }}>
         <Text style={{ fontSize: 20, fontWeight: '600' }}>Spending by category</Text>
+        {rate && combinedSpending.length > 0 && <View style={{ gap: 4 }}><Text style={{ fontWeight: '600' }}>Combined · {rate.base}</Text>
+          {combinedSpending.map((row) => <Text key={row.categoryId ?? 'none'} selectable>{row.categoryName ?? 'Uncategorized'}: {money(row.amountMinor, rate.base)}</Text>)}
+        </View>}
         {report.spending.length === 0 && <Text>No reportable expenses this month.</Text>}
         {report.spending.map((row) => <View key={`${row.currencyCode}:${row.categoryId ?? 'none'}`} style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}><Text selectable style={{ flex: 1 }}>{row.categoryName ?? 'Uncategorized'}</Text><Text selectable style={{ fontVariant: ['tabular-nums'] }}>{money(row.amountMinor, row.currencyCode)}</Text></View>)}
       </View>

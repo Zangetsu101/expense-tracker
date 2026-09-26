@@ -44,6 +44,11 @@ export async function setFavoriteAccount(accountId: number) {
     const account = await tx.getFirstAsync<{ id: number }>('SELECT id FROM accounts WHERE id = ?', [accountId]);
     if (!account) throw new Error('Account not found.');
     await tx.runAsync('UPDATE accounts SET isFavorite = CASE WHEN id = ? THEN 1 ELSE 0 END', [accountId]);
+    const settings = await tx.getFirstAsync<{ value: string }>("SELECT value FROM app_settings WHERE key = 'backupSettings'");
+    if (settings) {
+      await tx.runAsync("UPDATE app_settings SET value = ? WHERE key = 'backupSettings'",
+        [JSON.stringify({ ...JSON.parse(settings.value), favoriteAccountId: accountId })]);
+    }
   });
 }
 export async function recentTransactions() {

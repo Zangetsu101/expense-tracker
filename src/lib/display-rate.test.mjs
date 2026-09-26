@@ -22,7 +22,7 @@ registerHooks({
     return next(url, context);
   },
 });
-const { combinedMinor, saveDisplayRate, getDisplayRate } = await import('./display-rate.ts');
+const { combinedMinor, combinedCategorySpending, saveDisplayRate, getDisplayRate } = await import('./display-rate.ts');
 
 const rate = { base: 'USD', quote: 'BDT', rate: 100 };
 test('combined totals require an exact pair and explicit rate', () => {
@@ -33,15 +33,27 @@ test('combined totals require an exact pair and explicit rate', () => {
   assert.equal(combinedMinor(rows, { ...rate, quote: 'EUR' }), null);
   assert.equal(combinedMinor(rows, { ...rate, rate: 0 }), null);
   assert.equal(combinedMinor([rows[0]], null), 100);
+  assert.equal(combinedMinor(rows, { ...rate, rate: Number.MIN_VALUE }), null);
+});
+
+test('category totals convert quote-only and shared categories into base currency', () => {
+  const spending = [
+    { categoryId: 1, categoryName: 'Food', currencyCode: 'BDT', amountMinor: 10000 },
+    { categoryId: 1, categoryName: 'Food', currencyCode: 'USD', amountMinor: 100 },
+    { categoryId: 2, categoryName: 'Rent', currencyCode: 'BDT', amountMinor: 5000 },
+  ];
+  assert.deepEqual(combinedCategorySpending(spending, rate).map(({ categoryId, amountMinor }) => [categoryId, amountMinor]), [[1, 200], [2, 50]]);
+  assert.deepEqual(combinedCategorySpending(spending, null), []);
+  assert.deepEqual(combinedCategorySpending([...spending, { categoryId: 3, categoryName: 'Other', currencyCode: 'EUR', amountMinor: 10 }], rate), []);
 });
 
 test('save preserves favorite account and other settings and can clear rate', async () => {
   stored = JSON.stringify({ favoriteAccountId: 7, displayRate: null, custom: true });
   await saveDisplayRate(rate);
-  assert.deepEqual(JSON.parse(stored), { favoriteAccountId: 42, displayRate: rate, custom: true });
+  assert.deepEqual(JSON.parse(stored), { favoriteAccountId: 7, displayRate: rate, custom: true });
   assert.deepEqual(await getDisplayRate(), rate);
   await saveDisplayRate(null);
   assert.equal(await getDisplayRate(), null);
-  assert.equal(JSON.parse(stored).favoriteAccountId, 42);
+  assert.equal(JSON.parse(stored).favoriteAccountId, 7);
   await assert.rejects(saveDisplayRate({ ...rate, rate: Infinity }));
 });
