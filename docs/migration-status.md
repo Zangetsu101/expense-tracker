@@ -20,4 +20,4 @@ The native app was never used for real data. Historical data comes from the Mone
 - SQLite columns mirror the native Room entities, but this is not an on-disk Room database migration.
 - Backup export uses the native backup v1 shape. Folder permission is not retained, so export prompts for a folder each time. Weekly unattended export and export-on-app-use are absent. The Display Rate is editable on the Reports screen, but that UI has not been device-verified.
 - Native `Long` values above JavaScript's safe integer limit cannot round-trip through the current implementation.
-- Cloud-backed document providers, canceled pickers, write failures, and backup/restore with representative MoneyLover-imported data were not tested. No cloud upload was attempted.
+- Cloud-backed document providers, canceled pickers, write failures, and backup/restore with representative MoneyLover-imported data were not tested. A synthetic CSV import was backed up and restored in an in-memory SQLite test. No cloud upload was attempted.

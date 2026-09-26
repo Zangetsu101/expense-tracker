@@ -8,9 +8,13 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const sql = new DatabaseSync(':memory:');
+let importCsv = '';
 const adapter = {
   async execAsync(query) { sql.exec(query); },
-  async runAsync(query, args = []) { return sql.prepare(query).run(...args); },
+  async runAsync(query, args = []) {
+    const result = sql.prepare(query).run(...args);
+    return { lastInsertRowId: Number(result.lastInsertRowid), changes: Number(result.changes) };
+  },
   async getAllAsync(query, args = []) { return sql.prepare(query).all(...args); },
   async getFirstAsync(query, args = []) { return sql.prepare(query).get(...args) ?? null; },
   async withExclusiveTransactionAsync(callback) {
@@ -36,16 +40,18 @@ registerHooks({
   },
   load(url, context, nextLoad) {
     if (url === 'test:sqlite') return { format: 'module', source: 'export const openDatabaseAsync = async () => globalThis.__backupDb;', shortCircuit: true };
-    if (url === 'test:picker') return { format: 'module', source: 'export const getDocumentAsync = async () => ({ canceled: true });', shortCircuit: true };
+    if (url === 'test:picker') return { format: 'module', source: 'export const getDocumentAsync = async () => ({ canceled: false, assets: [{ uri: "test:csv" }] });', shortCircuit: true };
     if (url === 'test:legacy') return { format: 'module', source: 'export const StorageAccessFramework = {}; export const writeAsStringAsync = async () => {};', shortCircuit: true };
-    if (url === 'test:file') return { format: 'module', source: 'export class File {}', shortCircuit: true };
+    if (url === 'test:file') return { format: 'module', source: 'export class File { async text() { return globalThis.__backupCsv(); } }', shortCircuit: true };
     if (url.endsWith('.ts')) return { format: 'module', source: stripTypeScriptTypes(readFileSync(fileURLToPath(url), 'utf8')), shortCircuit: true };
     return nextLoad(url, context);
   },
 });
 globalThis.__backupDb = adapter;
+globalThis.__backupCsv = () => importCsv;
 const { database } = await import('./database.ts');
 const { backupStore } = await import('./backup-adapter.ts');
+const { importMoneyLoverFile } = await import('./import-csv.ts');
 const { decodeBackup, encodeBackup, restoreBackup } = await import('./backup.ts');
 await database();
 
@@ -59,7 +65,6 @@ function replaceDocument(data) {
   });
 }
 
-// All values here are synthetic, not representative of historical MoneyLover data.
 test('SQLite snapshot and replace retain imported Accounts, Categories, Transfers, queue, keys, tags and Line Items', async () => {
   insert("INSERT INTO accounts (id, name, currencyCode, openingBalanceMinor, isFavorite) VALUES (10, 'Wallet', 'BDT', 12000, 1)");
   insert("INSERT INTO accounts (id, name, currencyCode) VALUES (11, 'Bank', 'BDT')");
@@ -86,6 +91,25 @@ test('SQLite snapshot and replace retain imported Accounts, Categories, Transfer
   await replaceDocument(decodeBackup(json));
   assert.deepEqual(state(), before);
   assert.deepEqual(await backupStore.snapshot(), original);
+});
+
+test('MoneyLover importer output survives SQLite backup and restore', async () => {
+  importCsv = [
+    'Id,Note,Amount,Category,Account,Currency,Date,Event,Exclude Report',
+    '100,Send to Bank,-10.00,Withdrawal,Wallet,BDT,01/02/2025,,false',
+    '101,From Wallet,10.00,Deposit,Bank,BDT,01/02/2025,,false',
+    '102,,-12.00,Food,Wallet,BDT,01/02/2025,,true',
+    '103,,12.00,Gift,Bank,BDT,01/02/2025,,false',
+  ].join('\n');
+  assert.equal(await importMoneyLoverFile(), 3);
+  const original = await backupStore.snapshot();
+  assert.equal(original.moneyLoverImportRows.length, 8);
+  assert.ok(original.transactions.some((row) => row.type === 'TRANSFER' && row.amountMinor === 1000));
+  const before = state();
+  insert("INSERT INTO transactions (type, amountMinor, date, accountId) VALUES ('EXPENSE', 1, 20122, 10)");
+  await replaceDocument(decodeBackup(encodeBackup(original)));
+  assert.deepEqual(state(), before);
+  assert.equal(await importMoneyLoverFile(), 0);
 });
 
 test('native v1 fixture restores into SQLite without import keys', async () => {
