@@ -2,7 +2,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 import { database } from '@/lib/database';
 import { parseMoneyLoverCsv } from '@/lib/csv';
-import { importRowKeys } from '@/lib/import-dedupe';
+import { hasAmbiguousLegacyImport, importRowKeys, type LegacyImportRow } from '@/lib/import-dedupe';
 
 export async function importMoneyLoverFile(): Promise<number | null> {
   const selected = await DocumentPicker.getDocumentAsync({ type: ['text/csv', 'text/comma-separated-values', '*/*'], copyToCacheDirectory: false });
@@ -14,6 +14,14 @@ export async function importMoneyLoverFile(): Promise<number | null> {
   let inserted = 0;
   await db.withExclusiveTransactionAsync(async (tx) => {
     await tx.execAsync('CREATE TABLE IF NOT EXISTS moneylover_import_rows (rowKey TEXT PRIMARY KEY, transactionId INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE)');
+    const legacy = await tx.getAllAsync<LegacyImportRow>(`SELECT t.date, a.name AS account, a.currencyCode AS currency, c.name AS category,
+      t.amountMinor, t.type, t.note, t.excludeFromReport FROM transactions t
+      JOIN accounts a ON a.id = t.accountId LEFT JOIN categories c ON c.id = t.categoryId
+      WHERE t.source = 'IMPORT' AND NOT EXISTS
+      (SELECT 1 FROM moneylover_import_rows r WHERE r.transactionId = t.id)`);
+    if (hasAmbiguousLegacyImport(rows, legacy)) {
+      throw new Error('CSV overlaps previously imported Transactions without row identities. Import stopped to avoid duplicates; review or remove the legacy import before retrying.');
+    }
     for (const [index, row] of rows.entries()) {
       const currency = row.currency.trim().toUpperCase();
       if (!row.account || !currency || !row.category || !Number.isSafeInteger(row.amount * 100) || row.amount === 0) throw new Error('CSV contains an unsupported account, category, or amount.');

@@ -12,6 +12,8 @@ export interface BackupData {
   transactionTags: Array<{ transactionId: number; tagId: number }>;
   transferCandidates: Array<{ id: number; outgoingTxnId: number; incomingTxnId: number; confidenceNote: string; resolved: boolean }>;
   settings: { favoriteAccountId: number | null; displayRate: { base: string; quote: string; rate: number } | null };
+  /** Expo extension to native v1; absent from backups written by the native app. */
+  moneyLoverImportRows?: Array<{ rowKey: string; transactionId: number }>;
 }
 
 const arrays = ['accounts', 'categories', 'transactions', 'lineItems', 'tags', 'transactionTags', 'transferCandidates'] as const;
@@ -72,6 +74,19 @@ export function decodeBackup(json: string): BackupData {
     throw new Error('Invalid backup settings');
   }
   assertSafeLongs(data);
+  if (data.moneyLoverImportRows !== undefined) {
+    if (!Array.isArray(data.moneyLoverImportRows)) throw new Error('Invalid backup moneyLoverImportRows');
+    const keys = new Set<string>();
+    const transactionIds = new Set(((data.transactions ?? []) as Array<{ id: number }>).map((row) => row.id));
+    for (const row of data.moneyLoverImportRows) {
+      if (row === null || typeof row !== 'object' || Array.isArray(row) ||
+          typeof row.rowKey !== 'string' || !row.rowKey ||
+          !Number.isSafeInteger(row.transactionId) || !transactionIds.has(row.transactionId) || keys.has(row.rowKey)) {
+        throw new Error('Invalid backup moneyLoverImportRows');
+      }
+      keys.add(row.rowKey);
+    }
+  }
   const settings = (data.settings ?? {}) as BackupData['settings'];
   return {
     schemaVersion: data.schemaVersion as number,
@@ -83,13 +98,16 @@ export function decodeBackup(json: string): BackupData {
     transactionTags: (data.transactionTags ?? []) as BackupData['transactionTags'],
     transferCandidates: (data.transferCandidates ?? []) as BackupData['transferCandidates'],
     settings: { favoriteAccountId: settings.favoriteAccountId ?? null, displayRate: settings.displayRate ?? null },
+    ...(data.moneyLoverImportRows !== undefined ? { moneyLoverImportRows: data.moneyLoverImportRows as BackupData['moneyLoverImportRows'] } : {}),
   };
 }
 
 export function encodeBackup(data: BackupData): string {
   if (data.schemaVersion !== BACKUP_SCHEMA_VERSION) throw new Error('Unsupported backup schema version');
   assertSafeLongs(data);
-  return JSON.stringify(data, null, 2);
+  const json = JSON.stringify(data, null, 2);
+  decodeBackup(json);
+  return json;
 }
 
 /** Storage and database boundaries supplied by the app. Import must replace atomically. */
