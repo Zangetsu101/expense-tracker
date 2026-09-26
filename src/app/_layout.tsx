@@ -7,6 +7,7 @@ export default function Layout() {
     <Stack>
       <Stack.Screen name="index" options={{ title: 'Transactions' }} />
       <Stack.Screen name="quick-add" options={{ title: 'Quick add', presentation: 'modal' }} />
+      <Stack.Screen name="transfer" options={{ title: 'Transfer', presentation: 'modal' }} />
       <Stack.Screen name="transactions" options={{ title: 'Search transactions' }} />
       <Stack.Screen name="reports" options={{ title: 'Reports' }} />
       <Stack.Screen name="accounts" options={{ title: 'Accounts' }} />

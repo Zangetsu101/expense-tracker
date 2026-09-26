@@ -12,7 +12,7 @@ The native app was never used for real data. Historical data comes from the Mone
 
 ## Implemented after the Android spike, not yet device-verified
 
-- Quick-add selects a persisted favorite Account and orders Categories by recent use. A separate Transaction screen searches notes, Categories, and Accounts with type, Account, and month filters. Reporting shows Account balances and monthly spending by Category and currency. Accounts can be created with a fixed currency and opening balance; Expense and Income Transactions can be edited to change their note or `excludeFromReport`. These paths have automated tests but have not been checked on Android since implementation.
+- Quick-add selects a persisted favorite Account and orders Categories by recent use. A separate Transaction screen searches notes, Categories, and Accounts with type, Account, and month filters. Reporting shows Account balances and monthly spending by Category and currency. Accounts can be created with a fixed currency and opening balance; Expense and Income Transactions can be edited to change their note or `excludeFromReport`. Manual same-currency Transfers and an editable Display Rate for combined two-currency reporting are implemented. These paths have automated tests but have not been checked on Android since implementation.
 
 ## Observed limits
 

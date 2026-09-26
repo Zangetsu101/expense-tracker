@@ -32,6 +32,7 @@ export default function HomeScreen() {
     data={rows} keyExtractor={(row) => String(row.id)}
     ListHeaderComponent={<View style={{ gap: 12 }}>
       <Link href="/quick-add" asChild><Pressable accessibilityRole="button" style={{ padding: 16, backgroundColor: '#315fcb', borderRadius: 12 }}><Text style={{ color: 'white', fontWeight: 'bold' }}>Add transaction</Text></Pressable></Link>
+      <Link href="./transfer" asChild><Pressable accessibilityRole="button" style={{ padding: 16, backgroundColor: '#e8eaf0', borderRadius: 12 }}><Text style={{ fontWeight: '600' }}>Transfer between accounts</Text></Pressable></Link>
       <Link href="./transactions" asChild><Pressable accessibilityRole="button" style={{ padding: 16, backgroundColor: '#e8eaf0', borderRadius: 12 }}><Text style={{ fontWeight: '600' }}>Search transactions</Text></Pressable></Link>
       <Link href="/accounts" asChild><Pressable accessibilityRole="button" style={{ padding: 16, backgroundColor: '#e8eaf0', borderRadius: 12 }}><Text style={{ fontWeight: '600' }}>Manage accounts</Text></Pressable></Link>
       <Link href="/reports" asChild><Pressable accessibilityRole="button" style={{ padding: 16, backgroundColor: '#e8eaf0', borderRadius: 12 }}><Text style={{ fontWeight: '600' }}>Balances and reports</Text></Pressable></Link>
@@ -45,7 +46,7 @@ export default function HomeScreen() {
     </View>}
     renderItem={({ item }) => <View style={{ padding: 16, borderRadius: 12, backgroundColor: '#e8eaf0', gap: 4 }}>
       <Text selectable style={{ fontWeight: '600' }}>{item.categoryName ?? item.type} · {item.accountName}</Text>
-      <Text selectable>{item.type === 'EXPENSE' ? '-' : '+'}{(item.amountMinor / 100).toFixed(2)} · {new Date(item.date * 86400000).toISOString().slice(0, 10)}</Text>
+      <Text selectable>{item.type === 'EXPENSE' ? '-' : item.type === 'INCOME' ? '+' : ''}{(item.amountMinor / 100).toFixed(2)} · {new Date(item.date * 86400000).toISOString().slice(0, 10)}</Text>
       {item.note && <Text selectable>{item.note}</Text>}
     </View>} />;
 }
