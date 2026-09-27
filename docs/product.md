@@ -10,4 +10,4 @@ Expense-focused, single-user, local-first personal finance app importing MoneyLo
 - Backup/restore preserves Transactions, Line Items, tags, transfers, Accounts, currencies, and Categories. CSV export is a portability format, not a full-fidelity backup.
 - Quick-add is amount-first, defaults to Expense and a configurable favorite Account, and defaults the date to today. Category choices are recent-first. Note and tags are optional; `excludeFromReport` is set on edit, not quick-add.
 
-This is intended behavior, not a claim that it works in Expo today. See `docs/migration-status.md` for spike coverage and gaps. Native-platform plans such as SAF weekly exports and Android Auto Backup require a new Expo-specific design before implementation.
+This is intended behavior, not a claim that it works in Expo today. Native-platform plans such as SAF weekly exports and Android Auto Backup require a new Expo-specific design before implementation.

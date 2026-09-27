@@ -43,7 +43,7 @@ const { database } = await import('./database.ts');
 const { addQuickTransaction, parseQuickAddTags, MAX_QUICK_ADD_TAGS } = await import('./quick-add-tags.ts');
 await database();
 sqlite.exec("INSERT INTO tags (name) VALUES ('Food')");
-const input = { type: 'EXPENSE', amountMinor: 1234, accountId: 1, categoryId: 1, note: null };
+const input = { type: 'EXPENSE', amountMinor: 1234, accountId: 1, categoryId: 1, date: new Date(), note: null };
 
 test('normalizes input and limits unique tags', () => {
   assert.deepEqual(parseQuickAddTags(' Food, food , Travel '), ['Food', 'Travel']);
@@ -69,4 +69,13 @@ test('invalid input or a tag write failure leaves no orphan Transaction or tag',
   failLink = false;
   assert.equal(sqlite.prepare('SELECT count(*) AS n FROM transactions').get().n, 2);
   assert.equal(sqlite.prepare("SELECT count(*) AS n FROM tags WHERE name = 'Brand New'").get().n, 0);
+});
+
+test('persists the chosen local calendar day and rejects future days', async () => {
+  const chosen = new Date(2020, 0, 1, 23, 45);
+  await addQuickTransaction({ ...input, date: chosen }, '');
+  const row = sqlite.prepare('SELECT date FROM transactions ORDER BY id DESC LIMIT 1').get();
+  assert.equal(row.date, Math.floor(Date.UTC(2020, 0, 1) / 86400000));
+  const future = new Date(); future.setDate(future.getDate() + 1);
+  await assert.rejects(() => addQuickTransaction({ ...input, date: future }, ''), /past date/);
 });

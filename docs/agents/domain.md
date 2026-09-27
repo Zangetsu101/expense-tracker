@@ -4,4 +4,4 @@ This is a single-context repo. Before work involving product concepts, read the 
 
 Use glossary terms in issues, proposals, and tests. Surface conflicts with an ADR rather than silently overriding it.
 
-`CONTEXT.md` contains domain language only. `docs/migration-status.md` describes the current Expo spike; ADRs record decisions, including historical ones.
+`CONTEXT.md` contains domain language only. ADRs record decisions, including historical ones.

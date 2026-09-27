@@ -1,11 +1,26 @@
 import { useEffect, useState } from 'react';
-import { router } from 'expo-router';
-import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { router, Stack } from 'expo-router';
+import { Alert, FlatList, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { listAccounts, listCategories, setFavoriteAccount, type Account, type Category } from '@/lib/database';
 import { addQuickTransaction } from '@/lib/quick-add-tags';
+import { QuickAddDate } from '@/components/quick-add-date';
+import { QuickAddCategory } from '@/components/quick-add-category';
+import { listManagedCategories, type ManagedCategory } from '@/lib/categories';
+
+const ink = '#f2f4f0';
+const muted = '#aab9b7';
+const panel = '#1d2a30';
+const accent = '#b8e2bd';
+const divider = '#35434a';
+type Kind = 'EXPENSE' | 'INCOME';
+type Chooser = 'account' | 'category' | null;
+
+function Label({ children }: { children: string }) {
+  return <Text style={{ color: muted, fontSize: 12, letterSpacing: 1, textTransform: 'uppercase' }}>{children}</Text>;
+}
 
 export default function QuickAdd() {
-  const [type, setType] = useState<'EXPENSE' | 'INCOME'>('EXPENSE');
+  const [type, setType] = useState<Kind>('EXPENSE');
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const [tags, setTags] = useState('');
@@ -13,11 +28,60 @@ export default function QuickAdd() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [accountId, setAccountId] = useState<number>();
   const [categoryId, setCategoryId] = useState<number>();
+  const [chooser, setChooser] = useState<Chooser>(null);
+  const [query, setQuery] = useState('');
+  const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState(false);
   const [favoritePending, setFavoritePending] = useState(false);
   const [error, setError] = useState<string>();
-  useEffect(() => { listAccounts().then((items) => { setAccounts(items); setAccountId(items[0]?.id); }).catch((e) => setError(String(e))); }, []);
-  useEffect(() => { listCategories(type).then((items) => { setCategories(items); setCategoryId(items[0]?.id); }).catch((e) => setError(String(e))); }, [type]);
+  const [date, setDate] = useState(() => new Date());
+  const [managedCategories, setManagedCategories] = useState<ManagedCategory[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    listAccounts().then((items) => {
+      if (!active) return;
+      setAccounts(items);
+      setAccountId((current) => current && items.some((item) => item.id === current) ? current : items[0]?.id);
+    }).catch((e) => { if (active) setError(String(e)); }).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    let active = true;
+    setCategories([]);
+    setCategoryId(undefined);
+    listCategories(type).then((items) => {
+      if (!active) return;
+      setCategories(items);
+      setCategoryId(items[0]?.id);
+    }).catch((e) => { if (active) setError(String(e)); });
+    return () => { active = false; };
+  }, [type]);
+
+  useEffect(() => {
+    if (!categories.length) return;
+    let active = true;
+    listManagedCategories().then((items) => { if (active) setManagedCategories(items); })
+      .catch((e) => { if (active) setError(String(e)); });
+    return () => { active = false; };
+  }, [categories]);
+
+  const account = accounts.find((item) => item.id === accountId);
+  const search = query.trim().toLocaleLowerCase();
+  const byId = new Map(managedCategories.map((item) => [item.id, item]));
+  const categoryPath = (id: number) => {
+    const names: string[] = [];
+    const seen = new Set<number>();
+    let current = byId.get(id);
+    while (current && !seen.has(current.id)) {
+      seen.add(current.id); names.unshift(current.name);
+      current = current.parentId == null ? undefined : byId.get(current.parentId);
+    }
+    return names.join(' › ') || categories.find((item) => item.id === id)?.name || '';
+  };
+  const close = () => { setChooser(null); setQuery(''); };
+  const open = (target: Exclude<Chooser, null>) => { setError(undefined); setQuery(''); setChooser(target); };
+
   async function makeFavorite(id: number) {
     setFavoritePending(true); setError(undefined);
     try {
@@ -33,7 +97,7 @@ export default function QuickAdd() {
     }
     setPending(true); setError(undefined);
     try {
-      await addQuickTransaction({ type, amountMinor: minor, accountId, categoryId, note: note.trim() || null }, tags);
+      await addQuickTransaction({ type, amountMinor: minor, accountId, categoryId, date, note: note.trim() || null }, tags);
       Alert.alert('Saved', 'Add another transaction?', [
         { text: 'Done', onPress: () => router.back() },
         { text: 'Add another', onPress: () => {
@@ -43,20 +107,31 @@ export default function QuickAdd() {
       ]);
     } catch (e) { setError(String(e)); } finally { setPending(false); }
   }
-  return <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 20, gap: 18 }}>
-    <View style={{ flexDirection: 'row', gap: 12 }}>{(['EXPENSE', 'INCOME'] as const).map((value) =>
-      <Pressable accessibilityRole="button" key={value} onPress={() => setType(value)} style={{ padding: 12, backgroundColor: type === value ? '#315fcb' : '#e8eaf0', borderRadius: 10 }}><Text style={{ color: type === value ? 'white' : 'black' }}>{value}</Text></Pressable>)}</View>
-    <TextInput autoFocus keyboardType="decimal-pad" placeholder="Amount" value={amount} onChangeText={setAmount} style={{ fontSize: 36, padding: 12, borderBottomWidth: 1 }} />
-    <Text>Account</Text><View style={{ gap: 8 }}>{accounts.map((account) =>
-      <View key={account.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-        <Pressable accessibilityRole="button" accessibilityState={{ selected: accountId === account.id }} onPress={() => setAccountId(account.id)} style={{ flex: 1, padding: 12, backgroundColor: accountId === account.id ? '#adc4ff' : '#e8eaf0', borderRadius: 10 }}><Text>{account.name} · {account.currencyCode}</Text></Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel={`Set ${account.name} as favorite account`} disabled={favoritePending || !!account.isFavorite} onPress={() => makeFavorite(account.id)} style={{ padding: 12 }}><Text>{account.isFavorite ? '★ Favorite' : '☆ Favorite'}</Text></Pressable>
-      </View>)}</View>
-    <Text>Category</Text><View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>{categories.map((category) =>
-      <Pressable key={category.id} onPress={() => setCategoryId(category.id)} style={{ padding: 12, backgroundColor: categoryId === category.id ? '#adc4ff' : '#e8eaf0', borderRadius: 10 }}><Text>{category.name}</Text></Pressable>)}</View>
-    <TextInput placeholder="Note (optional)" value={note} onChangeText={setNote} style={{ padding: 12, borderBottomWidth: 1 }} />
-    <TextInput accessibilityLabel="Tags, separated by commas" placeholder="Tags (optional, comma-separated)" value={tags} onChangeText={setTags} style={{ padding: 12, borderBottomWidth: 1 }} />
-    {error && <Text selectable accessibilityRole="alert" style={{ color: '#b00020' }}>{error}</Text>}
-    <Pressable accessibilityRole="button" disabled={pending} onPress={save} style={{ padding: 18, backgroundColor: '#315fcb', borderRadius: 12 }}><Text style={{ color: 'white' }}>{pending ? 'Saving…' : 'Save'}</Text></Pressable>
-  </ScrollView>;
+
+  return <View style={{ flex: 1, backgroundColor: '#101820' }}>
+    <Stack.Screen options={{ title: chooser === 'account' ? 'All accounts' : chooser === 'category' ? 'All categories' : 'Quick add', headerStyle: { backgroundColor: '#101820' }, headerTintColor: ink }} />
+    {chooser ? <View style={{ flex: 1, paddingHorizontal: 22, paddingTop: 16, gap: 12 }}>
+      <Pressable accessibilityRole="button" onPress={close} style={{ minHeight: 44, justifyContent: 'center' }}><Text style={{ color: accent }}>Back to quick add</Text></Pressable>
+      <TextInput accessibilityLabel={chooser === 'account' ? 'Search accounts' : 'Search categories'} placeholder={chooser === 'account' ? 'Search accounts' : 'Search categories'} placeholderTextColor={muted} value={query} onChangeText={setQuery} autoFocus style={{ color: ink, backgroundColor: panel, borderRadius: 14, paddingHorizontal: 16, minHeight: 52, fontSize: 16 }} />
+      <FlatList<Account | Category> keyboardShouldPersistTaps="handled" contentInsetAdjustmentBehavior="automatic" data={chooser === 'account' ? accounts.filter((item) => `${item.name} ${item.currencyCode}`.toLocaleLowerCase().includes(search)) : categories.filter((item) => categoryPath(item.id).toLocaleLowerCase().includes(search))} keyExtractor={(item) => String(item.id)} contentContainerStyle={{ paddingBottom: 32 }} ListEmptyComponent={<Text style={{ color: muted, paddingVertical: 20 }}>{search ? 'No matches' : chooser === 'account' ? 'No accounts available' : `No ${type.toLowerCase()} categories available`}</Text>} renderItem={({ item }) => {
+        const isAccount = chooser === 'account';
+        const selected = isAccount ? accountId === item.id : categoryId === item.id;
+        return <View style={{ flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderColor: divider }}>
+          <Pressable accessibilityRole="button" accessibilityState={{ selected }} onPress={() => { if (isAccount) setAccountId(item.id); else setCategoryId(item.id); close(); }} style={{ flex: 1, minHeight: 58, justifyContent: 'center', paddingHorizontal: 12 }}>
+            <Text style={{ color: selected ? accent : ink, fontSize: 16 }}>{isAccount ? item.name : categoryPath(item.id)}{isAccount ? ` · ${(item as Account).currencyCode}${(item as Account).isFavorite ? ' · Favorite' : ''}` : ''}{selected ? '  ✓' : ''}</Text>
+          </Pressable>
+          {isAccount && <Pressable accessibilityRole="button" accessibilityLabel={`Set ${item.name} as favorite account`} disabled={favoritePending || !!(item as Account).isFavorite} onPress={() => void makeFavorite(item.id)} style={{ minHeight: 48, justifyContent: 'center', paddingHorizontal: 8 }}><Text style={{ color: accent }}>{(item as Account).isFavorite ? '★' : '☆ Favorite'}</Text></Pressable>}
+        </View>;
+      }} />
+      {error && <Text selectable accessibilityRole="alert" style={{ color: '#ff9c9c' }}>{error}</Text>}
+    </View> : <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 22, paddingBottom: 48, gap: 18 }}>
+      <View style={{ gap: 6 }}><Label>{`Amount · ${account?.currencyCode ?? 'Select account'}`}</Label><View style={{ flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderColor: divider }}><Text style={{ color: ink, fontSize: 48, fontWeight: '300' }}>{account?.currencyCode === 'BDT' ? '৳' : account?.currencyCode === 'USD' ? '$' : ''}</Text><TextInput accessibilityLabel="Amount" autoFocus keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={muted} value={amount} onChangeText={setAmount} style={{ flex: 1, color: ink, fontSize: 48, fontWeight: '300', fontVariant: ['tabular-nums'] }} /></View></View>
+      <View style={{ flexDirection: 'row', gap: 10 }}>{(['EXPENSE', 'INCOME'] as const).map((value) => <Pressable key={value} accessibilityRole="button" accessibilityState={{ selected: type === value }} onPress={() => { setType(value); setError(undefined); }} style={{ backgroundColor: type === value ? accent : panel, padding: 14, borderRadius: 12, minHeight: 48 }}><Text style={{ color: type === value ? '#10231c' : ink, fontWeight: '700' }}>{value === 'EXPENSE' ? 'Expense' : 'Income'}</Text></Pressable>)}</View>
+      <Pressable accessibilityRole="button" accessibilityLabel={`Choose account${account ? `, currently ${account.name}, ${account.currencyCode}` : ''}`} onPress={() => open('account')} style={{ backgroundColor: panel, padding: 18, borderRadius: 18, gap: 6 }}><Label>Account</Label><Text selectable style={{ color: ink, fontSize: 18, fontWeight: '600' }}>{account ? `${account.name} · ${account.currencyCode}${account.isFavorite ? ' · Favorite' : ''}` : loading ? 'Loading…' : 'Choose an account'}</Text></Pressable>
+      <QuickAddCategory key={type} categories={managedCategories.filter((item) => item.type === type)} orderedIds={categories.map((item) => item.id)} selectedId={categoryId} onSelect={setCategoryId} onOpenAll={() => open('category')} />
+      <View style={{ gap: 12 }}><Label>Note · optional</Label><TextInput accessibilityLabel="Note" placeholder="Add a note" placeholderTextColor={muted} value={note} onChangeText={setNote} style={{ color: ink, backgroundColor: panel, padding: 16, borderRadius: 12 }} /><Label>Tags · optional</Label><TextInput accessibilityLabel="Tags, separated by commas" placeholder="Comma-separated tags" placeholderTextColor={muted} value={tags} onChangeText={setTags} style={{ color: ink, backgroundColor: panel, padding: 16, borderRadius: 12 }} /><QuickAddDate value={date} onChange={setDate} /></View>
+      {error && <Text selectable accessibilityRole="alert" style={{ color: '#ff9c9c' }}>{error}</Text>}
+      <Pressable accessibilityRole="button" disabled={pending} onPress={() => void save()} style={{ padding: 18, alignItems: 'center', backgroundColor: accent, borderRadius: 16, opacity: pending ? 0.6 : 1 }}><Text style={{ color: '#10231c', fontWeight: '700', fontSize: 16 }}>{pending ? 'Saving…' : 'Save'}</Text></Pressable>
+    </ScrollView>}
+  </View>;
 }
