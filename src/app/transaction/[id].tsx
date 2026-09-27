@@ -1,14 +1,60 @@
 import { useEffect, useState } from 'react';
+import { TransactionReceipt } from '@/components/transaction-receipt';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Host, Switch } from '@expo/ui';
-import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, BackHandler, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { loadEditableTransaction, saveTransactionEdit, type EditableTransaction, type LineItem } from '@/lib/transaction-edit';
 import { formatEpochDay, formatTransactionAmount } from '@/lib/transaction-format';
 import { formatLineItemAmount, parseLineItemAmount } from '@/lib/line-item-amount';
 
 type LoadState = 'loading' | 'missing' | 'ready' | 'error';
 
-export default function EditTransactionScreen() {
+export default function TransactionScreen() {
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const [editing, setEditing] = useState(false);
+  const [transaction, setTransaction] = useState<EditableTransaction | null>(null);
+  const [state, setState] = useState<LoadState>('loading');
+  const [error, setError] = useState('');
+  const [revision, setRevision] = useState(0);
+  useEffect(() => {
+    if (editing) return;
+    let active = true;
+    setState('loading');
+    setTransaction(null);
+    const transactionId = Number(id);
+    if (!id || !Number.isSafeInteger(transactionId) || transactionId <= 0) {
+      setState('missing');
+      return () => { active = false; };
+    }
+    loadEditableTransaction(transactionId).then((row) => {
+      if (!active) return;
+      setTransaction(row);
+      setState(row ? 'ready' : 'missing');
+    }).catch((cause) => { if (active) { setError(String(cause)); setState('error'); } });
+    return () => { active = false; };
+  }, [id, editing, revision]);
+  useEffect(() => {
+    if (!editing) return;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => { setEditing(false); return true; });
+    return () => subscription.remove();
+  }, [editing]);
+  return <View style={{ flex: 1 }}>
+    <Stack.Screen options={{ title: editing ? 'Edit transaction' : 'Receipt',
+      headerStyle: editing ? undefined : { backgroundColor: '#101820' },
+      headerTintColor: editing ? undefined : '#f1f5f4',
+      headerLeft: editing ? () => <Pressable accessibilityRole="button" onPress={() => setEditing(false)}><Text>Receipt</Text></Pressable> : undefined,
+      headerRight: !editing && state === 'ready' ? () => <Pressable accessibilityRole="button" onPress={() => setEditing(true)}><Text style={{ color: '#8be0be', fontSize: 16, fontWeight: '600' }}>Edit</Text></Pressable> : undefined }} />
+    {editing ? <EditTransactionScreen /> : state === 'ready' && transaction ? <TransactionReceipt key={transaction.id} transaction={transaction} /> :
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, backgroundColor: '#101820' }}>
+        {state === 'loading' ? <ActivityIndicator accessibilityLabel="Loading receipt" /> : <>
+          <Text selectable accessibilityRole="alert" style={{ color: '#f1f5f4', textAlign: 'center' }}>{state === 'error' ? error : 'Transaction not found or cannot be viewed here.'}</Text>
+          {state === 'error' && <Pressable accessibilityRole="button" onPress={() => setRevision((value) => value + 1)} style={{ padding: 16 }}><Text style={{ color: '#8be0be' }}>Retry</Text></Pressable>}
+        </>}
+      </View>}
+  </View>;
+}
+
+function EditTransactionScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const [transaction, setTransaction] = useState<EditableTransaction | null>(null);
@@ -59,7 +105,6 @@ export default function EditTransactionScreen() {
   };
   return <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled"
     style={{ backgroundColor: '#f6f6f8' }} contentContainerStyle={{ padding: 20, gap: 18 }}>
-    <Stack.Screen options={{ title: 'Edit transaction' }} />
     {state === 'loading' && <ActivityIndicator accessibilityLabel="Loading transaction" />}
     {state === 'missing' && <Text accessibilityRole="alert">Transaction not found or cannot be edited here.</Text>}
     {state === 'error' && <Text accessibilityRole="alert" selectable>{error}</Text>}
