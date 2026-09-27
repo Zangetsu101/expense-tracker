@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { TransactionReceipt } from '@/components/transaction-receipt';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams } from 'expo-router';
+import { useNavigation, usePreventRemove } from 'expo-router/react-navigation';
 import { Host, Switch } from '@expo/ui';
-import { ActivityIndicator, BackHandler, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, BackHandler, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { loadEditableTransaction, saveTransactionEdit, type EditableTransaction, type LineItem } from '@/lib/transaction-edit';
 import { formatEpochDay, formatTransactionAmount } from '@/lib/transaction-format';
 import { formatLineItemAmount, parseLineItemAmount } from '@/lib/line-item-amount';
@@ -16,8 +17,33 @@ export default function TransactionScreen() {
   const [state, setState] = useState<LoadState>('loading');
   const [error, setError] = useState('');
   const [revision, setRevision] = useState(0);
+  const [dirty, setDirty] = useState(false);
+  const navigation = useNavigation();
+  const confirming = useRef(false);
+  const pendingNavigation = useRef<(() => void) | null>(null);
+  const confirmDiscard = (discard: () => void) => {
+    if (confirming.current) return;
+    if (!dirty) { setDirty(false); discard(); return; }
+    confirming.current = true;
+    Alert.alert('Discard changes?', 'Your unsaved edits will be lost.', [
+      { text: 'Keep editing', style: 'cancel' },
+      { text: 'Discard', style: 'destructive', onPress: () => { setDirty(false); discard(); } },
+    ], { cancelable: false, onDismiss: () => { confirming.current = false; } });
+  };
+  usePreventRemove(editing && dirty, ({ data }) => {
+    confirmDiscard(() => {
+      pendingNavigation.current = () => navigation.dispatch(data.action);
+      setEditing(false);
+    });
+  });
   useEffect(() => {
-    if (editing) return;
+    if (!editing && pendingNavigation.current) {
+      const resume = pendingNavigation.current;
+      pendingNavigation.current = null;
+      resume();
+    }
+  }, [editing]);
+  useEffect(() => {
     let active = true;
     setState('loading');
     setTransaction(null);
@@ -32,19 +58,25 @@ export default function TransactionScreen() {
       setState(row ? 'ready' : 'missing');
     }).catch((cause) => { if (active) { setError(String(cause)); setState('error'); } });
     return () => { active = false; };
-  }, [id, editing, revision]);
+  }, [id, revision]);
   useEffect(() => {
     if (!editing) return;
-    const subscription = BackHandler.addEventListener('hardwareBackPress', () => { setEditing(false); return true; });
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => { confirmDiscard(() => setEditing(false)); return true; });
     return () => subscription.remove();
   }, [editing]);
   return <View style={{ flex: 1 }}>
     <Stack.Screen options={{ title: editing ? 'Edit transaction' : 'Receipt',
       headerStyle: editing ? undefined : { backgroundColor: '#101820' },
       headerTintColor: editing ? undefined : '#f1f5f4',
-      headerLeft: editing ? () => <Pressable accessibilityRole="button" onPress={() => setEditing(false)}><Text>Receipt</Text></Pressable> : undefined,
+      headerLeft: editing ? () => <Pressable accessibilityRole="button" onPress={() => confirmDiscard(() => setEditing(false))}><Text>Receipt</Text></Pressable> : undefined,
       headerRight: !editing && state === 'ready' ? () => <Pressable accessibilityRole="button" onPress={() => setEditing(true)}><Text style={{ color: '#8be0be', fontSize: 16, fontWeight: '600' }}>Edit</Text></Pressable> : undefined }} />
-    {editing ? <EditTransactionScreen /> : state === 'ready' && transaction ? <TransactionReceipt key={transaction.id} transaction={transaction} /> :
+    {editing && transaction ? <EditTransactionScreen transaction={transaction} onDirtyChange={setDirty} onSaved={async () => {
+      const refreshed = await loadEditableTransaction(transaction.id);
+      if (!refreshed) throw new Error('Transaction not found after saving');
+      setTransaction(refreshed);
+      setDirty(false);
+      setEditing(false);
+    }} /> : state === 'ready' && transaction ? <TransactionReceipt key={transaction.id} transaction={transaction} /> :
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, backgroundColor: '#101820' }}>
         {state === 'loading' ? <ActivityIndicator accessibilityLabel="Loading receipt" /> : <>
           <Text selectable accessibilityRole="alert" style={{ color: '#f1f5f4', textAlign: 'center' }}>{state === 'error' ? error : 'Transaction not found or cannot be viewed here.'}</Text>
@@ -54,37 +86,18 @@ export default function TransactionScreen() {
   </View>;
 }
 
-function EditTransactionScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
-  const router = useRouter();
-  const [transaction, setTransaction] = useState<EditableTransaction | null>(null);
-  const [state, setState] = useState<LoadState>('loading');
-  const [note, setNote] = useState('');
-  const [tags, setTags] = useState('');
-  const [excluded, setExcluded] = useState(false);
-  const [items, setItems] = useState<{ id?: number; name: string; amount: string; quantity: string }[]>([]);
+function EditTransactionScreen({ transaction, onDirtyChange, onSaved }: { transaction: EditableTransaction; onDirtyChange: (dirty: boolean) => void; onSaved: () => Promise<void> }) {
+  const [note, setNote] = useState(transaction.note ?? '');
+  const initialTags = transaction.tags.map((tag) => tag.name).join(', ');
+  const initialItems = transaction.lineItems.map((item) => ({ id: item.id, name: item.name, amount: formatLineItemAmount(item.amountMinor), quantity: item.quantity?.toString() ?? '' }));
+  const [tags, setTags] = useState(initialTags);
+  const [excluded, setExcluded] = useState(transaction.excludeFromReport !== 0);
+  const [items, setItems] = useState<{ id?: number; name: string; amount: string; quantity: string }[]>(initialItems);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
   useEffect(() => {
-    let active = true;
-    setState('loading');
-    const transactionId = Number(id);
-    if (!id || !Number.isSafeInteger(transactionId) || transactionId <= 0) {
-      setState('missing');
-      return () => { active = false; };
-    }
-    loadEditableTransaction(transactionId).then((row) => {
-      if (!active) return;
-      if (!row) { setState('missing'); return; }
-      setTransaction(row);
-      setNote(row.note ?? '');
-      setTags(row.tags.map((tag) => tag.name).join(', '));
-      setExcluded(row.excludeFromReport !== 0);
-      setItems(row.lineItems.map((item) => ({ id: item.id, name: item.name, amount: formatLineItemAmount(item.amountMinor), quantity: item.quantity?.toString() ?? '' })));
-      setState('ready');
-    }).catch((cause) => { if (active) { setError(String(cause)); setState('error'); } });
-    return () => { active = false; };
-  }, [id]);
+    onDirtyChange(note !== (transaction.note ?? '') || tags !== initialTags || excluded !== (transaction.excludeFromReport !== 0) || JSON.stringify(items) !== JSON.stringify(initialItems));
+  }, [note, tags, excluded, items, transaction]);
   const save = async () => {
     if (!transaction || saving) return;
     setSaving(true);
@@ -96,7 +109,7 @@ function EditTransactionScreen() {
         return { id: item.id, name: item.name, amountMinor, quantity };
       });
       await saveTransactionEdit(transaction, note, excluded, tags, lineItems);
-      router.back();
+      await onSaved();
     } catch (cause) {
       setError(String(cause));
     } finally {
@@ -105,10 +118,7 @@ function EditTransactionScreen() {
   };
   return <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled"
     style={{ backgroundColor: '#f6f6f8' }} contentContainerStyle={{ padding: 20, gap: 18 }}>
-    {state === 'loading' && <ActivityIndicator accessibilityLabel="Loading transaction" />}
-    {state === 'missing' && <Text accessibilityRole="alert">Transaction not found or cannot be edited here.</Text>}
-    {state === 'error' && <Text accessibilityRole="alert" selectable>{error}</Text>}
-    {state === 'ready' && transaction && <>
+    <>
       <Text selectable style={{ fontSize: 18, fontWeight: '600' }}>{transaction.categoryName ?? transaction.type} · {transaction.accountName}</Text>
       <Text selectable>{formatTransactionAmount(transaction.type, transaction.amountMinor, transaction.currencyCode)} · {formatEpochDay(transaction.date)}</Text>
       <View style={{ gap: 8 }}>
@@ -148,6 +158,6 @@ function EditTransactionScreen() {
         style={{ backgroundColor: '#315fcb', padding: 14, borderRadius: 10, alignItems: 'center' }}>
         <Text style={{ color: 'white', fontWeight: '600' }}>{saving ? 'Saving…' : 'Save'}</Text>
       </Pressable>
-    </>}
+    </>
   </ScrollView>;
 }
