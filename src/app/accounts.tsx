@@ -27,11 +27,14 @@ export default function AccountsScreen() {
   const load = useCallback(async () => {
     setLoading(true);
     setError(undefined);
+    setBalances({});
     try {
       const [rows, totals] = await Promise.all([listManagedAccounts(), accountBalances()]);
+      const nextBalances = Object.fromEntries(totals.map(row => [row.id, row.balanceMinor]));
+      if (rows.some(row => nextBalances[row.id] === undefined)) throw new Error('Account balances unavailable.');
       setAccounts(rows);
-      setBalances(Object.fromEntries(totals.map(row => [row.id, row.balanceMinor])));
-    } catch (e) { setError(String(e)); }
+      setBalances(nextBalances);
+    } catch (e) { setBalances({}); setError(String(e)); }
     finally { setLoading(false); }
   }, []);
   useFocusEffect(useCallback(() => { void load(); }, [load]));
@@ -42,9 +45,13 @@ export default function AccountsScreen() {
     setFormError(undefined);
     try {
       await createAccount({ name, currencyCode, openingBalance });
-      await load();
-      setName(''); setCurrencyCode(''); setOpeningBalance('0'); setSheet(false);
-    } catch (e) { setFormError(String(e)); }
+    } catch (e) {
+      setFormError(String(e));
+      setPending(false);
+      return;
+    }
+    setName(''); setCurrencyCode(''); setOpeningBalance('0'); setSheet(false);
+    try { await load(); }
     finally { setPending(false); }
   }
   async function makeFavorite(id: number) {
@@ -54,15 +61,21 @@ export default function AccountsScreen() {
     catch (e) { setError(String(e)); }
     finally { setPending(false); }
   }
-  const codes = [...new Set(accounts.map(account => account.currencyCode))].sort();
+  const groups = new Map<string, ManagedAccount[]>();
+  for (const account of accounts) {
+    const group = groups.get(account.currencyCode) ?? [];
+    group.push(account);
+    groups.set(account.currencyCode, group);
+  }
+  const sortedGroups = [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
   const action = (label: string, onPress: () => void, disabled = false) => <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: colors.line, opacity: disabled ? 0.5 : 1 }}><Text style={{ color: colors.accent, fontWeight: '600' }}>{label}</Text></Pressable>;
 
   return <View style={{ flex: 1, backgroundColor: colors.bg }}>
     <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 24, gap: 18 }}>
-      {accounts.length > 0 && <View style={{ backgroundColor: colors.raised, borderRadius: 20, padding: 20, gap: 8 }}>
+      {!loading && !error && accounts.length > 0 && <View style={{ backgroundColor: colors.raised, borderRadius: 20, padding: 20, gap: 8 }}>
         <Text style={{ color: colors.muted }}>Balance overview</Text>
-        {codes.map(code => {
-          const total = accounts.filter(account => account.currencyCode === code).reduce((sum, account) => sum + (balances[account.id] ?? account.openingBalanceMinor), 0);
+        {sortedGroups.map(([code, group]) => {
+          const total = group.reduce((sum, account) => sum + (balances[account.id] ?? account.openingBalanceMinor), 0);
           return <Text key={code} selectable style={{ color: total < 0 ? colors.negative : colors.ink, fontSize: 26, fontWeight: '700', fontVariant: ['tabular-nums'] }}>{money(total, code)}</Text>;
         })}
         <Text style={{ color: colors.muted, fontSize: 12 }}>Totals are separate by currency</Text>
@@ -72,9 +85,9 @@ export default function AccountsScreen() {
         {action('Add account', () => { setFormError(undefined); setSheet(true); })}
       </View>
       {error && <Text selectable accessibilityRole="alert" style={{ color: colors.negative }}>{error}</Text>}
-      {loading ? <ActivityIndicator color={colors.accent} /> : accounts.length === 0 && !error ? <Text style={{ color: colors.muted }}>No accounts yet.</Text> : codes.map(code => <View key={code} style={{ gap: 8 }}>
-        <Text style={{ color: colors.accent, fontSize: 17, fontWeight: '700' }}>{code} · {accounts.filter(account => account.currencyCode === code).length} accounts</Text>
-        {accounts.filter(account => account.currencyCode === code).map(account => <View key={account.id} style={{ backgroundColor: colors.surface, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: colors.line, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+      {loading ? <ActivityIndicator color={colors.accent} /> : error ? null : accounts.length === 0 ? <Text style={{ color: colors.muted }}>No accounts yet.</Text> : sortedGroups.map(([code, group]) => <View key={code} style={{ gap: 8 }}>
+        <Text style={{ color: colors.accent, fontSize: 17, fontWeight: '700' }}>{code} · {group.length} accounts</Text>
+        {group.map(account => <View key={account.id} style={{ backgroundColor: colors.surface, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: colors.line, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <View style={{ flex: 1, gap: 4 }}>
             <Text selectable style={{ color: colors.ink, fontSize: 16, fontWeight: '600' }}>{account.name}{account.isFavorite ? ' · Favorite' : ''}</Text>
             <Text selectable style={{ color: (balances[account.id] ?? account.openingBalanceMinor) < 0 ? colors.negative : colors.muted, fontVariant: ['tabular-nums'] }}>{money(balances[account.id] ?? account.openingBalanceMinor, code)}</Text>
