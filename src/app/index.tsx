@@ -1,12 +1,8 @@
 import { useCallback, useState } from 'react';
 import { Link, Stack, router, useFocusEffect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { ActivityIndicator, Alert, FlatList, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { exportBackup, restoreBackup } from '@/lib/backup';
-import { backupDocuments, backupStore } from '@/lib/backup-adapter';
-import { importMoneyLoverFile } from '@/lib/import-csv';
-import { exportTransactionsCsv } from '@/lib/export-csv';
 import { homeData, type HomeTransaction } from '@/lib/home-data';
 import type { MonthlySummary } from '@/lib/reports';
 import { formatEpochDay, formatTransactionAmount } from '@/lib/transaction-format';
@@ -37,19 +33,6 @@ export default function HomeScreen() {
     return () => { active = false; };
   }, []);
   useFocusEffect(load);
-  const run = async (operation: () => Promise<unknown>) => {
-    try { await operation(); load(); } catch (e) { Alert.alert('Operation failed', String(e)); }
-  };
-  const confirmMixedCategories = (names: string[]) => new Promise<boolean>((resolve) => Alert.alert(
-    'Mixed Categories',
-    `These categories contain both Expenses and Income: ${names.join(', ')}. Create separate Expense and Income categories?`,
-    [{ text: 'Cancel', style: 'cancel', onPress: () => resolve(false) }, { text: 'Create separate categories', onPress: () => resolve(true) }],
-    { cancelable: false },
-  ));
-  const confirmRestore = () => Alert.alert('Replace all data?', 'Restoring a backup deletes the current database.', [
-    { text: 'Cancel', style: 'cancel' },
-    { text: 'Choose backup', style: 'destructive', onPress: () => void run(() => restoreBackup(backupStore, backupDocuments)) },
-  ]);
   return <View style={{ flex: 1, backgroundColor: colors.background }}>
     <Stack.Screen options={{ title: 'Home', headerStyle: { backgroundColor: colors.background }, headerTintColor: colors.text }} />
     <StatusBar style="light" />
@@ -86,7 +69,7 @@ export default function HomeScreen() {
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
           {([['Transfer between accounts', '/transfer'], ['Manage categories', '/categories'], ['Manage accounts', '/accounts'], ['Reports', '/reports'], ['Review transfer candidates', '/review-queue']] as const).map(([label, href]) => <Pressable key={href} onPress={() => router.push(href)} accessibilityRole="button" style={({ pressed }) => ({ backgroundColor: colors.panel, padding: 12, borderRadius: 10, opacity: pressed ? 0.6 : 1 })}><Text style={{ color: colors.text }}>{label}</Text></Pressable>)}
         </View>
-        {([['Export JSON to chosen folder', () => run(() => exportBackup(backupStore, backupDocuments))], ['Export Transactions CSV (portability, not backup)', () => run(exportTransactionsCsv)], ['Restore JSON backup', confirmRestore], ['Import MoneyLover CSV', () => run(() => importMoneyLoverFile(confirmMixedCategories))]] as const).map(([label, action]) => <Pressable key={label} accessibilityRole="button" onPress={() => void action()} style={({ pressed }) => ({ paddingVertical: 10, opacity: pressed ? 0.6 : 1 })}><Text style={{ color: colors.accent }}>{label}</Text></Pressable>)}
+        <Link href="/data-tools" asChild><Pressable accessibilityRole="button" style={({ pressed }) => ({ paddingVertical: 10, opacity: pressed ? 0.6 : 1 })}><Text style={{ color: colors.accent }}>Import, export and backup</Text></Pressable></Link>
       </View>}
     />
     <Pressable onPress={() => router.push('/quick-add')} accessibilityRole="button" accessibilityLabel="Add transaction" style={({ pressed }) => ({ position: 'absolute', right: 20, bottom: Math.max(insets.bottom, 16) + 16, width: 56, height: 56, borderRadius: 28, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.75 : 1, boxShadow: '0 4px 12px rgba(0,0,0,0.3)' })}><Text style={{ color: colors.background, fontSize: 30 }}>+</Text></Pressable>
