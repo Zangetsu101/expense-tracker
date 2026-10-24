@@ -17,7 +17,7 @@ export async function importMoneyLoverFile(confirmMixedCategories?: (names: stri
   const matches = classifyTransferPairs(rows);
   for (const row of rows) {
     const currency = row.currency.trim().toUpperCase();
-    if (!row.account || !currency || !row.category || !Number.isSafeInteger(row.amount * 100) || row.amount === 0) throw new Error('CSV contains an unsupported account, category, or amount.');
+    if (!row.account || !currency || !row.category || !Number.isSafeInteger(row.amountMinor) || row.amountMinor === 0) throw new Error('CSV contains an unsupported account, category, or amount.');
   }
   const db = await database();
   const alreadyImported = new Map((await db.getAllAsync<{ rowKey: string; transactionId: number }>(
@@ -63,7 +63,7 @@ export async function importMoneyLoverFile(confirmMixedCategories?: (names: stri
         const oldId = oldOut ?? oldInc!;
         const stored = await tx.getFirstAsync<{ type: string; amountMinor: number; date: number; sourceName: string; destinationName: string; currency: string }>(`SELECT t.type, t.amountMinor, t.date, a.name AS sourceName, b.name AS destinationName, a.currencyCode AS currency
           FROM transactions t JOIN accounts a ON a.id = t.accountId LEFT JOIN accounts b ON b.id = t.transferAccountId WHERE t.id = ?`, [oldId]);
-        if (stored?.type === 'TRANSFER' && stored.amountMinor === -pair.outgoing.amount * 100 && stored.date === day(pair.outgoing) &&
+        if (stored?.type === 'TRANSFER' && stored.amountMinor === Math.abs(pair.outgoing.amountMinor) && stored.date === day(pair.outgoing) &&
             stored.sourceName.toLowerCase() === pair.outgoing.account.toLowerCase() && stored.destinationName?.toLowerCase() === pair.incoming.account.toLowerCase() &&
             stored.currency === pair.outgoing.currency.trim().toUpperCase() && (!oldOut || !oldInc || oldOut === oldInc)) {
           for (const index of [out, inc]) {
@@ -79,7 +79,7 @@ export async function importMoneyLoverFile(confirmMixedCategories?: (names: stri
       const destination = await accountId(pair.incoming);
       const transaction = await tx.runAsync(`INSERT INTO transactions (type, amountMinor, date, accountId, transferAccountId, categoryId, note, excludeFromReport, source)
         VALUES ('TRANSFER', ?, ?, ?, ?, NULL, ?, ?, 'IMPORT')`,
-        [Math.abs(pair.outgoing.amount * 100), day(pair.outgoing), source, destination,
+        [Math.abs(pair.outgoing.amountMinor), day(pair.outgoing), source, destination,
           pair.outgoing.note || pair.incoming.note || null, Number(pair.outgoing.excludeFromReport || pair.incoming.excludeFromReport)]);
       for (const index of [out, inc]) {
         await tx.runAsync('INSERT INTO moneylover_import_rows (rowKey, transactionId) VALUES (?, ?)', [keys[index], transaction.lastInsertRowId]);
@@ -89,12 +89,12 @@ export async function importMoneyLoverFile(confirmMixedCategories?: (names: stri
     }
     for (const [index, row] of rows.entries()) {
       if (merged.has(index) || existing.has(keys[index])) continue;
-      const type = row.amount < 0 ? 'EXPENSE' : 'INCOME';
+      const type = row.amountMinor < 0 ? 'EXPENSE' : 'INCOME';
       const account = await accountId(row);
       const category = await categoryId(row.category, type);
       const transaction = await tx.runAsync(`INSERT INTO transactions (type, amountMinor, date, accountId, categoryId, note, excludeFromReport, source)
         VALUES (?, ?, ?, ?, ?, ?, ?, 'IMPORT')`,
-        [type, Math.abs(row.amount * 100), day(row), account, category, row.note || null, Number(row.excludeFromReport)]);
+        [type, Math.abs(row.amountMinor), day(row), account, category, row.note || null, Number(row.excludeFromReport)]);
       await tx.runAsync('INSERT INTO moneylover_import_rows (rowKey, transactionId) VALUES (?, ?)', [keys[index], transaction.lastInsertRowId]);
       existing.set(keys[index], transaction.lastInsertRowId);
       inserted++;

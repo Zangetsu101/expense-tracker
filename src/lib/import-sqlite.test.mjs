@@ -99,6 +99,28 @@ test('Category recency uses the ID from the latest date, not an older maximum ID
   assert.deepEqual((await listCategories('EXPENSE')).slice(0, 2).map((category) => category.name), ['Fuel', 'Food']);
 });
 
+test('decimal amounts import as exact minor units, including binary-inexact values', async () => {
+  await reset();
+  rows(['1', 'Pay', '624.05', 'Salary', 'Cash'], ['2', 'Snack', '-0.29', 'Food', 'Cash'], ['3', 'Send to Bank', '-1.15', 'Withdrawal', 'Cash'], ['4', 'From Cash', '1.15', 'Deposit', 'Bank']);
+  assert.equal(await importMoneyLoverFile(), 3);
+  assert.deepEqual(all('transactions').filter((row) => row.source === 'IMPORT').map((row) => [row.type, row.amountMinor]).sort(),
+    [['EXPENSE', 29], ['INCOME', 62405], ['TRANSFER', 115]]);
+  assert.equal(await importMoneyLoverFile(), 0);
+});
+
+test('amount text accepts plain decimals with up to two significant decimals and rejects the rest', async () => {
+  await reset();
+  rows(['1', 'Half', '.5', 'Salary', 'Cash'], ['2', 'Five', '+5.', 'Gift', 'Cash'], ['3', 'Padded', '-1.500', 'Food', 'Cash'], ['4', 'Tenth', '-0.1', 'Food', 'Cash']);
+  assert.equal(await importMoneyLoverFile(), 4);
+  assert.deepEqual(all('transactions').filter((row) => row.source === 'IMPORT').map((row) => row.amountMinor).sort((a, b) => a - b), [10, 50, 150, 500]);
+  for (const amount of ['1.234', '1e2']) {
+    await reset();
+    rows(['1', 'Bad', amount, 'Food', 'Cash']);
+    await assert.rejects(() => importMoneyLoverFile(), { message: `CSV contains an unsupported amount: ${amount}.` });
+    assert.equal(all('transactions').length, 0);
+  }
+});
+
 test('high-confidence reimport retains one Transfer and both row keys', async () => {
   await reset();
   rows(['1', 'Send to Bank', -10, 'Withdrawal', 'Cash'], ['2', 'From Cash', 10, 'Deposit', 'Bank']);
