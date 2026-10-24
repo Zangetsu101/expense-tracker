@@ -1,10 +1,11 @@
+import { FormButton, FormInput } from '@/components/form-controls';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { theme } from '@/theme';
 import { TransactionReceipt } from '@/components/transaction-receipt';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { useNavigation, usePreventRemove } from 'expo-router/react-navigation';
 import { Host, Switch } from '@expo/ui';
-import { ActivityIndicator, Alert, BackHandler, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, BackHandler, Pressable, ScrollView, Text, View } from 'react-native';
 import { loadEditableTransaction, saveTransactionEdit, type EditableTransaction, type LineItem } from '@/lib/transaction-edit';
 import { formatEpochDay, formatTransactionAmount } from '@/lib/transaction-format';
 import { formatLineItemAmount, parseLineItemAmount } from '@/lib/line-item-amount';
@@ -81,7 +82,7 @@ export default function TransactionScreen() {
       headerTintColor: theme.colors.text,
       gestureEnabled: !editing,
       headerLeft: editing ? () => <Pressable accessibilityRole="button" disabled={saving} accessibilityState={{ disabled: saving }} onPress={() => confirmDiscard(exitEditing)} style={{ paddingVertical: 12 }}><Text style={{ color: theme.colors.accent }}>Cancel</Text></Pressable> : undefined,
-      headerRight: !editing && state === 'ready' ? () => <Pressable accessibilityRole="button" onPress={() => setEditing(true)}><Text style={{ color: '#8be0be', fontSize: 16, fontWeight: '600' }}>Edit</Text></Pressable> : undefined }} />
+      headerRight: !editing && state === 'ready' ? () => <Pressable accessibilityRole="button" onPress={() => setEditing(true)}><Text style={{ color: theme.colors.accent, fontSize: 16, fontWeight: '600' }}>Edit</Text></Pressable> : undefined }} />
     {editing && transaction ? <EditTransactionScreen transaction={transaction} onDirtyChange={setDirty} onSavingChange={onSavingChange} onCancel={() => confirmDiscard(exitEditing)} onSaved={async () => {
       const refreshed = await loadEditableTransaction(transaction.id);
       if (!refreshed) throw new Error('Transaction not found after saving');
@@ -89,10 +90,10 @@ export default function TransactionScreen() {
       setDirty(false);
       setEditing(false);
     }} /> : state === 'ready' && transaction ? <TransactionReceipt key={transaction.id} transaction={transaction} /> :
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, backgroundColor: '#101820' }}>
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, backgroundColor: theme.colors.background }}>
         {state === 'loading' ? <ActivityIndicator accessibilityLabel="Loading receipt" /> : <>
-          <Text selectable accessibilityRole="alert" style={{ color: '#f1f5f4', textAlign: 'center' }}>{state === 'error' ? error : 'Transaction not found or cannot be viewed here.'}</Text>
-          {state === 'error' && <Pressable accessibilityRole="button" onPress={() => setRevision((value) => value + 1)} style={{ padding: 16 }}><Text style={{ color: '#8be0be' }}>Retry</Text></Pressable>}
+          <Text selectable accessibilityRole="alert" style={{ color: theme.colors.text, textAlign: 'center' }}>{state === 'error' ? error : 'Transaction not found or cannot be viewed here.'}</Text>
+          {state === 'error' && <Pressable accessibilityRole="button" onPress={() => setRevision((value) => value + 1)} style={{ padding: 16 }}><Text style={{ color: theme.colors.accent }}>Retry</Text></Pressable>}
         </>}
       </View>}
   </View>;
@@ -134,7 +135,6 @@ function EditTransactionScreen({ transaction, onDirtyChange, onSavingChange, onC
       onSavingChange(false);
     }
   };
-  const inputStyle = { color: theme.colors.text, borderWidth: 1, borderColor: theme.colors.line, borderRadius: theme.radius.control, padding: 12, minHeight: theme.controlHeight, fontSize: theme.type.body };
   const labelStyle = { color: theme.colors.text, fontSize: theme.type.body, fontWeight: '600' as const };
   return <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled"
     style={{ backgroundColor: theme.colors.background }} contentContainerStyle={{ padding: 20, paddingBottom: 40, gap: 20 }}>
@@ -146,45 +146,36 @@ function EditTransactionScreen({ transaction, onDirtyChange, onSavingChange, onC
       </View>
       <View style={{ gap: 8 }}>
         <Text style={labelStyle}>Note</Text>
-        <TextInput accessibilityLabel="Note" multiline value={note} onChangeText={setNote} editable={!saving && !committed}
-          placeholder="Optional note" placeholderTextColor={theme.colors.muted} style={{ ...inputStyle, minHeight: 100, textAlignVertical: 'top' }} />
+        <FormInput accessibilityLabel="Note" multiline value={note} onChangeText={setNote} editable={!saving && !committed}
+          placeholder="Optional note" style={{ minHeight: 100, textAlignVertical: 'top' }} />
       </View>
       <View style={{ gap: 8 }}>
         <Text style={labelStyle}>Tags</Text>
-        <TextInput accessibilityLabel="Tags" value={tags} onChangeText={setTags} editable={!saving && !committed}
+        <FormInput accessibilityLabel="Tags" value={tags} onChangeText={setTags} editable={!saving && !committed}
           placeholder="Comma-separated tags" autoCapitalize="words"
-          placeholderTextColor={theme.colors.muted} style={inputStyle} />
+          />
       </View>
       <View style={{ gap: 8 }}>
         <Text style={labelStyle}>Line items <Text style={{ color: theme.colors.muted, fontWeight: '400' }}>(optional)</Text></Text>
         <Text selectable style={{ color: theme.colors.muted, lineHeight: 20 }}>Transaction amount stays unchanged. Line items do not need to add up to it. Amounts can be positive, negative or zero.</Text>
         {items.map((item, index) => <View key={item.id ?? `new-${index}`} style={{ gap: 10, padding: 12, backgroundColor: theme.colors.surface, borderRadius: theme.radius.group }}>
           <Text style={{ color: theme.colors.muted }}>Line item {index + 1}</Text>
-          <TextInput style={inputStyle} placeholderTextColor={theme.colors.muted} accessibilityLabel={`Line item ${index + 1} name`} placeholder="Name" value={item.name} editable={!saving && !committed}
+          <FormInput accessibilityLabel={`Line item ${index + 1} name`} placeholder="Name" value={item.name} editable={!saving && !committed}
             onChangeText={(name) => setItems((current) => current.map((entry, i) => i === index ? { ...entry, name } : entry))} />
-          <TextInput style={inputStyle} placeholderTextColor={theme.colors.muted} accessibilityLabel={`Line item ${index + 1} amount`} placeholder="Amount (major units)" value={item.amount} editable={!saving && !committed}
+          <FormInput accessibilityLabel={`Line item ${index + 1} amount`} placeholder="Amount (major units)" value={item.amount} editable={!saving && !committed}
             keyboardType="numbers-and-punctuation" onChangeText={(amount) => setItems((current) => current.map((entry, i) => i === index ? { ...entry, amount } : entry))} />
-          <TextInput style={inputStyle} placeholderTextColor={theme.colors.muted} accessibilityLabel={`Line item ${index + 1} quantity`} placeholder="Quantity (optional)" value={item.quantity} editable={!saving && !committed}
+          <FormInput accessibilityLabel={`Line item ${index + 1} quantity`} placeholder="Quantity (optional)" value={item.quantity} editable={!saving && !committed}
             keyboardType="decimal-pad" onChangeText={(quantity) => setItems((current) => current.map((entry, i) => i === index ? { ...entry, quantity } : entry))} />
-          <Pressable accessibilityRole="button" accessibilityLabel={`Remove line item ${index + 1}`} disabled={saving || committed} style={{ paddingVertical: 12 }} onPress={() => setItems((current) => current.filter((_, i) => i !== index))}>
-            <Text style={{ color: theme.colors.warning }}>Remove line item</Text>
-          </Pressable>
+          <FormButton label="Remove line item" accessibilityLabel={`Remove line item ${index + 1}`} variant="danger" disabled={saving || committed} onPress={() => setItems((current) => current.filter((_, i) => i !== index))} />
         </View>)}
-        <Pressable accessibilityRole="button" disabled={saving || committed} style={{ ...inputStyle, alignItems: 'center', justifyContent: 'center' }} onPress={() => setItems((current) => [...current, { name: '', amount: '', quantity: '' }])}>
-          <Text style={{ color: theme.colors.accent }}>Add line item</Text>
-        </Pressable>
+        <FormButton label="Add line item" variant="secondary" disabled={saving || committed} onPress={() => setItems((current) => [...current, { name: '', amount: '', quantity: '' }])} />
       </View>
       <Host colorScheme="dark" style={{ width: '100%', height: 56 }}>
         <Switch label="Exclude from reports" value={excluded} onValueChange={setExcluded} disabled={saving || committed} />
       </Host>
       {error && <Text accessibilityRole="alert" selectable style={{ color: theme.colors.warning }}>{error}</Text>}
-      <Pressable accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving} onPress={() => void save()}
-        style={{ backgroundColor: theme.colors.accent, opacity: saving ? 0.6 : 1, minHeight: theme.controlHeight, padding: 14, borderRadius: theme.radius.control, alignItems: 'center' }}>
-        <Text style={{ color: theme.colors.background, fontWeight: '600', fontSize: theme.type.body }}>{saving ? 'Saving…' : committed ? 'Retry receipt' : 'Save changes'}</Text>
-      </Pressable>
-      <Pressable accessibilityRole="button" disabled={saving} accessibilityState={{ disabled: saving }} onPress={onCancel} style={{ ...inputStyle, alignItems: 'center' }}>
-        <Text style={{ color: theme.colors.text }}>Cancel</Text>
-      </Pressable>
+      <FormButton label={saving ? 'Saving…' : committed ? 'Retry receipt' : 'Save changes'} loading={saving} onPress={() => void save()} />
+      <FormButton label="Cancel" variant="secondary" disabled={saving} onPress={onCancel} />
     </>
   </ScrollView>;
 }

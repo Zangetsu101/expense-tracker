@@ -1,7 +1,8 @@
+import { FormButton } from '@/components/form-controls';
 import { useEffect, useRef, useState } from 'react';
 import { Stack } from 'expo-router';
 import { usePreventRemove } from 'expo-router/react-navigation';
-import { ActivityIndicator, Alert, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { exportBackup, restoreBackup } from '@/lib/backup';
 import { backupDocuments, backupStore } from '@/lib/backup-adapter';
@@ -63,7 +64,7 @@ export default function DataToolsScreen() {
     } finally { locked.current = false; }
   }
   function button(operation: Operation, primary = false) {
-    return <Pressable accessibilityRole="button" accessibilityState={{ disabled: busy, busy: busy && status.operation === operation }} disabled={busy} onPress={() => void run(operation)} style={({ pressed }) => ({ minHeight: theme.controlHeight, justifyContent: 'center', alignItems: 'center', padding: spacing.md, borderRadius: radius.control, borderCurve: 'continuous', borderWidth: 1, borderColor: primary ? colors.accent : colors.line, backgroundColor: primary ? colors.accent : colors.background, opacity: busy ? 0.45 : pressed ? 0.7 : 1 })}><Text style={{ color: primary ? colors.background : operation === 'restore' ? colors.warning : colors.text, fontSize: theme.type.body, fontWeight: '600' }}>{labels[operation]}</Text></Pressable>;
+    return <FormButton label={labels[operation]} variant={primary ? 'primary' : operation === 'restore' ? 'danger' : 'secondary'} disabled={busy} loading={busy && status.operation === operation} onPress={() => void run(operation)} />;
   }
   function section(title: string, description: string, children: React.ReactNode) {
     return <View style={{ gap: spacing.md, paddingVertical: spacing.lg, borderTopWidth: 1, borderColor: colors.line }}><Text accessibilityRole="header" style={{ color: colors.text, fontSize: theme.type.heading, fontWeight: '600' }}>{title}</Text><Text style={{ color: colors.muted, fontSize: theme.type.body, lineHeight: 23 }}>{description}</Text>{children}</View>;
@@ -74,7 +75,7 @@ export default function DataToolsScreen() {
     {status && <View accessibilityLiveRegion="polite" accessibilityState={{ busy }} style={{ padding: spacing.lg, backgroundColor: colors.surface, borderRadius: radius.group, borderCurve: 'continuous', gap: spacing.md }}>
       {busy && <ActivityIndicator color={colors.accent} />}
       <Text selectable accessibilityRole={status.kind === 'error' ? 'alert' : undefined} style={{ color: status.kind === 'error' ? colors.warning : colors.text, fontSize: theme.type.body }}>{status.message}</Text>
-      {status.kind === 'error' && <Pressable accessibilityRole="button" onPress={() => void run(status.operation)} style={({ pressed }) => ({ minHeight: theme.controlHeight, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: colors.line, borderRadius: radius.control, borderCurve: 'continuous', opacity: pressed ? 0.7 : 1 })}><Text style={{ color: colors.text }}>Retry</Text></Pressable>}
+      {status.kind === 'error' && <FormButton label="Retry" variant="secondary" onPress={() => void run(status.operation)} />}
       {busy && <Text style={{ color: colors.muted }}>Keep this screen open. You can cancel in the file picker or confirmation.</Text>}
     </View>}
     {section('JSON backup', 'Full-fidelity backup of transactions, accounts, categories, line items, tags, transfers and settings. Restore replaces all current data.', <View style={{ gap: spacing.sm }}>{button('backup', true)}{button('restore')}</View>)}

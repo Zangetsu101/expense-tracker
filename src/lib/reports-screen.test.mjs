@@ -15,12 +15,13 @@ const mocks = {
   'react-native': `export const View='View', Text='Text', Pressable='Pressable', ScrollView='ScrollView', TextInput='TextInput', ActivityIndicator='ActivityIndicator', KeyboardAvoidingView='KeyboardAvoidingView'; export const Platform={OS:'android'}; export const useWindowDimensions=()=>({width:400,height:800});`,
   'expo-router': `import React from 'react'; export const Stack={Screen:()=>null}; export function useFocusEffect(callback){React.useEffect(callback,[callback,globalThis.__reportsScreenTest.focus]);}`,
   'react-native-safe-area-context': `export const useSafeAreaInsets=()=>({bottom:0,top:0,left:0,right:0});`,
-  '@/components/category-sheet': `export const CategorySheet=({children})=>children;`,
+  '@/components/app-sheet': `export const AppSheet=({children})=>children;`,
   '@/lib/accounts': `export const listManagedAccounts=async()=>globalThis.__reportsScreenTest.accounts;`,
   '@/lib/reports': `export function monthlyReport(...args){const s=globalThis.__reportsScreenTest;s.calls.push(args);return s.query(...args);}`,
 };
 const hooks = registerHooks({
   resolve(specifier, context, next) {
+    if (specifier === '@/components/form-controls') return { url: new URL('src/components/form-controls.tsx', root).href, shortCircuit: true };
     if (specifier in mocks) return { url: `reports-mock:${specifier}`, shortCircuit: true };
     if (specifier.startsWith('@/')) {
       const path = specifier === '@/theme' ? 'src/theme.ts' : `${specifier.replace('@/', 'src/')}.ts`;

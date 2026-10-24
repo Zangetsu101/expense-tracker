@@ -3,8 +3,9 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 import type { EditableTransaction } from '@/lib/transaction-edit';
 import { formatEpochDay, formatTransactionAmount } from '@/lib/transaction-format';
 import { formatLineItemAmount } from '@/lib/line-item-amount';
+import { theme } from '@/theme';
 
-const color = { background: '#101820', panel: '#1d2a34', line: '#35434d', ink: '#f1f5f4', muted: '#b1c0c7', accent: '#8be0be' };
+const color = { ...theme.colors, panel: theme.colors.surface, ink: theme.colors.text };
 type Props = { transaction: EditableTransaction };
 function Label({ children }: { children: string }) {
   return <Text style={{ color: color.muted, fontSize: 12, letterSpacing: 1, textTransform: 'uppercase' }}>{children}</Text>;

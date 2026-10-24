@@ -12,7 +12,7 @@ const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const root = new URL('../../', import.meta.url);
 const mocks = {
-  'react-native': `export const View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',ActivityIndicator='ActivityIndicator';export const Alert={alert:(...args)=>globalThis.__dataTools.alerts.push(args)};`,
+  'react-native': `export const View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator';export const Alert={alert:(...args)=>globalThis.__dataTools.alerts.push(args)};`,
   'expo-router': `export const Stack={Screen:()=>null};`,
   'expo-router/react-navigation': `export function usePreventRemove(busy,callback){globalThis.__dataTools.navigation={busy,callback}}`,
   'react-native-safe-area-context': `export const useSafeAreaInsets=()=>({bottom:0});`,
@@ -23,6 +23,7 @@ const mocks = {
 };
 const hooks = registerHooks({
   resolve(specifier, context, next) {
+    if (specifier === '@/components/form-controls') return { url: new URL('src/components/form-controls.tsx', root).href, shortCircuit: true };
     if (specifier in mocks) return { url: `tools-mock:${specifier}`, shortCircuit: true };
     if (specifier === '@/theme') return { url: new URL('src/theme.ts', root).href, shortCircuit: true };
     return next(specifier, context.parentURL?.startsWith('tools-mock:') ? { ...context, parentURL: import.meta.url } : context);
@@ -36,7 +37,7 @@ const hooks = registerHooks({
 const { default: Screen } = await import('../app/data-tools.tsx');
 let renderer;
 const text = () => renderer.root.findAllByType('Text').map(n => n.children.join('')).join('\n');
-const button = label => renderer.root.findAllByType('Pressable').find(n => n.findAllByType('Text').some(t => t.children.join('') === label));
+const button = label => renderer.root.findAllByType('Pressable').find(n => n.props.accessibilityLabel === label || n.findAllByType('Text').some(t => t.children.join('') === label));
 const press = label => act(async () => { button(label).props.onPress(); });
 const choose = label => act(async () => { state.alerts.at(-1)[2].find(b => b.text === label).onPress(); });
 async function mount() {

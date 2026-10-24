@@ -1,9 +1,9 @@
 import { Host, RNHostView } from '@expo/ui';
 import { ModalBottomSheet } from '@expo/ui/jetpack-compose';
-import type { CategorySheetProps } from './category-sheet';
+import type { AppSheetProps } from './app-sheet';
 import { theme } from '../theme';
 
-export function CategorySheet({ children, pending, onDismiss }: CategorySheetProps) {
+export function AppSheet({ children, pending, onDismiss }: AppSheetProps) {
   return <Host style={{ position: 'absolute' }} pointerEvents="none">
     <ModalBottomSheet onDismissRequest={onDismiss} skipPartiallyExpanded sheetGesturesEnabled={!pending}
       properties={{ shouldDismissOnBackPress: !pending, shouldDismissOnClickOutside: !pending }}

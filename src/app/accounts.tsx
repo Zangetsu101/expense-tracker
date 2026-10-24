@@ -1,11 +1,14 @@
 import { useCallback, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
-import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createAccount, listManagedAccounts, setFavoriteAccount, type ManagedAccount } from '@/lib/accounts';
 import { accountBalances } from '@/lib/reports';
+import { theme } from '@/theme';
+import { FormButton, FormInput } from '@/components/form-controls';
+import { AppSheet } from '@/components/app-sheet';
 
-const colors = { bg: '#101820', surface: '#1d2a34', raised: '#263641', line: '#35434d', ink: '#f1f5f4', muted: '#b1c0c7', accent: '#8be0be', negative: '#f4b8a9' };
+const colors = { ...theme.colors, bg: theme.colors.background, ink: theme.colors.text, negative: theme.colors.warning };
 
 function money(minor: number, currency: string) {
   return `${minor < 0 ? '−' : ''}${(Math.abs(minor) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
@@ -13,6 +16,7 @@ function money(minor: number, currency: string) {
 
 export default function AccountsScreen() {
   const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
   const [accounts, setAccounts] = useState<ManagedAccount[]>([]);
   const [balances, setBalances] = useState<Record<number, number>>({});
   const [name, setName] = useState('');
@@ -68,7 +72,6 @@ export default function AccountsScreen() {
     groups.set(account.currencyCode, group);
   }
   const sortedGroups = [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
-  const action = (label: string, onPress: () => void, disabled = false) => <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: colors.line, opacity: disabled ? 0.5 : 1 }}><Text style={{ color: colors.accent, fontWeight: '600' }}>{label}</Text></Pressable>;
 
   return <View style={{ flex: 1, backgroundColor: colors.bg }}>
     <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 24, gap: 18 }}>
@@ -82,9 +85,9 @@ export default function AccountsScreen() {
       </View>}
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
         <Text style={{ color: colors.ink, fontSize: 21, fontWeight: '700', flexShrink: 1 }}>Accounts ({accounts.length})</Text>
-        {action('Add account', () => { setFormError(undefined); setSheet(true); })}
+        <FormButton label="Add account" variant="secondary" disabled={pending} onPress={() => { setFormError(undefined); setSheet(true); }} />
       </View>
-      {error && <Text selectable accessibilityRole="alert" style={{ color: colors.negative }}>{error}</Text>}
+      {error && <><Text selectable accessibilityRole="alert" style={{ color: colors.negative }}>{error}</Text><FormButton label="Retry accounts" variant="secondary" disabled={pending} onPress={() => void load()} /></>}
       {loading ? <ActivityIndicator color={colors.accent} /> : error ? null : accounts.length === 0 ? <Text style={{ color: colors.muted }}>No accounts yet.</Text> : sortedGroups.map(([code, group]) => <View key={code} style={{ gap: 8 }}>
         <Text style={{ color: colors.accent, fontSize: 17, fontWeight: '700' }}>{code} · {group.length} accounts</Text>
         {group.map(account => <View key={account.id} style={{ backgroundColor: colors.surface, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: colors.line, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -96,20 +99,17 @@ export default function AccountsScreen() {
         </View>)}
       </View>)}
     </ScrollView>
-    <Modal visible={sheet} transparent animationType="slide" onRequestClose={() => { if (!pending) setSheet(false); }}>
-      <View style={{ flex: 1, backgroundColor: '#0009', justifyContent: 'flex-end' }}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Dismiss add account" disabled={pending} onPress={() => setSheet(false)} style={{ flex: 1 }} />
-        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: insets.bottom + 24, gap: 16 }}>
-          <Text style={{ color: colors.ink, fontSize: 22, fontWeight: '700' }}>Add account</Text>
-          <TextInput accessibilityLabel="Account name" placeholder="Account name" placeholderTextColor={colors.muted} value={name} onChangeText={setName} maxLength={100} style={{ color: colors.ink, borderBottomWidth: 1, borderColor: colors.line, padding: 12 }} />
-          <TextInput accessibilityLabel="Currency code" placeholder="Currency (e.g. BDT)" placeholderTextColor={colors.muted} value={currencyCode} onChangeText={setCurrencyCode} autoCapitalize="characters" maxLength={3} style={{ color: colors.ink, borderBottomWidth: 1, borderColor: colors.line, padding: 12 }} />
-          <TextInput accessibilityLabel="Opening balance" placeholder="Opening balance" placeholderTextColor={colors.muted} value={openingBalance} onChangeText={setOpeningBalance} keyboardType="decimal-pad" style={{ color: colors.ink, borderBottomWidth: 1, borderColor: colors.line, padding: 12 }} />
+    {sheet && <AppSheet pending={pending} onDismiss={() => { if (!pending) setSheet(false); }}>
+        <ScrollView style={{ width, maxHeight: height * 0.82 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: theme.spacing.indent, paddingBottom: insets.bottom + theme.spacing.indent, gap: theme.spacing.lg }}>
+          <Text style={{ color: colors.ink, fontSize: theme.type.heading, fontWeight: '700' }}>Add account</Text>
+          <FormInput accessibilityLabel="Account name" placeholder="Account name" placeholderTextColor={colors.muted} value={name} onChangeText={setName} maxLength={100} editable={!pending} />
+          <FormInput accessibilityLabel="Currency code" placeholder="Currency (e.g. BDT)" placeholderTextColor={colors.muted} value={currencyCode} onChangeText={setCurrencyCode} autoCapitalize="characters" maxLength={3} editable={!pending} />
+          <FormInput accessibilityLabel="Opening balance" placeholder="Opening balance" placeholderTextColor={colors.muted} value={openingBalance} onChangeText={setOpeningBalance} keyboardType="numbers-and-punctuation" editable={!pending} />
           <Text style={{ color: colors.muted }}>Currency is fixed after creation. Opening balance may be negative.</Text>
           {formError && <Text selectable accessibilityRole="alert" style={{ color: colors.negative }}>{formError}</Text>}
-          {action(pending ? 'Saving…' : 'Create account', () => void save(), pending)}
-          {action('Cancel', () => setSheet(false), pending)}
+          <FormButton label="Create account" loading={pending} onPress={() => void save()} />
+          <FormButton label="Cancel" variant="secondary" disabled={pending} onPress={() => setSheet(false)} />
         </ScrollView>
-      </View>
-    </Modal>
+    </AppSheet>}
   </View>;
 }

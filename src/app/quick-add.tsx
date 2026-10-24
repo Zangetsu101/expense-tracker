@@ -7,16 +7,15 @@ import { QuickAddDate } from '@/components/quick-add-date';
 import { QuickAddCategory } from '@/components/quick-add-category';
 import { listManagedCategories, type ManagedCategory } from '@/lib/categories';
 
-const ink = '#f2f4f0';
-const muted = '#aab9b7';
-const panel = '#1d2a30';
-const accent = '#b8e2bd';
-const divider = '#35434a';
+import { theme } from '@/theme';
+import { FormButton, FormInput, JoinedChoice } from '@/components/form-controls';
+
+const { text: ink, muted, surface: panel, accent, line: divider } = theme.colors;
 type Kind = 'EXPENSE' | 'INCOME';
 type Chooser = 'account' | 'category' | null;
 
 function Label({ children }: { children: string }) {
-  return <Text style={{ color: muted, fontSize: 12, letterSpacing: 1, textTransform: 'uppercase' }}>{children}</Text>;
+  return <Text style={{ color: muted, fontSize: 12 }}>{children}</Text>;
 }
 
 export default function QuickAdd() {
@@ -108,8 +107,8 @@ export default function QuickAdd() {
     } catch (e) { setError(String(e)); } finally { setPending(false); }
   }
 
-  return <View style={{ flex: 1, backgroundColor: '#101820' }}>
-    <Stack.Screen options={{ title: chooser === 'account' ? 'All accounts' : chooser === 'category' ? 'All categories' : 'Quick add', headerStyle: { backgroundColor: '#101820' }, headerTintColor: ink }} />
+  return <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
+    <Stack.Screen options={{ title: chooser === 'account' ? 'All accounts' : chooser === 'category' ? 'All categories' : 'Quick add', headerStyle: { backgroundColor: theme.colors.background }, headerTintColor: ink }} />
     {chooser ? <View style={{ flex: 1, paddingHorizontal: 22, paddingTop: 16, gap: 12 }}>
       <Pressable accessibilityRole="button" onPress={close} style={{ minHeight: 44, justifyContent: 'center' }}><Text style={{ color: accent }}>Back to quick add</Text></Pressable>
       <TextInput accessibilityLabel={chooser === 'account' ? 'Search accounts' : 'Search categories'} placeholder={chooser === 'account' ? 'Search accounts' : 'Search categories'} placeholderTextColor={muted} value={query} onChangeText={setQuery} autoFocus style={{ color: ink, backgroundColor: panel, borderRadius: 14, paddingHorizontal: 16, minHeight: 52, fontSize: 16 }} />
@@ -123,15 +122,15 @@ export default function QuickAdd() {
           {isAccount && <Pressable accessibilityRole="button" accessibilityLabel={`Set ${item.name} as favorite account`} disabled={favoritePending || !!(item as Account).isFavorite} onPress={() => void makeFavorite(item.id)} style={{ minHeight: 48, justifyContent: 'center', paddingHorizontal: 8 }}><Text style={{ color: accent }}>{(item as Account).isFavorite ? '★' : '☆ Favorite'}</Text></Pressable>}
         </View>;
       }} />
-      {error && <Text selectable accessibilityRole="alert" style={{ color: '#ff9c9c' }}>{error}</Text>}
+      {error && <Text selectable accessibilityRole="alert" style={{ color: theme.colors.warning }}>{error}</Text>}
     </View> : <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 22, paddingBottom: 48, gap: 18 }}>
       <View style={{ gap: 6 }}><Label>{`Amount · ${account?.currencyCode ?? 'Select account'}`}</Label><View style={{ flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderColor: divider }}><Text style={{ color: ink, fontSize: 48, fontWeight: '300' }}>{account?.currencyCode === 'BDT' ? '৳' : account?.currencyCode === 'USD' ? '$' : ''}</Text><TextInput accessibilityLabel="Amount" autoFocus keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={muted} value={amount} onChangeText={setAmount} style={{ flex: 1, color: ink, fontSize: 48, fontWeight: '300', fontVariant: ['tabular-nums'] }} /></View></View>
-      <View style={{ flexDirection: 'row', gap: 10 }}>{(['EXPENSE', 'INCOME'] as const).map((value) => <Pressable key={value} accessibilityRole="button" accessibilityState={{ selected: type === value }} onPress={() => { setType(value); setError(undefined); }} style={{ backgroundColor: type === value ? accent : panel, padding: 14, borderRadius: 12, minHeight: 48 }}><Text style={{ color: type === value ? '#10231c' : ink, fontWeight: '700' }}>{value === 'EXPENSE' ? 'Expense' : 'Income'}</Text></Pressable>)}</View>
+      <JoinedChoice value={type} options={[{ value: 'EXPENSE', label: 'Expense' }, { value: 'INCOME', label: 'Income' }]} onChange={(value) => { setType(value as Kind); setError(undefined); }} />
       <Pressable accessibilityRole="button" accessibilityLabel={`Choose account${account ? `, currently ${account.name}, ${account.currencyCode}` : ''}`} onPress={() => open('account')} style={{ backgroundColor: panel, padding: 18, borderRadius: 18, gap: 6 }}><Label>Account</Label><Text selectable style={{ color: ink, fontSize: 18, fontWeight: '600' }}>{account ? `${account.name} · ${account.currencyCode}${account.isFavorite ? ' · Favorite' : ''}` : loading ? 'Loading…' : 'Choose an account'}</Text></Pressable>
       <QuickAddCategory key={type} categories={managedCategories.filter((item) => item.type === type)} orderedIds={categories.map((item) => item.id)} selectedId={categoryId} onSelect={setCategoryId} onOpenAll={() => open('category')} />
-      <View style={{ gap: 12 }}><Label>Note · optional</Label><TextInput accessibilityLabel="Note" placeholder="Add a note" placeholderTextColor={muted} value={note} onChangeText={setNote} style={{ color: ink, backgroundColor: panel, padding: 16, borderRadius: 12 }} /><Label>Tags · optional</Label><TextInput accessibilityLabel="Tags, separated by commas" placeholder="Comma-separated tags" placeholderTextColor={muted} value={tags} onChangeText={setTags} style={{ color: ink, backgroundColor: panel, padding: 16, borderRadius: 12 }} /><QuickAddDate value={date} onChange={setDate} /></View>
-      {error && <Text selectable accessibilityRole="alert" style={{ color: '#ff9c9c' }}>{error}</Text>}
-      <Pressable accessibilityRole="button" disabled={pending} onPress={() => void save()} style={{ padding: 18, alignItems: 'center', backgroundColor: accent, borderRadius: 16, opacity: pending ? 0.6 : 1 }}><Text style={{ color: '#10231c', fontWeight: '700', fontSize: 16 }}>{pending ? 'Saving…' : 'Save'}</Text></Pressable>
+      <View style={{ gap: 12 }}><Label>Note · optional</Label><FormInput accessibilityLabel="Note" placeholder="Add a note" placeholderTextColor={muted} value={note} onChangeText={setNote} /><Label>Tags · optional</Label><FormInput accessibilityLabel="Tags, separated by commas" placeholder="Comma-separated tags" placeholderTextColor={muted} value={tags} onChangeText={setTags} /><QuickAddDate value={date} onChange={setDate} /></View>
+      {error && <Text selectable accessibilityRole="alert" style={{ color: theme.colors.warning }}>{error}</Text>}
+      <FormButton label="Save" loading={pending} onPress={() => void save()} />
     </ScrollView>}
   </View>;
 }

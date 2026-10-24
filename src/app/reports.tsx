@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CategorySheet } from "@/components/category-sheet";
+import { FormButton, FormInput } from "@/components/form-controls";
+import { AppSheet } from "@/components/app-sheet";
 import { Stack, useFocusEffect } from "expo-router";
 import {
   ActivityIndicator,
@@ -8,7 +9,6 @@ import {
   Pressable,
   ScrollView,
   Text,
-  TextInput,
   useWindowDimensions,
   View,
 } from "react-native";
@@ -38,45 +38,6 @@ const months = Array.from({ length: 12 }, (_, index) => ({
 const money = (amount: number, currency: string) =>
   `${currency} ${(amount / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-function Action({
-  label,
-  onPress,
-  primary = false,
-  disabled = false,
-}: {
-  label: string;
-  onPress: () => void;
-  primary?: boolean;
-  disabled?: boolean;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      disabled={disabled}
-      accessibilityState={{ disabled }}
-      onPress={onPress}
-      style={({ pressed }) => ({
-        minHeight: theme.controlHeight,
-        paddingHorizontal: theme.spacing.md,
-        paddingVertical: theme.spacing.sm,
-        justifyContent: "center",
-        alignItems: "center",
-        borderWidth: 1,
-        borderColor: primary ? c.accent : c.line,
-        borderRadius: theme.radius.control,
-        borderCurve: "continuous",
-        backgroundColor: primary ? c.accent : "transparent",
-        opacity: disabled ? 0.4 : pressed ? 0.65 : 1,
-      })}
-    >
-      <Text
-        style={{ color: primary ? c.background : c.text, fontWeight: "600" }}
-      >
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
 function Note({ children }: { children: React.ReactNode }) {
   return (
     <Text
@@ -544,7 +505,8 @@ export default function ReportsScreen() {
             >
               {error}
             </Text>
-            <Action
+            <FormButton
+              variant="secondary"
               label="Retry"
               onPress={() => setRetry((value) => value + 1)}
             />
@@ -569,7 +531,7 @@ export default function ReportsScreen() {
         </Note>
       </ScrollView>
       {choosingYear && (
-        <CategorySheet pending={false} onDismiss={() => setChoosingYear(false)}>
+        <AppSheet pending={false} onDismiss={() => setChoosingYear(false)}>
           <KeyboardAvoidingView
             behavior={Platform.OS === "ios" ? "padding" : undefined}
             style={{
@@ -591,7 +553,7 @@ export default function ReportsScreen() {
                 Keep {months[month].label} and {scopeLabel}.
               </Note>
               <Text style={{ color: c.text }}>Year</Text>
-              <TextInput
+              <FormInput
                 accessibilityLabel="Report year"
                 value={yearDraft}
                 onChangeText={(value) => {
@@ -600,17 +562,10 @@ export default function ReportsScreen() {
                 }}
                 keyboardType="number-pad"
                 maxLength={4}
-                selectionColor={c.accent}
                 returnKeyType="done"
                 onSubmitEditing={applyYear}
                 style={{
-                  color: c.text,
-                  minHeight: 48,
-                  borderWidth: 1,
                   borderColor: yearError ? c.warning : c.line,
-                  borderRadius: theme.radius.control,
-                  borderCurve: "continuous",
-                  padding: theme.spacing.md,
                 }}
               />
               {!!yearError && (
@@ -625,15 +580,15 @@ export default function ReportsScreen() {
                   gap: theme.spacing.sm,
                 }}
               >
-                <Action label="Cancel" onPress={() => setChoosingYear(false)} />
-                <Action primary label="Go to year" onPress={applyYear} />
+                <FormButton variant="secondary" label="Cancel" onPress={() => setChoosingYear(false)} />
+                <FormButton variant="primary" label="Go to year" onPress={applyYear} />
               </View>
             </ScrollView>
           </KeyboardAvoidingView>
-        </CategorySheet>
+        </AppSheet>
       )}
       {choosingScope && (
-        <CategorySheet
+        <AppSheet
           pending={false}
           onDismiss={() => setChoosingScope(false)}
         >
@@ -692,10 +647,10 @@ export default function ReportsScreen() {
                   </Text>
                 </Pressable>
               ))}
-              <Action label="Cancel" onPress={() => setChoosingScope(false)} />
+              <FormButton variant="secondary" label="Cancel" onPress={() => setChoosingScope(false)} />
             </ScrollView>
           </View>
-        </CategorySheet>
+        </AppSheet>
       )}
     </View>
   );

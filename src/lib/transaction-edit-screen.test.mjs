@@ -21,6 +21,7 @@ const mocks = {
 };
 const hooks = registerHooks({
   resolve(specifier, context, next) {
+    if (specifier === '@/components/form-controls') return { url: new URL('src/components/form-controls.tsx', root).href, shortCircuit: true };
     if (specifier in mocks) return { url: `edit-mock:${specifier}`, shortCircuit: true };
     if (specifier.startsWith('@/')) return { url: new URL(`${specifier.replace('@/', 'src/')}.ts`, root).href, shortCircuit: true };
     return next(specifier, context.parentURL?.startsWith('edit-mock:') ? { ...context, parentURL: import.meta.url } : context);

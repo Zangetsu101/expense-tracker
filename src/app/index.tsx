@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { homeData, type HomeTransaction } from '@/lib/home-data';
 import type { MonthlySummary } from '@/lib/reports';
 import { formatEpochDay, formatTransactionAmount } from '@/lib/transaction-format';
+import { theme } from '@/theme';
 
 function amount(type: 'EXPENSE' | 'INCOME' | 'TRANSFER', minor: number, currency: string) {
   if (currency !== 'BDT') return formatTransactionAmount(type, minor, currency);
@@ -13,7 +14,7 @@ function amount(type: 'EXPENSE' | 'INCOME' | 'TRANSFER', minor: number, currency
   return `${sign}৳${new Intl.NumberFormat('en-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(minor / 100)}`;
 }
 
-const colors = { background: '#101820', panel: '#1d2a34', line: '#35434d', text: '#f1f5f4', muted: '#b1c0c7', accent: '#8be0be' };
+const colors = { ...theme.colors, panel: theme.colors.surface };
 
 export default function HomeScreen() {
   const [rows, setRows] = useState<HomeTransaction[]>([]);
