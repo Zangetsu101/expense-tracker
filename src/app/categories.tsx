@@ -1,65 +1,48 @@
-import { useCallback, useState } from 'react';
-import { useFocusEffect } from 'expo-router';
-import { ActivityIndicator, Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { createCategory, listManagedCategories, markCategoryReviewed, type CategoryType, type ManagedCategory } from '@/lib/categories';
+import { useCallback, useRef, useState } from 'react';
+import { Stack, useFocusEffect } from 'expo-router';
+import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { CategoryBrowser } from '@/components/category-browser';
+import { createCategory, listManagedCategories, renameCategory, type CreateCategoryInput, type ManagedCategory } from '@/lib/categories';
+import { theme as t } from '@/theme';
 
 export default function CategoriesScreen() {
   const [categories, setCategories] = useState<ManagedCategory[]>([]);
-  const [name, setName] = useState('');
-  const [type, setType] = useState<CategoryType>('EXPENSE');
-  const [parentId, setParentId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string>();
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState('');
+  const generation = useRef(0);
   const load = useCallback(async () => {
+    const request = ++generation.current;
     setLoading(true);
-    setError(undefined);
-    try { setCategories(await listManagedCategories()); }
-    catch (e) { setError(String(e)); }
-    finally { setLoading(false); }
+    setError('');
+    try {
+      const items = await listManagedCategories();
+      if (request === generation.current) { setCategories(items); setLoaded(true); }
+    } catch (error) {
+      if (request === generation.current) setError(error instanceof Error ? error.message : 'Could not load categories.');
+    } finally {
+      if (request === generation.current) setLoading(false);
+    }
   }, []);
-  useFocusEffect(useCallback(() => { void load(); }, [load]));
+  useFocusEffect(useCallback(() => {
+    void load();
+    return () => { generation.current++; };
+  }, [load]));
 
-  async function save() {
-    setPending(true); setError(undefined);
-    try { await createCategory({ name, type, parentId }); setName(''); setParentId(null); await load(); }
-    catch (e) { setError(String(e)); }
-    finally { setPending(false); }
-  }
-  function confirmReview(category: ManagedCategory) {
-    Alert.alert('Confirm Category type', `Is "${category.name}" an ${category.type === 'EXPENSE' ? 'Expense' : 'Income'} Category? If not, leave it awaiting review.`, [
-      { text: 'Not sure', style: 'cancel' },
-      { text: `Confirm ${category.type === 'EXPENSE' ? 'Expense' : 'Income'}`, onPress: () => {
-        void (async () => {
-          setPending(true); setError(undefined);
-          try { await markCategoryReviewed(category.id, category.type); await load(); }
-          catch (e) { setError(String(e)); }
-          finally { setPending(false); }
-        })();
-      } },
-    ]);
-  }
+  const save = async (input: CreateCategoryInput, editing?: ManagedCategory) => {
+    if (editing) await renameCategory(editing.id, input.name);
+    else await createCategory(input);
+    // A committed write must never be reported as a failed save: retry only the read.
+    void load();
+  };
 
-  return <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 20, gap: 16 }}>
-    <Text style={{ fontSize: 18, fontWeight: '600' }}>New category</Text>
-    <TextInput accessibilityLabel="Category name" placeholder="Category name" value={name} onChangeText={setName} maxLength={100} style={{ padding: 12, borderBottomWidth: 1 }} />
-    <Text>Type</Text>
-    <View style={{ flexDirection: 'row', gap: 16 }}>
-      {(['EXPENSE', 'INCOME'] as const).map((option) => <Pressable key={option} accessibilityRole="radio" accessibilityState={{ checked: type === option }} onPress={() => { setType(option); setParentId(null); }} style={{ padding: 12 }}><Text>{type === option ? '●' : '○'} {option === 'EXPENSE' ? 'Expense' : 'Income'}</Text></Pressable>)}
-    </View>
-    <Text>Parent (optional)</Text>
-    <Pressable accessibilityRole="radio" accessibilityState={{ checked: parentId === null }} onPress={() => setParentId(null)} style={{ padding: 8 }}><Text>{parentId === null ? '●' : '○'} None</Text></Pressable>
-    {categories.filter((category) => category.type === type).map((category) => <Pressable key={category.id} accessibilityRole="radio" accessibilityState={{ checked: parentId === category.id }} onPress={() => setParentId(category.id)} style={{ padding: 8 }}><Text selectable>{parentId === category.id ? '●' : '○'} {category.name}</Text></Pressable>)}
-    <Pressable accessibilityRole="button" disabled={pending || loading} onPress={() => void save()} style={{ padding: 16, backgroundColor: '#315fcb', borderRadius: 12 }}><Text style={{ color: 'white', fontWeight: '600' }}>{pending ? 'Saving…' : 'Create category'}</Text></Pressable>
-    {error && <Text selectable accessibilityRole="alert" style={{ color: '#b00020' }}>{error}</Text>}
-    {loading ? <ActivityIndicator /> : (['EXPENSE', 'INCOME'] as const).map((group) => <View key={group} style={{ gap: 8 }}>
-      <Text style={{ fontSize: 18, fontWeight: '600' }}>{group === 'EXPENSE' ? 'Expense' : 'Income'}</Text>
-      {categories.filter((category) => category.type === group).map((category) => <View key={category.id} style={{ padding: 16, backgroundColor: '#e8eaf0', borderRadius: 12, gap: 8 }}>
-        <Text selectable style={{ fontWeight: '600' }}>{category.name}</Text>
-        {category.parentName && <Text selectable>Parent: {category.parentName}</Text>}
-        {!!category.needsReview && <><Text>Imported Mixed Category · needs review</Text><Pressable accessibilityRole="button" disabled={pending} onPress={() => confirmReview(category)}><Text>Confirm {category.type === 'EXPENSE' ? 'Expense' : 'Income'} type</Text></Pressable></>}
-      </View>)}
-      {!categories.some((category) => category.type === group) && <Text>No categories yet.</Text>}
-    </View>)}
-  </ScrollView>;
+  return <View style={{ flex: 1, backgroundColor: t.colors.background }}>
+    <Stack.Screen options={{ title: 'Categories', headerStyle: { backgroundColor: t.colors.background }, headerTintColor: t.colors.text }} />
+    {loading && <ActivityIndicator accessibilityLabel="Loading categories" color={t.colors.accent} style={{ padding: t.spacing.lg }} />}
+    {!!error && <View style={{ padding: t.spacing.xl, gap: t.spacing.sm }}>
+      <Text selectable accessibilityRole="alert" style={{ color: t.colors.warning }}>{error}</Text>
+      <Pressable accessibilityRole="button" onPress={() => void load()} style={{ minHeight: t.controlHeight, justifyContent: 'center' }}><Text style={{ color: t.colors.accent }}>Retry loading categories</Text></Pressable>
+    </View>}
+    {loaded && <CategoryBrowser items={categories} onSave={save} />}
+  </View>;
 }
