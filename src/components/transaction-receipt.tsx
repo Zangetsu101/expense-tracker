@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import type { EditableTransaction } from '@/lib/transaction-edit';
+import type { EditableTransfer } from '@/lib/transfers';
 import { formatEpochDay, formatTransactionAmount } from '@/lib/transaction-format';
 import { formatLineItemAmount } from '@/lib/line-item-amount';
 import { theme } from '@/theme';
@@ -51,5 +52,21 @@ export function TransactionReceipt({ transaction: row }: Props) {
     <View style={{ gap: 8 }}><Label>Tags</Label><Value muted={!row.tags.length}>{row.tags.map((tag) => `#${tag.name}`).join('  ') || 'No tags'}</Value></View>
     <ItemSection row={row} />
     <View style={{ gap: 8 }}><Label>Reports</Label><Value>{row.excludeFromReport ? 'Excluded from reports' : 'Included in reports'}</Value></View>
+  </ScrollView>;
+}
+export function TransferReceipt({ transfer: row }: { transfer: EditableTransfer }) {
+  return <ScrollView contentInsetAdjustmentBehavior="automatic" style={{ flex: 1, backgroundColor: color.background }} contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 24, paddingBottom: 32, gap: 24 }}>
+    <View style={{ backgroundColor: color.panel, borderRadius: 18, padding: 22, gap: 16 }}>
+      <Label>{`Transfer · ${row.currencyCode}`}</Label>
+      <Text selectable style={{ color: color.ink, fontSize: 40, fontWeight: '300', fontVariant: ['tabular-nums'] }}>{formatTransactionAmount('TRANSFER', row.amountMinor, row.currencyCode)}</Text>
+      <Text selectable style={{ color: color.ink, fontSize: 20, fontWeight: '700' }}>{`${row.fromAccountName} → ${row.toAccountName}`}</Text>
+      <View style={{ height: 1, backgroundColor: color.line }} />
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 20 }}>
+        <View style={{ gap: 8 }}><Label>From</Label><Value>{row.fromAccountName}</Value></View>
+        <View style={{ gap: 8 }}><Label>To</Label><Value>{row.toAccountName}</Value></View>
+        <View style={{ gap: 8 }}><Label>Date</Label><Value>{formatEpochDay(row.date)}</Value></View>
+      </View>
+    </View>
+    <View style={{ gap: 8 }}><Label>Note</Label><Value muted={!row.note}>{row.note || 'No note'}</Value></View>
   </ScrollView>;
 }

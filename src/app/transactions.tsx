@@ -160,7 +160,7 @@ export default function TransactionsScreen() {
         </View>;
         return <View style={{ gap: 8, paddingBottom: 9 }}>
           {(index === 0 || rows[index - 1].date !== item.date) && <Text style={{ color: '#f4d79a', fontWeight: '700', paddingTop: 12 }}>{formatEpochDay(item.date)}</Text>}
-          {item.type === 'TRANSFER' ? content : <Link href={{ pathname: '/transaction/[id]', params: { id: String(item.id) } }} asChild><Pressable accessibilityRole="button" accessibilityLabel={`View receipt for ${item.type.toLowerCase()} transaction, ${title}`}>{content}</Pressable></Link>}
+          <Link href={{ pathname: '/transaction/[id]', params: { id: String(item.id) } }} asChild><Pressable accessibilityRole="button" accessibilityLabel={`View receipt for ${item.type.toLowerCase()} transaction, ${title}`}>{content}</Pressable></Link>
         </View>;
       }}
       onEndReached={() => void loadMore()} onEndReachedThreshold={0.5}

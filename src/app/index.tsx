@@ -58,13 +58,13 @@ export default function HomeScreen() {
         {error && <Text selectable accessibilityRole="alert" style={{ color: colors.text }}>{error}</Text>}
         {!loading && !error && rows.length === 0 && <Text style={{ color: colors.muted }}>No transactions yet. Add one to get started.</Text>}
       </View>}
-      renderItem={({ item, index }) => <View>
+      renderItem={({ item, index }) => { const title = item.type === 'TRANSFER' ? 'Transfer' : item.categoryName ?? item.type; return <View>
         {(index === 0 || rows[index - 1].date !== item.date) && <Text style={{ color: colors.muted, fontWeight: '700', paddingTop: 16, paddingBottom: 4 }}>{formatEpochDay(item.date)}</Text>}
-        <Pressable onPress={() => router.push({ pathname: '/transaction/[id]', params: { id: String(item.id) } })} accessibilityRole="button" accessibilityState={{ disabled: item.type === 'TRANSFER' }} accessibilityLabel={`${item.categoryName ?? item.type}, ${item.accountName}`} disabled={item.type === 'TRANSFER'} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: colors.line, opacity: pressed ? 0.6 : 1 })}>
-          <View style={{ flex: 1, gap: 4 }}><Text selectable style={{ color: colors.text, fontSize: 16, fontWeight: '600' }}>{item.categoryName ?? item.type}</Text><Text selectable style={{ color: colors.muted }}>{item.accountName}{item.transferAccountName ? ` → ${item.transferAccountName}` : ''}{item.note ? ` · ${item.note}` : ''}</Text></View>
+        <Pressable onPress={() => router.push({ pathname: '/transaction/[id]', params: { id: String(item.id) } })} accessibilityRole="button" accessibilityLabel={`${title}, ${item.accountName}`} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: colors.line, opacity: pressed ? 0.6 : 1 })}>
+          <View style={{ flex: 1, gap: 4 }}><Text selectable style={{ color: colors.text, fontSize: 16, fontWeight: '600' }}>{title}</Text><Text selectable style={{ color: colors.muted }}>{item.accountName}{item.transferAccountName ? ` → ${item.transferAccountName}` : ''}{item.note ? ` · ${item.note}` : ''}</Text></View>
           <Text selectable style={{ color: item.type === 'INCOME' ? colors.accent : colors.text, fontWeight: '700', fontVariant: ['tabular-nums'] }}>{amount(item.type, item.amountMinor, item.currencyCode)}</Text>
         </Pressable>
-      </View>}
+      </View>; }}
       ListFooterComponent={<View style={{ gap: 16, paddingTop: 32 }}>
         <Text style={{ color: colors.muted, fontWeight: '700' }}>More</Text>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>

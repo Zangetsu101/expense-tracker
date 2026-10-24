@@ -1,7 +1,8 @@
 import { FormButton, FormInput } from '@/components/form-controls';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { theme } from '@/theme';
-import { TransactionReceipt } from '@/components/transaction-receipt';
+import { TransactionReceipt, TransferReceipt } from '@/components/transaction-receipt';
+import { TransferForm, useAccounts, type TransferDraft } from '@/components/transfer-form';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { useNavigation, usePreventRemove } from 'expo-router/react-navigation';
 import { Host, Switch } from '@expo/ui';
@@ -9,13 +10,20 @@ import { ActivityIndicator, Alert, BackHandler, Pressable, ScrollView, Text, Vie
 import { loadEditableTransaction, saveTransactionEdit, type EditableTransaction, type LineItem } from '@/lib/transaction-edit';
 import { formatEpochDay, formatTransactionAmount } from '@/lib/transaction-format';
 import { formatLineItemAmount, parseLineItemAmount } from '@/lib/line-item-amount';
+import { loadTransfer, saveTransferEdit, type EditableTransfer } from '@/lib/transfers';
+import { dateFromEpochDay, epochDay } from '@/lib/database';
 
 type LoadState = 'loading' | 'missing' | 'ready' | 'error';
+type Receipt = EditableTransaction | EditableTransfer;
+
+async function loadReceipt(id: number): Promise<Receipt | null> {
+  return await loadEditableTransaction(id) ?? await loadTransfer(id);
+}
 
 export default function TransactionScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [editing, setEditing] = useState(false);
-  const [transaction, setTransaction] = useState<EditableTransaction | null>(null);
+  const [transaction, setTransaction] = useState<Receipt | null>(null);
   const [state, setState] = useState<LoadState>('loading');
   const [error, setError] = useState('');
   const [revision, setRevision] = useState(0);
@@ -64,7 +72,7 @@ export default function TransactionScreen() {
       setState('missing');
       return () => { active = false; };
     }
-    loadEditableTransaction(transactionId).then((row) => {
+    loadReceipt(transactionId).then((row) => {
       if (!active) return;
       setTransaction(row);
       setState(row ? 'ready' : 'missing');
@@ -76,20 +84,26 @@ export default function TransactionScreen() {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => { confirmDiscard(exitEditing); return true; });
     return () => subscription.remove();
   }, [editing, confirmDiscard, exitEditing]);
+  const isTransfer = transaction?.type === 'TRANSFER';
+  const title = !editing ? 'Receipt' : isTransfer ? 'Edit transfer' : 'Edit transaction';
+  const refresh = async () => {
+    const refreshed = await loadReceipt(Number(id));
+    if (!refreshed) throw new Error('Transaction not found after saving');
+    setTransaction(refreshed);
+    setDirty(false);
+    setEditing(false);
+  };
   return <View style={{ flex: 1 }}>
-    <Stack.Screen options={{ title: editing ? 'Edit transaction' : 'Receipt',
+    <Stack.Screen options={{ title,
       headerStyle: { backgroundColor: theme.colors.background },
       headerTintColor: theme.colors.text,
       gestureEnabled: !editing,
       headerLeft: editing ? () => <Pressable accessibilityRole="button" disabled={saving} accessibilityState={{ disabled: saving }} onPress={() => confirmDiscard(exitEditing)} style={{ paddingVertical: 12 }}><Text style={{ color: theme.colors.accent }}>Cancel</Text></Pressable> : undefined,
       headerRight: !editing && state === 'ready' ? () => <Pressable accessibilityRole="button" onPress={() => setEditing(true)}><Text style={{ color: theme.colors.accent, fontSize: 16, fontWeight: '600' }}>Edit</Text></Pressable> : undefined }} />
-    {editing && transaction ? <EditTransactionScreen transaction={transaction} onDirtyChange={setDirty} onSavingChange={onSavingChange} onCancel={() => confirmDiscard(exitEditing)} onSaved={async () => {
-      const refreshed = await loadEditableTransaction(transaction.id);
-      if (!refreshed) throw new Error('Transaction not found after saving');
-      setTransaction(refreshed);
-      setDirty(false);
-      setEditing(false);
-    }} /> : state === 'ready' && transaction ? <TransactionReceipt key={transaction.id} transaction={transaction} /> :
+    {editing && transaction ? transaction.type === 'TRANSFER'
+      ? <EditTransferScreen transfer={transaction} onDirtyChange={setDirty} onSavingChange={onSavingChange} onCancel={() => confirmDiscard(exitEditing)} onSaved={refresh} />
+      : <EditTransactionScreen transaction={transaction} onDirtyChange={setDirty} onSavingChange={onSavingChange} onCancel={() => confirmDiscard(exitEditing)} onSaved={refresh} />
+    : state === 'ready' && transaction ? transaction.type === 'TRANSFER' ? <TransferReceipt key={transaction.id} transfer={transaction} /> : <TransactionReceipt key={transaction.id} transaction={transaction} /> :
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, backgroundColor: theme.colors.background }}>
         {state === 'loading' ? <ActivityIndicator accessibilityLabel="Loading receipt" /> : <>
           <Text selectable accessibilityRole="alert" style={{ color: theme.colors.text, textAlign: 'center' }}>{state === 'error' ? error : 'Transaction not found or cannot be viewed here.'}</Text>
@@ -178,4 +192,25 @@ function EditTransactionScreen({ transaction, onDirtyChange, onSavingChange, onC
       <FormButton label="Cancel" variant="secondary" disabled={saving} onPress={onCancel} />
     </>
   </ScrollView>;
+}
+
+function EditTransferScreen({ transfer, onDirtyChange, onSavingChange, onCancel, onSaved }: { transfer: EditableTransfer; onDirtyChange: (dirty: boolean) => void; onSavingChange: (saving: boolean) => void; onCancel: () => void; onSaved: () => Promise<void> }) {
+  const { accounts, loading, error } = useAccounts();
+  const [committed, setCommitted] = useState(false);
+  const [initial] = useState(() => ({ fromId: transfer.fromAccountId, toId: transfer.toAccountId, amount: formatLineItemAmount(transfer.amountMinor), note: transfer.note ?? '', date: dateFromEpochDay(transfer.date) }));
+  const dirtyChange = useCallback((dirty: boolean) => onDirtyChange(dirty && !committed), [onDirtyChange, committed]);
+  const submit = async ({ amountMinor, fromAccountId, toAccountId, note, date }: TransferDraft) => {
+    onSavingChange(true);
+    try {
+      if (!committed) {
+        await saveTransferEdit(transfer, { amountMinor, fromAccountId, toAccountId, note, date: epochDay(date) });
+        setCommitted(true);
+      }
+      await onSaved();
+    } finally {
+      onSavingChange(false);
+    }
+  };
+  return <TransferForm accounts={accounts} loading={loading} loadError={error} initial={initial} editDate fieldsLocked={committed}
+    submitLabel={committed ? 'Retry receipt' : 'Save changes'} onSubmit={submit} onDirtyChange={dirtyChange} onCancel={onCancel} />;
 }

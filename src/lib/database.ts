@@ -58,3 +58,7 @@ export async function recentTransactions() {
 export function epochDay(date: Date) {
   return Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000);
 }
+export function dateFromEpochDay(day: number) {
+  const utc = new Date(day * 86400000);
+  return new Date(utc.getUTCFullYear(), utc.getUTCMonth(), utc.getUTCDate(), 12);
+}
