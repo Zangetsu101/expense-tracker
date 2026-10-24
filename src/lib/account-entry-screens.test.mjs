@@ -21,7 +21,7 @@ const mocks = {
   '@/components/quick-add-date': `export const QuickAddDate='Date';`,
   '@/components/quick-add-category': `export const QuickAddCategory='Category';`,
   '@/lib/accounts': `export const listManagedAccounts=()=>globalThis.__entryTest.list(); export const createAccount=x=>globalThis.__entryTest.save(x); export const setFavoriteAccount=async()=>{};`,
-  '@/lib/reports': `export const accountBalances=async()=>[{id:1,balanceMinor:100}];`,
+  '@/lib/reports': `export const accountBalances=async()=>globalThis.__entryTest.balances ?? [{id:1,balanceMinor:100}];`,
   '@/lib/database': `export const listAccounts=async()=>[{id:1,name:'Cash',currencyCode:'USD',isFavorite:1},{id:2,name:'Bank',currencyCode:'USD'}]; export const listCategories=async()=>[{id:3,name:'Food'}]; export const setFavoriteAccount=async()=>{};`,
   '@/lib/categories': `export const listManagedCategories=async()=>[{id:3,name:'Food',type:'EXPENSE'}];`,
   '@/lib/quick-add-tags': `export const addQuickTransaction=(...args)=>globalThis.__entryTest.save(...args);`,
@@ -54,8 +54,15 @@ async function mount(Screen) {
 }
 const text = () => nodes('Text').map(n => n.children.join('')).join('\n');
 test('Account entry screens', async t => {
-  t.afterEach(async () => { if (renderer) await act(async () => renderer.unmount()); renderer = undefined; });
+  t.afterEach(async () => { if (renderer) await act(async () => renderer.unmount()); renderer = undefined; delete state.balances; });
   t.after(() => { hooks.deregister(); delete globalThis.__entryTest; if (previousActEnvironment === undefined) delete globalThis.IS_REACT_ACT_ENVIRONMENT; else globalThis.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment; });
+  await t.test('Accounts group headings use singular and plural counts', async () => {
+    Object.assign(state, { save: async () => {}, back: false });
+    state.list = async () => [{ id: 1, name: 'Cash', currencyCode: 'BDT', openingBalanceMinor: 0, isFavorite: 1 }, { id: 2, name: 'Bank', currencyCode: 'BDT', openingBalanceMinor: 0, isFavorite: 0 }, { id: 3, name: 'Card', currencyCode: 'USD', openingBalanceMinor: 0, isFavorite: 0 }];
+    state.balances = [1, 2, 3].map(id => ({ id, balanceMinor: 0 }));
+    await act(async () => { renderer = create(React.createElement(Accounts)); });
+    assert.match(text(), /BDT · 2 accounts/); assert.match(text(), /USD · 1 account$/m);
+  });
   await t.test('Accounts Cancel closes without writing; negative opening balance stays editable', async () => {
     await mount(Accounts); await press('Add account'); await change('Opening balance', '-20');
     assert.deepEqual(nodes('Sheet')[0].findByType('ScrollView').props.style, { width: 390, maxHeight: 844 * 0.82 });

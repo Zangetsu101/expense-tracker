@@ -13,3 +13,7 @@ export function formatTransactionAmount(type: 'EXPENSE' | 'INCOME' | 'TRANSFER',
 export function formatEpochDay(day: number): string {
   return new Date(day * 86400000).toISOString().slice(0, 10);
 }
+
+export function countLabel(count: number, singular: string, plural: string, hasMorePages = false): string {
+  return `${count}${hasMorePages ? '+' : ''} ${count === 1 && !hasMorePages ? singular : plural}`;
+}

@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { listAccounts, type Account } from '@/lib/database';
 import { listManagedCategories, type ManagedCategory } from '@/lib/categories';
 import { PAGE_SIZE, parseAmountMinor, searchTransactions, validDate, type SearchFilters, type SearchRow } from '@/lib/transaction-search';
-import { formatEpochDay, formatTransactionAmount } from '@/lib/transaction-format';
+import { countLabel, formatEpochDay, formatTransactionAmount } from '@/lib/transaction-format';
 
 const ink = '#edf1f4';
 const muted = '#a2acb5';
@@ -145,7 +145,7 @@ export default function TransactionsScreen() {
           value={filters.query} onChangeText={(query) => updateFilters((old) => ({ ...old, query }))} style={inputStyle} />
         {active.length > 0 && <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7 }}>{active.map(({ label, clear }) =>
           <Choice key={label} label={`${label} ×`} selected onPress={() => updateFilters((old) => ({ ...old, ...clear }))} />)}</View>}
-        <Text style={{ color: muted }}>{rows.length}{more ? '+' : ''} results{rows.length > 0 ? ` · ${[...new Set(rows.map((r) => r.currencyCode))].map((currency) => `${rows.filter((r) => r.currencyCode === currency).length} ${currency}`).join(' · ')}${more ? ' loaded' : ''}` : ''}</Text>
+        <Text style={{ color: muted }}>{countLabel(rows.length, 'result', 'results', more)}{rows.length > 0 ? ` · ${[...new Set(rows.map((r) => r.currencyCode))].map((currency) => `${rows.filter((r) => r.currencyCode === currency).length} ${currency}`).join(' · ')}${more ? ' loaded' : ''}` : ''}</Text>
         {error && <Text accessibilityRole="alert" selectable style={{ color: '#ffb5a8' }}>{error}</Text>}
       </View>}
       ListEmptyComponent={!loading && !error ? <Text style={{ color: ink, padding: 20 }}>No transactions match. Try clearing a filter.</Text> : null}

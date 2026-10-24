@@ -4,6 +4,7 @@ import { ActivityIndicator, Pressable, ScrollView, Text, useWindowDimensions, Vi
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createAccount, listManagedAccounts, setFavoriteAccount, type ManagedAccount } from '@/lib/accounts';
 import { accountBalances } from '@/lib/reports';
+import { countLabel } from '@/lib/transaction-format';
 import { theme } from '@/theme';
 import { FormButton, FormInput } from '@/components/form-controls';
 import { AppSheet } from '@/components/app-sheet';
@@ -89,7 +90,7 @@ export default function AccountsScreen() {
       </View>
       {error && <><Text selectable accessibilityRole="alert" style={{ color: colors.negative }}>{error}</Text><FormButton label="Retry accounts" variant="secondary" disabled={pending} onPress={() => void load()} /></>}
       {loading ? <ActivityIndicator color={colors.accent} /> : error ? null : accounts.length === 0 ? <Text style={{ color: colors.muted }}>No accounts yet.</Text> : sortedGroups.map(([code, group]) => <View key={code} style={{ gap: 8 }}>
-        <Text style={{ color: colors.accent, fontSize: 17, fontWeight: '700' }}>{code} · {group.length} accounts</Text>
+        <Text style={{ color: colors.accent, fontSize: 17, fontWeight: '700' }}>{code} · {countLabel(group.length, 'account', 'accounts')}</Text>
         {group.map(account => <View key={account.id} style={{ backgroundColor: colors.surface, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: colors.line, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <View style={{ flex: 1, gap: 4 }}>
             <Text selectable style={{ color: colors.ink, fontSize: 16, fontWeight: '600' }}>{account.name}{account.isFavorite ? ' · Favorite' : ''}</Text>
