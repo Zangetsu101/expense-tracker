@@ -1,113 +1,702 @@
-import { useCallback, useRef, useState } from 'react';
-import { useFocusEffect } from 'expo-router';
-import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { combinedCategorySpending, combinedMinor, getDisplayRate, saveDisplayRate, validDisplayRate, type DisplayRate } from '@/lib/display-rate';
-import { accountBalances, monthlyReport, type AccountBalance, type CategorySpending, type MonthlySummary } from '@/lib/reports';
+import { useCallback, useEffect, useRef, useState } from "react";
+import { CategorySheet } from "@/components/category-sheet";
+import { Stack, useFocusEffect } from "expo-router";
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  useWindowDimensions,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { listManagedAccounts, type ManagedAccount } from "@/lib/accounts";
+import { monthlyReport } from "@/lib/reports";
+import { theme } from "@/theme";
+import {
+  changeReportYear,
+  currencyReports,
+  currentReportPeriod,
+  parseReportYear,
+  type CurrencyReportData,
+} from "@/lib/report-presentation";
 
-type Report = { balances: AccountBalance[]; spending: CategorySpending[]; summaries: MonthlySummary[] };
+type MonthlyReport = Awaited<ReturnType<typeof monthlyReport>>;
 
-function money(minor: number, currency: string) {
-  return `${(minor / 100).toFixed(2)} ${currency}`;
+const c = theme.colors;
+const months = Array.from({ length: 12 }, (_, index) => ({
+  label: new Date(2026, index, 1).toLocaleDateString("en-US", {
+    month: "long",
+  }),
+  short: new Date(2026, index, 1).toLocaleDateString("en-US", {
+    month: "short",
+  }),
+}));
+const money = (amount: number, currency: string) =>
+  `${currency} ${(amount / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+function Action({
+  label,
+  onPress,
+  primary = false,
+  disabled = false,
+}: {
+  label: string;
+  onPress: () => void;
+  primary?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      disabled={disabled}
+      accessibilityState={{ disabled }}
+      onPress={onPress}
+      style={({ pressed }) => ({
+        minHeight: theme.controlHeight,
+        paddingHorizontal: theme.spacing.md,
+        paddingVertical: theme.spacing.sm,
+        justifyContent: "center",
+        alignItems: "center",
+        borderWidth: 1,
+        borderColor: primary ? c.accent : c.line,
+        borderRadius: theme.radius.control,
+        borderCurve: "continuous",
+        backgroundColor: primary ? c.accent : "transparent",
+        opacity: disabled ? 0.4 : pressed ? 0.65 : 1,
+      })}
+    >
+      <Text
+        style={{ color: primary ? c.background : c.text, fontWeight: "600" }}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+function Note({ children }: { children: React.ReactNode }) {
+  return (
+    <Text
+      style={{ color: c.muted, fontSize: theme.type.caption, lineHeight: 18 }}
+    >
+      {children}
+    </Text>
+  );
+}
+function Heading({ children }: { children: React.ReactNode }) {
+  return (
+    <Text
+      accessibilityRole="header"
+      style={{ color: c.text, fontSize: theme.type.heading, fontWeight: "700" }}
+    >
+      {children}
+    </Text>
+  );
+}
+
+function CurrencyReport({ report }: { report: CurrencyReportData }) {
+  const {
+    currencyCode: currency,
+    incomeMinor: income,
+    expenseMinor: expense,
+    categories,
+  } = report;
+  const net = report.netMinor;
+  return (
+    <View style={{ gap: theme.spacing.indent }}>
+      <View style={{ gap: theme.spacing.xs }}>
+        <Heading>{currency} report</Heading>
+        <Note>{report.accountNames.join(" · ")}</Note>
+      </View>
+      <View
+        style={{
+          gap: theme.spacing.md,
+          backgroundColor: c.surface,
+          padding: theme.spacing.lg,
+          borderRadius: theme.radius.group,
+          borderCurve: "continuous",
+        }}
+      >
+        <Heading>Monthly summary</Heading>
+        <View style={{ gap: theme.spacing.sm }}>
+          <View
+            style={{
+              flexDirection: "row",
+              justifyContent: "space-between",
+              gap: theme.spacing.sm,
+            }}
+          >
+            <Note>Activity</Note>
+            <Note>{currency}</Note>
+          </View>
+          {(
+            [
+              ["Income", income],
+              ["Expense", expense === 0 ? 0 : -expense],
+              ["Net", net],
+            ] as const
+          ).map(([label, amount]) => (
+            <View
+              key={label}
+              style={{
+                flexDirection: "row",
+                flexWrap: "wrap",
+                justifyContent: "space-between",
+                gap: theme.spacing.sm,
+                ...(label === "Net"
+                  ? {
+                      borderTopWidth: 1,
+                      borderColor: c.line,
+                      paddingTop: theme.spacing.sm,
+                    }
+                  : {}),
+              }}
+            >
+              <Text
+                style={{
+                  color: label === "Net" ? c.text : c.muted,
+                  fontWeight: label === "Net" ? "700" : "400",
+                }}
+              >
+                {label}
+              </Text>
+              <Text
+                selectable
+                accessibilityLabel={`${label}, ${money(amount, currency)}`}
+                style={{
+                  color: label === "Net" ? c.accent : c.text,
+                  fontVariant: ["tabular-nums"],
+                  fontWeight: label === "Net" ? "700" : "500",
+                }}
+              >
+                {amount > 0 ? "+" : amount < 0 ? "−" : ""}
+                {(Math.abs(amount) / 100).toLocaleString("en-US", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </Text>
+            </View>
+          ))}
+        </View>
+        <Note>Net is income less expense, not your account balance.</Note>
+      </View>
+      <View style={{ gap: theme.spacing.lg }}>
+        <Heading>Spending by category</Heading>
+        <Text
+          selectable
+          style={{
+            color: c.accent,
+            fontSize: theme.type.heading,
+            fontWeight: "700",
+            fontVariant: ["tabular-nums"],
+          }}
+        >
+          {money(expense, currency)}
+        </Text>
+        <Note>
+          {categories.length === 0
+            ? "No reportable expenses this month."
+            : "Reportable expenses only. Shares are within this currency and account scope."}
+        </Note>
+        {categories.map(
+          ({ categoryId, categoryName, amountMinor: amount, share }, rank) => {
+            const name = categoryName ?? "Uncategorized";
+            return (
+              <View
+                key={categoryId ?? "uncategorized"}
+                style={{ gap: theme.spacing.sm }}
+              >
+                <Text style={{ color: c.text }}>
+                  {rank + 1}. {name}
+                </Text>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    flexWrap: "wrap",
+                    justifyContent: "space-between",
+                    gap: theme.spacing.sm,
+                  }}
+                >
+                  <Text
+                    selectable
+                    style={{ color: c.text, fontVariant: ["tabular-nums"] }}
+                  >
+                    {money(amount, currency)}
+                  </Text>
+                  <Note>{share.toFixed(1)}% of spending</Note>
+                </View>
+                <View
+                  accessible
+                  accessibilityLabel={`${name}, ${share.toFixed(1)} percent of ${currency} spending`}
+                  style={{
+                    height: 6,
+                    backgroundColor: c.raised,
+                    borderRadius: theme.radius.elbow,
+                  }}
+                >
+                  <View
+                    style={{
+                      width: `${share}%`,
+                      height: 6,
+                      backgroundColor: c.accent,
+                      borderRadius: theme.radius.elbow,
+                    }}
+                  />
+                </View>
+              </View>
+            );
+          },
+        )}
+      </View>
+    </View>
+  );
 }
 
 export default function ReportsScreen() {
-  const [month, setMonth] = useState(() => { const now = new Date(); return { year: now.getFullYear(), number: now.getMonth() + 1 }; });
-  const [report, setReport] = useState<Report>();
-  const [error, setError] = useState<string>();
+  const insets = useSafeAreaInsets();
+  const monthStrip = useRef<ScrollView>(null);
+  const stripWidth = useRef(0);
+  const [{ year, month }, setPeriod] = useState(currentReportPeriod);
+  const [scope, setScope] = useState<number | undefined>();
+  const [accounts, setAccounts] = useState<ManagedAccount[]>([]);
+  const [report, setReport] = useState<MonthlyReport>();
   const [loading, setLoading] = useState(true);
-  const [rate, setRate] = useState<DisplayRate | null>(null);
-  const [base, setBase] = useState('');
-  const [quote, setQuote] = useState('');
-  const [rateText, setRateText] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string>();
-  const rateDraftChanged = useRef(false);
-  const load = useCallback(() => {
-    let active = true;
-    setLoading(true);
-    setError(undefined);
-    Promise.all([accountBalances(), monthlyReport(month.year, month.number), getDisplayRate()])
-      .then(([balances, monthly, storedRate]) => {
-        if (active) {
-          setReport({ balances, ...monthly });
-          setRate(storedRate);
-          if (!rateDraftChanged.current) {
-            setBase(storedRate?.base ?? '');
-            setQuote(storedRate?.quote ?? '');
-            setRateText(storedRate ? String(storedRate.rate) : '');
+  const [error, setError] = useState<string>();
+  const [retry, setRetry] = useState(0);
+  const [choosingScope, setChoosingScope] = useState(false);
+  const [choosingYear, setChoosingYear] = useState(false);
+  const [yearDraft, setYearDraft] = useState("");
+  const [yearError, setYearError] = useState("");
+  const { height, width } = useWindowDimensions();
+  const account = accounts.find((item) => item.id === scope);
+  const scopeLabel = account
+    ? `${account.name} · ${account.currencyCode}`
+    : "All accounts";
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      setLoading(true);
+      setError(undefined);
+      setReport(undefined);
+      Promise.all([
+        listManagedAccounts(),
+        monthlyReport(year, month + 1, scope),
+      ])
+        .then(([nextAccounts, nextReport]) => {
+          if (!active) return;
+          setAccounts(nextAccounts);
+          if (
+            scope !== undefined &&
+            !nextAccounts.some((item) => item.id === scope)
+          ) {
+            setScope(undefined);
+            return;
           }
-        }
-      })
-      .catch((e) => { if (active) setError(String(e)); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [month]);
-  useFocusEffect(load);
-  const shiftMonth = (delta: number) => setMonth(({ year, number }) => {
-    const date = new Date(year, number - 1 + delta, 1);
-    return { year: date.getFullYear(), number: date.getMonth() + 1 };
-  });
-
-  const draft = { base: base.trim().toUpperCase(), quote: quote.trim().toUpperCase(), rate: Number(rateText) };
-  const save = async (next: DisplayRate | null) => {
-    setSaving(true);
-    setSaveError(undefined);
-    try {
-      await saveDisplayRate(next);
-      setRate(next);
-      rateDraftChanged.current = false;
-      if (!next) { setBase(''); setQuote(''); setRateText(''); }
-    } catch (e) { setSaveError(String(e)); }
-    finally { setSaving(false); }
+          setReport(nextReport);
+          setLoading(false);
+        })
+        .catch((reason) => {
+          if (!active) return;
+          setError(
+            reason instanceof Error
+              ? reason.message
+              : "Unable to load reports.",
+          );
+          setLoading(false);
+        });
+      return () => {
+        active = false;
+      };
+    }, [year, month, scope, retry]),
+  );
+  const reports = report ? currencyReports(report, accounts, scope) : [];
+  const monthLabel = `${months[month].label} ${year}`;
+  const centerStrip = () =>
+    monthStrip.current?.scrollTo({
+      x: Math.max(0, month * 72 + 32 - stripWidth.current / 2),
+      animated: false,
+    });
+  useEffect(centerStrip, [month, year]);
+  const chooseYear = () => {
+    setYearDraft(String(year));
+    setYearError("");
+    setChoosingYear(true);
   };
-  const currencies = report ? new Set([...report.balances, ...report.summaries].map((row) => row.currencyCode)) : new Set<string>();
-  const combinedBalance = report ? combinedMinor(report.balances.map((row) => ({ currencyCode: row.currencyCode, amountMinor: row.balanceMinor })), rate) : null;
-  const combinedIncome = report ? combinedMinor(report.summaries.map((row) => ({ currencyCode: row.currencyCode, amountMinor: row.incomeMinor })), rate) : null;
-  const combinedExpense = report ? combinedMinor(report.summaries.map((row) => ({ currencyCode: row.currencyCode, amountMinor: row.expenseMinor })), rate) : null;
-  const combinedSpending = report && rate && currencies.size === 2 ? combinedCategorySpending(report.spending, rate) : [];
+  const applyYear = () => {
+    const value = parseReportYear(yearDraft);
+    if (value === undefined) {
+      setYearError("Enter a year from 1 to 9999.");
+      return;
+    }
+    setPeriod((current) => ({ ...current, year: value }));
+    setChoosingYear(false);
+  };
+  const selectScope = (value: number | undefined) => {
+    setScope(value);
+    setChoosingScope(false);
+  };
+  const scopeOptions: {
+    value: number | undefined;
+    label: string;
+    detail: string;
+  }[] = [
+    {
+      value: undefined,
+      label: "All accounts",
+      detail: "Same-currency accounts are grouped; currencies stay separate",
+    },
+    ...accounts.map((item) => ({
+      value: item.id,
+      label: `${item.name} · ${item.currencyCode}`,
+      detail: `Report only ${item.name}; currency comes from this account`,
+    })),
+  ];
+  const yearControl = (
+    label: string,
+    text: string,
+    action: () => void,
+    trigger = false,
+    disabled = false,
+  ) => (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityHint={
+        trigger
+          ? "Opens the year chooser. The selected month is kept."
+          : "Keeps the selected month."
+      }
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      onPress={action}
+      style={({ pressed }) => ({
+        width: trigger ? 96 : 80,
+        minHeight: 48,
+        alignItems: "center",
+        justifyContent: "center",
+        opacity: disabled ? 0.4 : pressed ? 0.65 : 1,
+      })}
+    >
+      <View
+        pointerEvents="none"
+        style={{
+          width: 80,
+          minHeight: 32,
+          paddingHorizontal: theme.spacing.xs,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Text
+          style={{
+            color: c.accent,
+            fontSize: trigger ? theme.type.heading : 14,
+            fontWeight: trigger ? "700" : "500",
+          }}
+        >
+          {text}
+        </Text>
+      </View>
+    </Pressable>
+  );
 
-  return <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 20, gap: 24 }}>
-    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Previous month" onPress={() => shiftMonth(-1)} style={{ padding: 12 }}><Text>‹ Previous</Text></Pressable>
-      <Text selectable style={{ fontWeight: '600' }}>{new Date(month.year, month.number - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</Text>
-      <Pressable accessibilityRole="button" accessibilityLabel="Next month" onPress={() => shiftMonth(1)} style={{ padding: 12 }}><Text>Next ›</Text></Pressable>
+  return (
+    <View style={{ flex: 1, backgroundColor: c.background }}>
+      <Stack.Screen
+        options={{
+          title: "Reports",
+          headerStyle: { backgroundColor: c.background },
+          headerTintColor: c.text,
+        }}
+      />
+      <ScrollView
+        contentInsetAdjustmentBehavior="automatic"
+        contentContainerStyle={{
+          padding: theme.spacing.xl,
+          paddingBottom: insets.bottom + theme.spacing.xl,
+          gap: theme.spacing.indent,
+        }}
+      >
+        <View style={{ gap: theme.spacing.sm }}>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: theme.spacing.sm,
+            }}
+          >
+            {yearControl(
+              "Previous year",
+              "Previous",
+              () => setPeriod((current) => changeReportYear(current, -1)),
+              false,
+              year === 1,
+            )}
+            {yearControl(
+              `Choose report year, ${year}`,
+              String(year),
+              chooseYear,
+              true,
+            )}
+            {yearControl(
+              "Next year",
+              "Next",
+              () => setPeriod((current) => changeReportYear(current, 1)),
+              false,
+              year === 9999,
+            )}
+          </View>
+          <ScrollView
+            ref={monthStrip}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            onLayout={(event) => {
+              stripWidth.current = event.nativeEvent.layout.width;
+              centerStrip();
+            }}
+            onContentSizeChange={centerStrip}
+            contentContainerStyle={{ gap: theme.spacing.sm }}
+          >
+            {months.map((item, value) => (
+              <Pressable
+                key={value}
+                accessibilityRole="button"
+                accessibilityLabel={`${item.label} ${year}`}
+                accessibilityState={{ selected: month === value }}
+                onPress={() => setPeriod({ year, month: value })}
+                style={({ pressed }) => ({
+                  width: 64,
+                  minHeight: 48,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  borderBottomWidth: 2,
+                  borderColor: month === value ? c.accent : c.line,
+                  opacity: pressed ? 0.65 : 1,
+                })}
+              >
+                <Text
+                  style={{
+                    color: month === value ? c.accent : c.text,
+                    fontWeight: month === value ? "700" : "400",
+                  }}
+                >
+                  {item.short}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+          <Text
+            accessibilityLiveRegion="polite"
+            style={{ color: c.text, fontWeight: "600" }}
+          >
+            {monthLabel}
+          </Text>
+          <Note>
+            Year controls keep the month. Tap the year to jump farther.
+          </Note>
+          <Text style={{ color: c.muted }}>Account scope</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Choose account scope, ${scopeLabel}`}
+            onPress={() => setChoosingScope(true)}
+            style={({ pressed }) => ({
+              minHeight: 48,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: theme.spacing.sm,
+              paddingHorizontal: theme.spacing.md,
+              borderWidth: 1,
+              borderColor: c.line,
+              borderRadius: theme.radius.control,
+              borderCurve: "continuous",
+              opacity: pressed ? 0.65 : 1,
+            })}
+          >
+            <Text style={{ color: c.text, flex: 1 }}>{scopeLabel}</Text>
+            <Text style={{ color: c.accent }}>▾</Text>
+          </Pressable>
+          <Note>
+            {!account
+              ? "All accounts. Same-currency accounts are grouped; each currency stays separate."
+              : `${account?.name} only. Currency is ${account?.currencyCode}, determined by this account.`}
+          </Note>
+        </View>
+        {loading ? (
+          <View
+            accessibilityRole="progressbar"
+            accessibilityLabel="Loading reports"
+            style={{ gap: theme.spacing.md }}
+          >
+            <ActivityIndicator color={c.accent} />
+            <Note>Loading reports…</Note>
+          </View>
+        ) : error ? (
+          <View style={{ gap: theme.spacing.md }}>
+            <Text
+              selectable
+              accessibilityRole="alert"
+              style={{ color: c.warning }}
+            >
+              {error}
+            </Text>
+            <Action
+              label="Retry"
+              onPress={() => setRetry((value) => value + 1)}
+            />
+          </View>
+        ) : reports.length === 0 ? (
+          <View style={{ gap: theme.spacing.sm }}>
+            <Heading>No reportable activity</Heading>
+            <Note>
+              {accounts.length === 0
+                ? "Add an account and transactions to see reports."
+                : `No reportable income or expenses for ${monthLabel} in ${scopeLabel}.`}
+            </Note>
+          </View>
+        ) : (
+          reports.map((report) => (
+            <CurrencyReport key={report.currencyCode} report={report} />
+          ))
+        )}
+        <Note>
+          Transfers and transactions marked Exclude report are omitted from
+          income, expense and spending.
+        </Note>
+      </ScrollView>
+      {choosingYear && (
+        <CategorySheet pending={false} onDismiss={() => setChoosingYear(false)}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            style={{
+              width,
+              maxHeight: height * 0.82,
+              backgroundColor: c.surface,
+            }}
+          >
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{
+                padding: theme.spacing.xl,
+                paddingBottom: insets.bottom + theme.spacing.indent,
+                gap: theme.spacing.lg,
+              }}
+            >
+              <Heading>Choose report year</Heading>
+              <Note>
+                Keep {months[month].label} and {scopeLabel}.
+              </Note>
+              <Text style={{ color: c.text }}>Year</Text>
+              <TextInput
+                accessibilityLabel="Report year"
+                value={yearDraft}
+                onChangeText={(value) => {
+                  setYearDraft(value);
+                  setYearError("");
+                }}
+                keyboardType="number-pad"
+                maxLength={4}
+                selectionColor={c.accent}
+                returnKeyType="done"
+                onSubmitEditing={applyYear}
+                style={{
+                  color: c.text,
+                  minHeight: 48,
+                  borderWidth: 1,
+                  borderColor: yearError ? c.warning : c.line,
+                  borderRadius: theme.radius.control,
+                  borderCurve: "continuous",
+                  padding: theme.spacing.md,
+                }}
+              />
+              {!!yearError && (
+                <Text accessibilityRole="alert" style={{ color: c.warning }}>
+                  {yearError}
+                </Text>
+              )}
+              <View
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  gap: theme.spacing.sm,
+                }}
+              >
+                <Action label="Cancel" onPress={() => setChoosingYear(false)} />
+                <Action primary label="Go to year" onPress={applyYear} />
+              </View>
+            </ScrollView>
+          </KeyboardAvoidingView>
+        </CategorySheet>
+      )}
+      {choosingScope && (
+        <CategorySheet
+          pending={false}
+          onDismiss={() => setChoosingScope(false)}
+        >
+          <View
+            style={{
+              width,
+              maxHeight: height * 0.82,
+              backgroundColor: c.surface,
+            }}
+          >
+            <ScrollView
+              contentContainerStyle={{
+                padding: theme.spacing.xl,
+                paddingBottom: insets.bottom + theme.spacing.indent,
+                gap: theme.spacing.md,
+              }}
+            >
+              <Heading>Account scope</Heading>
+              <Note>
+                Choose All accounts or one account. Selecting an account also
+                selects its currency.
+              </Note>
+              {scopeOptions.map((option) => (
+                <Pressable
+                  key={option.value ?? "all"}
+                  accessibilityRole="radio"
+                  accessibilityLabel={option.label}
+                  accessibilityState={{ checked: scope === option.value }}
+                  onPress={() => selectScope(option.value)}
+                  style={({ pressed }) => ({
+                    minHeight: 56,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: theme.spacing.md,
+                    padding: theme.spacing.sm,
+                    borderBottomWidth: 1,
+                    borderColor: c.line,
+                    backgroundColor:
+                      scope === option.value ? c.raised : "transparent",
+                    opacity: pressed ? 0.65 : 1,
+                  })}
+                >
+                  <View style={{ flex: 1, gap: theme.spacing.xs }}>
+                    <Text
+                      style={{
+                        color: c.text,
+                        fontWeight: scope === option.value ? "700" : "400",
+                      }}
+                    >
+                      {option.label}
+                    </Text>
+                    <Note>{option.detail}</Note>
+                  </View>
+                  <Text style={{ color: c.accent }}>
+                    {scope === option.value ? "✓" : ""}
+                  </Text>
+                </Pressable>
+              ))}
+              <Action label="Cancel" onPress={() => setChoosingScope(false)} />
+            </ScrollView>
+          </View>
+        </CategorySheet>
+      )}
     </View>
-    {loading ? <ActivityIndicator /> : error ? <View style={{ gap: 12 }}><Text selectable accessibilityRole="alert">{error}</Text><Pressable accessibilityRole="button" onPress={load}><Text>Retry</Text></Pressable></View> : report && <>
-      <View style={{ gap: 8 }}>
-        <Text style={{ fontSize: 20, fontWeight: '600' }}>Display rate</Text>
-        <Text selectable>1 base currency = rate × quote currency. Used for display only.</Text>
-        <View style={{ flexDirection: 'row', gap: 8 }}>
-          <TextInput accessibilityLabel="Base currency" placeholder="Base (USD)" autoCapitalize="characters" maxLength={3} value={base} onChangeText={(value) => { rateDraftChanged.current = true; setBase(value); }} style={{ flex: 1, borderWidth: 1, padding: 10 }} />
-          <TextInput accessibilityLabel="Quote currency" placeholder="Quote (BDT)" autoCapitalize="characters" maxLength={3} value={quote} onChangeText={(value) => { rateDraftChanged.current = true; setQuote(value); }} style={{ flex: 1, borderWidth: 1, padding: 10 }} />
-        </View>
-        <TextInput accessibilityLabel="Quote units per base unit" placeholder="Rate" keyboardType="decimal-pad" value={rateText} onChangeText={(value) => { rateDraftChanged.current = true; setRateText(value); }} style={{ borderWidth: 1, padding: 10 }} />
-        <View style={{ flexDirection: 'row', gap: 20 }}>
-          <Pressable accessibilityRole="button" disabled={saving || !validDisplayRate(draft)} onPress={() => save(draft)}><Text style={{ opacity: saving || !validDisplayRate(draft) ? 0.4 : 1 }}>Save rate</Text></Pressable>
-          {rate && <Pressable accessibilityRole="button" disabled={saving} onPress={() => save(null)}><Text>Clear rate</Text></Pressable>}
-        </View>
-        {saveError && <Text selectable accessibilityRole="alert">{saveError}</Text>}
-        {currencies.size > 2 && <Text selectable>Combined totals unavailable for more than two currencies.</Text>}
-      </View>
-      <View style={{ gap: 8 }}>
-        <Text style={{ fontSize: 20, fontWeight: '600' }}>Account balances</Text>
-        {currencies.size <= 2 && combinedBalance !== null && (new Set(report.balances.map((row) => row.currencyCode))).size === 2 && rate && <Text selectable>Combined: {money(combinedBalance, rate.base)}</Text>}
-        {report.balances.length === 0 && <Text>No accounts yet.</Text>}
-        {report.balances.map((row) => <View key={row.id} style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}><Text selectable style={{ flex: 1 }}>{row.name}</Text><Text selectable style={{ fontVariant: ['tabular-nums'] }}>{money(row.balanceMinor, row.currencyCode)}</Text></View>)}
-      </View>
-      <View style={{ gap: 8 }}>
-        <Text style={{ fontSize: 20, fontWeight: '600' }}>Monthly income and expense</Text>
-        {currencies.size <= 2 && combinedIncome !== null && combinedExpense !== null && report.summaries.length === 2 && rate && <Text selectable>Combined: income {money(combinedIncome, rate.base)} · expense {money(combinedExpense, rate.base)}</Text>}
-        {report.summaries.length === 0 && <Text>No reportable transactions this month.</Text>}
-        {report.summaries.map((row) => <View key={row.currencyCode} style={{ gap: 4 }}><Text style={{ fontWeight: '600' }}>{row.currencyCode}</Text><Text selectable>Income {money(row.incomeMinor, row.currencyCode)}</Text><Text selectable>Expense {money(row.expenseMinor, row.currencyCode)}</Text></View>)}
-      </View>
-      <View style={{ gap: 8 }}>
-        <Text style={{ fontSize: 20, fontWeight: '600' }}>Spending by category</Text>
-        {rate && combinedSpending.length > 0 && <View style={{ gap: 4 }}><Text style={{ fontWeight: '600' }}>Combined · {rate.base}</Text>
-          {combinedSpending.map((row) => <Text key={row.categoryId ?? 'none'} selectable>{row.categoryName ?? 'Uncategorized'}: {money(row.amountMinor, rate.base)}</Text>)}
-        </View>}
-        {report.spending.length === 0 && <Text>No reportable expenses this month.</Text>}
-        {report.spending.map((row) => <View key={`${row.currencyCode}:${row.categoryId ?? 'none'}`} style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}><Text selectable style={{ flex: 1 }}>{row.categoryName ?? 'Uncategorized'}</Text><Text selectable style={{ fontVariant: ['tabular-nums'] }}>{money(row.amountMinor, row.currencyCode)}</Text></View>)}
-      </View>
-    </>}
-  </ScrollView>;
+  );
 }

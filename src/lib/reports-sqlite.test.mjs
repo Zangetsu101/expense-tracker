@@ -86,6 +86,85 @@ test('monthly reports separate currencies, income and spending, omit excluded ro
   assert.deepEqual(await monthlyReport(2025, 3), { spending: [], summaries: [] });
 });
 
+test('monthly reports scope both totals to one Account, excluding transfers and excluded Transactions', async () => {
+  assert.deepEqual(await monthlyReport(2025, 1, 1), {
+    spending: [
+      { categoryId: 1, categoryName: 'Food', currencyCode: 'USD', amountMinor: 100 },
+      { categoryId: null, categoryName: null, currencyCode: 'USD', amountMinor: 50 },
+    ],
+    summaries: [{ currencyCode: 'USD', incomeMinor: 400, expenseMinor: 150 }],
+  });
+  for (const accountId of [2, 4, 999]) {
+    assert.deepEqual(await monthlyReport(2025, 1, accountId), { spending: [], summaries: [] });
+  }
+});
+
+test('Account scope does not combine another Account using the same Currency', async () => {
+  try {
+    add(90, 'EXPENSE', 700, day(2025, 1, 15), 2, 1);
+    add(91, 'INCOME', 900, day(2025, 1, 15), 2, 2);
+    assert.deepEqual(await monthlyReport(2025, 1, 2), {
+      spending: [{ categoryId: 1, categoryName: 'Food', currencyCode: 'USD', amountMinor: 700 }],
+      summaries: [{ currencyCode: 'USD', incomeMinor: 900, expenseMinor: 700 }],
+    });
+  } finally {
+    sqlite.prepare('DELETE FROM transactions WHERE id IN (90, 91)').run();
+  }
+});
+
+test('calendar months include leap days and December rollover, including years 1–99', async () => {
+  // ISO dates provide an independent epoch-day fixture without JS year-1900 coercion.
+  const isoDay = (iso) => Date.parse(`${iso}T00:00:00Z`) / 86400000;
+  const fixtures = [
+    [100, '0001-01-01', 11], [101, '0099-12-31', 12], [102, '0100-01-01', 13],
+    [103, '2024-02-29', 14], [104, '2024-03-01', 15],
+  ];
+  try {
+    for (const [id, iso, amount] of fixtures) add(id, 'EXPENSE', amount, isoDay(iso), 1, 1);
+    for (const [year, month, amount] of [[1, 1, 11], [99, 12, 12], [100, 1, 13], [2024, 2, 14], [2024, 3, 15]]) {
+      assert.deepEqual(await monthlyReport(year, month, 1), {
+        spending: [{ categoryId: 1, categoryName: 'Food', currencyCode: 'USD', amountMinor: amount }],
+        summaries: [{ currencyCode: 'USD', incomeMinor: 0, expenseMinor: amount }],
+      });
+    }
+  } finally {
+    sqlite.prepare('DELETE FROM transactions WHERE id >= 100').run();
+  }
+});
+
+test('monthly reports reject invalid calendar periods and Account identifiers', async () => {
+  for (const year of [0, -1, 10000, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER]) {
+    await assert.rejects(monthlyReport(year, 1), /Invalid month/);
+  }
+  for (const month of [0, 13, 1.5, NaN, Infinity]) {
+    await assert.rejects(monthlyReport(2025, month), /Invalid month/);
+  }
+  for (const accountId of [0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, null, '1']) {
+    await assert.rejects(monthlyReport(2025, 1, accountId), /Invalid account/);
+  }
+  assert.deepEqual(await monthlyReport(9999, 12, 1), { spending: [], summaries: [] });
+  assert.deepEqual(await monthlyReport(2025, 1, Number.MAX_SAFE_INTEGER), { spending: [], summaries: [] });
+});
+
+test('monthly report boundaries do not shift with the local timezone', async () => {
+  const original = process.env.TZ;
+  try {
+    for (const zone of ['UTC', 'America/Los_Angeles', 'Asia/Dhaka', 'Pacific/Kiritimati']) {
+      process.env.TZ = zone;
+      assert.deepEqual(await monthlyReport(2025, 1, 1), {
+        spending: [
+          { categoryId: 1, categoryName: 'Food', currencyCode: 'USD', amountMinor: 100 },
+          { categoryId: null, categoryName: null, currencyCode: 'USD', amountMinor: 50 },
+        ],
+        summaries: [{ currencyCode: 'USD', incomeMinor: 400, expenseMinor: 150 }],
+      }, zone);
+    }
+  } finally {
+    if (original === undefined) delete process.env.TZ;
+    else process.env.TZ = original;
+  }
+});
+
 test('display rate combines SQLite report totals without altering per-currency amounts', async () => {
   const { spending, summaries } = await monthlyReport(2025, 1);
   const rate = { base: 'USD', quote: 'BDT', rate: 100 };
