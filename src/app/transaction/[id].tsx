@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { theme } from '@/theme';
 import { TransactionReceipt } from '@/components/transaction-receipt';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { useNavigation, usePreventRemove } from 'expo-router/react-navigation';
@@ -19,18 +20,28 @@ export default function TransactionScreen() {
   const [revision, setRevision] = useState(0);
   const [dirty, setDirty] = useState(false);
   const navigation = useNavigation();
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const onSavingChange = useCallback((value: boolean) => { savingRef.current = value; setSaving(value); }, []);
+  const exitEditing = useCallback(() => {
+    setEditing(false);
+    setDirty(false);
+    setState('loading');
+    setTransaction(null);
+    setRevision((value) => value + 1);
+  }, []);
   const confirming = useRef(false);
   const pendingNavigation = useRef<(() => void) | null>(null);
-  const confirmDiscard = (discard: () => void) => {
-    if (confirming.current) return;
+  const confirmDiscard = useCallback((discard: () => void) => {
+    if (savingRef.current || confirming.current) return;
     if (!dirty) { setDirty(false); discard(); return; }
     confirming.current = true;
     Alert.alert('Discard changes?', 'Your unsaved edits will be lost.', [
-      { text: 'Keep editing', style: 'cancel' },
-      { text: 'Discard', style: 'destructive', onPress: () => { setDirty(false); discard(); } },
+      { text: 'Keep editing', style: 'cancel', onPress: () => { confirming.current = false; } },
+      { text: 'Discard', style: 'destructive', onPress: () => { confirming.current = false; setDirty(false); discard(); } },
     ], { cancelable: false, onDismiss: () => { confirming.current = false; } });
-  };
-  usePreventRemove(editing && dirty, ({ data }) => {
+  }, [dirty]);
+  usePreventRemove(editing && (dirty || saving), ({ data }) => {
     confirmDiscard(() => {
       pendingNavigation.current = () => navigation.dispatch(data.action);
       setEditing(false);
@@ -61,16 +72,17 @@ export default function TransactionScreen() {
   }, [id, revision]);
   useEffect(() => {
     if (!editing) return;
-    const subscription = BackHandler.addEventListener('hardwareBackPress', () => { confirmDiscard(() => setEditing(false)); return true; });
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => { confirmDiscard(exitEditing); return true; });
     return () => subscription.remove();
-  }, [editing]);
+  }, [editing, confirmDiscard, exitEditing]);
   return <View style={{ flex: 1 }}>
     <Stack.Screen options={{ title: editing ? 'Edit transaction' : 'Receipt',
-      headerStyle: editing ? undefined : { backgroundColor: '#101820' },
-      headerTintColor: editing ? undefined : '#f1f5f4',
-      headerLeft: editing ? () => <Pressable accessibilityRole="button" onPress={() => confirmDiscard(() => setEditing(false))}><Text>Receipt</Text></Pressable> : undefined,
+      headerStyle: { backgroundColor: theme.colors.background },
+      headerTintColor: theme.colors.text,
+      gestureEnabled: !editing,
+      headerLeft: editing ? () => <Pressable accessibilityRole="button" disabled={saving} accessibilityState={{ disabled: saving }} onPress={() => confirmDiscard(exitEditing)} style={{ paddingVertical: 12 }}><Text style={{ color: theme.colors.accent }}>Cancel</Text></Pressable> : undefined,
       headerRight: !editing && state === 'ready' ? () => <Pressable accessibilityRole="button" onPress={() => setEditing(true)}><Text style={{ color: '#8be0be', fontSize: 16, fontWeight: '600' }}>Edit</Text></Pressable> : undefined }} />
-    {editing && transaction ? <EditTransactionScreen transaction={transaction} onDirtyChange={setDirty} onSaved={async () => {
+    {editing && transaction ? <EditTransactionScreen transaction={transaction} onDirtyChange={setDirty} onSavingChange={onSavingChange} onCancel={() => confirmDiscard(exitEditing)} onSaved={async () => {
       const refreshed = await loadEditableTransaction(transaction.id);
       if (!refreshed) throw new Error('Transaction not found after saving');
       setTransaction(refreshed);
@@ -86,7 +98,7 @@ export default function TransactionScreen() {
   </View>;
 }
 
-function EditTransactionScreen({ transaction, onDirtyChange, onSaved }: { transaction: EditableTransaction; onDirtyChange: (dirty: boolean) => void; onSaved: () => Promise<void> }) {
+function EditTransactionScreen({ transaction, onDirtyChange, onSavingChange, onCancel, onSaved }: { transaction: EditableTransaction; onDirtyChange: (dirty: boolean) => void; onSavingChange: (saving: boolean) => void; onCancel: () => void; onSaved: () => Promise<void> }) {
   const [note, setNote] = useState(transaction.note ?? '');
   const initialTags = transaction.tags.map((tag) => tag.name).join(', ');
   const initialItems = transaction.lineItems.map((item) => ({ id: item.id, name: item.name, amount: formatLineItemAmount(item.amountMinor), quantity: item.quantity?.toString() ?? '' }));
@@ -94,13 +106,15 @@ function EditTransactionScreen({ transaction, onDirtyChange, onSaved }: { transa
   const [excluded, setExcluded] = useState(transaction.excludeFromReport !== 0);
   const [items, setItems] = useState<{ id?: number; name: string; amount: string; quantity: string }[]>(initialItems);
   const [saving, setSaving] = useState(false);
+  const [committed, setCommitted] = useState(false);
   const [error, setError] = useState<string>();
   useEffect(() => {
-    onDirtyChange(note !== (transaction.note ?? '') || tags !== initialTags || excluded !== (transaction.excludeFromReport !== 0) || JSON.stringify(items) !== JSON.stringify(initialItems));
-  }, [note, tags, excluded, items, transaction]);
+    onDirtyChange(!committed && (note !== (transaction.note ?? '') || tags !== initialTags || excluded !== (transaction.excludeFromReport !== 0) || JSON.stringify(items) !== JSON.stringify(initialItems)));
+  }, [note, tags, excluded, items, transaction, committed, onDirtyChange]);
   const save = async () => {
-    if (!transaction || saving) return;
+    if (saving) return;
     setSaving(true);
+    onSavingChange(true);
     setError(undefined);
     try {
       const lineItems: LineItem[] = items.map((item) => {
@@ -108,55 +122,68 @@ function EditTransactionScreen({ transaction, onDirtyChange, onSaved }: { transa
         const quantity = item.quantity.trim() === '' ? null : Number(item.quantity.trim());
         return { id: item.id, name: item.name, amountMinor, quantity };
       });
-      await saveTransactionEdit(transaction, note, excluded, tags, lineItems);
+      if (!committed) {
+        await saveTransactionEdit(transaction, note, excluded, tags, lineItems);
+        setCommitted(true);
+      }
       await onSaved();
     } catch (cause) {
       setError(String(cause));
     } finally {
       setSaving(false);
+      onSavingChange(false);
     }
   };
+  const inputStyle = { color: theme.colors.text, borderWidth: 1, borderColor: theme.colors.line, borderRadius: theme.radius.control, padding: 12, minHeight: theme.controlHeight, fontSize: theme.type.body };
+  const labelStyle = { color: theme.colors.text, fontSize: theme.type.body, fontWeight: '600' as const };
   return <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled"
-    style={{ backgroundColor: '#f6f6f8' }} contentContainerStyle={{ padding: 20, gap: 18 }}>
+    style={{ backgroundColor: theme.colors.background }} contentContainerStyle={{ padding: 20, paddingBottom: 40, gap: 20 }}>
     <>
-      <Text selectable style={{ fontSize: 18, fontWeight: '600' }}>{transaction.categoryName ?? transaction.type} · {transaction.accountName}</Text>
-      <Text selectable>{formatTransactionAmount(transaction.type, transaction.amountMinor, transaction.currencyCode)} · {formatEpochDay(transaction.date)}</Text>
-      <View style={{ gap: 8 }}>
-        <Text>Note</Text>
-        <TextInput accessibilityLabel="Note" multiline value={note} onChangeText={setNote} editable={!saving}
-          placeholder="Optional note" style={{ backgroundColor: 'white', minHeight: 100, padding: 12, borderRadius: 10, textAlignVertical: 'top' }} />
+      <View style={{ gap: 8, padding: 16, borderRadius: theme.radius.group, backgroundColor: theme.colors.surface }}>
+        <Text selectable style={{ color: theme.colors.text, fontSize: 24, fontWeight: '600', fontVariant: ['tabular-nums'] }}>{formatTransactionAmount(transaction.type, transaction.amountMinor, transaction.currencyCode)}</Text>
+        <Text selectable style={{ color: theme.colors.text }}>{transaction.categoryName ?? transaction.type} · {transaction.accountName}</Text>
+        <Text selectable style={{ color: theme.colors.muted }}>{formatEpochDay(transaction.date)} · Financial details are read-only</Text>
       </View>
       <View style={{ gap: 8 }}>
-        <Text>Tags</Text>
-        <TextInput accessibilityLabel="Tags" value={tags} onChangeText={setTags} editable={!saving}
+        <Text style={labelStyle}>Note</Text>
+        <TextInput accessibilityLabel="Note" multiline value={note} onChangeText={setNote} editable={!saving && !committed}
+          placeholder="Optional note" placeholderTextColor={theme.colors.muted} style={{ ...inputStyle, minHeight: 100, textAlignVertical: 'top' }} />
+      </View>
+      <View style={{ gap: 8 }}>
+        <Text style={labelStyle}>Tags</Text>
+        <TextInput accessibilityLabel="Tags" value={tags} onChangeText={setTags} editable={!saving && !committed}
           placeholder="Comma-separated tags" autoCapitalize="words"
-          style={{ backgroundColor: 'white', padding: 12, borderRadius: 10 }} />
+          placeholderTextColor={theme.colors.muted} style={inputStyle} />
       </View>
       <View style={{ gap: 8 }}>
-        <Text style={{ fontSize: 17, fontWeight: '600' }}>Line items (optional)</Text>
-        <Text selectable>Transaction amount stays unchanged. Line items do not need to add up to it.</Text>
-        {items.map((item, index) => <View key={item.id ?? `new-${index}`} style={{ gap: 8, padding: 12, backgroundColor: 'white', borderRadius: 10 }}>
-          <TextInput accessibilityLabel={`Line item ${index + 1} name`} placeholder="Name" value={item.name} editable={!saving}
+        <Text style={labelStyle}>Line items <Text style={{ color: theme.colors.muted, fontWeight: '400' }}>(optional)</Text></Text>
+        <Text selectable style={{ color: theme.colors.muted, lineHeight: 20 }}>Transaction amount stays unchanged. Line items do not need to add up to it. Amounts can be positive, negative or zero.</Text>
+        {items.map((item, index) => <View key={item.id ?? `new-${index}`} style={{ gap: 10, padding: 12, backgroundColor: theme.colors.surface, borderRadius: theme.radius.group }}>
+          <Text style={{ color: theme.colors.muted }}>Line item {index + 1}</Text>
+          <TextInput style={inputStyle} placeholderTextColor={theme.colors.muted} accessibilityLabel={`Line item ${index + 1} name`} placeholder="Name" value={item.name} editable={!saving && !committed}
             onChangeText={(name) => setItems((current) => current.map((entry, i) => i === index ? { ...entry, name } : entry))} />
-          <TextInput accessibilityLabel={`Line item ${index + 1} amount`} placeholder="Amount (major units)" value={item.amount} editable={!saving}
-            keyboardType="decimal-pad" onChangeText={(amount) => setItems((current) => current.map((entry, i) => i === index ? { ...entry, amount } : entry))} />
-          <TextInput accessibilityLabel={`Line item ${index + 1} quantity`} placeholder="Quantity (optional)" value={item.quantity} editable={!saving}
+          <TextInput style={inputStyle} placeholderTextColor={theme.colors.muted} accessibilityLabel={`Line item ${index + 1} amount`} placeholder="Amount (major units)" value={item.amount} editable={!saving && !committed}
+            keyboardType="numbers-and-punctuation" onChangeText={(amount) => setItems((current) => current.map((entry, i) => i === index ? { ...entry, amount } : entry))} />
+          <TextInput style={inputStyle} placeholderTextColor={theme.colors.muted} accessibilityLabel={`Line item ${index + 1} quantity`} placeholder="Quantity (optional)" value={item.quantity} editable={!saving && !committed}
             keyboardType="decimal-pad" onChangeText={(quantity) => setItems((current) => current.map((entry, i) => i === index ? { ...entry, quantity } : entry))} />
-          <Pressable accessibilityRole="button" disabled={saving} onPress={() => setItems((current) => current.filter((_, i) => i !== index))}>
-            <Text style={{ color: '#b33' }}>Remove line item</Text>
+          <Pressable accessibilityRole="button" accessibilityLabel={`Remove line item ${index + 1}`} disabled={saving || committed} style={{ paddingVertical: 12 }} onPress={() => setItems((current) => current.filter((_, i) => i !== index))}>
+            <Text style={{ color: theme.colors.warning }}>Remove line item</Text>
           </Pressable>
         </View>)}
-        <Pressable accessibilityRole="button" disabled={saving} onPress={() => setItems((current) => [...current, { name: '', amount: '', quantity: '' }])}>
-          <Text style={{ color: '#315fcb' }}>Add line item</Text>
+        <Pressable accessibilityRole="button" disabled={saving || committed} style={{ ...inputStyle, alignItems: 'center', justifyContent: 'center' }} onPress={() => setItems((current) => [...current, { name: '', amount: '', quantity: '' }])}>
+          <Text style={{ color: theme.colors.accent }}>Add line item</Text>
         </Pressable>
       </View>
-      <Host style={{ width: '100%', height: 56 }}>
-        <Switch label="Exclude from reports" value={excluded} onValueChange={setExcluded} disabled={saving} />
+      <Host colorScheme="dark" style={{ width: '100%', height: 56 }}>
+        <Switch label="Exclude from reports" value={excluded} onValueChange={setExcluded} disabled={saving || committed} />
       </Host>
-      {error && <Text accessibilityRole="alert" selectable>{error}</Text>}
+      {error && <Text accessibilityRole="alert" selectable style={{ color: theme.colors.warning }}>{error}</Text>}
       <Pressable accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving} onPress={() => void save()}
-        style={{ backgroundColor: '#315fcb', padding: 14, borderRadius: 10, alignItems: 'center' }}>
-        <Text style={{ color: 'white', fontWeight: '600' }}>{saving ? 'Saving…' : 'Save'}</Text>
+        style={{ backgroundColor: theme.colors.accent, opacity: saving ? 0.6 : 1, minHeight: theme.controlHeight, padding: 14, borderRadius: theme.radius.control, alignItems: 'center' }}>
+        <Text style={{ color: theme.colors.background, fontWeight: '600', fontSize: theme.type.body }}>{saving ? 'Saving…' : committed ? 'Retry receipt' : 'Save changes'}</Text>
+      </Pressable>
+      <Pressable accessibilityRole="button" disabled={saving} accessibilityState={{ disabled: saving }} onPress={onCancel} style={{ ...inputStyle, alignItems: 'center' }}>
+        <Text style={{ color: theme.colors.text }}>Cancel</Text>
       </Pressable>
     </>
   </ScrollView>;
