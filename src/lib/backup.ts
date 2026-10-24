@@ -37,6 +37,7 @@ function assertSafeLongs(value: unknown): void {
 // Scan numeric tokens before JSON.parse rounds large integers. Fractional display rates
 // are permitted; all bare integers must fit in JavaScript's exact integer range.
 function assertRawIntegersSafe(json: string): void {
+  const numberToken = /-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/y;
   let inString = false;
   for (let index = 0; index < json.length; index++) {
     const char = json[index];
@@ -49,7 +50,8 @@ function assertRawIntegersSafe(json: string): void {
       continue;
     }
     if (char === '-' || (char >= '0' && char <= '9')) {
-      const match = /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/.exec(json.slice(index));
+      numberToken.lastIndex = index;
+      const match = numberToken.exec(json);
       if (!match) continue;
       const token = match[0];
       if (!/[.eE]/.test(token) && !Number.isSafeInteger(Number(token))) {

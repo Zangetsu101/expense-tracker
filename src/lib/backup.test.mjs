@@ -5,6 +5,49 @@ import { decodeBackup, encodeBackup, restoreBackup } from './backup.ts';
 
 const native = readFileSync(new URL('../../scripts/fixtures/native-shaped-backup-v1.json', import.meta.url), 'utf8');
 
+test('numeric backup encoding and decoding keep cumulative string slicing linear', () => {
+  const data = decodeBackup(native);
+  data.transactions = Array.from({ length: 256 }, (_, index) => ({ ...data.transactions[0], id: index + 1 }));
+  const json = JSON.stringify(data, null, 2);
+  const originalSlice = String.prototype.slice;
+  let slicedCharacters = 0;
+  String.prototype.slice = function (...args) {
+    const result = originalSlice.apply(this, args);
+    slicedCharacters += result.length;
+    return result;
+  };
+  try {
+    assert.equal(decodeBackup(json).transactions.length, 256);
+    assert.equal(decodeBackup(encodeBackup(data)).transactions.length, 256);
+  } finally {
+    String.prototype.slice = originalSlice;
+  }
+  assert.ok(slicedCharacters <= json.length * 8,
+    `Sliced ${slicedCharacters} characters for a ${json.length}-character backup`);
+});
+
+test('raw integer safety preserves numeric syntax and escaped string contents', () => {
+  for (const token of ['9007199254740991', '-9007199254740991', '0', '-0']) {
+    assert.doesNotThrow(() => decodeBackup(`{"schemaVersion":1,"extra":${token}}`));
+  }
+  for (const token of ['9007199254740992', '9007199254740993', '-9007199254740992', '-9007199254740993']) {
+    assert.throws(() => decodeBackup(`{"schemaVersion":1,"extra":${token}}`), /integer too large/);
+  }
+  for (const token of ['1.25', '-0.5', '1e2', '1E+2', '-1e-2', '9007199254740993.0', '9007199254740993e0']) {
+    assert.doesNotThrow(() => decodeBackup(`{"schemaVersion":1,"extra":${token}}`));
+  }
+  for (const token of ['1.25', '9007199254740993.0', '9007199254740993e0']) {
+    assert.throws(() => decodeBackup(`{"schemaVersion":1,"accounts":[{"id":${token}}]}`), /not a safe integer/);
+  }
+  assert.equal(decodeBackup('{"schemaVersion":1,"accounts":[{"id":1e2}]}').accounts[0].id, 100);
+  const text = '9007199254740993 "quoted" \\ backslash';
+  assert.doesNotThrow(() => decodeBackup(JSON.stringify({ schemaVersion: 1, extra: text })));
+  assert.throws(() => decodeBackup(`{"schemaVersion":1,"extra":${JSON.stringify(text)},"unsafe":9007199254740993}`), /integer too large/);
+  for (const token of ['01', '1.', '1e', '--1', '+1']) {
+    assert.throws(() => decodeBackup(`{"schemaVersion":1,"extra":${token}}`), SyntaxError);
+  }
+});
+
 test('native v1 backups without import keys remain readable', () => {
   const data = decodeBackup(native);
   assert.equal(data.moneyLoverImportRows, undefined);
