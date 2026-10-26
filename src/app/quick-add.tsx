@@ -18,6 +18,10 @@ function Label({ children }: { children: string }) {
   return <Text style={{ color: muted, fontSize: 12 }}>{children}</Text>;
 }
 
+function HeaderAction({ label, onPress }: { label: string; onPress: () => void }) {
+  return <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={({ pressed }) => ({ minHeight: 48, justifyContent: 'center', paddingHorizontal: 8, opacity: pressed ? 0.6 : 1 })}><Text style={{ color: accent, fontSize: 16 }}>{label}</Text></Pressable>;
+}
+
 export default function QuickAdd() {
   const [type, setType] = useState<Kind>('EXPENSE');
   const [amount, setAmount] = useState('');
@@ -108,7 +112,9 @@ export default function QuickAdd() {
   }
 
   return <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
-    <Stack.Screen options={{ title: chooser === 'account' ? 'All accounts' : chooser === 'category' ? 'All categories' : 'Quick add', headerStyle: { backgroundColor: theme.colors.background }, headerTintColor: ink }} />
+    <Stack.Screen options={{ title: chooser === 'account' ? 'All accounts' : chooser === 'category' ? 'All categories' : 'Quick add', headerStyle: { backgroundColor: theme.colors.background }, headerTintColor: ink,
+      headerLeft: chooser ? undefined : () => <HeaderAction label="Cancel" onPress={() => router.back()} />,
+      headerRight: chooser ? undefined : () => <HeaderAction label="Transfer" onPress={() => router.replace('/transfer')} /> }} />
     {chooser ? <View style={{ flex: 1, paddingHorizontal: 22, paddingTop: 16, gap: 12 }}>
       <Pressable accessibilityRole="button" onPress={close} style={{ minHeight: 44, justifyContent: 'center' }}><Text style={{ color: accent }}>Back to quick add</Text></Pressable>
       <TextInput accessibilityLabel={chooser === 'account' ? 'Search accounts' : 'Search categories'} placeholder={chooser === 'account' ? 'Search accounts' : 'Search categories'} placeholderTextColor={muted} value={query} onChangeText={setQuery} autoFocus style={{ color: ink, backgroundColor: panel, borderRadius: 14, paddingHorizontal: 16, minHeight: 52, fontSize: 16 }} />

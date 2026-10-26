@@ -40,7 +40,7 @@ const hooks = registerHooks({
     return next(url, context);
   },
 });
-const { default: Accounts } = await import('../app/accounts.tsx');
+const { default: Accounts } = await import('../app/(tabs)/accounts/index.tsx');
 const { default: QuickAdd } = await import('../app/quick-add.tsx');
 const { default: Transfer } = await import('../app/transfer.tsx');
 let renderer;

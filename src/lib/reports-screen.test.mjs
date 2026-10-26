@@ -38,7 +38,7 @@ const hooks = registerHooks({
     return next(url, context);
   },
 });
-const { default: ReportsScreen } = await import('../app/reports.tsx');
+const { default: ReportsScreen } = await import('../app/(tabs)/reports/index.tsx');
 const accounts = [
   { id: 7, name: 'Wallet', currencyCode: 'USD' },
   { id: 8, name: 'Bank', currencyCode: 'EUR' },

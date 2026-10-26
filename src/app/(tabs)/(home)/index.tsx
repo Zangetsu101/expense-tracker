@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { Link, Stack, router, useFocusEffect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, FlatList, Pressable, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SymbolView } from 'expo-symbols';
 import { homeData, type HomeTransaction } from '@/lib/home-data';
 import type { MonthlySummary } from '@/lib/reports';
 import { formatEpochDay, formatTransactionAmount } from '@/lib/transaction-format';
@@ -21,7 +21,6 @@ export default function HomeScreen() {
   const [summaries, setSummaries] = useState<MonthlySummary[]>([]);
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(true);
-  const insets = useSafeAreaInsets();
   const load = useCallback(() => {
     let active = true;
     setLoading(true);
@@ -35,9 +34,9 @@ export default function HomeScreen() {
   }, []);
   useFocusEffect(load);
   return <View style={{ flex: 1, backgroundColor: colors.background }}>
-    <Stack.Screen options={{ title: 'Home', headerStyle: { backgroundColor: colors.background }, headerTintColor: colors.text }} />
+    <Stack.Screen options={{ headerRight: () => <Pressable onPress={() => router.push('/settings')} accessibilityRole="button" accessibilityLabel="Settings" style={{ minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center' }}><SymbolView name={{ ios: 'gearshape', android: 'settings' }} size={26} tintColor={colors.text} /></Pressable> }} />
     <StatusBar style="light" />
-    <FlatList contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: 20, paddingBottom: 100 + insets.bottom }}
+    <FlatList contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: 20, paddingBottom: 100 }}
       data={rows} keyExtractor={(row) => String(row.id)}
       ListHeaderComponent={<View style={{ gap: 20, paddingBottom: 12 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
@@ -65,14 +64,7 @@ export default function HomeScreen() {
           <Text selectable style={{ color: item.type === 'INCOME' ? colors.accent : colors.text, fontWeight: '700', fontVariant: ['tabular-nums'] }}>{amount(item.type, item.amountMinor, item.currencyCode)}</Text>
         </Pressable>
       </View>; }}
-      ListFooterComponent={<View style={{ gap: 16, paddingTop: 32 }}>
-        <Text style={{ color: colors.muted, fontWeight: '700' }}>More</Text>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-          {([['Transfer between accounts', '/transfer'], ['Manage categories', '/categories'], ['Manage accounts', '/accounts'], ['Reports', '/reports'], ['Review transfer candidates', '/review-queue']] as const).map(([label, href]) => <Pressable key={href} onPress={() => router.push(href)} accessibilityRole="button" style={({ pressed }) => ({ backgroundColor: colors.panel, padding: 12, borderRadius: 10, opacity: pressed ? 0.6 : 1 })}><Text style={{ color: colors.text }}>{label}</Text></Pressable>)}
-        </View>
-        <Link href="/data-tools" asChild><Pressable accessibilityRole="button" style={({ pressed }) => ({ paddingVertical: 10, opacity: pressed ? 0.6 : 1 })}><Text style={{ color: colors.accent }}>Import, export and backup</Text></Pressable></Link>
-      </View>}
     />
-    <Pressable onPress={() => router.push('/quick-add')} accessibilityRole="button" accessibilityLabel="Add transaction" style={({ pressed }) => ({ position: 'absolute', right: 20, bottom: Math.max(insets.bottom, 16) + 16, width: 56, height: 56, borderRadius: 28, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.75 : 1, boxShadow: '0 4px 12px rgba(0,0,0,0.3)' })}><Text style={{ color: colors.background, fontSize: 30 }}>+</Text></Pressable>
+    <Pressable onPress={() => router.push('/quick-add')} accessibilityRole="button" accessibilityLabel="Add transaction" style={({ pressed }) => ({ position: 'absolute', right: 20, bottom: 16, width: 60, height: 60, borderRadius: 30, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.75 : 1, boxShadow: '0 4px 12px rgba(0,0,0,0.3)' })}><SymbolView name={{ ios: 'plus', android: 'add' }} size={30} tintColor={colors.background} /></Pressable>
   </View>;
 }
