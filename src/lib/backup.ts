@@ -14,6 +14,8 @@ export interface BackupData {
   settings: { favoriteAccountId: number | null; displayRate: { base: string; quote: string; rate: number } | null };
   /** Expo extension to native v1; absent from backups written by the native app. */
   moneyLoverImportRows?: Array<{ rowKey: string; transactionId: number }>;
+  people?: Array<{ id: number; name: string }>;
+  lendingEntries?: Array<{ id: number; personId: number; kind: string; transactionId: number | null; currencyCode: string; amountMinor: number; dateEpochDay: number; note: string | null }>;
 }
 
 const arrays = ['accounts', 'categories', 'transactions', 'lineItems', 'tags', 'transactionTags', 'transferCandidates'] as const;
@@ -89,6 +91,7 @@ export function decodeBackup(json: string): BackupData {
       keys.add(row.rowKey);
     }
   }
+  validateLending(data);
   const settings = (data.settings ?? {}) as BackupData['settings'];
   return {
     schemaVersion: data.schemaVersion as number,
@@ -100,8 +103,57 @@ export function decodeBackup(json: string): BackupData {
     transactionTags: (data.transactionTags ?? []) as BackupData['transactionTags'],
     transferCandidates: (data.transferCandidates ?? []) as BackupData['transferCandidates'],
     settings: { favoriteAccountId: settings.favoriteAccountId ?? null, displayRate: settings.displayRate ?? null },
+    ...(data.people !== undefined ? { people: data.people as BackupData['people'] } : {}),
+    ...(data.lendingEntries !== undefined ? { lendingEntries: data.lendingEntries as BackupData['lendingEntries'] } : {}),
     ...(data.moneyLoverImportRows !== undefined ? { moneyLoverImportRows: data.moneyLoverImportRows as BackupData['moneyLoverImportRows'] } : {}),
   };
+}
+
+function validateLending(data: Record<string, unknown>): void {
+  const fail = (): never => { throw new Error('Invalid backup lending metadata'); };
+  const record = (row: unknown): row is Record<string, unknown> => row !== null && typeof row === 'object' && !Array.isArray(row);
+  const id = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) > 0;
+  const people = data.people ?? [];
+  const entries = data.lendingEntries ?? [];
+  if ((data.people !== undefined && !Array.isArray(data.people)) ||
+      (data.lendingEntries !== undefined && !Array.isArray(data.lendingEntries))) fail();
+  const personIds = new Set<number>();
+  const names = new Set<string>();
+  for (const person of people as unknown[]) {
+    if (!record(person) || !id(person.id) || typeof person.name !== 'string' || !person.name.trim()) fail();
+    const row = person as { id: number; name: string };
+    // Match SQLite's NOCASE uniqueness (ASCII folding only).
+    const name = row.name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
+    if (personIds.has(row.id) || names.has(name)) fail();
+    personIds.add(row.id); names.add(name);
+  }
+  const ids = new Set<number>();
+  const linked = new Set<number>();
+  const transactions = (data.transactions ?? []) as BackupData['transactions'];
+  const accounts = (data.accounts ?? []) as BackupData['accounts'];
+  for (const entry of entries as unknown[]) {
+    if (!record(entry) || !id(entry.id) || !id(entry.personId) || !personIds.has(entry.personId) ||
+        typeof entry.kind !== 'string' || !['LEND', 'BORROW', 'RECEIVE_REPAYMENT', 'REPAY', 'WRITE_OFF_LENT', 'WRITE_OFF_BORROWED'].includes(entry.kind) ||
+        !id(entry.amountMinor) || !Number.isSafeInteger(entry.dateEpochDay) ||
+        typeof entry.currencyCode !== 'string' || !/^[A-Z]{3}$/.test(entry.currencyCode) ||
+        !(entry.note === null || typeof entry.note === 'string')) fail();
+    const row = entry as NonNullable<BackupData['lendingEntries']>[number];
+    if (ids.has(row.id)) fail();
+    ids.add(row.id);
+    if (row.kind.startsWith('WRITE_OFF_')) {
+      if (row.transactionId !== null) fail();
+    } else {
+      if (!id(row.transactionId) || linked.has(row.transactionId)) fail();
+      const transaction = transactions.find((item) => item?.id === row.transactionId);
+      const account = accounts.find((item) => item?.id === transaction?.accountId);
+      if (!transaction || !account || account.currencyCode !== row.currencyCode ||
+          transaction.type !== (row.kind === 'LEND' || row.kind === 'REPAY' ? 'EXPENSE' : 'INCOME') ||
+          !transaction.excludeFromReport || transaction.amountMinor !== row.amountMinor ||
+          transaction.dateEpochDay !== row.dateEpochDay || transaction.note !== row.note ||
+          transaction.transferAccountId !== null) fail();
+      linked.add(row.transactionId!);
+    }
+  }
 }
 
 export function encodeBackup(data: BackupData): string {

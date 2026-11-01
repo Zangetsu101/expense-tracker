@@ -35,6 +35,13 @@ export const backupStore: BackupStore = {
     }
     data.moneyLoverImportRows = await db.getAllAsync<{ rowKey: string; transactionId: number }>(
       'SELECT rowKey, transactionId FROM moneylover_import_rows ORDER BY rowKey');
+    data.people = await db.getAllAsync('SELECT id, name FROM people ORDER BY id');
+    data.lendingEntries = await db.getAllAsync(`SELECT e.id, e.personId, e.kind, e.transactionId,
+      CASE WHEN t.id IS NULL THEN e.currencyCode ELSE a.currencyCode END AS currencyCode,
+      COALESCE(t.amountMinor, e.amountMinor) AS amountMinor, COALESCE(t.date, e.date) AS dateEpochDay,
+      CASE WHEN t.id IS NULL THEN e.note ELSE t.note END AS note
+      FROM lending_entries e LEFT JOIN transactions t ON t.id = e.transactionId
+      LEFT JOIN accounts a ON a.id = t.accountId ORDER BY e.id`);
     const favorite = await db.getFirstAsync<{ id: number }>('SELECT id FROM accounts WHERE isFavorite = 1 LIMIT 1');
     const settings = await db.getFirstAsync<{ value: string }>("SELECT value FROM app_settings WHERE key = 'backupSettings'");
     data.settings = settings ? JSON.parse(settings.value) : { favoriteAccountId: favorite?.id ?? null, displayRate: null }; 
@@ -43,7 +50,7 @@ export const backupStore: BackupStore = {
   async replace(data) {
     const db = await database();
     await db.withExclusiveTransactionAsync(async (tx) => {
-      await tx.execAsync('DELETE FROM moneylover_import_rows');
+      await tx.execAsync('DELETE FROM lending_entries; DELETE FROM people; DELETE FROM moneylover_import_rows');
       for (const table of ['transaction_tags', 'transfer_candidates', 'line_items', 'transactions', 'tags', 'categories', 'accounts']) await tx.execAsync(`DELETE FROM ${table}`);
       for (const [key, table] of tables) {
         for (const row of data[key]) {
@@ -60,6 +67,13 @@ export const backupStore: BackupStore = {
       }
       for (const row of data.moneyLoverImportRows ?? []) {
         await tx.runAsync('INSERT INTO moneylover_import_rows (rowKey, transactionId) VALUES (?, ?)', [row.rowKey, row.transactionId]);
+      }
+      for (const person of data.people ?? []) {
+        await tx.runAsync('INSERT INTO people (id, name) VALUES (?, ?)', [person.id, person.name]);
+      }
+      for (const entry of data.lendingEntries ?? []) {
+        await tx.runAsync('INSERT INTO lending_entries (id, personId, kind, transactionId, currencyCode, amountMinor, date, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          [entry.id, entry.personId, entry.kind, entry.transactionId, entry.currencyCode, entry.amountMinor, entry.dateEpochDay, entry.note]);
       }
       await tx.runAsync("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('backupSettings', ?)", [JSON.stringify(data.settings)]);
     });

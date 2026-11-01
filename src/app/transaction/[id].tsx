@@ -118,7 +118,7 @@ function EditTransactionScreen({ transaction, onDirtyChange, onSavingChange, onC
   const initialTags = transaction.tags.map((tag) => tag.name).join(', ');
   const initialItems = transaction.lineItems.map((item) => ({ id: item.id, name: item.name, amount: formatLineItemAmount(item.amountMinor), quantity: item.quantity?.toString() ?? '' }));
   const [tags, setTags] = useState(initialTags);
-  const [excluded, setExcluded] = useState(transaction.excludeFromReport !== 0);
+  const [excluded, setExcluded] = useState(!!transaction.reportExclusionLocked || transaction.excludeFromReport !== 0);
   const [items, setItems] = useState<{ id?: number; name: string; amount: string; quantity: string }[]>(initialItems);
   const [saving, setSaving] = useState(false);
   const [committed, setCommitted] = useState(false);
@@ -185,8 +185,9 @@ function EditTransactionScreen({ transaction, onDirtyChange, onSavingChange, onC
         <FormButton label="Add line item" variant="secondary" disabled={saving || committed} onPress={() => setItems((current) => [...current, { name: '', amount: '', quantity: '' }])} />
       </View>
       <Host colorScheme="dark" style={{ width: '100%', height: 56 }}>
-        <Switch label="Exclude from reports" value={excluded} onValueChange={setExcluded} disabled={saving || committed} />
+        <Switch label="Exclude from reports" value={excluded} onValueChange={setExcluded} disabled={saving || committed || !!transaction.reportExclusionLocked} />
       </Host>
+      {!!transaction.reportExclusionLocked && <Text style={{ color: theme.colors.muted }}>Principal movements are always excluded from reports.</Text>}
       {error && <Text accessibilityRole="alert" selectable style={{ color: theme.colors.warning }}>{error}</Text>}
       <FormButton label={saving ? 'Saving…' : committed ? 'Retry receipt' : 'Save changes'} loading={saving} onPress={() => void save()} />
       <FormButton label="Cancel" variant="secondary" disabled={saving} onPress={onCancel} />

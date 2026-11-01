@@ -14,7 +14,8 @@ export async function importMoneyLoverFile(confirmMixedCategories?: (names: stri
   if (!rows.length) throw new Error('No valid MoneyLover rows found.');
   const keys = importRowKeys(rows);
   const indices = new Map(rows.map((row, index) => [row, index]));
-  const matches = classifyTransferPairs(rows);
+  const principalRows = rows.filter(isLendingPrincipal);
+  const matches = classifyTransferPairs(rows.filter((row) => !isLendingPrincipal(row)));
   for (const row of rows) {
     const currency = row.currency.trim().toUpperCase();
     if (!row.account || !currency || !row.category || !Number.isSafeInteger(row.amountMinor) || row.amountMinor === 0) throw new Error('CSV contains an unsupported account, category, or amount.');
@@ -22,7 +23,7 @@ export async function importMoneyLoverFile(confirmMixedCategories?: (names: stri
   const db = await database();
   const alreadyImported = new Map((await db.getAllAsync<{ rowKey: string; transactionId: number }>(
     'SELECT rowKey, transactionId FROM moneylover_import_rows')).map((row) => [row.rowKey, row.transactionId]));
-  const categoryRows = [...matches.singleSided];
+  const categoryRows = [...matches.singleSided, ...principalRows];
   for (const pair of matches.highConfidence) {
     const outgoingId = alreadyImported.get(keys[indices.get(pair.outgoing)!]);
     const incomingId = alreadyImported.get(keys[indices.get(pair.incoming)!]);
@@ -88,13 +89,24 @@ export async function importMoneyLoverFile(confirmMixedCategories?: (names: stri
       inserted++;
     }
     for (const [index, row] of rows.entries()) {
-      if (merged.has(index) || existing.has(keys[index])) continue;
+      if (merged.has(index)) continue;
       const type = row.amountMinor < 0 ? 'EXPENSE' : 'INCOME';
+      const excludePrincipal = isLendingPrincipal(row);
+      const existingId = existing.get(keys[index]);
+      if (existingId) {
+        if (excludePrincipal) {
+          await tx.runAsync(`UPDATE transactions SET excludeFromReport = 1
+            WHERE id = ? AND source = 'IMPORT' AND type = ? AND categoryId IN
+            (SELECT id FROM categories WHERE name = ? COLLATE NOCASE AND type = ?)`,
+            [existingId, type, row.category, type]);
+        }
+        continue;
+      }
       const account = await accountId(row);
       const category = await categoryId(row.category, type);
       const transaction = await tx.runAsync(`INSERT INTO transactions (type, amountMinor, date, accountId, categoryId, note, excludeFromReport, source)
         VALUES (?, ?, ?, ?, ?, ?, ?, 'IMPORT')`,
-        [type, Math.abs(row.amountMinor), day(row), account, category, row.note || null, Number(row.excludeFromReport)]);
+        [type, Math.abs(row.amountMinor), day(row), account, category, row.note || null, Number(excludePrincipal || row.excludeFromReport)]);
       await tx.runAsync('INSERT INTO moneylover_import_rows (rowKey, transactionId) VALUES (?, ?)', [keys[index], transaction.lastInsertRowId]);
       existing.set(keys[index], transaction.lastInsertRowId);
       inserted++;
@@ -134,6 +146,12 @@ export async function importMoneyLoverFile(confirmMixedCategories?: (names: stri
     }
   });
   return inserted;
+}
+
+function isLendingPrincipal(row: MoneyLoverRow): boolean {
+  const category = row.category.trim().toLowerCase();
+  return ((category === 'loan' || category === 'repayment') && row.amountMinor < 0) ||
+    ((category === 'debt collection' || category === 'debt') && row.amountMinor > 0);
 }
 
 function day(row: MoneyLoverRow): number {

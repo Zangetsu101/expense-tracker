@@ -14,11 +14,17 @@ export type EditableTransaction = {
   categoryName: string | null;
   note: string | null;
   excludeFromReport: number;
+  reportExclusionLocked: number;
   tags: { id: number; name: string }[];
   lineItems: LineItem[];
 };
 
 export type LineItem = { id?: number; name: string; amountMinor: number; quantity: number | null };
+
+const principalReportExclusion = `EXISTS (SELECT 1 FROM lending_entries WHERE transactionId = t.id)
+  OR (t.source = 'IMPORT' AND EXISTS (SELECT 1 FROM categories c WHERE c.id = t.categoryId AND
+    ((t.type = 'EXPENSE' AND lower(trim(c.name)) IN ('loan', 'repayment')) OR
+     (t.type = 'INCOME' AND lower(trim(c.name)) IN ('debt', 'debt collection')))))`;
 
 function validateLineItems(items: LineItem[]) {
   const ids = new Set<number>();
@@ -41,7 +47,8 @@ export async function loadEditableTransaction(id: number): Promise<EditableTrans
   validId(id);
   const db = await database();
   const row = await db.getFirstAsync<Omit<EditableTransaction, 'tags' | 'lineItems'>>(`SELECT t.id, t.type, t.amountMinor, t.date, t.accountId, t.categoryId, a.name AS accountName,
-    a.currencyCode, c.name AS categoryName, t.note, t.excludeFromReport
+    a.currencyCode, c.name AS categoryName, t.note, t.excludeFromReport,
+    CASE WHEN ${principalReportExclusion} THEN 1 ELSE 0 END AS reportExclusionLocked
     FROM transactions t JOIN accounts a ON a.id = t.accountId
     LEFT JOIN categories c ON c.id = t.categoryId
     WHERE t.id = ? AND t.type IN ('EXPENSE', 'INCOME')`, [id]);
@@ -71,7 +78,8 @@ export async function saveTransactionEdit(original: EditableTransaction, note: s
       const previous = original.lineItems[index];
       return item.id !== previous.id || item.name !== previous.name || item.amountMinor !== previous.amountMinor || item.quantity !== previous.quantity;
     })) throw new Error('Transaction was changed or removed. Reload before saving.');
-    const result = await tx.runAsync(`UPDATE transactions SET note = ?, excludeFromReport = ?
+    const result = await tx.runAsync(`UPDATE transactions AS t SET note = ?, excludeFromReport = CASE
+        WHEN ${principalReportExclusion} THEN 1 ELSE ? END
       WHERE id = ? AND type = ? AND amountMinor = ? AND date = ? AND accountId = ?
         AND categoryId IS ? AND note IS ? AND excludeFromReport = ?`,
       [note.trim() || null, Number(excludeFromReport), original.id, original.type,

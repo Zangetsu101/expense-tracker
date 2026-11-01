@@ -1,5 +1,12 @@
 import { database } from './database';
 
+const principalLegs = `SELECT t.id FROM transactions t
+  LEFT JOIN categories category ON category.id = t.categoryId
+  LEFT JOIN lending_entries entry ON entry.transactionId = t.id
+  WHERE (entry.id IS NOT NULL OR (t.source = 'IMPORT' AND
+    ((t.type = 'EXPENSE' AND lower(trim(category.name)) IN ('loan', 'repayment')) OR
+     (t.type = 'INCOME' AND lower(trim(category.name)) IN ('debt', 'debt collection')))))`;
+
 export type ReviewCandidate = {
   id: number; confidenceNote: string; date: number; amountMinor: number;
   outgoingAccount: string; incomingAccount: string; currencyCode: string;
@@ -16,7 +23,8 @@ export async function listReviewCandidates(): Promise<ReviewCandidate[]> {
     JOIN transactions i ON i.id = c.incomingTxnId
     JOIN accounts oa ON oa.id = o.accountId
     JOIN accounts ia ON ia.id = i.accountId
-    WHERE c.resolved = 0 ORDER BY o.date DESC, c.id DESC`);
+    WHERE c.resolved = 0 AND NOT EXISTS (${principalLegs} AND t.id IN (o.id, i.id))
+    ORDER BY o.date DESC, c.id DESC`);
 }
 
 export async function rejectCandidate(id: number) {
@@ -52,6 +60,8 @@ export async function confirmCandidate(id: number) {
       pair.outgoingTxnId === pair.incomingTxnId) {
       throw new Error('The two transactions no longer form a valid same-currency transfer.');
     }
+    const principal = await tx.getFirstAsync(`${principalLegs} AND t.id IN (?, ?) LIMIT 1`, [pair.outgoingTxnId, pair.incomingTxnId]);
+    if (principal) throw new Error('Lending principal cannot be confirmed as a Transfer.');
     const details = await tx.getFirstAsync<{ count: number }>(`SELECT
       (SELECT COUNT(*) FROM line_items WHERE transactionId IN (?, ?)) +
       (SELECT COUNT(*) FROM transaction_tags WHERE transactionId IN (?, ?)) AS count`,

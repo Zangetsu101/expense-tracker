@@ -71,6 +71,35 @@ async function reset() {
   }
 }
 
+test('all principal kinds remain individual and assignable despite corroborated transfer counterparts', async () => {
+  const { listUnassignedLendingTransactions } = await import('./lending.ts');
+  const { importRowKeys } = await import('./import-dedupe.ts');
+  const { parseMoneyLoverCsv } = await import('./csv.ts');
+  for (const [category, amount, kind] of [['Loan', -100, 'LEND'], ['Repayment', -100, 'REPAY'], ['Debt', 100, 'BORROW'], ['Debt Collection', 100, 'RECEIVE_REPAYMENT']]) {
+    await reset();
+    rows([801, amount < 0 ? '' : 'From Bank', amount, category, 'Cash'],
+      [802, amount < 0 ? 'From Cash' : '', -amount, amount < 0 ? 'Deposit' : 'Withdrawal', 'Bank']);
+    const originalKeys = importRowKeys(parseMoneyLoverCsv(csv)).sort();
+    assert.equal(await importMoneyLoverFile(), 2, category);
+    assert.deepEqual(all('transactions').map(t => t.type).sort(), ['EXPENSE', 'INCOME']);
+    assert.equal(all('transfer_candidates').length, 0);
+    assert.deepEqual(all('moneylover_import_rows').map(r => r.rowKey).sort(), originalKeys);
+    assert.deepEqual((await listUnassignedLendingTransactions()).map(t => [t.categoryName, t.kind, t.amountMinor, t.accountName]), [[category, kind, 10000, 'Cash']]);
+    assert.equal(await importMoneyLoverFile(), 0);
+  }
+});
+
+test('borrowing and repayments exclude principal on import and keyed reimport without changing movements', async () => {
+  await reset();
+  rows([701, 'borrowed principal', 20, 'Debt', 'Cash'], [702, 'paid principal', -5, 'Repayment', 'Cash']);
+  assert.equal(await importMoneyLoverFile(), 2);
+  const original = all('transactions');
+  assert.deepEqual(original.map(row => row.excludeFromReport), [1, 1]);
+  sql.exec('UPDATE transactions SET excludeFromReport = 0');
+  assert.equal(await importMoneyLoverFile(), 0);
+  assert.deepEqual(all('transactions'), original);
+});
+
 test('favorite Account persists and Category choices put recent use first', async () => {
   await reset();
   const bank = await adapter.runAsync("INSERT INTO accounts (name, currencyCode) VALUES ('Bank', 'BDT')");
@@ -119,6 +148,64 @@ test('amount text accepts plain decimals with up to two significant decimals and
     await assert.rejects(() => importMoneyLoverFile(), { message: `CSV contains an unsupported amount: ${amount}.` });
     assert.equal(all('transactions').length, 0);
   }
+});
+
+test('lending principal policy excludes new imports without changing CSV identities or money', async () => {
+  await reset();
+  rows(['1', 'Lent', -100, 'Loan', 'Cash'], ['2', 'Repaid', 40, 'Debt Collection', 'Cash'],
+    ['3', 'Lunch', -5, 'Food', 'Cash'], ['4', 'Hidden', 10, 'Salary', 'Cash', true],
+    ['5', 'Reverse loan', 3, 'Loan', 'Cash'], ['6', 'Reverse collection', -2, 'Debt Collection', 'Cash']);
+  const originalCsv = csv;
+  const originalKeys = [
+    '["[\\"2025-02-01\\",\\"cash\\",\\"BDT\\",\\"loan\\",-100,\\"Lent\\",false]",0]',
+    '["[\\"2025-02-01\\",\\"cash\\",\\"BDT\\",\\"debt collection\\",40,\\"Repaid\\",false]",0]',
+    '["[\\"2025-02-01\\",\\"cash\\",\\"BDT\\",\\"food\\",-5,\\"Lunch\\",false]",0]',
+    '["[\\"2025-02-01\\",\\"cash\\",\\"BDT\\",\\"salary\\",10,\\"Hidden\\",true]",0]',
+    '["[\\"2025-02-01\\",\\"cash\\",\\"BDT\\",\\"loan\\",3,\\"Reverse loan\\",false]",0]',
+    '["[\\"2025-02-01\\",\\"cash\\",\\"BDT\\",\\"debt collection\\",-2,\\"Reverse collection\\",false]",0]',
+  ];
+  assert.equal(await importMoneyLoverFile(async () => true), 6);
+  assert.equal(csv, originalCsv);
+  assert.deepEqual(all('moneylover_import_rows').map((row) => row.rowKey).sort(), originalKeys.sort());
+  assert.deepEqual(all('transactions').map((row) => row.excludeFromReport), [1, 1, 0, 1, 0, 0]);
+  assert.deepEqual(all('transactions').map((row) => row.amountMinor), [10000, 4000, 500, 1000, 300, 200]);
+  const before = ['accounts', 'categories', 'transactions', 'moneylover_import_rows'].map(all);
+  const balance = () => sql.prepare("SELECT SUM(CASE WHEN type = 'EXPENSE' THEN -amountMinor ELSE amountMinor END) AS balance FROM transactions").get().balance;
+  assert.equal(balance(), -5400);
+  assert.equal(await importMoneyLoverFile(), 0);
+  assert.equal(await importMoneyLoverFile(), 0);
+  assert.equal(balance(), -5400);
+  assert.deepEqual(['accounts', 'categories', 'transactions', 'moneylover_import_rows'].map(all), before);
+});
+
+test('reimport corrects only keyed imported principal flags, preserving manual entries and balances', async () => {
+  await reset();
+  rows(['1', 'Lent', -100, 'Loan', 'Cash'], ['2', 'Repaid', 40, 'Debt Collection', 'Cash'],
+    ['3', 'Lunch', -5, 'Food', 'Cash'], ['4', 'Hidden', 10, 'Salary', 'Cash', true]);
+  await importMoneyLoverFile();
+  // Simulate rows inserted by the old importer with the original false CSV flags.
+  sql.exec("UPDATE transactions SET excludeFromReport = 0 WHERE note IN ('Lent', 'Repaid')");
+  for (const category of ['Loan', 'Debt Collection']) {
+    const type = category === 'Loan' ? 'EXPENSE' : 'INCOME';
+    await adapter.runAsync(`INSERT INTO transactions (type, amountMinor, date, accountId, categoryId, note, source)
+      SELECT ?, 700, 20000, a.id, c.id, 'Manual', 'MANUAL' FROM accounts a, categories c WHERE a.name = 'Cash' AND c.name = ?`, [type, category]);
+  }
+  const before = ['accounts', 'categories', 'transactions', 'moneylover_import_rows'].map(all);
+  const balances = () => sql.prepare(`SELECT accountId, SUM(CASE WHEN type = 'EXPENSE' THEN -amountMinor ELSE amountMinor END) AS balance
+    FROM transactions GROUP BY accountId ORDER BY accountId`).all();
+  const oldBalances = balances();
+  assert.equal(await importMoneyLoverFile(), 0);
+  const expected = before[2];
+  for (const row of expected) {
+    if (['Lent', 'Repaid'].includes(row.note)) row.excludeFromReport = 1;
+  }
+  assert.deepEqual(all('transactions'), expected);
+  assert.deepEqual(all('accounts'), before[0]);
+  assert.deepEqual(all('categories'), before[1]);
+  assert.deepEqual(all('moneylover_import_rows'), before[3]);
+  assert.deepEqual(balances(), oldBalances);
+  assert.equal(await importMoneyLoverFile(), 0);
+  assert.deepEqual(all('transactions'), expected);
 });
 
 test('high-confidence reimport retains one Transfer and both row keys', async () => {

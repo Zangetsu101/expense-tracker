@@ -48,6 +48,39 @@ test('raw integer safety preserves numeric syntax and escaped string contents', 
   }
 });
 
+test('people, linked principal and write-offs roundtrip without changing financial records', () => {
+  const data = decodeBackup(native);
+  data.people = [{ id: 1, name: 'Ada' }];
+  data.lendingEntries = [{ id: 1, personId: 1, kind: 'WRITE_OFF_LENT', transactionId: null, currencyCode: 'BDT', amountMinor: 50, dateEpochDay: 20000, note: null }];
+  const restored = decodeBackup(encodeBackup(data));
+  assert.deepEqual(restored.people, data.people);
+  assert.deepEqual(restored.lendingEntries, data.lendingEntries);
+  assert.deepEqual(restored.transactions, data.transactions);
+});
+
+test('invalid lending metadata is rejected before replacement', async () => {
+  const base = decodeBackup(native);
+  base.people = [{ id: 1, name: 'Ada' }];
+  const entry = { id: 1, personId: 1, kind: 'WRITE_OFF_LENT', transactionId: null, currencyCode: 'BDT', amountMinor: 50, dateEpochDay: 20000, note: null };
+  const invalid = [
+    { people: null }, { people: [null] }, { people: [{ id: 1, name: ' ' }] },
+    { people: [{ id: 1, name: 'Ada' }, { id: 2, name: 'ada' }] },
+    { lendingEntries: {} }, { lendingEntries: [null] },
+    ...[{ personId: 99 }, { personId: 1.5 }, { kind: 'OTHER' }, { amountMinor: 0 },
+      { currencyCode: '' }, { dateEpochDay: 1.5 }, { note: 7 }, { transactionId: 999 },
+      { kind: 'LEND' }].map((patch) => ({ lendingEntries: [{ ...entry, ...patch }] })),
+    { lendingEntries: [entry, entry] },
+  ];
+  for (const patch of invalid) {
+    let replaced = false;
+    await assert.rejects(() => restoreBackup({ replace: async () => { replaced = true; } }, {
+      pickJsonDocument: async () => 'content://backup',
+      readText: async () => JSON.stringify({ ...base, lendingEntries: [entry], ...patch }),
+    }), /backup|safe integer/);
+    assert.equal(replaced, false);
+  }
+});
+
 test('native v1 backups without import keys remain readable', () => {
   const data = decodeBackup(native);
   assert.equal(data.moneyLoverImportRows, undefined);

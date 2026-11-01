@@ -8,6 +8,7 @@ sqlite.exec(`PRAGMA foreign_keys = ON;
 CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT, currencyCode TEXT);
 CREATE TABLE categories (id INTEGER PRIMARY KEY, name TEXT);
 CREATE TABLE transactions (id INTEGER PRIMARY KEY, type TEXT, amountMinor INTEGER, date INTEGER, accountId INTEGER, categoryId INTEGER, note TEXT, excludeFromReport INTEGER);
+CREATE TABLE lending_entries (id INTEGER PRIMARY KEY, transactionId INTEGER UNIQUE);
 CREATE TABLE tags (id INTEGER PRIMARY KEY, name TEXT UNIQUE);
 CREATE TABLE line_items (id INTEGER PRIMARY KEY, transactionId INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE, name TEXT NOT NULL, amountMinor INTEGER NOT NULL, quantity REAL);
 CREATE TABLE transaction_tags (transactionId INTEGER REFERENCES transactions(id), tagId INTEGER REFERENCES tags(id), PRIMARY KEY(transactionId, tagId));
@@ -16,7 +17,8 @@ INSERT INTO categories VALUES (1, 'Food');
 INSERT INTO transactions VALUES (1, 'EXPENSE', 1234, 20000, 1, 1, 'old', 0), (2, 'TRANSFER', 500, 20001, 1, NULL, 'move', 0);
 INSERT INTO tags VALUES (1, 'Food'), (2, 'Shared');
 INSERT INTO transaction_tags VALUES (1, 1), (2, 2);
-INSERT INTO line_items VALUES (1, 1, 'Coffee', 100, 2);`);
+INSERT INTO line_items VALUES (1, 1, 'Coffee', 100, 2);
+ALTER TABLE transactions ADD COLUMN source TEXT DEFAULT 'MANUAL';`);
 let failLink = false;
 let failItem = false;
 const tx = {
@@ -56,6 +58,7 @@ const { loadEditableTransaction, saveTransactionEdit } = await import('./transac
 
 test('edits tags, note and exclusion without changing financial fields or shared tags', async () => {
   const original = await loadEditableTransaction(1);
+  assert.equal(original.reportExclusionLocked, 0);
   assert.deepEqual(original.tags.map(({ id, name }) => ({ id, name })), [{ id: 1, name: 'Food' }]);
   await saveTransactionEdit(original, '  lunch  ', true, ' food, Shared, shared, New ');
   assert.deepEqual({ ...sqlite.prepare('SELECT type, amountMinor, date, accountId, categoryId, note, excludeFromReport FROM transactions WHERE id = 1').get() },
@@ -67,6 +70,18 @@ test('edits tags, note and exclusion without changing financial fields or shared
   assert.equal((await loadEditableTransaction(1)).excludeFromReport, 0);
   assert.equal(sqlite.prepare('SELECT count(*) AS n FROM transaction_tags WHERE transactionId = 1').get().n, 0);
   assert.equal(sqlite.prepare('SELECT count(*) AS n FROM transaction_tags WHERE transactionId = 2').get().n, 1);
+});
+
+test('editing a linked principal cannot include it in reports', async () => {
+  sqlite.exec('INSERT INTO lending_entries VALUES (1, 1)');
+  try {
+    assert.equal((await loadEditableTransaction(1)).reportExclusionLocked, 1);
+    await saveTransactionEdit(await loadEditableTransaction(1), 'principal note', false, '');
+    assert.equal((await loadEditableTransaction(1)).excludeFromReport, 1);
+    assert.equal((await loadEditableTransaction(1)).note, 'principal note');
+  } finally {
+    sqlite.exec('DELETE FROM lending_entries');
+  }
 });
 
 test('rejects invalid input, missing and transfer transactions, and stale edits', async () => {
