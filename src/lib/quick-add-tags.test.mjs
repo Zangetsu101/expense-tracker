@@ -6,7 +6,6 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const root = dirname(fileURLToPath(import.meta.url));
 const sqlite = new DatabaseSync(':memory:');
 let failLink = false;
 const adapter = {

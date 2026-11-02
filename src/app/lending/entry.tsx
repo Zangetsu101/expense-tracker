@@ -49,6 +49,8 @@ export default function EntryScreen() {
   const [retry, setRetry] = useState(0);
   useEffect(() => {
     let active = true;
+    // Clear the previous route's form while its replacement loads.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     setError('');
     Promise.all([listPeople(), listAccounts(), id ? listLendingEntries() : Promise.resolve([])])

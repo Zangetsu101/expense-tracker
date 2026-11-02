@@ -1,5 +1,5 @@
 import { FormButton, FormInput } from '@/components/form-controls';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { theme } from '@/theme';
 import { TransactionReceipt, TransferReceipt } from '@/components/transaction-receipt';
 import { TransferForm, useAccounts, type TransferDraft } from '@/components/transfer-form';
@@ -65,6 +65,8 @@ export default function TransactionScreen() {
   }, [editing]);
   useEffect(() => {
     let active = true;
+    // Reset the receipt before loading a different route or retrying a failed read.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setState('loading');
     setTransaction(null);
     const transactionId = Number(id);
@@ -116,7 +118,7 @@ export default function TransactionScreen() {
 function EditTransactionScreen({ transaction, onDirtyChange, onSavingChange, onCancel, onSaved }: { transaction: EditableTransaction; onDirtyChange: (dirty: boolean) => void; onSavingChange: (saving: boolean) => void; onCancel: () => void; onSaved: () => Promise<void> }) {
   const [note, setNote] = useState(transaction.note ?? '');
   const initialTags = transaction.tags.map((tag) => tag.name).join(', ');
-  const initialItems = transaction.lineItems.map((item) => ({ id: item.id, name: item.name, amount: formatLineItemAmount(item.amountMinor), quantity: item.quantity?.toString() ?? '' }));
+  const initialItems = useMemo(() => transaction.lineItems.map((item) => ({ id: item.id, name: item.name, amount: formatLineItemAmount(item.amountMinor), quantity: item.quantity?.toString() ?? '' })), [transaction.lineItems]);
   const [tags, setTags] = useState(initialTags);
   const [excluded, setExcluded] = useState(!!transaction.reportExclusionLocked || transaction.excludeFromReport !== 0);
   const [items, setItems] = useState<{ id?: number; name: string; amount: string; quantity: string }[]>(initialItems);
@@ -125,7 +127,7 @@ function EditTransactionScreen({ transaction, onDirtyChange, onSavingChange, onC
   const [error, setError] = useState<string>();
   useEffect(() => {
     onDirtyChange(!committed && (note !== (transaction.note ?? '') || tags !== initialTags || excluded !== (transaction.excludeFromReport !== 0) || JSON.stringify(items) !== JSON.stringify(initialItems)));
-  }, [note, tags, excluded, items, transaction, committed, onDirtyChange]);
+  }, [note, tags, excluded, items, transaction, initialTags, initialItems, committed, onDirtyChange]);
   const save = async () => {
     if (saving) return;
     setSaving(true);

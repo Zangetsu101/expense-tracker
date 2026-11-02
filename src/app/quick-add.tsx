@@ -51,6 +51,8 @@ export default function QuickAdd() {
   }, []);
   useEffect(() => {
     let active = true;
+    // Do not leave categories from the previous transaction type selectable.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCategories([]);
     setCategoryId(undefined);
     listCategories(type).then((items) => {

@@ -44,6 +44,8 @@ export function TransferForm({ accounts, loading = false, loadError, initial = {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string>();
   useEffect(() => {
+    // Accounts arrive asynchronously; select the first only if none is selected.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (fromId === undefined && accounts[0]) setFromId(accounts[0].id);
   }, [accounts, fromId]);
   const dirty = fromId !== initial.fromId || toId !== initial.toId || amount !== (initial.amount ?? '') || note !== (initial.note ?? '')

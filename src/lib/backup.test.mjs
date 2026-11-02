@@ -11,6 +11,8 @@ test('numeric backup encoding and decoding keep cumulative string slicing linear
   const json = JSON.stringify(data, null, 2);
   const originalSlice = String.prototype.slice;
   let slicedCharacters = 0;
+  // Instrument string slicing to catch quadratic backup processing.
+  // eslint-disable-next-line no-extend-native
   String.prototype.slice = function (...args) {
     const result = originalSlice.apply(this, args);
     slicedCharacters += result.length;
@@ -20,6 +22,7 @@ test('numeric backup encoding and decoding keep cumulative string slicing linear
     assert.equal(decodeBackup(json).transactions.length, 256);
     assert.equal(decodeBackup(encodeBackup(data)).transactions.length, 256);
   } finally {
+    // eslint-disable-next-line no-extend-native -- Restore the instrumented method even on failure.
     String.prototype.slice = originalSlice;
   }
   assert.ok(slicedCharacters <= json.length * 8,

@@ -4,18 +4,18 @@ export const BACKUP_SCHEMA_VERSION = 1;
 
 export interface BackupData {
   schemaVersion: number;
-  accounts: Array<{ id: number; name: string; currencyCode: string; openingBalanceMinor: number; isFavorite: boolean }>;
-  categories: Array<{ id: number; name: string; type: string; parentId: number | null; iconKey: string | null; needsReview: boolean }>;
-  transactions: Array<{ id: number; type: string; amountMinor: number; dateEpochDay: number; accountId: number; transferAccountId: number | null; categoryId: number | null; note: string | null; excludeFromReport: boolean; source: string }>;
-  lineItems: Array<{ id: number; transactionId: number; name: string; amountMinor: number; quantity: number | null }>;
-  tags: Array<{ id: number; name: string }>;
-  transactionTags: Array<{ transactionId: number; tagId: number }>;
-  transferCandidates: Array<{ id: number; outgoingTxnId: number; incomingTxnId: number; confidenceNote: string; resolved: boolean }>;
+  accounts: { id: number; name: string; currencyCode: string; openingBalanceMinor: number; isFavorite: boolean }[];
+  categories: { id: number; name: string; type: string; parentId: number | null; iconKey: string | null; needsReview: boolean }[];
+  transactions: { id: number; type: string; amountMinor: number; dateEpochDay: number; accountId: number; transferAccountId: number | null; categoryId: number | null; note: string | null; excludeFromReport: boolean; source: string }[];
+  lineItems: { id: number; transactionId: number; name: string; amountMinor: number; quantity: number | null }[];
+  tags: { id: number; name: string }[];
+  transactionTags: { transactionId: number; tagId: number }[];
+  transferCandidates: { id: number; outgoingTxnId: number; incomingTxnId: number; confidenceNote: string; resolved: boolean }[];
   settings: { favoriteAccountId: number | null; displayRate: { base: string; quote: string; rate: number } | null };
   /** Expo extension to native v1; absent from backups written by the native app. */
-  moneyLoverImportRows?: Array<{ rowKey: string; transactionId: number }>;
-  people?: Array<{ id: number; name: string }>;
-  lendingEntries?: Array<{ id: number; personId: number; kind: string; transactionId: number | null; currencyCode: string; amountMinor: number; dateEpochDay: number; note: string | null }>;
+  moneyLoverImportRows?: { rowKey: string; transactionId: number }[];
+  people?: { id: number; name: string }[];
+  lendingEntries?: { id: number; personId: number; kind: string; transactionId: number | null; currencyCode: string; amountMinor: number; dateEpochDay: number; note: string | null }[];
 }
 
 const arrays = ['accounts', 'categories', 'transactions', 'lineItems', 'tags', 'transactionTags', 'transferCandidates'] as const;
@@ -81,7 +81,7 @@ export function decodeBackup(json: string): BackupData {
   if (data.moneyLoverImportRows !== undefined) {
     if (!Array.isArray(data.moneyLoverImportRows)) throw new Error('Invalid backup moneyLoverImportRows');
     const keys = new Set<string>();
-    const transactionIds = new Set(((data.transactions ?? []) as Array<{ id: number }>).map((row) => row.id));
+    const transactionIds = new Set(((data.transactions ?? []) as { id: number }[]).map((row) => row.id));
     for (const row of data.moneyLoverImportRows) {
       if (row === null || typeof row !== 'object' || Array.isArray(row) ||
           typeof row.rowKey !== 'string' || !row.rowKey ||

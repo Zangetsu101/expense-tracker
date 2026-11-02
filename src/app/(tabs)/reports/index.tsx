@@ -271,6 +271,8 @@ export default function ReportsScreen() {
       return () => {
         active = false;
       };
+    // Retry intentionally invalidates the focused query after a failed read.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [year, month, scope, retry]),
   );
   const reports = report ? currencyReports(report, accounts, scope) : [];

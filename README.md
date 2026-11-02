@@ -39,18 +39,20 @@ The iOS simulator requires macOS and Xcode. No backend service or API credential
 
 ```sh
 # TypeScript
-pnpm exec tsc --noEmit
+pnpm typecheck
 
 # Tests, including SQLite integration and component checks
-node --test src/lib/*.test.mjs src/components/*.test.mjs
+pnpm test
 
 # Backup format fixtures
-node scripts/check-backup-format.mjs
+pnpm test:backup
+
+# ESLint, with warnings treated as failures
+pnpm lint
+
+# All of the above
+pnpm check
 ```
-
-Tests use Node's built-in test runner and SQLite support. They do not replace device checks for native controls, document pickers, sharing, or persistence.
-
-Lint configuration is not yet set up.
 
 ## Project layout
 

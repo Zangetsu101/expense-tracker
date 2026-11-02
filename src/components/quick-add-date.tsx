@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import DateTimePicker from '@expo/ui/community/datetime-picker';
+import NativeDatePicker from '@expo/ui/community/datetime-picker';
 import { Pressable, Text, View } from 'react-native';
 
 const ink = '#f2f4f0';
@@ -37,7 +37,7 @@ export function QuickAddDate({ value: selected, onChange, disabled = false }: { 
     </View>
     {open && !disabled && <View style={{ backgroundColor: panel, borderRadius: 18, padding: 12 }}>
       <Text style={{ color: muted, paddingBottom: 8 }}>Pick a past date</Text>
-      <DateTimePicker value={selected} mode="date" maximumDate={today} display={process.env.EXPO_OS === 'ios' ? 'inline' : 'default'} presentation={process.env.EXPO_OS === 'android' ? 'dialog' : 'inline'} accentColor={accent} {...(process.env.EXPO_OS === 'ios' ? { themeVariant: 'dark' as const } : {})} onValueChange={(_, date) => select(date)} onDismiss={() => setOpen(false)} />
+      <NativeDatePicker value={selected} mode="date" maximumDate={today} display={process.env.EXPO_OS === 'ios' ? 'inline' : 'default'} presentation={process.env.EXPO_OS === 'android' ? 'dialog' : 'inline'} accentColor={accent} {...(process.env.EXPO_OS === 'ios' ? { themeVariant: 'dark' as const } : {})} onValueChange={(_, date) => select(date)} onDismiss={() => setOpen(false)} />
       {process.env.EXPO_OS !== 'android' && <Choice title="Close date picker" selected={false} onPress={() => setOpen(false)} />}
     </View>}
     <Text selectable accessibilityLiveRegion="polite" style={{ color: muted }}>Date: {selected.toLocaleDateString(undefined, { dateStyle: 'full' })}</Text>

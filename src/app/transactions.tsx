@@ -73,6 +73,8 @@ export default function TransactionsScreen() {
     }).catch((e) => { if (active && request.current === generation) setError(String(e)); })
       .finally(() => { if (active && request.current === generation) setLoading(false); });
     return () => { active = false; request.current++; };
+  // Revision intentionally reloads the focused query when the user retries.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters, revision]));
 
   const loadMore = async () => {
@@ -190,7 +192,7 @@ export default function TransactionsScreen() {
             {section('Account', <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}><Choice label="All accounts" selected={draft.accountId === null} onPress={() => changeDraft({ accountId: null })} />{accounts.map((a) => <Choice key={a.id} label={a.name} selected={draft.accountId === a.id} onPress={() => changeDraft({ accountId: a.id })} />)}</View>)}
             {section('Type', <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>{types.map((type) => <Choice key={type} label={type === 'ALL' ? 'All types' : type.toLowerCase()} selected={draft.type === type} onPress={() => changeDraft({ type })} />)}</View>)}
             {section('Amount', <><View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>{modes.map(({ value, label }) => <Choice key={value} label={label} selected={draft.amountMode === value} onPress={() => changeDraft({ amountMode: value })} />)}</View>
-              <Text style={{ color: muted, fontSize: 12 }}>Compared in each account's currency</Text>
+              <Text style={{ color: muted, fontSize: 12 }}>Compared in each account&apos;s currency</Text>
               <View style={{ flexDirection: 'row', gap: 8 }}><TextInput accessibilityLabel={draft.amountMode === 'BETWEEN' ? 'Minimum' : 'Amount'} accessibilityState={{ disabled: draft.amountMode === 'ANY' }} editable={draft.amountMode !== 'ANY'} placeholder={draft.amountMode === 'BETWEEN' ? 'Minimum' : 'Amount'} placeholderTextColor={muted} keyboardType="decimal-pad" value={draft.amount} onChangeText={(amount) => changeDraft({ amount })} style={[inputStyle, { flex: 1, minWidth: 0, opacity: draft.amountMode === 'ANY' ? 0.55 : 1 }]} />
                 {draft.amountMode === 'BETWEEN' ? <TextInput accessibilityLabel="Maximum" placeholder="Maximum" placeholderTextColor={muted} keyboardType="decimal-pad" value={draft.maximum} onChangeText={(maximum) => changeDraft({ maximum })} style={[inputStyle, { flex: 1, minWidth: 0 }]} /> : <View style={{ flex: 1 }} />}</View>
               {!amountValid && <Text style={{ color: '#ffb5a8' }}>{draft.amountMode === 'BETWEEN' && firstAmount !== null && maximum !== null ? 'Minimum must not exceed maximum.' : 'Enter an amount (up to 2 decimals).'}</Text>}</>)}
