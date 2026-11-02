@@ -116,6 +116,9 @@ export async function importMoneyLoverFile(confirmMixedCategories?: (names: stri
       const outgoing = existing.get(keys[id(pair.outgoing)]);
       const incoming = existing.get(keys[id(pair.incoming)]);
       if (!outgoing || !incoming || outgoing === incoming) continue;
+      const eligible = await tx.getFirstAsync(`SELECT 1 FROM transactions o JOIN transactions i ON i.id = ?
+        WHERE o.id = ? AND o.type = 'EXPENSE' AND i.type = 'INCOME'`, [incoming, outgoing]);
+      if (!eligible) continue;
       const edge = `${outgoing}:${incoming}`;
       if (candidateEdges.has(edge)) continue;
       candidateEdges.add(edge);

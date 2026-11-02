@@ -246,6 +246,39 @@ test('uncertain confirmation preserves keys and exclusion; reimport does not dup
   assert.equal(await importMoneyLoverFile(), 0);
 });
 
+test('reimport does not recreate competing candidates involving a confirmed Transfer', async () => {
+  await reset();
+  rows(['1', 'Send to Bank', -10, 'Withdrawal', 'Cash'],
+    ['2', 'From Cash', 10, 'Deposit', 'Bank'], ['3', '', -10, 'Rent', 'Cash']);
+  assert.equal(await importMoneyLoverFile(), 3);
+  const candidate = (await listReviewCandidates()).find((pair) => pair.outgoingNote === 'Send to Bank');
+  assert.ok(candidate);
+  await confirmCandidate(candidate.id);
+  const tables = ['transactions', 'moneylover_import_rows', 'transfer_candidates'];
+  const before = tables.map(all);
+  assert.equal((await listReviewCandidates()).length, 0);
+  assert.equal(await importMoneyLoverFile(), 0);
+  assert.deepEqual(tables.map(all), before);
+  assert.equal((await listReviewCandidates()).length, 0);
+});
+
+test('reimport does not pair a confirmed Transfer with a competing Income', async () => {
+  await reset();
+  rows(['1', 'Send to Bank', -10, 'Withdrawal', 'Cash'],
+    ['2', 'From Cash', 10, 'Deposit', 'Bank'], ['3', '', 10, 'Gift', 'Bank']);
+  assert.equal(await importMoneyLoverFile(), 3);
+  const candidate = (await listReviewCandidates()).find((pair) => pair.incomingNote === 'From Cash');
+  assert.ok(candidate);
+  await confirmCandidate(candidate.id);
+  // A restored backup may omit candidate metadata while retaining all row identities.
+  sql.exec('DELETE FROM transfer_candidates');
+  const tables = ['transactions', 'moneylover_import_rows', 'transfer_candidates'];
+  const before = tables.map(all);
+  assert.equal(await importMoneyLoverFile(), 0);
+  assert.deepEqual(tables.map(all), before);
+  assert.equal((await listReviewCandidates()).length, 0);
+});
+
 test('reimport recreates missing uncertain candidates for already keyed rows', async () => {
   await reset();
   rows(['1', '', -10, 'Food', 'Cash'], ['2', '', 10, 'Gift', 'Bank']);
