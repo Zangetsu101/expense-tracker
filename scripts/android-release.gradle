@@ -1,0 +1,35 @@
+def releaseStore = System.getenv('EXPENSE_TRACKER_KEYSTORE')
+def releaseStorePassword = System.getenv('EXPENSE_TRACKER_STORE_PASSWORD')
+def releaseAlias = System.getenv('EXPENSE_TRACKER_KEY_ALIAS')
+def releaseKeyPassword = System.getenv('EXPENSE_TRACKER_KEY_PASSWORD')
+
+android {
+    signingConfigs {
+        release {
+            if (releaseStore) storeFile file(releaseStore)
+            storePassword releaseStorePassword
+            keyAlias releaseAlias
+            keyPassword releaseKeyPassword
+        }
+    }
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+        }
+    }
+}
+
+def validateReleaseSigning = tasks.register('validateExpenseTrackerReleaseSigning') {
+    doLast {
+        if (!releaseStore || !new File(releaseStore).isAbsolute() || !new File(releaseStore).isFile()
+            || !releaseStorePassword || !releaseAlias || !releaseKeyPassword) {
+            throw new GradleException('Release signing requires an absolute EXPENSE_TRACKER_KEYSTORE path and EXPENSE_TRACKER_STORE_PASSWORD, EXPENSE_TRACKER_KEY_ALIAS, EXPENSE_TRACKER_KEY_PASSWORD. See docs/android-release.md.')
+        }
+    }
+}
+
+tasks.configureEach { task ->
+    if (task.name == 'preReleaseBuild') {
+        task.dependsOn(validateReleaseSigning)
+    }
+}

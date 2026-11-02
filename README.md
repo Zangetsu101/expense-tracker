@@ -54,6 +54,10 @@ pnpm lint
 pnpm check
 ```
 
+## Android APK releases
+
+Local signed APK builds use `pnpm android:apk`. See [Local Android releases](docs/android-release.md) for SDK prerequisites, key creation, signing, device checks, and GitHub release steps. Signing credentials are required and stay outside Git.
+
 ## Project layout
 
 - `src/app/`: Expo Router screens.

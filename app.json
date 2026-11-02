@@ -2,7 +2,7 @@
   "expo": {
     "name": "Expense Tracker",
     "slug": "expense-tracker-expo",
-    "version": "1.0.0",
+    "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "expensetrackerexpo",
@@ -11,6 +11,8 @@
       "icon": "./assets/images/icon.png"
     },
     "android": {
+      "package": "com.zangetsu101.expensetracker",
+      "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -34,7 +36,8 @@
         }
       ],
       "expo-sqlite",
-      "expo-sharing"
+      "expo-sharing",
+      "./plugins/with-android-release-signing.cjs"
     ],
     "experiments": {
       "typedRoutes": true,
