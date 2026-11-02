@@ -17,6 +17,7 @@ expo-env.d.ts
 *.p12
 *.key
 *.mobileprovision
+*.keystore
 
 # Metro
 .metro-health-check*
@@ -30,12 +31,22 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
-.env*.local
+# Environment files may contain secrets; commit only sanitized examples
+.env
+.env.*
+!.env.example
 
 # Private financial exports and extracted history
 *.[cC][sS][vV]
 /.private/
+
+# Local databases and SQLite sidecar files
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
 
 # typescript
 *.tsbuildinfo
