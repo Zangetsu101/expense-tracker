@@ -1,6 +1,12 @@
 {
   "version": 1,
   "skills": {
+    "eas-update": {
+      "source": "expo/skills",
+      "sourceType": "github",
+      "skillPath": "plugins/expo/skills/eas-update/SKILL.md",
+      "computedHash": "0d434ae35de68bfab06735187ce80f3fe221328dd7ed457eeb2d4272c8abe238"
+    },
     "expo-design-system": {
       "source": "expo/skills",
       "sourceType": "github",
