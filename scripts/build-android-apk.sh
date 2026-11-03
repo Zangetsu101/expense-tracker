@@ -15,11 +15,11 @@ fi
 
 pnpm check
 pnpm android:prebuild
-(cd android && ./gradlew :app:assembleRelease --console=plain)
+(cd android && ./gradlew :app:assembleRelease -PreactNativeArchitectures=arm64-v8a --console=plain)
 
 version=$(node -p "JSON.parse(require('node:fs').readFileSync('app.json', 'utf8')).expo.version")
 mkdir -p dist
-artifact="dist/expense-tracker-${version}.apk"
+artifact="dist/expense-tracker-${version}-arm64.apk"
 cp android/app/build/outputs/apk/release/app-release.apk "$artifact"
 sha256sum "$artifact" > "$artifact.sha256"
 printf '\nAPK: %s\nChecksum: %s.sha256\n' "$artifact" "$artifact"
