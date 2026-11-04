@@ -1,22 +1,33 @@
-# Local Android releases
+# Android releases
 
-App ID: `com.zangetsu101.expensetracker`. Initial version: `0.1.0`, Android version code `1`.
+Use this runbook to ship either a JavaScript/asset OTA update or a signed APK. APKs are built locally; OTA updates are published through GitHub Actions to [the Expo project](https://expo.dev/accounts/zangetsu101/projects/expense-tracker-expo).
 
-Run commands from the repository root in Bash. The setup uses Node.js 22.19+, pnpm 10.33.2, JDK 21, and the Android SDK at `$ANDROID_HOME`.
+## Choose the release type
 
-## 1. Prepare
+- **JavaScript/assets only:** publish an OTA update; keep the app version unchanged.
+- **Native dependencies, SDK, or native configuration:** build a new APK. Bump `expo.version` and `expo.android.versionCode` in `app.json`, and align `package.json`'s version. The app version is the OTA compatibility boundary.
+
+Back up app data and test on a device before releasing. Installed apps need an APK with EAS Update configured to receive OTA updates.
+
+## Publish an OTA update
+
+One-time CI requirement: an Expo access token with project access, stored as the repository secret [`EXPO_TOKEN`](https://github.com/Zangetsu101/expense-tracker/settings/secrets/actions). The workflows must be on `main`.
+
+1. Merge the tested changes into `main`.
+2. Open **GitHub Actions → Publish Android OTA → Run workflow**, select `main`, and describe the changes.
+3. Confirm the run succeeds. It runs `pnpm check`, then publishes Android to the `production` channel and environment, recording the commit SHA in the update message.
+4. Verify on the installed app: fully close and reopen, allow the update to download, then close and reopen again to apply it.
+
+Publishing is manual; pushes and merges only run checks. See [Expo's debugging guide](https://docs.expo.dev/eas-update/debug/) if an update does not arrive.
+
+## Build and distribute an APK
+
+Run from the repository root in Bash with Node.js 22.19+, pnpm 10.33.2, JDK 21, and the Android SDK at `$ANDROID_HOME`.
+
+Use the existing `release.keystore` (Git-ignored), alias `expense-tracker`. Its password is in `pass` at `misc/keystore/expense-tracker`; keep the same key so existing installations can be upgraded.
 
 ```sh
 pnpm install --frozen-lockfile
-```
-
-The signing key is `release.keystore` at the repository root, with alias `expense-tracker`. It is Git-ignored. Its password is stored in `pass` at `misc/keystore/expense-tracker`.
-
-Update `expo.version` and increment `expo.android.versionCode` in `app.json` for each new APK release. Keep the version in `package.json` aligned. EAS Update uses the app version as its native compatibility boundary, so every native dependency, SDK, or native configuration change requires a new app version and APK. JavaScript-only OTA releases keep that version unchanged.
-
-## 2. Build
-
-```sh
 (
   set -euo pipefail
   export EXPENSE_TRACKER_KEYSTORE="$PWD/release.keystore"
@@ -29,52 +40,23 @@ Update `expo.version` and increment `expo.android.versionCode` in `app.json` for
 )
 ```
 
-This runs all checks, Expo prebuild, and Gradle's release build for `arm64-v8a`, targeting the Pixel 8 and other ARM64 phones. The APK does not support 32-bit phones or x86 emulators. Credentials stay in the subshell environment. Missing signing credentials fail the build; there is no debug-key fallback.
+The command runs checks, prebuild, and the signed ARM64 release build. It produces `dist/expense-tracker-<version>-arm64.apk` and its `.sha256` file. Native sources are generated: edit `app.json`, the signing plugin, or the signing Gradle script instead of `android/`.
 
-Outputs:
-
-- `dist/expense-tracker-0.1.0-arm64.apk`
-- `dist/expense-tracker-0.1.0-arm64.apk.sha256`
-
-Android sources are generated and ignored. Change native configuration through `app.json`, the signing plugin, or the signing Gradle script, not generated files.
-
-## 3. Verify and test
+Verify the release certificate and install without clearing app data:
 
 ```sh
-"$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs \
-  dist/expense-tracker-0.1.0-arm64.apk
-adb install -r dist/expense-tracker-0.1.0-arm64.apk
+version=$(node -p "require('./app.json').expo.version")
+apk="dist/expense-tracker-${version}-arm64.apk"
+"$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$apk"
+# Confirm the certificate is your release certificate, not Android Debug.
+adb install -r "$apk"
 ```
 
-Verify that the certificate is the release certificate, not `Android Debug`.
-
-## 4. OTA updates
-
-EAS Update hosts JavaScript and bundled asset updates; APKs are still built locally and distributed directly. The Expo project is [@zangetsu101/expense-tracker-expo](https://expo.dev/accounts/zangetsu101/projects/expense-tracker-expo). Local release APKs request the `production` channel through `updates.requestHeaders` in `app.json`; Expo prebuild writes this into the generated native project. No EAS Build configuration is needed.
-
-Install a newly built, signed APK once to enable OTA updates. APKs built before this configuration cannot receive them. Keep the existing signing key and use `adb install -r` to preserve app data. Back up financial data before testing releases.
-
-After checks and device testing, publish an approved Android JavaScript/asset update from the exact intended commit:
+After device testing, tag the exact build commit and push the tag:
 
 ```sh
-pnpm check
-npx eas-cli@latest update --channel production --platform android \
-  --environment production --message "Describe the change"
+git tag -a "v$version" -m "Expense Tracker $version"
+git push origin "v$version"
 ```
 
-This command uploads the bundle and assets to Expo and can affect installed apps on the matching runtime. Review the target and diff before publishing. SDK 57 requires the explicit EAS environment even when no remote environment variables are configured. Never embed secrets or personal financial data in the bundle.
-
-Default update behavior checks and downloads in the background at launch, then applies on a later restart. Test with up to two cold launches: fully terminate and reopen, allow the download, then fully terminate and reopen again. Offline launches use the embedded or cached update. Native changes, permissions, launcher icons, and splash configuration still need a new APK.
-
-EAS Update has Free-plan usage allowances for delivery and storage; see [Expo pricing](https://expo.dev/pricing). See the [setup guide](https://docs.expo.dev/eas-update/getting-started/) and [debugging guide](https://docs.expo.dev/eas-update/debug/) for compatibility and delivery failures.
-
-## 5. Publish on GitHub
-
-Tag the exact commit:
-
-```sh
-git tag -a v0.1.0 -m 'Expense Tracker 0.1.0'
-git push origin v0.1.0
-```
-
-Create a GitHub prerelease for `v0.1.0` and attach the APK and checksum file. Include known limitations, Android support, backup precautions, and the fact that iOS is unverified in the release notes.
+Create a GitHub prerelease for that tag and attach the APK and checksum. Include known limitations and note that the APK supports ARM64 Android devices only.
