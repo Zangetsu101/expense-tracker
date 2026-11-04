@@ -2,7 +2,7 @@
 
 For intended behavior, read `docs/product.md`. Record new cross-platform implementation decisions separately rather than rewriting historical ADRs.
 
-Development runs in WSL; the Android emulator runs on Windows and ADB connects over TCP.
+Read `AGENTS.local.md` if present for machine-specific development setup. Keep host OS, SDK paths, and emulator connection details there rather than in shared instructions.
 
 ## Agent skills
 

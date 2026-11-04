@@ -54,6 +54,9 @@ yarn-error.*
 .scratch
 example
 
+# Machine-specific agent instructions
+AGENTS.local.md
+
 # generated native folders
 /ios
 /android
