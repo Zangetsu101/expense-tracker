@@ -38,7 +38,7 @@ export default function CategoriesScreen() {
 
   return <View style={{ flex: 1, backgroundColor: t.colors.background }}>
     <Stack.Screen options={{ title: 'Categories', headerStyle: { backgroundColor: t.colors.background }, headerTintColor: t.colors.text }} />
-    {loading && <ActivityIndicator accessibilityLabel="Loading categories" color={t.colors.accent} style={{ padding: t.spacing.lg }} />}
+    {loading && !loaded && <ActivityIndicator accessibilityLabel="Loading categories" color={t.colors.accent} style={{ padding: t.spacing.lg }} />}
     {!!error && <View style={{ padding: t.spacing.xl, gap: t.spacing.sm }}>
       <Text selectable accessibilityRole="alert" style={{ color: t.colors.warning }}>{error}</Text>
       <Pressable accessibilityRole="button" onPress={() => void load()} style={{ minHeight: t.controlHeight, justifyContent: 'center' }}><Text style={{ color: t.colors.accent }}>Retry loading categories</Text></Pressable>
