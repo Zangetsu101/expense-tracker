@@ -37,3 +37,13 @@ test('count labels are singular only for exactly one complete count', () => {
   assert.equal(countLabel(1, 'result', 'results', true), '1+ results');
   assert.equal(countLabel(50, 'result', 'results', true), '50+ results');
 });
+
+test('activity dates use local calendar days across month and year boundaries', async () => {
+  const { formatActivityDay } = await import('./transaction-format.ts');
+  const now = new Date(2026, 0, 1, 0, 5);
+  const today = Date.UTC(2026, 0, 1) / 86400000;
+  assert.equal(formatActivityDay(today, now), 'Today');
+  assert.equal(formatActivityDay(today - 1, now), 'Yesterday');
+  assert.equal(formatActivityDay(today - 2, now), '2025-12-30');
+  assert.equal(formatActivityDay(today + 1, now), '2026-01-02');
+});

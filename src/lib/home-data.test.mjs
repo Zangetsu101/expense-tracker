@@ -80,3 +80,18 @@ test('Home joins all lending kinds to saved people without duplicating ordinary 
   assert.deepEqual(after.rows.filter((row) => row.id >= 10).map(transactionTitle), movements.toReversed().map((movement) => movement[2]));
   assert.equal(after.rows.find((row) => row.id === 1).lendingKind, null);
 });
+
+test('daily totals include the whole day beyond the activity limit, separate currencies and omit transfers', async () => {
+  const date = day(2026, 1, 1);
+  for (let id = 100; id < 155; id++) add(id, 'EXPENSE', 100, date, 1);
+  add(155, 'INCOME', 800, date, 1);
+  add(156, 'EXPENSE', 200, date, 1, 1);
+  add(157, 'INCOME', 300, date, 2);
+  add(158, 'TRANSFER', 999, date, 1, 0, 1);
+  const result = await homeData(new Date(2026, 0, 1));
+  assert.equal(result.rows.length, 50);
+  assert.deepEqual(result.dailySummaries, [
+    { date, currencyCode: 'BDT', incomeMinor: 800, expenseMinor: 5700 },
+    { date, currencyCode: 'USD', incomeMinor: 300, expenseMinor: 0 },
+  ]);
+});

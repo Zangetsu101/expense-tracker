@@ -31,3 +31,10 @@ export function transactionTitle(row: LendingLabel & { type: 'EXPENSE' | 'INCOME
   if (row.type === 'TRANSFER') return 'Transfer';
   return row.categoryPath ?? row.categoryName ?? (row.type === 'EXPENSE' ? 'Expense' : 'Income');
 }
+
+export function formatActivityDay(day: number, now = new Date()): string {
+  const today = Math.floor(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) / 86400000);
+  if (day === today) return 'Today';
+  if (day === today - 1) return 'Yesterday';
+  return formatEpochDay(day);
+}

@@ -3,9 +3,9 @@ import { Link, Stack, router, useFocusEffect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, FlatList, Pressable, Text, View } from 'react-native';
 import { SymbolView } from 'expo-symbols';
-import { homeData, type HomeTransaction } from '@/lib/home-data';
+import { homeData, type DailySummary, type HomeTransaction } from '@/lib/home-data';
 import type { MonthlySummary } from '@/lib/reports';
-import { formatEpochDay, formatTransactionAmount, transactionTitle } from '@/lib/transaction-format';
+import { formatActivityDay, formatTransactionAmount, transactionTitle } from '@/lib/transaction-format';
 import { theme } from '@/theme';
 
 function amount(type: 'EXPENSE' | 'INCOME' | 'TRANSFER', minor: number, currency: string) {
@@ -19,6 +19,7 @@ const colors = { ...theme.colors, panel: theme.colors.surface };
 export default function HomeScreen() {
   const [rows, setRows] = useState<HomeTransaction[]>([]);
   const [summaries, setSummaries] = useState<MonthlySummary[]>([]);
+  const [dailySummaries, setDailySummaries] = useState<DailySummary[]>([]);
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(true);
   const load = useCallback(() => {
@@ -27,8 +28,9 @@ export default function HomeScreen() {
     setError(undefined);
     setRows([]);
     setSummaries([]);
+    setDailySummaries([]);
     homeData().then((result) => {
-      if (active) { setRows(result.rows); setSummaries(result.summaries); }
+      if (active) { setRows(result.rows); setSummaries(result.summaries); setDailySummaries(result.dailySummaries); }
     }).catch((e) => { if (active) setError(String(e)); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, []);
@@ -58,7 +60,15 @@ export default function HomeScreen() {
         {!loading && !error && rows.length === 0 && <Text style={{ color: colors.muted }}>No transactions yet. Add one to get started.</Text>}
       </View>}
       renderItem={({ item, index }) => { const title = transactionTitle(item); return <View>
-        {(index === 0 || rows[index - 1].date !== item.date) && <Text style={{ color: colors.muted, fontWeight: '700', paddingTop: 16, paddingBottom: 4 }}>{formatEpochDay(item.date)}</Text>}
+        {(index === 0 || rows[index - 1].date !== item.date) && <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, paddingTop: 16, paddingBottom: 4 }}>
+          <Text style={{ color: colors.muted, fontWeight: '700' }}>{formatActivityDay(item.date)}</Text>
+          <View style={{ flexShrink: 1, gap: 4 }}>
+            {dailySummaries.filter((summary) => summary.date === item.date).map((summary) => <View key={summary.currencyCode} style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 12 }}>
+              <Text selectable style={{ color: colors.muted, fontSize: 12, fontVariant: ['tabular-nums'] }}>Spent {amount('TRANSFER', summary.expenseMinor, summary.currencyCode)}</Text>
+              <Text selectable style={{ color: colors.accent, fontSize: 12, fontVariant: ['tabular-nums'] }}>Earned {amount('TRANSFER', summary.incomeMinor, summary.currencyCode)}</Text>
+            </View>)}
+          </View>
+        </View>}
         <Pressable onPress={() => router.push({ pathname: '/transaction/[id]', params: { id: String(item.id) } })} accessibilityRole="button" accessibilityLabel={`${title}, ${item.accountName}`} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: colors.line, opacity: pressed ? 0.6 : 1 })}>
           <View style={{ flex: 1, gap: 4 }}><Text selectable style={{ color: colors.text, fontSize: 16, fontWeight: '600' }}>{title}</Text><Text selectable style={{ color: colors.muted }}>{item.accountName}{item.transferAccountName ? ` → ${item.transferAccountName}` : ''}{item.note ? ` · ${item.note}` : ''}</Text></View>
           <Text selectable style={{ color: item.type === 'INCOME' ? colors.accent : colors.text, fontWeight: '700', fontVariant: ['tabular-nums'] }}>{amount(item.type, item.amountMinor, item.currencyCode)}</Text>
