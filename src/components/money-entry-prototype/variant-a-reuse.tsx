@@ -1,4 +1,5 @@
 // THROWAWAY: Does A feel more coherent when it extends existing Quick Add interactions?
+import { AccountOptions, type AccountTreatment } from './account-options';
 import { useState } from 'react';
 import { ScrollView, Text, TextInput, View } from 'react-native';
 import { FormButton, FormInput, JoinedChoice } from '@/components/form-controls';
@@ -11,7 +12,7 @@ const modes = [{ value: 'EXPENSE', label: 'Expense' }, { value: 'INCOME', label:
 const actions = [{ value: 'LEND', label: 'Lend' }, { value: 'BORROW', label: 'Borrow' }, { value: 'RECEIVE', label: 'They paid back' }, { value: 'REPAY', label: 'I paid back' }] as const;
 type Action = typeof actions[number]['value'];
 
-export function VariantAReuse({ data }: { data: ProtoData }) {
+export function VariantAReuse({ data, accountTreatment = 'filled' }: { data: ProtoData; accountTreatment?: AccountTreatment }) {
   const [mode, setMode] = useState<Mode>('EXPENSE');
   const [amount, setAmount] = useState('');
   const [accountId, setAccountId] = useState(data.accounts.find((a) => a.isFavorite)?.id ?? data.accounts[0]?.id);
@@ -37,11 +38,11 @@ export function VariantAReuse({ data }: { data: ProtoData }) {
     <JoinedChoice value={mode} options={modes} onChange={(value) => { setMode(value); if (value === 'EXPENSE' || value === 'INCOME') setCategoryId((value === 'INCOME' ? data.income : data.expense)[0]?.id); }} />
     <View style={{ gap: 10 }}>
       {label(`${incoming ? 'Into' : 'From'} ${account?.name ?? 'an account'}`)}
-      <Row>{data.accounts.map((item) => <Chip key={item.id} label={`${item.name}${item.isFavorite ? ' ★' : ''}`} sub={item.currencyCode} selected={item.id === accountId} onPress={() => { setAccountId(item.id); setToId(undefined); }} />)}</Row>
+      <AccountOptions accounts={data.accounts} selectedId={accountId} treatment={accountTreatment} onSelect={(id) => { setAccountId(id); setToId(undefined); }} />
     </View>
     {mode === 'TRANSFER' && <View style={{ gap: 10 }}>
       {label(`To ${destinations.find((item) => item.id === toId)?.name ?? 'another account'}`)}
-      <Row>{destinations.map((item) => <Chip key={item.id} label={item.name} selected={item.id === toId} onPress={() => setToId(item.id)} />)}</Row>
+      <AccountOptions accounts={destinations} selectedId={toId} treatment={accountTreatment} onSelect={setToId} />
       {!destinations.length && <Text style={{ color: c.muted }}>No other accounts in {account?.currencyCode}.</Text>}
     </View>}
     {mode === 'PERSON' && <>

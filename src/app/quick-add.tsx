@@ -142,9 +142,11 @@ function CurrentQuickAdd() {
 
 // PROTOTYPE wiring — throwaway (branch prototype/money-entry-flow). `now` = current screen above.
 const protoVariants = [
-  { key: 'reuse', name: 'A · Existing pieces' },
+  { key: 'reuse', name: 'A · Filled chips' },
+  { key: 'compact', name: 'A · Compact pills' },
+  { key: 'tiles', name: 'A · Account tiles' },
+  { key: 'before', name: 'A · Previous chips' },
   { key: 'A', name: VariantAName },
-  { key: 'now', name: 'Current quick add' },
 ];
 export default function QuickAdd() {
   const { variant = 'reuse' } = useLocalSearchParams<{ variant?: string }>();
@@ -153,7 +155,7 @@ export default function QuickAdd() {
   return <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
     {variant === 'now' ? <CurrentQuickAdd /> : <>
       <Stack.Screen options={{ title: 'Add', headerStyle: { backgroundColor: theme.colors.background }, headerTintColor: ink, headerLeft: () => <HeaderAction label="Cancel" onPress={() => router.back()} />, headerRight: undefined }} />
-      {!data ? null : variant === 'A' ? <VariantA key="A" data={data} /> : <VariantAReuse data={data} />}
+      {!data ? null : variant === 'A' ? <VariantA key="A" data={data} /> : <VariantAReuse data={data} accountTreatment={variant === 'compact' ? 'compact' : variant === 'tiles' ? 'tiles' : variant === 'before' ? 'before' : 'filled'} />}
     </>}
     <PrototypeSwitcher variants={protoVariants} current={variant} onChange={choose} />
   </View>;
