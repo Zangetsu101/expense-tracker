@@ -42,6 +42,8 @@ jobs:
           eas-version: '27.4.1'
           packager: npm
           token: ${{ secrets.EXPO_TOKEN }}
+      - name: Stamp the verified running release commit
+        run: node scripts/stamp-release.mjs
       - name: Publish Android production update
         env:
           UPDATE_MESSAGE: ${{ inputs.message }}

@@ -1,3 +1,4 @@
+import { RunningRelease } from '@/components/running-release';
 import { UpdatesRow } from '@/components/app-updates';
 import { router, type Href } from 'expo-router';
 import { Pressable, ScrollView, Text, View } from 'react-native';
@@ -23,5 +24,6 @@ export default function SettingsScreen() {
     <UpdatesRow />
     <Row label="Lending & borrowing" href="/lending" />
     <Row quiet label="Review transfer candidates" href="/review-queue" />
+    <RunningRelease />
   </ScrollView>;
 }
