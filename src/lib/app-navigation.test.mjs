@@ -12,8 +12,9 @@ const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const root = new URL('../../', import.meta.url);
 const mocks = {
-  'react-native': `import React from 'react'; export const View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator'; export const FlatList=p=>React.createElement('FlatList',null,p.ListHeaderComponent,p.ListFooterComponent); export const Alert={alert(){}};`,
-  'expo-router': `import {useEffect} from 'react'; const s=globalThis.__navTest; export const useFocusEffect=fn=>useEffect(fn,[fn]); export const router={push:h=>s.calls.push(['push',h]),replace:h=>s.calls.push(['replace',h]),back:()=>s.calls.push(['back'])}; export const Link=({children})=>children; export const Stack={Screen:p=>{s.header=p.options;return null}};`,
+  'react-native': `import React from 'react'; export const KeyboardAvoidingView='KeyboardAvoidingView',View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator'; export const FlatList=p=>React.createElement('FlatList',null,p.ListHeaderComponent,p.ListFooterComponent); export const Alert={alert(){}};`,
+  'expo-router': `import {useEffect} from 'react'; const s=globalThis.__navTest; export const useFocusEffect=fn=>useEffect(fn,[fn]); export const router={push:h=>s.calls.push(['push',h]),replace:h=>s.calls.push(['replace',h]),back:()=>s.calls.push(['back'])}; export const Link=({children})=>children; export const Stack={Screen:p=>{s.header={...s.header,...p.options};return null}};`,
+  'expo-router/react-navigation': `export const useNavigation=()=>({dispatch(){}}); export const usePreventRemove=()=>{};`,
   'expo-status-bar': `export const StatusBar=()=>null;`,
   'expo-symbols': `export const SymbolView='SymbolView';`,
   'react-native-safe-area-context': `export const useSafeAreaInsets=()=>({bottom:0});`,
@@ -21,13 +22,16 @@ const mocks = {
   '@/components/quick-add-date': `export const QuickAddDate='Date';`,
   '@/components/quick-add-category': `export const QuickAddCategory='Category';`,
   '@/lib/home-data': `export const homeData=async()=>({rows:[],summaries:[]});`,
-  '@/lib/database': `export const listAccounts=async()=>[]; export const listCategories=async()=>[]; export const setFavoriteAccount=async()=>{};`,
+  '@/lib/database': `export const epochDay=d=>Math.floor(d.getTime()/86400000); export const listAccounts=async()=>[]; export const listCategories=async()=>[]; export const setFavoriteAccount=async()=>{};`,
   '@/lib/categories': `export const listManagedCategories=async()=>[];`,
+  '@/lib/transfers': `export const addTransfer=async()=>{}; export const transferAmountMinor=()=>{throw Error('Invalid amount')};`,
+  '@/lib/lending': `export const listPeople=async()=>[]; export const listLendingTotals=async()=>[]; export const createPerson=async()=>{}; export const saveLendingEntry=async()=>{};`,
   '@/lib/quick-add-tags': `export const addQuickTransaction=async()=>{};`,
 };
 const hooks = registerHooks({
   resolve(specifier, context, next) {
     if (specifier in mocks) return { url: `nav-mock:${specifier}`, shortCircuit: true };
+    if (specifier === '@/components/entry-choices') return { url: new URL('src/components/entry-choices.tsx', root).href, shortCircuit: true };
     if (specifier.startsWith('@/')) return { url: new URL(`${specifier.replace('@/', 'src/')}.ts`, root).href, shortCircuit: true };
     return next(specifier, context.parentURL?.startsWith('nav-mock:') ? { ...context, parentURL: import.meta.url } : context);
   },
@@ -82,10 +86,12 @@ test('app navigation', async t => {
     await press('Review transfer candidates');
     assert.deepEqual(state.calls, [['push', '/data-tools'], ['push', '/review-queue']]);
   });
-  await t.test('Quick add header offers Cancel and Transfer', async () => {
+  await t.test('Quick add centers its title and offers Cancel with transfer in the mode selector', async () => {
     await mount(QuickAdd);
     await press('Cancel', await headerPart('headerLeft'));
-    await press('Transfer', await headerPart('headerRight'));
-    assert.deepEqual(state.calls, [['back'], ['replace', '/transfer']]);
+    assert.equal(state.header.headerTitleAlign, 'center');
+    assert.equal(state.header.headerRight, undefined);
+    assert.ok(renderer.root.findAllByType('JoinedChoice')[0].props.options.some(option => option.value === 'TRANSFER'));
+    assert.deepEqual(state.calls, [['back']]);
   });
 });

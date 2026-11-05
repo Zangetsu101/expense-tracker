@@ -1,5 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { database, epochDay } from './database';
+import { addTransactionTags, parseQuickAddTags } from './tag-store';
 
 export function transferAmountMinor(value: string): number {
   const match = /^(?:0|[1-9]\d*)(?:\.(\d{1,2}))?$/.exec(value.trim());
@@ -39,14 +40,18 @@ async function requireSameCurrency(tx: Pick<SQLiteDatabase, 'getAllAsync'>, inpu
   if (accounts[0].currencyCode !== accounts[1].currencyCode) throw new Error('Transfers require accounts with the same currency.');
 }
 
-export async function addTransfer(input: TransferInput) {
+export async function addTransfer(input: TransferInput & { date?: Date; tagText?: string }) {
+  const date = input.date ?? new Date();
+  if (!Number.isFinite(date.getTime()) || epochDay(date) > epochDay(new Date())) throw new Error('Choose today or a past date.');
+  const tags = input.tagText?.trim() ? parseQuickAddTags(input.tagText) : [];
   validateTransfer(input);
   const db = await database();
   await db.withExclusiveTransactionAsync(async (tx) => {
     await requireSameCurrency(tx, input);
-    await tx.runAsync(`INSERT INTO transactions (type, amountMinor, date, accountId, transferAccountId, categoryId, note)
+    const result = await tx.runAsync(`INSERT INTO transactions (type, amountMinor, date, accountId, transferAccountId, categoryId, note)
       VALUES ('TRANSFER', ?, ?, ?, ?, NULL, ?)`,
-      [input.amountMinor, epochDay(new Date()), input.fromAccountId, input.toAccountId, input.note?.trim() || null]);
+      [input.amountMinor, epochDay(date), input.fromAccountId, input.toAccountId, input.note?.trim() || null]);
+    await addTransactionTags(tx, result.lastInsertRowId, tags);
   });
 }
 

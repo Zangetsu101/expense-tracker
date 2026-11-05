@@ -1,5 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { database } from './database';
+import { addTransactionTags, parseQuickAddTags } from './tag-store';
 
 export type LendingKind = 'LEND' | 'BORROW' | 'RECEIVE_REPAYMENT' | 'REPAY' | 'WRITE_OFF_LENT' | 'WRITE_OFF_BORROWED';
 export type Person = { id: number; name: string };
@@ -13,6 +14,7 @@ export type LendingInput = {
   accountId?: number;
   currencyCode?: string;
   confirmOverpayment?: boolean;
+  tagText?: string;
 };
 export type LendingEntry = {
   id: number;
@@ -119,6 +121,8 @@ async function person(db: DB, id: number) {
   if (!(await db.getFirstAsync('SELECT id FROM people WHERE id=?', [id]))) throw new Error('Person not found.');
 }
 export async function saveLendingEntry(input: LendingInput): Promise<LendingResult> {
+  const tags = input.tagText?.trim() ? parseQuickAddTags(input.tagText) : [];
+  if (tags.length && writeoff(input.kind)) throw new Error('Write-offs cannot have transaction tags.');
   positive(input.amountMinor);
   if (!kinds.includes(input.kind)) throw new Error('Invalid lending kind.');
   if (!Number.isSafeInteger(input.date) || input.date < 0) throw new Error('Choose a valid date.');
@@ -179,6 +183,10 @@ export async function saveLendingEntry(input: LendingInput): Promise<LendingResu
         );
         transactionId = r.lastInsertRowId;
       }
+    }
+    if (transactionId !== null && input.tagText !== undefined) {
+      await tx.runAsync('DELETE FROM transaction_tags WHERE transactionId=?', [transactionId]);
+      await addTransactionTags(tx, transactionId, tags);
     }
     const values = [row.personId, row.kind, transactionId, row.currencyCode, row.amountMinor, row.date, row.note];
     if (original) {

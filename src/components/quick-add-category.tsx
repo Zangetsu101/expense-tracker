@@ -6,11 +6,10 @@ import type { ManagedCategory } from '@/lib/categories';
 const ink = '#f2f4f0';
 const muted = '#aab9b7';
 const panel = '#1d2a30';
-const accent = '#b8e2bd';
 
-type Props = { categories: ManagedCategory[]; orderedIds: number[]; selectedId?: number; onSelect: (id: number) => void; onOpenAll?: () => void };
+type Props = { categories: ManagedCategory[]; orderedIds: number[]; selectedId?: number; onSelect: (id: number) => void; disabled?: boolean };
 
-export function QuickAddCategory({ categories, orderedIds, selectedId, onSelect, onOpenAll }: Props) {
+export function QuickAddCategory({ categories, orderedIds, selectedId, onSelect, disabled = false }: Props) {
   const [query, setQuery] = useState('');
   const [width, setWidth] = useState(0);
   const [widths, setWidths] = useState<Record<number, number>>({});
@@ -40,13 +39,12 @@ export function QuickAddCategory({ categories, orderedIds, selectedId, onSelect,
     rows[row].push(category);
     used += (used ? 8 : 0) + chipWidth;
   }
-  const chip = (category: ManagedCategory) => <Pressable key={category.id} accessibilityRole="button" accessibilityLabel={path(category)} accessibilityState={{ selected: activeId === category.id }} onPress={() => onSelect(category.id)} style={{ paddingHorizontal: 13, paddingVertical: 10, borderRadius: 12, maxWidth: width || undefined, backgroundColor: activeId === category.id ? theme.colors.selected : '#29343a' }}><Text style={{ color: ink }}>{path(category)}</Text></Pressable>;
+  const chip = (category: ManagedCategory) => <Pressable key={category.id} accessibilityRole="button" accessibilityLabel={path(category)} accessibilityState={{ selected: activeId === category.id, disabled }} disabled={disabled} onPress={() => onSelect(category.id)} style={{ paddingHorizontal: 13, paddingVertical: 10, borderRadius: 12, maxWidth: width || undefined, backgroundColor: activeId === category.id ? theme.colors.selected : '#29343a' }}><Text style={{ color: ink }}>{path(category)}</Text></Pressable>;
   return <View style={{ gap: 10 }}>
-    {onOpenAll && <Pressable accessibilityRole="button" onPress={onOpenAll} style={{ minHeight: 44, justifyContent: 'center' }}><Text style={{ color: accent }}>All categories →</Text></Pressable>}
     <Text selectable accessibilityLiveRegion="polite" style={{ color: ink }}>Selected: {active ? path(active) : 'None'}</Text>
-    <TextInput accessibilityLabel="Search categories" placeholder="Search categories or parent" placeholderTextColor={muted} value={query} onChangeText={setQuery} style={{ backgroundColor: panel, color: ink, padding: 12, borderRadius: 12 }} />
+    <TextInput accessibilityLabel="Search categories" editable={!disabled} placeholder="Search categories or parent" placeholderTextColor={muted} value={query} onChangeText={setQuery} style={{ backgroundColor: panel, color: ink, padding: 12, borderRadius: 12 }} />
     <View onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
-      <View pointerEvents="none" style={{ position: 'absolute', opacity: 0, flexDirection: 'row' }}>{categories.map((category) => <View key={category.id} onLayout={(event) => {
+      <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ position: 'absolute', opacity: 0, flexDirection: 'row' }}>{categories.map((category) => <View key={category.id} onLayout={(event) => {
         const measured = event.nativeEvent.layout.width;
         setWidths((old) => old[category.id] === measured ? old : { ...old, [category.id]: measured });
       }}>{chip(category)}</View>)}</View>

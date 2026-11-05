@@ -7,11 +7,16 @@ const sqlite = new DatabaseSync(':memory:');
 sqlite.exec(`PRAGMA foreign_keys = ON;
 CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT NOT NULL DEFAULT '', currencyCode TEXT NOT NULL);
 CREATE TABLE transactions (id INTEGER PRIMARY KEY, type TEXT NOT NULL, amountMinor INTEGER NOT NULL CHECK(amountMinor > 0), date INTEGER NOT NULL, accountId INTEGER NOT NULL REFERENCES accounts(id), transferAccountId INTEGER REFERENCES accounts(id), categoryId INTEGER, note TEXT);
+CREATE TABLE tags (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+CREATE TABLE transaction_tags (transactionId INTEGER REFERENCES transactions(id), tagId INTEGER REFERENCES tags(id));
 INSERT INTO accounts VALUES (1, 'Cash', 'BDT'), (2, 'Bank', 'BDT'), (3, 'Card', 'USD'), (4, 'Wallet', 'BDT');`);
 const tx = {
   getFirstAsync: async (sql, params) => sqlite.prepare(sql).get(...params) ?? null,
   getAllAsync: async (sql, params) => sqlite.prepare(sql).all(...params),
-  runAsync: async (sql, params) => sqlite.prepare(sql).run(...params),
+  runAsync: async (sql, params) => {
+    const result = sqlite.prepare(sql).run(...params);
+    return { changes: Number(result.changes), lastInsertRowId: Number(result.lastInsertRowid) };
+  },
 };
 globalThis.__transferTestDb = {
   ...tx,
@@ -23,6 +28,7 @@ globalThis.__transferTestDb = {
 };
 registerHooks({
   resolve(specifier, context, next) {
+    if (specifier === './tag-store') return next('./tag-store.ts', context);
     if (specifier === './database') return { url: 'test:database', shortCircuit: true };
     return next(specifier, context);
   },
@@ -113,4 +119,22 @@ test('rejects invalid transfer edits and stale originals without changes', async
   sqlite.prepare('UPDATE transactions SET amountMinor = 501 WHERE id = ?').run(id);
   await assert.rejects(() => saveTransferEdit(original, valid), /changed or removed/);
   assert.equal(row().amountMinor, 501);
+});
+
+test('quick transfer keeps the chosen day and tags, and rejects invalid drafts atomically', async () => {
+  await addTransfer({ amountMinor: 325, fromAccountId: 1, toAccountId: 2, date: new Date(2020, 0, 1, 23, 30), note: null, tagText: ' Travel, travel ' });
+  const rows = sqlite.prepare("SELECT t.date, tags.name FROM transactions t JOIN transaction_tags tt ON tt.transactionId=t.id JOIN tags ON tags.id=tt.tagId WHERE t.amountMinor=325").all();
+  assert.deepEqual(rows.map((r) => ({ ...r })), [{ date: 18262, name: 'Travel' }]);
+  const count = () => sqlite.prepare('SELECT count(*) AS n FROM transactions').get().n;
+  const before = count();
+  const future = new Date(); future.setDate(future.getDate() + 1);
+  for (const extra of [{ tagText: 'bad,' }, { date: future }, { date: new Date('invalid') }]) {
+    await assert.rejects(() => addTransfer({ amountMinor: 325, fromAccountId: 1, toAccountId: 2, note: null, ...extra }));
+    assert.equal(count(), before);
+  }
+  sqlite.exec("CREATE TRIGGER fail_transfer_tags BEFORE INSERT ON transaction_tags BEGIN SELECT RAISE(ABORT, 'tag failure'); END;");
+  await assert.rejects(() => addTransfer({ amountMinor: 325, fromAccountId: 1, toAccountId: 2, note: null, tagText: 'Rollback' }), /tag failure/);
+  sqlite.exec('DROP TRIGGER fail_transfer_tags');
+  assert.equal(count(), before);
+  assert.equal(sqlite.prepare("SELECT count(*) AS n FROM tags WHERE name='Rollback'").get().n, 0);
 });

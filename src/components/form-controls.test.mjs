@@ -37,7 +37,7 @@ test('shared form control behavior and accessibility', async t => {
     assert.equal(button.props.accessibilityRole, 'button');
     assert.equal(button.props.accessibilityLabel, 'Save');
     const normal = flatten(button.props.style({ pressed: false }));
-    assert.equal(normal.backgroundColor, '#8be0be');
+    assert.equal(normal.backgroundColor, '#52766c');
     assert.equal(normal.flex, 1);
     assert.ok(flatten(button.props.style({ pressed: true })).opacity < normal.opacity);
     for (const variant of ['secondary', 'danger']) {
@@ -75,7 +75,7 @@ test('shared form control behavior and accessibility', async t => {
     assert.equal(flatten(renderer.root.findByType('View').props.style).flex, 2);
     assert.equal(choices[0].props.accessibilityState.checked, true);
     assert.equal(choices[1].props.accessibilityState.checked, false);
-    assert.equal(choices[0].props.style({ pressed: false }).backgroundColor, '#8be0be');
+    assert.equal(choices[0].props.style({ pressed: false }).backgroundColor, '#52766c');
     assert.equal(choices[1].props.style({ pressed: false }).backgroundColor, '#1d2a34');
     choices[1].props.onPress();
     assert.equal(changed, 'INCOME');
