@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { router, Stack } from 'expo-router';
-import { useNavigation, usePreventRemove } from 'expo-router/react-navigation';
+import { useHeaderHeight, useNavigation, usePreventRemove } from 'expo-router/react-navigation';
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { epochDay, listAccounts, listCategories, type Account, type Category } from '@/lib/database';
 import { listManagedCategories, type ManagedCategory } from '@/lib/categories';
@@ -62,6 +62,7 @@ export default function QuickAdd() {
 }
 
 function QuickAddForm({ data }: { data: EntryData }) {
+  const headerHeight = useHeaderHeight();
   const [mode, setMode] = useState<Mode>('EXPENSE');
   const [amount, setAmount] = useState('');
   const [accountId, setAccountId] = useState(data.accounts.find((account) => account.isFavorite)?.id ?? data.accounts[0]?.id);
@@ -131,9 +132,9 @@ function QuickAddForm({ data }: { data: EntryData }) {
     finally { busy.current = false; setPending(false); }
   }
 
-  return <KeyboardAvoidingView style={{ flex: 1 }} behavior={process.env.EXPO_OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={100}>
+  return <KeyboardAvoidingView style={{ flex: 1 }} behavior={process.env.EXPO_OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={headerHeight}>
     <Stack.Screen options={{ headerLeft: () => <CancelAction disabled={pending} />, gestureEnabled: !pending }} />
-    <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 22, gap: 18, paddingBottom: 48 }}>
+    <ScrollView style={{ flex: 1 }} contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 22, gap: 18, paddingBottom: 48 }}>
       <View style={{ gap: 6 }}><Label>{`Amount · ${account?.currencyCode ?? 'Select account'}`}</Label>
         <View style={{ flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderColor: c.line }}>
           <Text style={{ color: c.text, fontSize: 48, fontWeight: '300' }}>{account?.currencyCode === 'BDT' ? '৳' : account?.currencyCode === 'USD' ? '$' : ''}</Text>
