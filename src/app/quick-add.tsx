@@ -149,7 +149,7 @@ const protoVariants = [
   { key: 'A', name: VariantAName },
 ];
 export default function QuickAdd() {
-  const { variant = 'reuse' } = useLocalSearchParams<{ variant?: string }>();
+  const { variant = 'compact' } = useLocalSearchParams<{ variant?: string }>();
   const data = useProtoData();
   const choose = (key: string) => router.setParams({ variant: key });
   return <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
