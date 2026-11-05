@@ -1,3 +1,4 @@
+import { UpdatesRow } from '@/components/app-updates';
 import { router, type Href } from 'expo-router';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { theme } from '@/theme';
@@ -19,7 +20,7 @@ export default function SettingsScreen() {
         <Row label="Import, export and backup" href="/data-tools" />
       </View>
     </View>
-    <Row label="App updates" href="/app-updates" />
+    <UpdatesRow />
     <Row label="Lending & borrowing" href="/lending" />
     <Row quiet label="Review transfer candidates" href="/review-queue" />
   </ScrollView>;

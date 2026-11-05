@@ -10,7 +10,6 @@ export default function Layout() {
       <Stack.Screen name="quick-add" options={{ title: 'Quick add', presentation: 'modal' }} />
       <Stack.Screen name="transfer" options={{ title: 'Transfer', presentation: 'modal' }} />
       <Stack.Screen name="transactions" options={{ title: 'Search transactions' }} />
-      <Stack.Screen name="app-updates" options={{ title: 'App updates' }} />
       <Stack.Screen name="settings" options={{ title: 'Settings' }} />
       <Stack.Screen name="review-queue" options={{ title: 'Review Queue' }} />
     </Stack></AppUpdatesProvider>

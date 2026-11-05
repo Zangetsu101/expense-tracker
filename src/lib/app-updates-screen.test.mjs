@@ -13,8 +13,8 @@ const previousAct = globalThis.IS_REACT_ACT_ENVIRONMENT;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const root = new URL('../../', import.meta.url);
 const mocks = {
-  'react-native': `export const Text='Text',View='View',ScrollView='ScrollView'; const s=globalThis.__updatesTest; export const Alert={alert:(...a)=>s.alerts.push(a)}; export const AppState={currentState:'active',addEventListener:(e,fn)=>{s.foreground=fn;return {remove:()=>{s.removed=true}}}};`,
-  '@expo/ui': `export const Host='Host',Button='Button';`,
+  'react-native': `export const Text='Text',View='View',ScrollView='ScrollView',Pressable='Pressable',ActivityIndicator='ActivityIndicator'; const s=globalThis.__updatesTest; export const Alert={alert:(...a)=>s.alerts.push(a)}; export const AppState={currentState:'active',addEventListener:(e,fn)=>{s.foreground=fn;return {remove:()=>{s.removed=true}}}};`,
+  'expo-symbols': `export const SymbolView='SymbolView';`,
   'expo-router': `export const Link='Link';`,
   'expo-constants': `export default {executionEnvironment:'standalone'};`,
   'expo-updates': `const s=globalThis.__updatesTest; export const isEnabled=true; export const useUpdates=()=>({...s.native}); export const checkForUpdateAsync=async()=>{s.calls.push('check');if(s.fail)throw Error('offline');return {isAvailable:false}}; export const fetchUpdateAsync=async()=>{s.calls.push('fetch');return {isNew:true}}; export const reloadAsync=async()=>{s.calls.push('reload')};`,
@@ -35,12 +35,11 @@ const hooks = registerHooks({
   },
 });
 const { AppUpdatesProvider } = await import('../components/app-updates.tsx');
-const { default: Screen } = await import('../app/app-updates.tsx');
+const { UpdatesRow: Screen } = await import('../components/app-updates.tsx');
 let renderer;
 const tree = () => React.createElement(AppUpdatesProvider, null, React.createElement(Screen));
-const texts = () => renderer.root.findAllByType('Text').map(n => n.children.join(''));
-const button = () => renderer.root.findByType('Button');
-test('update screen coordinates native startup, progress, readiness and confirmed restart', async t => {
+const button = () => renderer.root.findByType('Pressable');
+test('update row coordinates native startup, progress, readiness and confirmed restart', async t => {
   t.after(async () => {
     await act(async () => renderer?.unmount());
     hooks.deregister(); delete globalThis.__updatesTest; delete globalThis.__DEV__;
@@ -50,11 +49,11 @@ test('update screen coordinates native startup, progress, readiness and confirme
   assert.equal(button().props.disabled, true); assert.deepEqual(state.calls, []);
   state.native = { ...state.native, isStartupProcedureRunning: false, isDownloading: true, isUpdatePending: true, downloadProgress: 0.37 };
   await act(async () => renderer.update(tree()));
-  assert.ok(texts().includes('Downloading update… 37%')); assert.equal(button().props.disabled, true);
+  assert.equal(button().props.accessibilityValue.text, 'Downloading update, 37%'); assert.equal(button().props.disabled, true);
   state.native = { ...state.native, isDownloading: false, isUpdatePending: true };
   await act(async () => renderer.update(tree()));
-  assert.equal(button().props.children, 'Restart to update');
-  assert.equal(renderer.root.findByType('Link').props.href, '/app-updates');
+  assert.equal(button().props.accessibilityValue.text, 'Restart to update');
+  assert.equal(renderer.root.findByType('SymbolView').props.name.android, 'restart_alt');
   assert.deepEqual(state.calls, []);
   await act(async () => button().props.onPress());
   assert.deepEqual(state.calls, []); assert.match(state.alerts[0][1], /Unsaved/);
@@ -65,17 +64,18 @@ test('update screen coordinates native startup, progress, readiness and confirme
   state.native = { ...state.native, isUpdatePending: false, isDownloading: false, isStartupProcedureRunning: false };
   state.calls = []; state.fail = true;
   await act(async () => { renderer = create(tree()); });
-  assert.ok(texts().includes('Check for a new version of Expense Tracker.'));
+  assert.equal(button().props.accessibilityValue.text, 'Check for updates');
   assert.equal(renderer.root.findAllByProps({ accessibilityRole: 'alert' }).length, 0);
   await act(async () => button().props.onPress());
-  assert.equal(button().props.children, 'Try again');
-  assert.match(texts().join(' '), /connection/);
+  assert.equal(renderer.root.findByType('SymbolView').props.name.android, 'error_outline');
+  assert.match(state.alerts.at(-1)[1], /connection/);
   state.fail = false;
   await act(async () => button().props.onPress());
-  assert.ok(texts().includes('You’re up to date.'));
+  assert.equal(renderer.root.findByType('SymbolView').props.name.android, 'check_circle');
   await act(async () => renderer.unmount());
   globalThis.__DEV__ = true; state.calls = [];
   await act(async () => { renderer = create(tree()); });
-  assert.equal(renderer.root.findAllByType('Button').length, 0);
+  await act(async () => button().props.onPress());
+  assert.match(state.alerts.at(-1)[1], /release build/);
   assert.deepEqual(state.calls, []);
 });
