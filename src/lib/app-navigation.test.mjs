@@ -12,6 +12,7 @@ const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const root = new URL('../../', import.meta.url);
 const mocks = {
+  '@/components/app-updates': `export const UpdatesRow='UpdatesRow';`,
   'react-native': `import React from 'react'; export const KeyboardAvoidingView='KeyboardAvoidingView',View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator'; export const FlatList=p=>React.createElement('FlatList',null,p.ListHeaderComponent,p.ListFooterComponent); export const Alert={alert(){}};`,
   'expo-router': `import {useEffect} from 'react'; const s=globalThis.__navTest; export const useFocusEffect=fn=>useEffect(fn,[fn]); export const router={push:h=>s.calls.push(['push',h]),replace:h=>s.calls.push(['replace',h]),back:()=>s.calls.push(['back'])}; export const Link=({children})=>children; export const Stack={Screen:p=>{s.header={...s.header,...p.options};return null}};`,
   'expo-router/react-navigation': `export const useNavigation=()=>({dispatch(){}}); export const usePreventRemove=()=>{};`,
