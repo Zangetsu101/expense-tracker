@@ -13,7 +13,7 @@ const previousAct = globalThis.IS_REACT_ACT_ENVIRONMENT;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const root = new URL('../../', import.meta.url);
 const mocks = {
-  'react-native': `export const Text='Text',View='View',ScrollView='ScrollView',Pressable='Pressable'; export const Platform={OS:'android'}; export const TurboModuleRegistry={get:()=>globalThis.__releaseTest.clipboard};`,
+  'react-native': `export const Text='Text',View='View',ScrollView='ScrollView',Pressable='Pressable'; export const Platform={OS:'android'}; export const useWindowDimensions=()=>({width:400,height:800}); export const TurboModuleRegistry={get:()=>globalThis.__releaseTest.clipboard};`,
   'expo-constants': `export default {executionEnvironment:'standalone',expoConfig:{version:'0.1.0'}};`,
   'expo-updates': `export const isEnabled=true,updateId='running-id',createdAt=new Date('2026-11-05Z'),runtimeVersion='0.1.0',channel='production',isEmbeddedLaunch=false,isEmergencyLaunch=false,emergencyLaunchReason=null; export const useUpdates=()=>{throw Error('Must not read pending updates')};`,
   '@/components/app-sheet': `export const AppSheet='AppSheet';`,

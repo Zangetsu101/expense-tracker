@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 import * as Updates from 'expo-updates';
 import { useState } from 'react';
-import { Platform, Pressable, ScrollView, Text, TurboModuleRegistry, View } from 'react-native';
+import { Platform, Pressable, ScrollView, Text, TurboModuleRegistry, useWindowDimensions, View } from 'react-native';
 import { AppSheet } from '@/components/app-sheet';
 import { FormButton } from '@/components/form-controls';
 import { releaseCommit } from '@/generated/release';
@@ -14,6 +14,7 @@ interface NativeClipboard extends TurboModule {
 }
 
 export function RunningRelease() {
+  const { width, height } = useWindowDimensions();
   const [open, setOpen] = useState(false);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const release = releaseIdentity({
@@ -50,10 +51,10 @@ export function RunningRelease() {
       <Text style={{ color: theme.colors.muted, textAlign: 'center', fontSize: 14 }}>{release.summary}</Text>
     </Pressable>
     {open && <AppSheet pending={false} onDismiss={dismiss}>
-      <ScrollView contentContainerStyle={{ padding: theme.spacing.xl, gap: theme.spacing.md }} style={{ maxHeight: '85%', backgroundColor: theme.colors.surface }}>
+      <ScrollView contentContainerStyle={{ padding: theme.spacing.xl, gap: theme.spacing.md }} style={{ width, maxHeight: height * 0.85, backgroundColor: theme.colors.surface }}>
         <Text accessibilityRole="header" style={{ color: theme.colors.text, fontSize: theme.type.body, fontWeight: '700' }}>Running release</Text>
         {copyStatus && <Text accessibilityRole="alert" style={{ color: theme.colors.muted }}>{copyStatus}</Text>}
-        <Text selectable style={{ color: theme.colors.text, fontSize: 14 }}>{release.details}</Text>
+        <Text selectable style={{ alignSelf: 'stretch', marginHorizontal: -theme.spacing.xl, paddingHorizontal: theme.spacing.xl, backgroundColor: theme.colors.surface, color: theme.colors.text, fontSize: 14 }}>{release.details}</Text>
         <View style={{ gap: theme.spacing.sm }}>
           <FormButton label="Copy details" variant="secondary" onPress={copyDetails} />
           <FormButton label="Close" variant="secondary" onPress={dismiss} />
