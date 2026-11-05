@@ -11,13 +11,13 @@ export function AccountOptions({ accounts, selectedId, onSelect, treatment }: { 
       const selected = account.id === selectedId;
       const compact = treatment === 'compact';
       const tile = treatment === 'tiles';
-      const ink = compact ? (selected ? '#10231c' : '#f2f4f0') : selected ? c.background : c.text;
+      const ink = selected ? c.onSelected : c.text;
       return <Pressable key={account.id} accessibilityRole="button" accessibilityLabel={`${account.name}, ${account.currencyCode}${account.isFavorite ? ', favorite' : ''}`} accessibilityState={{ selected }} onPress={() => onSelect(account.id)} style={({ pressed }) => ({
         ...(tile ? { width: '48%' as const, flexGrow: 1 } : {}),
         minHeight: compact ? 48 : tile ? 90 : 68,
         paddingHorizontal: compact ? 14 : 16, paddingVertical: compact ? 10 : 12,
         borderRadius: 14, borderCurve: 'continuous',
-        backgroundColor: compact ? (selected ? '#b8e2bd' : '#1d2a30') : selected ? c.accent : c.raised,
+        backgroundColor: selected ? c.selected : compact ? '#1d2a30' : c.raised,
         opacity: pressed ? 0.7 : 1,
         gap: tile ? 12 : 4,
         justifyContent: 'center',
@@ -32,9 +32,9 @@ export function AccountOptions({ accounts, selectedId, onSelect, treatment }: { 
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <Text style={{ color: ink, fontSize: compact ? 14 : 15, fontWeight: compact ? '400' : selected ? '700' : '500' }}>{account.name}{account.isFavorite ? ' ★' : ''}</Text>
             {selected && !compact && <Text style={{ color: ink, fontWeight: '700' }}>✓</Text>}
-            {compact && <Text style={{ color: selected ? '#10231c' : '#aab9b7', fontSize: 11 }}>{account.currencyCode}</Text>}
+            {compact && <Text style={{ color: selected ? c.onSelected : c.muted, fontSize: 11 }}>{account.currencyCode}</Text>}
           </View>
-          {!compact && <Text style={{ color: selected ? c.background : c.muted, fontSize: 12 }}>{account.currencyCode}</Text>}
+          {!compact && <Text style={{ color: selected ? c.onSelected : c.muted, fontSize: 12 }}>{account.currencyCode}</Text>}
         </>}
       </Pressable>;
     })}

@@ -76,10 +76,10 @@ export function Chip({ label, sub, selected, onPress, icon, tone }: { label: str
   const toneColor = tone === 'out' ? c.warning : tone === 'in' ? c.accent : c.text;
   return <Pressable accessibilityRole="button" accessibilityState={{ selected }} onPress={onPress} style={({ pressed }) => ({
     paddingHorizontal: 14, paddingVertical: sub ? 8 : 10, borderRadius: 14, borderCurve: 'continuous', borderWidth: 1,
-    borderColor: selected ? c.accent : c.line, backgroundColor: selected ? '#24463d' : c.surface, opacity: pressed ? 0.7 : 1,
+    borderColor: selected ? c.selected : c.line, backgroundColor: selected ? c.selected : c.surface, opacity: pressed ? 0.7 : 1,
   })}>
-    <Text style={{ color: toneColor, fontSize: 15, fontWeight: selected ? '700' : '500' }}>{icon ? `${icon}  ` : ''}{label}</Text>
-    {sub ? <Text numberOfLines={1} style={{ color: c.muted, fontSize: 12 }}>{sub}</Text> : null}
+    <Text style={{ color: selected ? c.onSelected : toneColor, fontSize: 15, fontWeight: selected ? '700' : '500' }}>{icon ? `${icon}  ` : ''}{label}</Text>
+    {sub ? <Text numberOfLines={1} style={{ color: selected ? c.onSelected : c.muted, fontSize: 12 }}>{sub}</Text> : null}
   </Pressable>;
 }
 

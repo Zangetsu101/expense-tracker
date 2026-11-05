@@ -1,3 +1,4 @@
+import { theme } from '@/theme';
 import { useState } from 'react';
 import NativeDatePicker from '@expo/ui/community/datetime-picker';
 import { Pressable, Text, View } from 'react-native';
@@ -17,7 +18,7 @@ function sameDate(a: Date, b: Date) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 function Choice({ title, selected, disabled = false, onPress }: { title: string; selected: boolean; disabled?: boolean; onPress: () => void }) {
-  return <Pressable accessibilityRole="button" accessibilityLabel={title} accessibilityState={{ selected, disabled }} disabled={disabled} onPress={onPress} style={{ minHeight: 48, paddingHorizontal: 14, justifyContent: 'center', backgroundColor: selected ? accent : panel, borderRadius: 14, opacity: disabled ? 0.45 : 1 }}><Text style={{ color: selected ? '#10231c' : ink }}>{title}</Text></Pressable>;
+  return <Pressable accessibilityRole="button" accessibilityLabel={title} accessibilityState={{ selected, disabled }} disabled={disabled} onPress={onPress} style={{ minHeight: 48, paddingHorizontal: 14, justifyContent: 'center', backgroundColor: selected ? theme.colors.selected : panel, borderRadius: 14, opacity: disabled ? 0.45 : 1 }}><Text style={{ color: selected ? theme.colors.onSelected : ink }}>{title}</Text></Pressable>;
 }
 
 export function QuickAddDate({ value: selected, onChange, disabled = false }: { value: Date; onChange: (date: Date) => void; disabled?: boolean }) {

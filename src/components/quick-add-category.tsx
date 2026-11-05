@@ -1,3 +1,4 @@
+import { theme } from '@/theme';
 import { useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import type { ManagedCategory } from '@/lib/categories';
@@ -39,7 +40,7 @@ export function QuickAddCategory({ categories, orderedIds, selectedId, onSelect,
     rows[row].push(category);
     used += (used ? 8 : 0) + chipWidth;
   }
-  const chip = (category: ManagedCategory) => <Pressable key={category.id} accessibilityRole="button" accessibilityLabel={path(category)} accessibilityState={{ selected: activeId === category.id }} onPress={() => onSelect(category.id)} style={{ paddingHorizontal: 13, paddingVertical: 10, borderRadius: 12, maxWidth: width || undefined, backgroundColor: activeId === category.id ? '#52766c' : '#29343a' }}><Text style={{ color: ink }}>{path(category)}</Text></Pressable>;
+  const chip = (category: ManagedCategory) => <Pressable key={category.id} accessibilityRole="button" accessibilityLabel={path(category)} accessibilityState={{ selected: activeId === category.id }} onPress={() => onSelect(category.id)} style={{ paddingHorizontal: 13, paddingVertical: 10, borderRadius: 12, maxWidth: width || undefined, backgroundColor: activeId === category.id ? theme.colors.selected : '#29343a' }}><Text style={{ color: ink }}>{path(category)}</Text></Pressable>;
   return <View style={{ gap: 10 }}>
     {onOpenAll && <Pressable accessibilityRole="button" onPress={onOpenAll} style={{ minHeight: 44, justifyContent: 'center' }}><Text style={{ color: accent }}>All categories →</Text></Pressable>}
     <Text selectable accessibilityLiveRegion="polite" style={{ color: ink }}>Selected: {active ? path(active) : 'None'}</Text>

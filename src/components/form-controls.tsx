@@ -18,7 +18,7 @@ export function FormButton({
   loading = false, accessibilityLabel, style,
 }: FormButtonProps) {
   const blocked = disabled || loading;
-  const color = variant === 'primary' ? c.background : variant === 'danger' ? c.warning : c.text;
+  const color = variant === 'primary' ? c.onSelected : variant === 'danger' ? c.warning : c.text;
   return (
     <Pressable
       accessibilityRole="button"
@@ -34,10 +34,10 @@ export function FormButton({
           alignItems: 'center',
           justifyContent: 'center',
           borderWidth: 1,
-          borderColor: variant === 'primary' ? c.accent : c.line,
+          borderColor: variant === 'primary' ? c.selected : c.line,
           borderRadius: t.radius.control,
           borderCurve: 'continuous',
-          backgroundColor: variant === 'primary' ? c.accent : 'transparent',
+          backgroundColor: variant === 'primary' ? c.selected : 'transparent',
           opacity: blocked ? 0.45 : pressed ? 0.65 : 1,
         },
         style,
@@ -105,11 +105,11 @@ export function JoinedChoice<T extends string>({ value, options, onChange, disab
             justifyContent: 'center',
             borderRightWidth: index < options.length - 1 ? 1 : 0,
             borderColor: c.line,
-            backgroundColor: value === option.value ? c.accent : c.surface,
+            backgroundColor: value === option.value ? c.selected : c.surface,
             opacity: disabled ? 0.45 : pressed ? 0.65 : 1,
           })}
         >
-          <Text style={{ color: value === option.value ? c.background : c.muted, fontSize: t.type.body, fontWeight: '600' }}>
+          <Text style={{ color: value === option.value ? c.onSelected : c.muted, fontSize: t.type.body, fontWeight: '600' }}>
             {option.label}
           </Text>
         </Pressable>
