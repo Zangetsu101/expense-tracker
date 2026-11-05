@@ -24,6 +24,9 @@ function Choice({ title, selected, disabled = false, onPress }: { title: string;
 export function QuickAddDate({ value: selected, onChange, disabled = false }: { value: Date; onChange: (date: Date) => void; disabled?: boolean }) {
   const [open, setOpen] = useState(false);
   const today = day();
+  const isToday = sameDate(selected, today);
+  const isYesterday = sameDate(selected, day(-1));
+  const isCustomDate = !isToday && !isYesterday;
   const select = (date: Date) => {
     const local = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12);
     if (local.getTime() > day().getTime()) return;
@@ -32,15 +35,14 @@ export function QuickAddDate({ value: selected, onChange, disabled = false }: { 
   };
   return <View style={{ gap: 12 }}>
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-      <Choice title="Today" selected={sameDate(selected, today)} disabled={disabled} onPress={() => select(today)} />
-      <Choice title="Yesterday" selected={sameDate(selected, day(-1))} disabled={disabled} onPress={() => select(day(-1))} />
-      <Choice title="Choose date…" selected={open} disabled={disabled} onPress={() => { setOpen(true); }} />
+      <Choice title="Today" selected={isToday} disabled={disabled} onPress={() => select(today)} />
+      <Choice title="Yesterday" selected={isYesterday} disabled={disabled} onPress={() => select(day(-1))} />
+      <Choice title={isCustomDate ? selected.toLocaleDateString(undefined, { dateStyle: 'medium' }) : 'Choose date…'} selected={isCustomDate} disabled={disabled} onPress={() => { setOpen(true); }} />
     </View>
     {open && !disabled && <View style={{ backgroundColor: panel, borderRadius: 18, padding: 12 }}>
       <Text style={{ color: muted, paddingBottom: 8 }}>Pick a past date</Text>
       <NativeDatePicker value={selected} mode="date" maximumDate={today} display={process.env.EXPO_OS === 'ios' ? 'inline' : 'default'} presentation={process.env.EXPO_OS === 'android' ? 'dialog' : 'inline'} accentColor={accent} {...(process.env.EXPO_OS === 'ios' ? { themeVariant: 'dark' as const } : {})} onValueChange={(_, date) => select(date)} onDismiss={() => setOpen(false)} />
       {process.env.EXPO_OS !== 'android' && <Choice title="Close date picker" selected={false} onPress={() => setOpen(false)} />}
     </View>}
-    <Text selectable accessibilityLiveRegion="polite" style={{ color: muted }}>Date: {selected.toLocaleDateString(undefined, { dateStyle: 'full' })}</Text>
   </View>;
 }
