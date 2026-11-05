@@ -1,8 +1,9 @@
 import { database } from './database';
+import type { LendingLabel } from './transaction-format';
 import { parseQuickAddTags } from './quick-add-tags';
 import { findOrCreateTag } from './tag-store';
 
-export type EditableTransaction = {
+export type EditableTransaction = LendingLabel & {
   id: number;
   type: 'EXPENSE' | 'INCOME';
   amountMinor: number;
@@ -48,9 +49,12 @@ export async function loadEditableTransaction(id: number): Promise<EditableTrans
   const db = await database();
   const row = await db.getFirstAsync<Omit<EditableTransaction, 'tags' | 'lineItems'>>(`SELECT t.id, t.type, t.amountMinor, t.date, t.accountId, t.categoryId, a.name AS accountName,
     a.currencyCode, c.name AS categoryName, t.note, t.excludeFromReport,
+    lending.kind AS lendingKind, person.name AS personName,
     CASE WHEN ${principalReportExclusion} THEN 1 ELSE 0 END AS reportExclusionLocked
     FROM transactions t JOIN accounts a ON a.id = t.accountId
     LEFT JOIN categories c ON c.id = t.categoryId
+    LEFT JOIN lending_entries lending ON lending.transactionId = t.id
+    LEFT JOIN people person ON person.id = lending.personId
     WHERE t.id = ? AND t.type IN ('EXPENSE', 'INCOME')`, [id]);
   if (!row) return null;
   const tags = await db.getAllAsync<{ id: number; name: string }>(`SELECT tags.id, tags.name FROM tags

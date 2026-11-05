@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { listAccounts, type Account } from '@/lib/database';
 import { listManagedCategories, type ManagedCategory } from '@/lib/categories';
 import { PAGE_SIZE, parseAmountMinor, searchTransactions, validDate, type SearchFilters, type SearchRow } from '@/lib/transaction-search';
-import { countLabel, formatEpochDay, formatTransactionAmount } from '@/lib/transaction-format';
+import { countLabel, formatEpochDay, formatTransactionAmount, transactionTitle } from '@/lib/transaction-format';
 
 const ink = '#edf1f4';
 const muted = '#a2acb5';
@@ -152,8 +152,8 @@ export default function TransactionsScreen() {
       </View>}
       ListEmptyComponent={!loading && !error ? <Text style={{ color: ink, padding: 20 }}>No transactions match. Try clearing a filter.</Text> : null}
       renderItem={({ item, index }) => {
-        const title = item.note?.trim() || item.categoryPath || item.categoryName || (item.type === 'TRANSFER' ? 'Transfer' : item.type === 'INCOME' ? 'Income' : 'Expense');
-        const detail = item.type === 'TRANSFER' ? `${item.accountName} → ${item.transferAccountName ?? 'Account'} · ${item.currencyCode}` : `${item.categoryPath ?? item.categoryName ?? item.type} · ${item.accountName}`;
+        const title = item.lendingKind ? transactionTitle(item) : item.note?.trim() || transactionTitle(item);
+        const detail = item.type === 'TRANSFER' ? `${item.accountName} → ${item.transferAccountName ?? 'Account'} · ${item.currencyCode}` : `${transactionTitle(item)} · ${item.accountName}`;
         const content = <View style={{ padding: 16, backgroundColor: item.type === 'TRANSFER' ? '#222c38' : '#1c242a', borderRadius: 4, gap: 6, borderLeftWidth: item.type === 'TRANSFER' ? 3 : 0, borderLeftColor: '#8da8dc' }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
             <Text numberOfLines={2} style={{ color: ink, fontSize: 15, fontWeight: '600', flex: 1 }}>{item.type === 'TRANSFER' ? '⇄  ' : ''}{title}</Text>

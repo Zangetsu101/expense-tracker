@@ -8,7 +8,8 @@ sqlite.exec(`PRAGMA foreign_keys = ON;
 CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT, currencyCode TEXT);
 CREATE TABLE categories (id INTEGER PRIMARY KEY, name TEXT);
 CREATE TABLE transactions (id INTEGER PRIMARY KEY, type TEXT, amountMinor INTEGER, date INTEGER, accountId INTEGER, categoryId INTEGER, note TEXT, excludeFromReport INTEGER);
-CREATE TABLE lending_entries (id INTEGER PRIMARY KEY, transactionId INTEGER UNIQUE);
+CREATE TABLE people (id INTEGER PRIMARY KEY, name TEXT);
+CREATE TABLE lending_entries (id INTEGER PRIMARY KEY, transactionId INTEGER UNIQUE, personId INTEGER, kind TEXT);
 CREATE TABLE tags (id INTEGER PRIMARY KEY, name TEXT UNIQUE);
 CREATE TABLE line_items (id INTEGER PRIMARY KEY, transactionId INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE, name TEXT NOT NULL, amountMinor INTEGER NOT NULL, quantity REAL);
 CREATE TABLE transaction_tags (transactionId INTEGER REFERENCES transactions(id), tagId INTEGER REFERENCES tags(id), PRIMARY KEY(transactionId, tagId));
@@ -55,6 +56,17 @@ registerHooks({
   },
 });
 const { loadEditableTransaction, saveTransactionEdit } = await import('./transaction-edit.ts');
+const { transactionTitle } = await import('./transaction-format.ts');
+
+test('receipt data includes linked lending kind and person even for categorized history', async () => {
+  sqlite.exec("INSERT INTO people VALUES (1, 'Sam'); INSERT INTO lending_entries VALUES (10, 1, 1, 'LEND')");
+  try {
+    assert.equal(transactionTitle(await loadEditableTransaction(1)), 'Lent to Sam');
+    assert.equal(await loadEditableTransaction(2), null);
+  } finally {
+    sqlite.exec('DELETE FROM lending_entries; DELETE FROM people');
+  }
+});
 
 test('edits tags, note and exclusion without changing financial fields or shared tags', async () => {
   const original = await loadEditableTransaction(1);
@@ -73,7 +85,7 @@ test('edits tags, note and exclusion without changing financial fields or shared
 });
 
 test('editing a linked principal cannot include it in reports', async () => {
-  sqlite.exec('INSERT INTO lending_entries VALUES (1, 1)');
+  sqlite.exec('INSERT INTO lending_entries (id, transactionId) VALUES (1, 1)');
   try {
     assert.equal((await loadEditableTransaction(1)).reportExclusionLocked, 1);
     await saveTransactionEdit(await loadEditableTransaction(1), 'principal note', false, '');

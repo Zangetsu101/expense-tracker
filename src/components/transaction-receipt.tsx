@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import type { EditableTransaction } from '@/lib/transaction-edit';
 import type { EditableTransfer } from '@/lib/transfers';
-import { formatEpochDay, formatTransactionAmount } from '@/lib/transaction-format';
+import { formatEpochDay, formatTransactionAmount, transactionTitle } from '@/lib/transaction-format';
 import { formatLineItemAmount } from '@/lib/line-item-amount';
 import { theme } from '@/theme';
 
@@ -41,7 +41,7 @@ export function TransactionReceipt({ transaction: row }: Props) {
     <View style={{ backgroundColor: color.panel, borderRadius: 18, padding: 22, gap: 16 }}>
       <Label>{`${row.type === 'EXPENSE' ? 'Expense' : 'Income'} · ${row.currencyCode}`}</Label>
       <Text selectable style={{ color: row.type === 'INCOME' ? color.accent : color.ink, fontSize: 40, fontWeight: '300', fontVariant: ['tabular-nums'] }}>{formatTransactionAmount(row.type, row.amountMinor, row.currencyCode)}</Text>
-      <Text selectable style={{ color: color.ink, fontSize: 20, fontWeight: '700' }}>{row.categoryName ?? 'Uncategorized'}</Text>
+      <Text selectable style={{ color: color.ink, fontSize: 20, fontWeight: '700' }}>{transactionTitle(row)}</Text>
       <View style={{ height: 1, backgroundColor: color.line }} />
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 20 }}>
         <View style={{ gap: 8 }}><Label>Account</Label><Value>{row.accountName}</Value></View>

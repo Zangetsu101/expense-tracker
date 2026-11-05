@@ -1,6 +1,27 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { countLabel, formatEpochDay, formatTransactionAmount } from './transaction-format.ts';
+import { countLabel, formatEpochDay, formatTransactionAmount, transactionTitle } from './transaction-format.ts';
+
+test('lending titles use kind and person ahead of category, including attributed imports', () => {
+  for (const [lendingKind, type, expected] of [
+    ['LEND', 'EXPENSE', 'Lent to Sam'],
+    ['BORROW', 'INCOME', 'Borrowed from Sam'],
+    ['RECEIVE_REPAYMENT', 'INCOME', 'Repayment from Sam'],
+    ['REPAY', 'EXPENSE', 'Repaid to Sam'],
+  ]) {
+    for (const categoryName of [null, 'Loan']) {
+      assert.equal(transactionTitle({ type, categoryName, lendingKind, personName: 'Sam' }), expected);
+    }
+  }
+});
+
+test('ordinary titles preserve categories and use readable uncategorized fallbacks', () => {
+  assert.equal(transactionTitle({ type: 'EXPENSE', categoryName: null }), 'Expense');
+  assert.equal(transactionTitle({ type: 'INCOME', categoryName: null }), 'Income');
+  assert.equal(transactionTitle({ type: 'TRANSFER', categoryName: null }), 'Transfer');
+  assert.equal(transactionTitle({ type: 'EXPENSE', categoryName: 'Food' }), 'Food');
+  assert.equal(transactionTitle({ type: 'EXPENSE', categoryName: 'Lunch', categoryPath: 'Food › Lunch' }), 'Food › Lunch');
+});
 
 test('Expense and Income use consistent signs and unknown currency codes do not crash', () => {
   assert.match(formatTransactionAmount('EXPENSE', 1234, 'BDT'), /^−/);

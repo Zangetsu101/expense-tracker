@@ -19,9 +19,12 @@ registerHooks({
   },
 });
 const { searchStatement, validDate, parseAmountMinor } = await import('./transaction-search.ts');
+const { transactionTitle } = await import('./transaction-format.ts');
 
 const db = new DatabaseSync(':memory:');
-db.exec(`CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT, currencyCode TEXT);
+db.exec(`CREATE TABLE people (id INTEGER PRIMARY KEY, name TEXT);
+CREATE TABLE lending_entries (transactionId INTEGER UNIQUE, personId INTEGER, kind TEXT);
+CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT, currencyCode TEXT);
 CREATE TABLE categories (id INTEGER PRIMARY KEY, name TEXT, type TEXT, parentId INTEGER);
 CREATE TABLE transactions (id INTEGER PRIMARY KEY, type TEXT, amountMinor INTEGER, date INTEGER, note TEXT, accountId INTEGER, transferAccountId INTEGER, categoryId INTEGER);
 INSERT INTO accounts VALUES (1,'Cash','BDT'),(2,'Bank','BDT'),(3,'Dollar','USD');
@@ -31,6 +34,19 @@ const search = (patch = {}, offset = 0) => {
   const { sql, params } = searchStatement({ query: '', type: 'ALL', accountId: null, month: '', ...patch }, offset);
   return db.prepare(sql).all(...params).map((row) => row.id);
 };
+
+test('Search returns lending labels ahead of notes and categories while keeping ordinary rows', () => {
+  db.exec("INSERT INTO people VALUES (1, 'Sam'); INSERT INTO lending_entries VALUES (1, 1, 'LEND')");
+  try {
+    const { sql, params } = searchStatement({ query: '', type: 'ALL', accountId: null });
+    const rows = db.prepare(sql).all(...params);
+    assert.equal(rows.length, 5);
+    assert.equal(transactionTitle(rows.find((row) => row.id === 1)), 'Lent to Sam');
+    assert.equal(transactionTitle(rows.find((row) => row.id === 3)), 'Income');
+  } finally {
+    db.exec('DELETE FROM lending_entries; DELETE FROM people');
+  }
+});
 
 test('searches notes, category and either account literally', () => {
   assert.deepEqual(search({ query: 'food' }), [1]);

@@ -28,6 +28,7 @@ registerHooks({
 });
 const { database, epochDay } = await import('./database.ts');
 const { homeData } = await import('./home-data.ts');
+const { transactionTitle } = await import('./transaction-format.ts');
 await database();
 sqlite.exec(`DELETE FROM transactions; DELETE FROM categories; DELETE FROM accounts;
   INSERT INTO accounts (id, name, currencyCode) VALUES (1, 'Cash', 'BDT'), (2, 'Bank', 'USD');
@@ -55,4 +56,27 @@ const add = (id, type, amount, date, account, excluded = 0, destination = null) 
     { id: 1, currencyCode: 'BDT', transferAccountName: null },
     { id: 5, currencyCode: 'USD', transferAccountName: null },
   ]);
+});
+
+test('Home joins all lending kinds to saved people without duplicating ordinary rows or changing reports', async () => {
+  const before = await homeData(new Date(2025, 0, 20));
+  sqlite.exec("INSERT INTO people (id, name) VALUES (1, 'Sam')");
+  const movements = [
+    ['LEND', 'EXPENSE', 'Lent to Sam'],
+    ['BORROW', 'INCOME', 'Borrowed from Sam'],
+    ['RECEIVE_REPAYMENT', 'INCOME', 'Repayment from Sam'],
+    ['REPAY', 'EXPENSE', 'Repaid to Sam'],
+  ];
+  for (const [index, [kind, type]] of movements.entries()) {
+    const id = 10 + index;
+    add(id, type, 10000, day(2025, 1, 10), 1, 1);
+    sqlite.prepare('UPDATE transactions SET categoryId = NULL WHERE id = ?').run(id);
+    sqlite.prepare('INSERT INTO lending_entries (personId, kind, transactionId, currencyCode, amountMinor, date) VALUES (1, ?, ?, ?, ?, ?)')
+      .run(kind, id, 'BDT', 10000, day(2025, 1, 10));
+  }
+  const after = await homeData(new Date(2025, 0, 20));
+  assert.deepEqual(after.summaries, before.summaries);
+  assert.equal(after.rows.length, before.rows.length + 4);
+  assert.deepEqual(after.rows.filter((row) => row.id >= 10).map(transactionTitle), movements.toReversed().map((movement) => movement[2]));
+  assert.equal(after.rows.find((row) => row.id === 1).lendingKind, null);
 });

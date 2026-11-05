@@ -1,4 +1,5 @@
 import { database } from './database';
+import type { LendingLabel } from './transaction-format';
 
 export type AmountMode = 'ANY' | 'EQUAL' | 'GREATER' | 'LESS' | 'BETWEEN';
 export type DatePreset = 'ANY' | 'TODAY' | 'LAST_7_DAYS' | 'THIS_MONTH' | 'CUSTOM';
@@ -15,7 +16,7 @@ export type SearchFilters = {
   maximum?: string;
   month?: string; // Legacy callers.
 };
-export type SearchRow = { id: number; type: 'EXPENSE' | 'INCOME' | 'TRANSFER'; amountMinor: number; date: number; note: string | null; accountName: string; transferAccountName: string | null; categoryName: string | null; categoryPath: string | null; currencyCode: string };
+export type SearchRow = LendingLabel & { id: number; type: 'EXPENSE' | 'INCOME' | 'TRANSFER'; amountMinor: number; date: number; note: string | null; accountName: string; transferAccountName: string | null; categoryName: string | null; categoryPath: string | null; currencyCode: string };
 export const PAGE_SIZE = 50;
 
 export function validDate(value: string): boolean {
@@ -106,10 +107,12 @@ export function searchStatement(filters: SearchFilters, offset = 0, now = new Da
     sql: `SELECT t.id, t.type, t.amountMinor, t.date, t.note, a.name AS accountName, a.currencyCode, dest.name AS transferAccountName, c.name AS categoryName, (WITH RECURSIVE path(id, parentId, label) AS (
         SELECT id, parentId, name FROM categories WHERE id = t.categoryId
         UNION ALL SELECT p.id, p.parentId, p.name || ' › ' || path.label FROM categories p JOIN path ON path.parentId = p.id
-      ) SELECT label FROM path WHERE parentId IS NULL) AS categoryPath
+      ) SELECT label FROM path WHERE parentId IS NULL) AS categoryPath, lending.kind AS lendingKind, person.name AS personName
       FROM transactions t JOIN accounts a ON a.id = t.accountId
       LEFT JOIN accounts dest ON dest.id = t.transferAccountId
       LEFT JOIN categories c ON c.id = t.categoryId
+      LEFT JOIN lending_entries lending ON lending.transactionId = t.id
+      LEFT JOIN people person ON person.id = lending.personId
       ${clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''}
       ORDER BY t.date DESC, t.id DESC LIMIT ? OFFSET ?`,
     params: [...params, PAGE_SIZE, offset],

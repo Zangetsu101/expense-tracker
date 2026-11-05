@@ -17,3 +17,17 @@ export function formatEpochDay(day: number): string {
 export function countLabel(count: number, singular: string, plural: string, hasMorePages = false): string {
   return `${count}${hasMorePages ? '+' : ''} ${count === 1 && !hasMorePages ? singular : plural}`;
 }
+
+export type LendingLabel = {
+  lendingKind?: 'LEND' | 'BORROW' | 'RECEIVE_REPAYMENT' | 'REPAY' | null;
+  personName?: string | null;
+};
+
+export function transactionTitle(row: LendingLabel & { type: 'EXPENSE' | 'INCOME' | 'TRANSFER'; categoryName: string | null; categoryPath?: string | null }): string {
+  if (row.lendingKind && row.personName) {
+    const prefixes = { LEND: 'Lent to', BORROW: 'Borrowed from', RECEIVE_REPAYMENT: 'Repayment from', REPAY: 'Repaid to' };
+    return `${prefixes[row.lendingKind]} ${row.personName}`;
+  }
+  if (row.type === 'TRANSFER') return 'Transfer';
+  return row.categoryPath ?? row.categoryName ?? (row.type === 'EXPENSE' ? 'Expense' : 'Income');
+}
