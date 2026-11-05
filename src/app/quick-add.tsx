@@ -1,14 +1,18 @@
 import { useEffect, useState } from 'react';
-import { router, Stack } from 'expo-router';
+import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { Alert, FlatList, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { listAccounts, listCategories, setFavoriteAccount, type Account, type Category } from '@/lib/database';
-import { addQuickTransaction } from '@/lib/quick-add-tags';
+import { listAccounts, listCategories, type Account, type Category } from '@/lib/database';
 import { QuickAddDate } from '@/components/quick-add-date';
 import { QuickAddCategory } from '@/components/quick-add-category';
 import { listManagedCategories, type ManagedCategory } from '@/lib/categories';
 
 import { theme } from '@/theme';
 import { FormButton, FormInput, JoinedChoice } from '@/components/form-controls';
+import { PrototypeSwitcher } from '@/components/prototype-switcher';
+import { useProtoData } from '@/components/money-entry-prototype/shared';
+import { VariantA, name as VariantAName } from '@/components/money-entry-prototype/variant-a';
+import { VariantAReuse } from '@/components/money-entry-prototype/variant-a-reuse';
+
 
 const { text: ink, muted, surface: panel, accent, line: divider } = theme.colors;
 type Kind = 'EXPENSE' | 'INCOME';
@@ -22,7 +26,7 @@ function HeaderAction({ label, onPress }: { label: string; onPress: () => void }
   return <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={({ pressed }) => ({ minHeight: 48, justifyContent: 'center', paddingHorizontal: 8, opacity: pressed ? 0.6 : 1 })}><Text style={{ color: accent, fontSize: 16 }}>{label}</Text></Pressable>;
 }
 
-export default function QuickAdd() {
+function CurrentQuickAdd() {
   const [type, setType] = useState<Kind>('EXPENSE');
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
@@ -90,8 +94,8 @@ export default function QuickAdd() {
   async function makeFavorite(id: number) {
     setFavoritePending(true); setError(undefined);
     try {
-      await setFavoriteAccount(id);
-      setAccounts(await listAccounts());
+      // Prototype: favorite selection stays in memory.
+      setAccounts((items) => items.map((item) => ({ ...item, isFavorite: item.id === id ? 1 : 0 })));
       setAccountId(id);
     } catch (e) { setError(String(e)); } finally { setFavoritePending(false); }
   }
@@ -102,14 +106,7 @@ export default function QuickAdd() {
     }
     setPending(true); setError(undefined);
     try {
-      await addQuickTransaction({ type, amountMinor: minor, accountId, categoryId, date, note: note.trim() || null }, tags);
-      Alert.alert('Saved', 'Add another transaction?', [
-        { text: 'Done', onPress: () => router.back() },
-        { text: 'Add another', onPress: () => {
-          setAmount(''); setNote(''); setTags('');
-          listCategories(type).then(setCategories).catch((e) => setError(String(e)));
-        } },
-      ]);
+      Alert.alert('PROTOTYPE — not saved', `${type} ${amount}`);
     } catch (e) { setError(String(e)); } finally { setPending(false); }
   }
 
@@ -140,5 +137,24 @@ export default function QuickAdd() {
       {error && <Text selectable accessibilityRole="alert" style={{ color: theme.colors.warning }}>{error}</Text>}
       <FormButton label="Save" loading={pending} onPress={() => void save()} />
     </ScrollView>}
+  </View>;
+}
+
+// PROTOTYPE wiring — throwaway (branch prototype/money-entry-flow). `now` = current screen above.
+const protoVariants = [
+  { key: 'reuse', name: 'A · Existing pieces' },
+  { key: 'A', name: VariantAName },
+  { key: 'now', name: 'Current quick add' },
+];
+export default function QuickAdd() {
+  const { variant = 'reuse' } = useLocalSearchParams<{ variant?: string }>();
+  const data = useProtoData();
+  const choose = (key: string) => router.setParams({ variant: key });
+  return <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
+    {variant === 'now' ? <CurrentQuickAdd /> : <>
+      <Stack.Screen options={{ title: 'Add', headerStyle: { backgroundColor: theme.colors.background }, headerTintColor: ink, headerLeft: () => <HeaderAction label="Cancel" onPress={() => router.back()} />, headerRight: undefined }} />
+      {!data ? null : variant === 'A' ? <VariantA key="A" data={data} /> : <VariantAReuse data={data} />}
+    </>}
+    <PrototypeSwitcher variants={protoVariants} current={variant} onChange={choose} />
   </View>;
 }
