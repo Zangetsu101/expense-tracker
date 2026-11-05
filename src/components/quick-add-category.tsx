@@ -7,7 +7,7 @@ const muted = '#aab9b7';
 const panel = '#1d2a30';
 const accent = '#b8e2bd';
 
-type Props = { categories: ManagedCategory[]; orderedIds: number[]; selectedId?: number; onSelect: (id: number) => void; onOpenAll: () => void };
+type Props = { categories: ManagedCategory[]; orderedIds: number[]; selectedId?: number; onSelect: (id: number) => void; onOpenAll?: () => void };
 
 export function QuickAddCategory({ categories, orderedIds, selectedId, onSelect, onOpenAll }: Props) {
   const [query, setQuery] = useState('');
@@ -41,7 +41,7 @@ export function QuickAddCategory({ categories, orderedIds, selectedId, onSelect,
   }
   const chip = (category: ManagedCategory) => <Pressable key={category.id} accessibilityRole="button" accessibilityLabel={path(category)} accessibilityState={{ selected: activeId === category.id }} onPress={() => onSelect(category.id)} style={{ paddingHorizontal: 13, paddingVertical: 10, borderRadius: 12, maxWidth: width || undefined, backgroundColor: activeId === category.id ? '#52766c' : '#29343a' }}><Text style={{ color: ink }}>{path(category)}</Text></Pressable>;
   return <View style={{ gap: 10 }}>
-    <Pressable accessibilityRole="button" onPress={onOpenAll} style={{ minHeight: 44, justifyContent: 'center' }}><Text style={{ color: accent }}>All categories →</Text></Pressable>
+    {onOpenAll && <Pressable accessibilityRole="button" onPress={onOpenAll} style={{ minHeight: 44, justifyContent: 'center' }}><Text style={{ color: accent }}>All categories →</Text></Pressable>}
     <Text selectable accessibilityLiveRegion="polite" style={{ color: ink }}>Selected: {active ? path(active) : 'None'}</Text>
     <TextInput accessibilityLabel="Search categories" placeholder="Search categories or parent" placeholderTextColor={muted} value={query} onChangeText={setQuery} style={{ backgroundColor: panel, color: ink, padding: 12, borderRadius: 12 }} />
     <View onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
