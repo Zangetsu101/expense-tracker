@@ -80,3 +80,33 @@ test('Home joins all lending kinds to saved people without duplicating ordinary 
   assert.deepEqual(after.rows.filter((row) => row.id >= 10).map(transactionTitle), movements.toReversed().map((movement) => movement[2]));
   assert.equal(after.rows.find((row) => row.id === 1).lendingKind, null);
 });
+
+test('Account scope includes either Transfer side and filters activity before the 50-row limit', async () => {
+  sqlite.exec("INSERT INTO accounts (id, name, currencyCode) VALUES (3, 'Mobile', 'BDT')");
+  add(100, 'TRANSFER', 4000, day(2025, 1, 12), 1, 0, 3);
+  add(101, 'EXPENSE', 300, day(2025, 1, 13), 3);
+  add(102, 'INCOME', 700, day(2025, 1, 14), 3);
+  add(103, 'EXPENSE', 999, day(2025, 1, 15), 3, 1);
+  for (let id = 200; id < 255; id++) add(id, 'EXPENSE', 10, day(2025, 1, 16), 2);
+  const mobile = await homeData(new Date(2025, 0, 20), 3);
+  assert.deepEqual(mobile.rows.map((row) => row.id), [103, 102, 101, 100]);
+  assert.equal(mobile.rows.at(-1).accountId, 1);
+  assert.equal(mobile.rows.at(-1).transferAccountId, 3);
+  assert.deepEqual(mobile.summaries, [{ currencyCode: 'BDT', incomeMinor: 700, expenseMinor: 300 }]);
+  const cash = await homeData(new Date(2025, 0, 20), 1);
+  assert.ok(cash.rows.some((row) => row.id === 100));
+  assert.ok(cash.rows.every((row) => row.accountId === 1 || row.transferAccountId === 1));
+  assert.deepEqual(cash.summaries, [{ currencyCode: 'BDT', incomeMinor: 0, expenseMinor: 12000 }]);
+  const empty = await homeData(new Date(2025, 0, 20), 999);
+  assert.deepEqual(empty, { rows: [], summaries: [] });
+});
+
+test('All accounts keeps each Transfer once', async () => {
+  const result = await homeData(new Date(2025, 0, 20));
+  assert.equal(result.rows.length, 50);
+  const earlier = await homeData(new Date(2025, 0, 20), 3);
+  assert.equal(earlier.rows.filter((row) => row.id === 100).length, 1);
+  sqlite.exec('DELETE FROM transactions WHERE id >= 200');
+  const all = await homeData(new Date(2025, 0, 20));
+  assert.equal(all.rows.filter((row) => row.id === 100).length, 1);
+});

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { router, Stack } from 'expo-router';
+import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight, useNavigation, usePreventRemove } from 'expo-router/react-navigation';
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { epochDay, listAccounts, listCategories, type Account, type Category } from '@/lib/database';
@@ -11,6 +11,7 @@ import { QuickAddDate } from '@/components/quick-add-date';
 import { QuickAddCategory } from '@/components/quick-add-category';
 import { AccountChoices, personBalanceSummary } from '@/components/entry-choices';
 import { FormButton, FormInput, JoinedChoice } from '@/components/form-controls';
+import { parseAccountId, resolveHomeAccount } from '@/lib/account-selection';
 import { theme } from '@/theme';
 
 const c = theme.colors;
@@ -62,10 +63,11 @@ export default function QuickAdd() {
 }
 
 function QuickAddForm({ data }: { data: EntryData }) {
+  const params = useLocalSearchParams<{ accountId?: string }>();
   const headerHeight = useHeaderHeight();
   const [mode, setMode] = useState<Mode>('EXPENSE');
   const [amount, setAmount] = useState('');
-  const [accountId, setAccountId] = useState(data.accounts.find((account) => account.isFavorite)?.id ?? data.accounts[0]?.id);
+  const [accountId, setAccountId] = useState(resolveHomeAccount(data.accounts, parseAccountId(params.accountId)) ?? data.accounts[0]?.id);
   const [toId, setToId] = useState<number>();
   const [categoryIds, setCategoryIds] = useState({ EXPENSE: data.expense[0]?.id, INCOME: data.income[0]?.id });
   const [people, setPeople] = useState(data.people);

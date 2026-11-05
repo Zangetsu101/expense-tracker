@@ -13,7 +13,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const root = new URL('../../', import.meta.url);
 const mocks = {
   'react-native': `export const KeyboardAvoidingView='KeyboardAvoidingView',View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator',FlatList='FlatList'; export const useWindowDimensions=()=>({width:390,height:844}); export const Alert={alert:(...args)=>globalThis.__entryTest.alert=args};`,
-  'expo-router': `import {useEffect} from 'react'; export const useFocusEffect=fn=>useEffect(fn,[fn]); export const router={back:()=>globalThis.__entryTest.back=true}; export const Stack={Screen:()=>null};`,
+  'expo-router': `import {useEffect} from 'react'; export const useFocusEffect=fn=>useEffect(fn,[fn]); export const useLocalSearchParams=()=>globalThis.__entryTest.params ?? {}; export const router={back:()=>globalThis.__entryTest.back=true}; export const Stack={Screen:()=>null};`,
   'expo-router/react-navigation': `export const useHeaderHeight=()=>88; export const useNavigation=()=>({dispatch:action=>globalThis.__entryTest.dispatched=action}); export const usePreventRemove=(enabled,callback)=>{globalThis.__entryTest.removal={enabled,callback}};`,
   'react-native-safe-area-context': `export const useSafeAreaInsets=()=>({bottom:0});`,
   '@expo/ui': `export const Host='Host',BottomSheet='BottomSheet',Column='Column',Text='NativeText',Button='NativeButton';`,
@@ -57,7 +57,7 @@ async function mount(Screen) {
 }
 const text = () => nodes('Text').map(n => n.children.join('')).join('\n');
 test('Account entry screens', async t => {
-  t.afterEach(async () => { if (renderer) await act(async () => renderer.unmount()); renderer = undefined; delete state.balances; });
+  t.afterEach(async () => { if (renderer) await act(async () => renderer.unmount()); renderer = undefined; delete state.balances; delete state.params; });
   t.after(() => { hooks.deregister(); delete globalThis.__entryTest; if (previousActEnvironment === undefined) delete globalThis.IS_REACT_ACT_ENVIRONMENT; else globalThis.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment; });
   await t.test('Accounts group headings use singular and plural counts', async () => {
     Object.assign(state, { save: async () => {}, back: false });
@@ -91,6 +91,20 @@ test('Account entry screens', async t => {
     await mount(QuickAdd); await change('Amount', '12'); await change('Note', 'Lunch'); await change('Tags, separated by commas', 'food');
     let saved; state.save = async (...args) => { saved = args; }; await press('Save');
     assert.equal(saved[0].amountMinor, 1200); assert.equal(saved[0].accountId, 1); assert.equal(saved[0].categoryId, 3); assert.equal(saved[0].type, 'EXPENSE'); assert.equal(saved[0].note, 'Lunch'); assert.equal(saved[1], 'food'); assert.equal(state.back, true); assert.equal(state.alert, undefined);
+  });
+  await t.test('Home account context overrides favorite and remains editable in Quick Add', async () => {
+    state.params = { accountId: '2' };
+    await mount(QuickAdd); await change('Amount', '12');
+    let selector = renderer.root.findAll(n => n.type?.name === 'AccountChoices')[0];
+    assert.equal(selector.props.selectedId, 2);
+    await act(async () => selector.props.onSelect(4));
+    let saved; state.save = async draft => { saved = draft; };
+    await press('Save'); assert.equal(saved.accountId, 4);
+  });
+  await t.test('A missing Home account falls back to favorite in Quick Add', async () => {
+    state.params = { accountId: '99' };
+    await mount(QuickAdd);
+    assert.equal(renderer.root.findAll(n => n.type?.name === 'AccountChoices')[0].props.selectedId, 1);
   });
   await t.test('Transfer destination selection enables shared save and preserves account direction', async () => {
     await mount(Transfer); await change('Transfer amount', '7'); assert.equal(button('Save transfer').props.disabled, true);
