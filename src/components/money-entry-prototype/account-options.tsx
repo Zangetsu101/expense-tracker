@@ -29,7 +29,7 @@ export function AccountOptions({ accounts, selectedId, onSelect, treatment }: { 
           </View>
           <Text style={{ color: ink, fontSize: 17, fontWeight: '700' }}>{account.name}</Text>
         </> : <>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
             <Text style={{ color: ink, fontSize: compact ? 14 : 15, fontWeight: compact ? '400' : selected ? '700' : '500' }}>{account.name}{account.isFavorite ? ' ★' : ''}</Text>
             {selected && !compact && <Text style={{ color: ink, fontWeight: '700' }}>✓</Text>}
             {compact && <Text style={{ color: selected ? c.onSelected : c.muted, fontSize: 11 }}>{account.currencyCode}</Text>}

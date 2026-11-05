@@ -154,7 +154,7 @@ export default function QuickAdd() {
   const choose = (key: string) => router.setParams({ variant: key });
   return <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
     {variant === 'now' ? <CurrentQuickAdd /> : <>
-      <Stack.Screen options={{ title: 'Add', headerStyle: { backgroundColor: theme.colors.background }, headerTintColor: ink, headerLeft: () => <HeaderAction label="Cancel" onPress={() => router.back()} />, headerRight: undefined }} />
+      <Stack.Screen options={{ title: 'Add', headerTitleAlign: 'center', headerStyle: { backgroundColor: theme.colors.background }, headerTintColor: ink, headerLeft: () => <HeaderAction label="Cancel" onPress={() => router.back()} />, headerRight: undefined }} />
       {!data ? null : variant === 'A' ? <VariantA key="A" data={data} /> : <VariantAReuse data={data} accountTreatment={variant === 'compact' ? 'compact' : variant === 'tiles' ? 'tiles' : variant === 'before' ? 'before' : 'filled'} />}
     </>}
     <PrototypeSwitcher variants={protoVariants} current={variant} onChange={choose} />
