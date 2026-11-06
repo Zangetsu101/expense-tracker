@@ -47,7 +47,7 @@ const hooks = registerHooks({
 });
 
 const fixtures = {
-  home: {rows:[{id:1,type:'EXPENSE',date:20000,amountMinor:500,currencyCode:'USD',accountName:'Cash',categoryName:'Lunch'}],summaries:[{currencyCode:'USD',expenseMinor:500,incomeMinor:1000}]},
+  home: {dailySummaries:[{date:20000,currencyCode:'USD',expenseMinor:500,incomeMinor:0}],rows:[{id:1,type:'EXPENSE',date:20000,amountMinor:500,currencyCode:'USD',accountName:'Cash',categoryName:'Lunch'}],summaries:[{currencyCode:'USD',expenseMinor:500,incomeMinor:1000}]},
   accounts: [{id:1,name:'Cash',currencyCode:'USD',openingBalanceMinor:0,isFavorite:1}],
   balances: [{id:1,balanceMinor:1500}],
   reports: {summaries:[{currencyCode:'USD',incomeMinor:1000,expenseMinor:500}],spending:[]},

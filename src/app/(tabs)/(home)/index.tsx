@@ -3,9 +3,9 @@ import { Link, Stack, router, useFocusEffect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, AppState, FlatList, Pressable, Text, View } from 'react-native';
 import { SymbolView } from 'expo-symbols';
-import { homeData, type HomeTransaction } from '@/lib/home-data';
+import { homeData, type DailySummary, type HomeTransaction } from '@/lib/home-data';
 import type { MonthlySummary } from '@/lib/reports';
-import { formatEpochDay, formatTransactionAmount, transactionTitle } from '@/lib/transaction-format';
+import { formatActivityDay, formatTransactionAmount, transactionTitle } from '@/lib/transaction-format';
 import { HomeAccountPicker } from '@/components/home-account-picker';
 import { listAccounts, type Account } from '@/lib/database';
 import { resolveHomeAccount, watchHomeReopen } from '@/lib/account-selection';
@@ -30,6 +30,7 @@ export default function HomeScreen() {
   }), []);
   const [rows, setRows] = useState<HomeTransaction[]>([]);
   const [summaries, setSummaries] = useState<MonthlySummary[]>([]);
+  const [dailySummaries, setDailySummaries] = useState<DailySummary[]>([]);
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
@@ -44,7 +45,7 @@ export default function HomeScreen() {
       if (active) {
         selection.current = id;
         setAccountId(id); setAccounts(items);
-        setRows(result.rows); setSummaries(result.summaries); setLoaded(true);
+        setRows(result.rows); setSummaries(result.summaries); setDailySummaries(result.dailySummaries); setLoaded(true);
       }
     }).catch((e) => { if (active) setError(String(e)); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -83,7 +84,15 @@ export default function HomeScreen() {
         const detail = scopedTransfer ? incoming ? `Received from ${item.accountName}` : `Sent to ${item.transferAccountName}` : `${item.accountName}${item.transferAccountName ? ` → ${item.transferAccountName}` : ''}`;
         const displayAmount = scopedTransfer ? `${incoming ? '+' : '−'}${amount('TRANSFER', item.amountMinor, item.currencyCode)}` : amount(item.type, item.amountMinor, item.currencyCode);
         return <View>
-        {(index === 0 || rows[index - 1].date !== item.date) && <Text style={{ color: colors.muted, fontWeight: '700', paddingTop: 16, paddingBottom: 4 }}>{formatEpochDay(item.date)}</Text>}
+        {(index === 0 || rows[index - 1].date !== item.date) && <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, paddingTop: 16, paddingBottom: 4 }}>
+          <Text style={{ color: colors.muted, fontWeight: '700' }}>{formatActivityDay(item.date)}</Text>
+          <View style={{ flexShrink: 1, gap: 4 }}>
+            {dailySummaries.filter((summary) => summary.date === item.date && (summary.expenseMinor !== 0 || summary.incomeMinor !== 0)).map((summary) => <View key={summary.currencyCode} style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 12 }}>
+              {summary.expenseMinor !== 0 && <Text selectable style={{ color: colors.muted, fontSize: 12, fontVariant: ['tabular-nums'] }}>Spent {amount('TRANSFER', summary.expenseMinor, summary.currencyCode)}</Text>}
+              {summary.incomeMinor !== 0 && <Text selectable style={{ color: colors.accent, fontSize: 12, fontVariant: ['tabular-nums'] }}>Earned {amount('TRANSFER', summary.incomeMinor, summary.currencyCode)}</Text>}
+            </View>)}
+          </View>
+        </View>}
         <Pressable onPress={() => router.push({ pathname: '/transaction/[id]', params: { id: String(item.id) } })} accessibilityRole="button" accessibilityLabel={`${title}, ${item.accountName}`} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: colors.line, opacity: pressed ? 0.6 : 1 })}>
           <View style={{ flex: 1, gap: 4 }}><Text selectable style={{ color: colors.text, fontSize: 16, fontWeight: '600' }}>{title}</Text><Text selectable style={{ color: colors.muted }}>{detail}{item.note ? ` · ${item.note}` : ''}</Text></View>
           <Text selectable style={{ color: item.type === 'INCOME' || incoming ? colors.accent : colors.text, fontWeight: '700', fontVariant: ['tabular-nums'] }}>{displayAmount}</Text>

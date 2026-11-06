@@ -5,7 +5,9 @@ import type { LendingLabel } from './transaction-format';
 
 export type HomeTransaction = TransactionRow & LendingLabel & { accountId: number; transferAccountId: number | null; currencyCode: string; transferAccountName: string | null };
 
-export async function homeData(now = new Date(), accountId: number | null = null): Promise<{ rows: HomeTransaction[]; summaries: MonthlySummary[] }> {
+export type DailySummary = MonthlySummary & { date: number };
+
+export async function homeData(now = new Date(), accountId: number | null = null): Promise<{ rows: HomeTransaction[]; summaries: MonthlySummary[]; dailySummaries: DailySummary[] }> {
   const db = await database();
   const start = epochDay(new Date(now.getFullYear(), now.getMonth(), 1));
   const end = epochDay(new Date(now.getFullYear(), now.getMonth() + 1, 1));
@@ -28,5 +30,13 @@ export async function homeData(now = new Date(), accountId: number | null = null
       ${accountId === null ? '' : 'AND t.accountId = ?'}
       GROUP BY a.currencyCode ORDER BY a.currencyCode`, accountId === null ? [start, end] : [start, end, accountId]),
   ]);
-  return { rows, summaries };
+  const dates = [...new Set(rows.map((row) => row.date))];
+  const dailySummaries = dates.length === 0 ? [] : await db.getAllAsync<DailySummary>(`SELECT t.date, a.currencyCode,
+    SUM(CASE WHEN t.type = 'INCOME' THEN t.amountMinor ELSE 0 END) AS incomeMinor,
+    SUM(CASE WHEN t.type = 'EXPENSE' THEN t.amountMinor ELSE 0 END) AS expenseMinor
+    FROM transactions t JOIN accounts a ON a.id = t.accountId
+    WHERE t.date IN (${dates.map(() => '?').join(',')})
+    ${accountId === null ? '' : 'AND t.accountId = ?'}
+    GROUP BY t.date, a.currencyCode ORDER BY t.date DESC, a.currencyCode`, accountId === null ? dates : [...dates, accountId]);
+  return { rows, summaries, dailySummaries };
 }

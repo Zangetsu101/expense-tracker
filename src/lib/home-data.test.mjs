@@ -96,9 +96,10 @@ test('Account scope includes either Transfer side and filters activity before th
   const cash = await homeData(new Date(2025, 0, 20), 1);
   assert.ok(cash.rows.some((row) => row.id === 100));
   assert.ok(cash.rows.every((row) => row.accountId === 1 || row.transferAccountId === 1));
+  assert.deepEqual(mobile.dailySummaries.find((summary) => summary.date === day(2025, 1, 13)), { date: day(2025, 1, 13), currencyCode: 'BDT', incomeMinor: 0, expenseMinor: 300 });
   assert.deepEqual(cash.summaries, [{ currencyCode: 'BDT', incomeMinor: 0, expenseMinor: 12000 }]);
   const empty = await homeData(new Date(2025, 0, 20), 999);
-  assert.deepEqual(empty, { rows: [], summaries: [] });
+  assert.deepEqual(empty, { rows: [], summaries: [], dailySummaries: [] });
 });
 
 test('All accounts keeps each Transfer once', async () => {
@@ -109,4 +110,22 @@ test('All accounts keeps each Transfer once', async () => {
   sqlite.exec('DELETE FROM transactions WHERE id >= 200');
   const all = await homeData(new Date(2025, 0, 20));
   assert.equal(all.rows.filter((row) => row.id === 100).length, 1);
+});
+
+test('daily totals include the whole day beyond the activity limit, separate currencies and omit transfers', async () => {
+  const date = day(2026, 1, 1);
+  for (let id = 300; id < 355; id++) add(id, 'EXPENSE', 100, date, 1);
+  add(355, 'INCOME', 800, date, 1);
+  add(356, 'EXPENSE', 200, date, 1, 1);
+  add(357, 'INCOME', 300, date, 2);
+  add(358, 'TRANSFER', 999, date, 1, 0, 1);
+  const scoped = await homeData(new Date(2026, 0, 1), 1);
+  assert.deepEqual(scoped.dailySummaries[0], { date, currencyCode: 'BDT', incomeMinor: 800, expenseMinor: 5700 });
+  assert.ok(scoped.dailySummaries.every((summary) => summary.currencyCode === 'BDT'));
+  const result = await homeData(new Date(2026, 0, 1));
+  assert.equal(result.rows.length, 50);
+  assert.deepEqual(result.dailySummaries, [
+    { date, currencyCode: 'BDT', incomeMinor: 800, expenseMinor: 5700 },
+    { date, currencyCode: 'USD', incomeMinor: 300, expenseMinor: 0 },
+  ]);
 });
