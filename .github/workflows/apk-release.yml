@@ -61,6 +61,14 @@ jobs:
         with:
           packages: platform-tools platforms;android-36 build-tools;36.0.0
           log-accepted-android-sdk-licenses: false
+      - name: Configure Gradle memory and failure handling
+        run: |
+          mkdir -p "$HOME/.gradle"
+          cat >> "$HOME/.gradle/gradle.properties" <<'EOF_GRADLE'
+          org.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=1g -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8
+          org.gradle.workers.max=2
+          org.gradle.daemon=false
+          EOF_GRADLE
       - run: pnpm install --frozen-lockfile
       - name: Stamp the verified running release commit
         run: node scripts/stamp-release.mjs

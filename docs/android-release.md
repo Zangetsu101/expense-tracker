@@ -44,6 +44,10 @@ A failed build creates no release. If publication fails after creating a draft, 
 
 Build APKs directly on GitHub-hosted Ubuntu using the existing prebuild/Gradle signing path, Node 22, JDK 21, and ARM64 only. Releases are manually dispatched from `main`, use committed versions, and produce unpublished draft prereleases for device testing. Signing material lives in repository secrets and a temporary runner file removed after the build. OTA publication continues automatically on pushes to `main`; native changes require a new app version/runtime and APK before installed users can use them.
 
+### CI memory failure handling
+
+The first native CI build exhausted Gradle's 512 MiB Metaspace limit during Android lint. Gradle printed `BUILD FAILED` but the command did not exit before cancellation, so GitHub kept the step running. CI now gives Gradle a 3 GiB heap and 1 GiB Metaspace, limits workers to two, disables persistent daemons, and enables `ExitOnOutOfMemoryError` so JVM memory exhaustion terminates the build process. A single-use daemon may still be started to honor the JVM settings. These settings live in the runner's Gradle user home, outside generated native sources.
+
 ## Build an APK locally
 
 Run from the repository root in Bash with Node.js 22.19+, pnpm 10.33.2, JDK 21, and the Android SDK at `$ANDROID_HOME`.
