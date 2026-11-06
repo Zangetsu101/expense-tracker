@@ -1,0 +1,92 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apk-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Validate release version
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync, appendFileSync } from 'node:fs';
+          const { expo } = JSON.parse(readFileSync('app.json', 'utf8'));
+          const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
+          if (!/^\d+\.\d+\.\d+$/.test(expo.version) || pkg.version !== expo.version) {
+            throw new Error('app.json and package.json must have the same x.y.z version.');
+          }
+          if (!Number.isSafeInteger(expo.android.versionCode) || expo.android.versionCode < 1) {
+            throw new Error('Android versionCode must be a positive integer.');
+          }
+          appendFileSync(process.env.GITHUB_ENV, `RELEASE_TAG=v${expo.version}\n`);
+          JS
+      - name: Reject an existing release or tag
+        run: |
+          gh api --paginate "repos/$GH_REPO/releases" --jq '.[].tag_name' > "$RUNNER_TEMP/release-tags"
+          if grep -Fxq "$RELEASE_TAG" "$RUNNER_TEMP/release-tags"; then
+            echo '::error::A release already exists for this version. Bump the version before releasing again.'
+            exit 1
+          fi
+          git ls-remote --tags origin "refs/tags/$RELEASE_TAG" > "$RUNNER_TEMP/matching-tags"
+          if [ -s "$RUNNER_TEMP/matching-tags" ]; then
+            echo '::error::A tag already exists for this version. Bump the version before releasing again.'
+            exit 1
+          fi
+      - uses: pnpm/action-setup@v6.1.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '22'
+          cache: pnpm
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - run: pnpm install --frozen-lockfile
+      - name: Stamp the verified running release commit
+        run: node scripts/stamp-release.mjs
+      - name: Build signed ARM64 APK
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          EXPENSE_TRACKER_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          EXPENSE_TRACKER_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          EXPENSE_TRACKER_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo '::error::Add the ANDROID_KEYSTORE_BASE64 repository secret before building.'
+            exit 1
+          fi
+          umask 077
+          export EXPENSE_TRACKER_KEYSTORE="$RUNNER_TEMP/release.keystore"
+          trap 'rm -f "$EXPENSE_TRACKER_KEYSTORE"' EXIT
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$EXPENSE_TRACKER_KEYSTORE"
+          unset ANDROID_KEYSTORE_BASE64
+          pnpm android:apk
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs dist/*.apk
+      - name: Create draft GitHub prerelease
+        run: |
+          cat > "$RUNNER_TEMP/release-notes.md" <<EOF_NOTES
+          Signed ARM64 Android APK built from commit $GITHUB_SHA.
+
+          Back up app data, install the APK over the existing app, and test before publishing this draft.
+          Supports ARM64 Android devices only. The .sha256 file contains the APK checksum.
+          EOF_NOTES
+          gh release create "$RELEASE_TAG" dist/*.apk dist/*.sha256 \
+            --target "$GITHUB_SHA" --title "Expense Tracker ${RELEASE_TAG#v}" \
+            --draft --prerelease --notes-file "$RUNNER_TEMP/release-notes.md"
