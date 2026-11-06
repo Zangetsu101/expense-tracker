@@ -5,19 +5,18 @@ import { ActivityIndicator, AppState, FlatList, Pressable, Text, View } from 're
 import { SymbolView } from 'expo-symbols';
 import { homeData, type DailySummary, type HomeTransaction } from '@/lib/home-data';
 import type { MonthlySummary } from '@/lib/reports';
-import { formatActivityDay, formatTransactionAmount, transactionTitle } from '@/lib/transaction-format';
+import { formatActivityDay, formatBalance, formatMoney, transactionTitle } from '@/lib/transaction-format';
 import { HomeAccountPicker } from '@/components/home-account-picker';
 import { listAccounts, type Account } from '@/lib/database';
-import { resolveHomeAccount, watchHomeReopen } from '@/lib/account-selection';
+import { homeBalances, resolveHomeAccount, watchHomeReopen, type CurrencyBalance } from '@/lib/account-selection';
+import { accountBalances } from '@/lib/reports';
 import { theme } from '@/theme';
 
-function amount(type: 'EXPENSE' | 'INCOME' | 'TRANSFER', minor: number, currency: string) {
-  if (currency !== 'BDT') return formatTransactionAmount(type, minor, currency);
-  const sign = type === 'EXPENSE' ? '−' : type === 'INCOME' ? '+' : '';
-  return `${sign}৳${new Intl.NumberFormat('en-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(minor / 100)}`;
-}
-
 const colors = { ...theme.colors, panel: theme.colors.surface };
+
+function BalanceAmount({ balance, fontSize }: { balance: CurrencyBalance; fontSize: number }) {
+  return <Text selectable style={{ color: balance.balanceMinor < 0 ? colors.warning : colors.text, fontSize, fontWeight: '700', fontVariant: ['tabular-nums'] }}>{formatBalance(balance.balanceMinor, balance.currencyCode)}</Text>;
+}
 
 export default function HomeScreen() {
   const selection = useRef<number | null | undefined>(undefined);
@@ -29,6 +28,7 @@ export default function HomeScreen() {
     setRevision((value) => value + 1);
   }), []);
   const [rows, setRows] = useState<HomeTransaction[]>([]);
+  const [balances, setBalances] = useState<CurrencyBalance[]>([]);
   const [summaries, setSummaries] = useState<MonthlySummary[]>([]);
   const [dailySummaries, setDailySummaries] = useState<DailySummary[]>([]);
   const [error, setError] = useState<string>();
@@ -41,11 +41,11 @@ export default function HomeScreen() {
     listAccounts().then(async (items) => {
       const id = resolveHomeAccount(items, selection.current);
       if (!active) return;
-      const result = await homeData(new Date(), id);
+      const [result, totals] = await Promise.all([homeData(new Date(), id), accountBalances()]);
       if (active) {
         selection.current = id;
         setAccountId(id); setAccounts(items);
-        setRows(result.rows); setSummaries(result.summaries); setDailySummaries(result.dailySummaries); setLoaded(true);
+        setBalances(homeBalances(totals, id)); setRows(result.rows); setSummaries(result.summaries); setDailySummaries(result.dailySummaries); setLoaded(true);
       }
     }).catch((e) => { if (active) setError(String(e)); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -61,12 +61,24 @@ export default function HomeScreen() {
       ListHeaderComponent={<View style={{ gap: 20, paddingBottom: 12 }}>
         <HomeAccountPicker accounts={accounts} selectedId={accountId} onSelect={(id) => { selection.current = id; setRevision((value) => value + 1); }} />
         <View style={{ backgroundColor: colors.panel, borderRadius: 16, borderCurve: 'continuous', padding: 18, gap: 12 }}>
+          {loaded && balances.length > 0 && <>
+            <View style={{ gap: 4 }}>
+              <Text style={{ color: colors.muted }}>Balance</Text>
+              {balances.length === 1
+                ? <BalanceAmount balance={balances[0]} fontSize={30} />
+                : balances.map((b) => <View key={b.currencyCode} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+                  <Text style={{ color: colors.muted, fontWeight: '700' }}>{b.currencyCode}</Text>
+                  <BalanceAmount balance={b} fontSize={20} />
+                </View>)}
+            </View>
+            <View style={{ height: 1, backgroundColor: colors.line }} />
+          </>}
           <Text style={{ color: colors.muted }}>This month · excluding unreported transactions</Text>
           {loading && !loaded ? <ActivityIndicator accessibilityLabel="Loading Home" color={colors.accent} /> : error && !loaded ? null : summaries.length === 0 ? <Text style={{ color: colors.text }}>No reportable activity this month</Text> : summaries.map((summary) => <View key={summary.currencyCode} style={{ gap: 6 }}>
-            <Text style={{ color: colors.muted, fontWeight: '700' }}>{summary.currencyCode}</Text>
+            {summaries.length > 1 && <Text style={{ color: colors.muted, fontWeight: '700' }}>{summary.currencyCode}</Text>}
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
-              <View><Text style={{ color: colors.muted }}>Expenses</Text><Text selectable style={{ color: colors.text, fontSize: 22, fontWeight: '700', fontVariant: ['tabular-nums'] }}>{amount('TRANSFER', summary.expenseMinor, summary.currencyCode)}</Text></View>
-              <View><Text style={{ color: colors.muted }}>Income</Text><Text selectable style={{ color: colors.accent, fontSize: 18, fontVariant: ['tabular-nums'] }}>{amount('TRANSFER', summary.incomeMinor, summary.currencyCode)}</Text></View>
+              <View><Text style={{ color: colors.muted }}>Expenses</Text><Text selectable style={{ color: colors.text, fontSize: 22, fontWeight: '700', fontVariant: ['tabular-nums'] }}>{formatMoney('TRANSFER', summary.expenseMinor, summary.currencyCode)}</Text></View>
+              <View><Text style={{ color: colors.muted }}>Income</Text><Text selectable style={{ color: colors.accent, fontSize: 18, fontVariant: ['tabular-nums'] }}>{formatMoney('TRANSFER', summary.incomeMinor, summary.currencyCode)}</Text></View>
             </View>
           </View>)}
         </View>
@@ -82,14 +94,14 @@ export default function HomeScreen() {
         const scopedTransfer = item.type === 'TRANSFER' && accountId !== null;
         const incoming = scopedTransfer && item.transferAccountId === accountId;
         const detail = scopedTransfer ? incoming ? `Received from ${item.accountName}` : `Sent to ${item.transferAccountName}` : `${item.accountName}${item.transferAccountName ? ` → ${item.transferAccountName}` : ''}`;
-        const displayAmount = scopedTransfer ? `${incoming ? '+' : '−'}${amount('TRANSFER', item.amountMinor, item.currencyCode)}` : amount(item.type, item.amountMinor, item.currencyCode);
+        const displayAmount = scopedTransfer ? `${incoming ? '+' : '−'}${formatMoney('TRANSFER', item.amountMinor, item.currencyCode)}` : formatMoney(item.type, item.amountMinor, item.currencyCode);
         return <View>
         {(index === 0 || rows[index - 1].date !== item.date) && <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, paddingTop: 16, paddingBottom: 4 }}>
           <Text style={{ color: colors.muted, fontWeight: '700' }}>{formatActivityDay(item.date)}</Text>
           <View style={{ flexShrink: 1, gap: 4 }}>
             {dailySummaries.filter((summary) => summary.date === item.date && (summary.expenseMinor !== 0 || summary.incomeMinor !== 0)).map((summary) => <View key={summary.currencyCode} style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 12 }}>
-              {summary.expenseMinor !== 0 && <Text selectable style={{ color: colors.muted, fontSize: 12, fontVariant: ['tabular-nums'] }}>Spent {amount('TRANSFER', summary.expenseMinor, summary.currencyCode)}</Text>}
-              {summary.incomeMinor !== 0 && <Text selectable style={{ color: colors.accent, fontSize: 12, fontVariant: ['tabular-nums'] }}>Earned {amount('TRANSFER', summary.incomeMinor, summary.currencyCode)}</Text>}
+              {summary.expenseMinor !== 0 && <Text selectable style={{ color: colors.muted, fontSize: 12, fontVariant: ['tabular-nums'] }}>Spent {formatMoney('TRANSFER', summary.expenseMinor, summary.currencyCode)}</Text>}
+              {summary.incomeMinor !== 0 && <Text selectable style={{ color: colors.accent, fontSize: 12, fontVariant: ['tabular-nums'] }}>Earned {formatMoney('TRANSFER', summary.incomeMinor, summary.currencyCode)}</Text>}
             </View>)}
           </View>
         </View>}
