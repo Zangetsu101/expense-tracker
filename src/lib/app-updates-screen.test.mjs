@@ -23,7 +23,7 @@ const previousAct = globalThis.IS_REACT_ACT_ENVIRONMENT;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const root = new URL('../../', import.meta.url);
 const mocks = {
-  'react-native': `export const Text='Text',View='View',ScrollView='ScrollView',Pressable='Pressable',ActivityIndicator='ActivityIndicator'; const s=globalThis.__updatesTest; export const Alert={alert:(...a)=>s.alerts.push(a)}; export const AppState={currentState:'active',addEventListener:(e,fn)=>{s.foreground=fn;return {remove:()=>{s.removed=true}}}};`,
+  'react-native': `export const useWindowDimensions=()=>({fontScale:1}); export const Text='Text',View='View',ScrollView='ScrollView',Pressable='Pressable',ActivityIndicator='ActivityIndicator'; const s=globalThis.__updatesTest; export const Alert={alert:(...a)=>s.alerts.push(a)}; export const AppState={currentState:'active',addEventListener:(e,fn)=>{s.foreground=fn;return {remove:()=>{s.removed=true}}}};`,
   'expo-symbols': `export const SymbolView='SymbolView';`,
   'expo-router': `import {useEffect} from 'react'; export const Link='Link'; export const useFocusEffect=fn=>{globalThis.__updatesTest.focus=fn;useEffect(fn,[fn])};`,
   'expo-constants': `export default {executionEnvironment:'standalone'};`,

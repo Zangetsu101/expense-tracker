@@ -7,7 +7,15 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from 'react';
-import { ActivityIndicator, Alert, AppState, Pressable, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  AppState,
+  Pressable,
+  Text,
+  View,
+  useWindowDimensions,
+} from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import Constants from 'expo-constants';
@@ -63,6 +71,7 @@ export function useAppUpdates() {
   };
 }
 export function UpdatesRow() {
+  const { fontScale } = useWindowDimensions();
   const { status: updateStatus, progress, error, check, restart } = useAppUpdates();
   const [checkedThisVisit, setCheckedThisVisit] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -160,7 +169,12 @@ export function UpdatesRow() {
         {busy ? (
           <ActivityIndicator color={tint} accessibilityLabel={description} />
         ) : (
-          <SymbolView name={icon} size={24} tintColor={tint} />
+          <SymbolView
+            name={icon}
+            size={24}
+            tintColor={tint}
+            style={{ width: 24 * fontScale, height: 24 * fontScale }}
+          />
         )}
       </Pressable>
       {(hovered || focused || longPressed) && (
