@@ -56,7 +56,7 @@ pnpm check
 
 ## Android APK releases
 
-Local signed APK builds use `pnpm android:apk`. See [Local Android releases](docs/android-release.md) for SDK prerequisites, key creation, signing, device checks, and GitHub release steps. Signing credentials are required and stay outside Git.
+Use **GitHub Actions → Build Android APK → Run workflow** on `main` to build a signed ARM64 APK and create a draft GitHub prerelease. See [Android releases](docs/android-release.md) for required secrets, device testing, automatic OTA updates, and the local `pnpm android:apk` fallback. Signing credentials stay outside Git.
 
 ## Project layout
 
