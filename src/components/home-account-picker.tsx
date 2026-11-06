@@ -1,24 +1,34 @@
 import { useState } from 'react';
 import { FlatList, Pressable, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { SymbolView } from 'expo-symbols';
+import { Shimmer, Skeleton } from './loading';
 import { AppSheet } from './app-sheet';
 import type { Account } from '@/lib/database';
 import { theme } from '@/theme';
 
 const c = theme.colors;
 
-export function HomeAccountPicker({ accounts, selectedId, onSelect }: { accounts: Account[]; selectedId: number | null; onSelect: (id: number | null) => void }) {
+export function HomeAccountPicker({ accounts, selectedId, onSelect, loading = false, unavailable = false, error = false, onRetry }: {
+  accounts: Account[]; selectedId: number | null; onSelect: (id: number | null) => void;
+  loading?: boolean; unavailable?: boolean; error?: boolean; onRetry?: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const { width, height } = useWindowDimensions();
+  const openPicker = () => { setQuery(''); setOpen(true); };
   const selected = accounts.find((account) => account.id === selectedId);
   const options = [{ id: null, name: 'All accounts', currencyCode: '', isFavorite: 0 }, ...accounts]
     .filter((account) => `${account.name} ${account.currencyCode}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   return <>
-    <Pressable accessibilityRole="button" accessibilityLabel={`Choose account, ${selected?.name ?? 'All accounts'}`} accessibilityState={{ expanded: open }} onPress={() => { setQuery(''); setOpen(true); }} style={{ backgroundColor: c.raised, borderRadius: theme.radius.control, minHeight: 52, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-      <Text numberOfLines={2} style={{ flex: 1, color: c.text, fontWeight: '600', fontSize: 17 }}>{selected?.name ?? 'All accounts'}{selected ? ` · ${selected.currencyCode}` : ''}</Text>
-      <SymbolView name={{ ios: 'chevron.down', android: 'expand_more' }} size={24} tintColor={c.muted} />
-    </Pressable>
+    <View style={{ backgroundColor: c.raised, borderRadius: theme.radius.control, minHeight: 56, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: error ? c.warning : 'transparent', overflow: 'hidden' }}>
+      <Pressable accessibilityRole="button" accessibilityLabel={`Choose account, ${selected?.name ?? 'All accounts'}`} accessibilityHint={error ? 'Loading failed. Use the retry button or choose another account.' : undefined} accessibilityState={{ expanded: open, disabled: unavailable, busy: loading }} disabled={unavailable} onPress={openPicker} style={{ flex: 1, minHeight: 54, padding: 16, justifyContent: 'center' }}>
+        {unavailable ? <Skeleton width={140} height={20} /> : <Text numberOfLines={2} style={{ color: c.text, fontWeight: '600', fontSize: 17 }}>{selected?.name ?? 'All accounts'}{selected ? ` · ${selected.currencyCode}` : ''}</Text>}
+      </Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel={error ? 'Retry loading selected account' : 'Choose account'} disabled={unavailable} accessibilityState={{ disabled: unavailable, expanded: error ? undefined : open }} onPress={error ? onRetry : openPicker} style={{ minWidth: 48, minHeight: 54, paddingRight: 8, alignItems: 'center', justifyContent: 'center' }}>
+        <SymbolView name={error ? { ios: 'arrow.clockwise', android: 'refresh' } : { ios: 'chevron.down', android: 'expand_more' }} size={24} tintColor={error ? c.warning : c.muted} />
+      </Pressable>
+      {loading && !unavailable && <Shimmer />}
+    </View>
     {open && <AppSheet pending={false} onDismiss={() => setOpen(false)}><View style={{ backgroundColor: c.surface, padding: 20, gap: 12, width, height: height * 0.65, borderTopLeftRadius: 24, borderTopRightRadius: 24 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
         <Text accessibilityRole="header" style={{ color: c.text, fontSize: 20, fontWeight: '700', flex: 1 }}>Choose account</Text>

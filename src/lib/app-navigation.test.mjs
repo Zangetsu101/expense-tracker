@@ -14,6 +14,7 @@ const root = new URL('../../', import.meta.url);
 const mocks = {
   'expo-haptics': `export const AndroidHaptics={Keyboard_Tap:'keyboard'},ImpactFeedbackStyle={Light:'light'}; export const performAndroidHapticsAsync=async()=>{},impactAsync=async()=>{};`,
   'react-native-reanimated': `import {useRef} from 'react'; export default {View:'AnimatedView'}; export const Easing={out:x=>x,cubic:x=>x},ReduceMotion={System:'system'}; export const useSharedValue=value=>useRef({value}).current,useAnimatedStyle=fn=>fn(),withTiming=value=>value;`,
+  '@/components/loading': `export const Skeleton='Skeleton';`,
   '@/components/home-account-picker': `export const HomeAccountPicker='HomeAccountPicker';`,
   '@/components/running-release': `export const RunningRelease='RunningRelease';`,
   '@/components/app-updates': `export const UpdatesRow='UpdatesRow';`,

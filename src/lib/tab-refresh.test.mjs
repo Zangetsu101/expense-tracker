@@ -17,13 +17,14 @@ const mocks = {
   'expo-status-bar': `export const StatusBar=()=>null;`,
   'expo-symbols': `export const SymbolView='SymbolView';`,
   'react-native-safe-area-context': `export const useSafeAreaInsets=()=>({bottom:0});`,
+  '@/components/loading': `export const Skeleton='Skeleton'; export const Shimmer='Shimmer';`,
   '@/components/home-account-picker': `export const HomeAccountPicker='HomeAccountPicker';`,
-  '@/lib/database': `export const listAccounts=async()=>[{id:1,name:'Cash',currencyCode:'USD',isFavorite:1}];`,
+  '@/lib/database': `export const listAccounts=async()=>[{id:1,name:'Cash',currencyCode:'USD',isFavorite:1},{id:2,name:'Bank',currencyCode:'USD',isFavorite:0}];`,
   '@/components/app-sheet': `export const AppSheet=({children})=>children;`,
   '@/components/category-browser': `import React from 'react'; export const CategoryBrowser=p=>React.createElement('CategoryBrowser',p);`,
   '@/lib/accounts': `export const listManagedAccounts=()=>globalThis.__tabRefreshTest.read('accounts'); export const createAccount=async()=>{}; export const setFavoriteAccount=async()=>{};`,
   '@/lib/reports': `export const monthlyReport=()=>globalThis.__tabRefreshTest.read('reports'); export const accountBalances=()=>globalThis.__tabRefreshTest.read('balances');`,
-  '@/lib/home-data': `export const homeData=()=>globalThis.__tabRefreshTest.read('home');`,
+  '@/lib/home-data': `export const homeData=(_,id)=>globalThis.__tabRefreshTest.read('home',id);`,
   '@/lib/categories': `export const listManagedCategories=()=>globalThis.__tabRefreshTest.read('categories'); export const createCategory=async()=>{}; export const renameCategory=async()=>{};`,
 };
 const hooks = registerHooks({
@@ -61,12 +62,62 @@ const toggleFocus = async Screen => {await act(async()=>{state.focus++; renderer
 test('tab refresh keeps loaded content stable', async t => {
   t.afterEach(async()=>{await act(async()=>renderer?.unmount()); renderer=undefined;});
   t.after(()=>{hooks.deregister(); delete globalThis.__tabRefreshTest; globalThis.IS_REACT_ACT_ENVIRONMENT=previousActEnvironment;});
+  await t.test('Home Account transitions retain the correct receipt meaning and recover without stale writes', async()=>{
+    state.focus=0;
+    const Screen=screens[0][1];
+    const transfer={id:9,type:'TRANSFER',date:20000,amountMinor:500,currencyCode:'USD',accountId:1,transferAccountId:2,accountName:'Cash',transferAccountName:'Bank'};
+    state.read=async key=>key==='home'?{...fixtures.home,rows:[transfer]}:fixtures[key];
+    await act(async()=>{renderer=create(React.createElement(Screen));});
+    const picker=()=>renderer.root.findByType('HomeAccountPicker');
+    const entry=()=>renderer.root.findAllByType('Pressable').find(n=>n.props.accessibilityLabel==='Transfer, Cash');
+    assert.ok(texts().some(s=>s==='Sent to Bank'));
+    assert.equal(entry().props.disabled,false);
+    const requests=[];
+    state.read=(key,id)=>key==='home'?new Promise((resolve,reject)=>requests.push({id,resolve,reject})):Promise.resolve(fixtures[key]);
+    await act(async()=>picker().props.onSelect(2));
+    assert.equal(picker().props.selectedId,2,'selection changes before data');
+    assert.equal(picker().props.loading,true);
+    assert.equal(entry().props.disabled,true,'old Transactions cannot be opened');
+    assert.ok(texts().some(s=>s==='Sent to Bank'),'old Transfer keeps its original direction');
+    assert.ok(!texts().some(s=>s==='Received from Cash'));
+    assert.equal(renderer.root.findAllByType('Pressable').find(n=>n.props.accessibilityLabel==='Add transaction').props.disabled,false);
+    await act(async()=>requests[0].reject(new Error('read failed')));
+    assert.equal(picker().props.error,true);
+    assert.equal(picker().props.loading,false);
+    assert.equal(picker().props.selectedId,2);
+    assert.equal(entry().props.disabled,true);
+    await act(async()=>picker().props.onRetry());
+    assert.equal(picker().props.error,false);
+    await act(async()=>requests[1].resolve({...fixtures.home,rows:[transfer]}));
+    assert.equal(entry().props.disabled,false);
+    assert.ok(texts().some(s=>s==='Received from Cash'));
+    await act(async()=>picker().props.onSelect(1));
+    await act(async()=>picker().props.onSelect(2));
+    await act(async()=>requests[3].resolve({...fixtures.home,rows:[]}));
+    await act(async()=>requests[2].resolve({...fixtures.home,rows:[transfer]}));
+    assert.equal(picker().props.selectedId,2);
+    assert.equal(renderer.root.findByType('FlatList').props.data.length,0,'late result cannot replace the latest selection');
+  });
+  await t.test('Home cold failure offers retry instead of empty state or skeletons',async()=>{
+    state.focus=0;
+    const Screen=screens[0][1];
+    state.read=async()=>{throw new Error('unavailable')};
+    await act(async()=>{renderer=create(React.createElement(Screen));});
+    assert.ok(texts().includes('Couldn’t load Home'));
+    assert.equal(renderer.root.findAllByType('Skeleton').length,0);
+    assert.ok(!texts().some(s=>s.includes('No transactions')));
+    state.read=async key=>fixtures[key];
+    const retry=renderer.root.findAllByType('Pressable').find(n=>n.findAllByType('Text').some(t=>t.children.join('')==='Retry'));
+    await act(async()=>retry.props.onPress());
+    assert.ok(texts().includes('Lunch'));
+  });
   for (const [name,Screen] of screens) await t.test(name, async()=>{
     state.focus=0;
     const initial=[];
     state.read=key=>new Promise(resolve=>initial.push(()=>resolve(fixtures[key])));
     await act(async()=>{renderer=create(React.createElement(Screen));});
-    assert.equal(renderer.root.findAllByType('ActivityIndicator').length,1,'first load still shows progress');
+    if(name==='(home)') assert.ok(renderer.root.findAllByType('Skeleton').length>0,'Home uses first-load skeletons');
+    else assert.equal(renderer.root.findAllByType('ActivityIndicator').length,1,'first load still shows progress');
     await act(async()=>initial.forEach(resolve=>resolve()));
     const before=snapshot(name);
     await toggleFocus(Screen);
@@ -76,6 +127,10 @@ test('tab refresh keeps loaded content stable', async t => {
     await toggleFocus(Screen);
     assert.ok(pending.length>0, 'returning to the tab still refreshes its data');
     assert.deepEqual(snapshot(name),before,'loaded content must not disappear during a focus refresh');
+    if(name==='(home)') {
+      assert.equal(renderer.root.findByType('HomeAccountPicker').props.loading,true);
+      assert.ok(renderer.root.findAllByType('Pressable').filter(n=>n.props.accessibilityLabel?.startsWith('Lunch')).every(n=>n.props.disabled===false),'same-Account Transactions remain active');
+    }
     assert.equal(renderer.root.findAllByType('ActivityIndicator').length,0,'refresh must not insert a spinner that shifts content');
     await act(async()=>pending.forEach(resolve=>resolve()));
     assert.notDeepEqual(snapshot(name),before,'fresh results, including empty results, replace the previous content');
