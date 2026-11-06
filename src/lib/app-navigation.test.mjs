@@ -26,6 +26,7 @@ const mocks = {
   '@/components/quick-add-category': `export const QuickAddCategory='Category';`,
   '@/lib/home-data': `export const homeData=async(_,id)=>{globalThis.__navTest.accountQueries.push(id);return {rows:[],summaries:[]}};`,
   '@/lib/database': `export const epochDay=d=>Math.floor(d.getTime()/86400000); export const listAccounts=async()=>globalThis.__navTest.accounts??[]; export const listCategories=async()=>[]; export const setFavoriteAccount=async()=>{};`,
+  '@/lib/reports': `export const accountBalances=async()=>[];`,
   '@/lib/categories': `export const listManagedCategories=async()=>[];`,
   '@/lib/transfers': `export const addTransfer=async()=>{}; export const transferAmountMinor=()=>{throw Error('Invalid amount')};`,
   '@/lib/lending': `export const listPeople=async()=>[]; export const listLendingTotals=async()=>[]; export const createPerson=async()=>{}; export const saveLendingEntry=async()=>{};`,

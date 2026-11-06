@@ -38,3 +38,14 @@ export function formatActivityDay(day: number, now = new Date()): string {
   if (day === today - 1) return 'Yesterday';
   return formatEpochDay(day);
 }
+
+/** Like formatTransactionAmount, but Taka uses its symbol with Bangladeshi grouping. */
+export function formatMoney(type: 'EXPENSE' | 'INCOME' | 'TRANSFER', minor: number, currency: string): string {
+  if (currency !== 'BDT') return formatTransactionAmount(type, minor, currency);
+  const sign = type === 'EXPENSE' ? '−' : type === 'INCOME' ? '+' : '';
+  return `${sign}৳${new Intl.NumberFormat('en-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(minor / 100)}`;
+}
+
+export function formatBalance(minor: number, currency: string): string {
+  return `${minor < 0 ? '−' : ''}${formatMoney('TRANSFER', Math.abs(minor), currency)}`;
+}

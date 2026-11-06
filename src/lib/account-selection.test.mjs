@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { parseAccountId, resolveHomeAccount, watchHomeReopen } from './account-selection.ts';
+import { homeBalances, parseAccountId, resolveHomeAccount, watchHomeReopen } from './account-selection.ts';
 
 const accounts = [
   { id: 1, name: 'Cash', currencyCode: 'BDT', isFavorite: 0 },
@@ -52,4 +52,11 @@ test('Reopening resets to favorite, while tab focus and transient inactivity kee
   assert.equal(resets, 2);
   stop();
   assert.equal(removed, true);
+});
+
+test('homeBalances scopes to the selected account', () => {
+  const rows = [{ id: 1, currencyCode: 'BDT', balanceMinor: 500 }, { id: 2, currencyCode: 'BDT', balanceMinor: -200 }, { id: 3, currencyCode: 'USD', balanceMinor: 100 }];
+  assert.deepEqual(homeBalances(rows, 2), [{ currencyCode: 'BDT', balanceMinor: -200 }]);
+  assert.deepEqual(homeBalances(rows, null), [{ currencyCode: 'BDT', balanceMinor: 300 }, { currencyCode: 'USD', balanceMinor: 100 }]);
+  assert.deepEqual(homeBalances(rows, 9), []);
 });

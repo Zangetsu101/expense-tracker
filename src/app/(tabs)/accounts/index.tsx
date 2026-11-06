@@ -4,16 +4,12 @@ import { ActivityIndicator, Pressable, ScrollView, Text, useWindowDimensions, Vi
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createAccount, listManagedAccounts, setFavoriteAccount, type ManagedAccount } from '@/lib/accounts';
 import { accountBalances } from '@/lib/reports';
-import { countLabel } from '@/lib/transaction-format';
+import { countLabel, formatBalance } from '@/lib/transaction-format';
 import { theme } from '@/theme';
 import { FormButton, FormInput } from '@/components/form-controls';
 import { AppSheet } from '@/components/app-sheet';
 
 const colors = { ...theme.colors, bg: theme.colors.background, ink: theme.colors.text, negative: theme.colors.warning };
-
-function money(minor: number, currency: string) {
-  return `${minor < 0 ? '−' : ''}${(Math.abs(minor) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
-}
 
 export default function AccountsScreen() {
   const insets = useSafeAreaInsets();
@@ -81,7 +77,7 @@ export default function AccountsScreen() {
         <Text style={{ color: colors.muted }}>Balance overview</Text>
         {sortedGroups.map(([code, group]) => {
           const total = group.reduce((sum, account) => sum + (balances[account.id] ?? account.openingBalanceMinor), 0);
-          return <Text key={code} selectable style={{ color: total < 0 ? colors.negative : colors.ink, fontSize: 26, fontWeight: '700', fontVariant: ['tabular-nums'] }}>{money(total, code)}</Text>;
+          return <Text key={code} selectable style={{ color: total < 0 ? colors.negative : colors.ink, fontSize: 26, fontWeight: '700', fontVariant: ['tabular-nums'] }}>{formatBalance(total, code)}</Text>;
         })}
         <Text style={{ color: colors.muted, fontSize: 12 }}>Totals are separate by currency</Text>
       </View>}
@@ -95,7 +91,7 @@ export default function AccountsScreen() {
         {group.map(account => <View key={account.id} style={{ backgroundColor: colors.surface, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: colors.line, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <View style={{ flex: 1, gap: 4 }}>
             <Text selectable style={{ color: colors.ink, fontSize: 16, fontWeight: '600' }}>{account.name}{account.isFavorite ? ' · Favorite' : ''}</Text>
-            <Text selectable style={{ color: (balances[account.id] ?? account.openingBalanceMinor) < 0 ? colors.negative : colors.muted, fontVariant: ['tabular-nums'] }}>{money(balances[account.id] ?? account.openingBalanceMinor, code)}</Text>
+            <Text selectable style={{ color: (balances[account.id] ?? account.openingBalanceMinor) < 0 ? colors.negative : colors.muted, fontVariant: ['tabular-nums'] }}>{formatBalance(balances[account.id] ?? account.openingBalanceMinor, code)}</Text>
           </View>
           <Pressable accessibilityRole="button" accessibilityLabel={`${account.name}, ${account.isFavorite ? 'favorite' : 'set as favorite'} for Quick add`} accessibilityState={{ selected: !!account.isFavorite, disabled: pending || !!account.isFavorite }} disabled={pending || !!account.isFavorite} onPress={() => void makeFavorite(account.id)} style={{ width: 48, height: 48, alignItems: 'center', justifyContent: 'center' }}><Text accessible={false} style={{ color: account.isFavorite ? colors.accent : colors.muted, fontSize: 28 }}>{account.isFavorite ? '★' : '☆'}</Text></Pressable>
         </View>)}
