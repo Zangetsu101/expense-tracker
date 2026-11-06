@@ -54,12 +54,51 @@ add(11, 'EXPENSE', 10, day(2024, 12, 31), 1, 1);
 add(12, 'EXPENSE', 15, day(2025, 2, 1), 1, 1);
 
 test('balances include opening amounts and both transfer legs, even for excluded transactions', async () => {
-  assert.deepEqual(await accountBalances(), [
+  assert.deepEqual(await accountBalances(day(2025, 2, 1)), [
     { id: 2, name: 'Bank', currencyCode: 'USD', balanceMinor: 20 },
     { id: 1, name: 'Cash', currencyCode: 'USD', balanceMinor: 1045 },
     { id: 4, name: 'Empty', currencyCode: 'EUR', balanceMinor: 75 },
     { id: 3, name: 'Wallet', currencyCode: 'BDT', balanceMinor: 10000 },
   ]);
+});
+
+test('balances include today and omit future Expenses, Income and both Transfer legs', async () => {
+  const today = day(2025, 2, 1);
+  const baseline = await accountBalances(today);
+  try {
+    add(80, 'EXPENSE', 101, today + 1, 1, 1);
+    add(81, 'INCOME', 203, today + 1, 2, 2);
+    add(82, 'TRANSFER', 307, today + 1, 1, null, 0, 2);
+    add(83, 'TRANSFER', 409, today + 1, 2, null, 0, 1);
+    add(84, 'EXPENSE', 503, today + 1, 4);
+    assert.deepEqual(await accountBalances(today), baseline);
+    assert.deepEqual(await accountBalances(today + 1), baseline.map(row => ({
+      ...row,
+      balanceMinor: row.balanceMinor + ({ 1: 1, 2: 101, 4: -503 }[row.id] ?? 0),
+    })));
+  } finally {
+    sqlite.prepare('DELETE FROM transactions WHERE id BETWEEN 80 AND 84').run();
+  }
+});
+
+test('default balance cutoff follows the local date across midnight in different timezones', async (t) => {
+  const original = process.env.TZ;
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2025-02-01T01:00:00Z') });
+  try {
+    for (const [zone, cutoff, cashBalance] of [
+      ['America/Los_Angeles', day(2025, 1, 31), 1060],
+      ['Asia/Dhaka', day(2025, 2, 1), 1045],
+    ]) {
+      process.env.TZ = zone;
+      const balances = await accountBalances();
+      assert.deepEqual(balances, await accountBalances(cutoff), zone);
+      assert.equal(balances.find(row => row.id === 1).balanceMinor, cashBalance, zone);
+    }
+  } finally {
+    if (original === undefined) delete process.env.TZ;
+    else process.env.TZ = original;
+    t.mock.timers.reset();
+  }
 });
 
 test('monthly reports separate currencies, income and spending, omit excluded rows and transfers, and keep null categories', async () => {

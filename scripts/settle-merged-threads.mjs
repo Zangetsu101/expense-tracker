@@ -21,7 +21,20 @@ export function mergedBranches(git) {
     });
 }
 
-export function selectMergedThreads(snapshot, projectRoot, branches, includeRunning = false) {
+function ineligibleReason(thread, includeRunning) {
+  if (thread.activityRunStatus != null && thread.activeRunId == null) return 'activity-without-active-run';
+  if (!includeRunning && (thread.activeRunId != null || thread.activityRunStatus != null)) return 'run-still-active';
+  if (thread.pendingRuntimeRequest != null) return 'pending-request';
+  if ((thread.pendingGuestMessageCount ?? 0) > 0) return 'pending-guest-messages';
+  if ((includeRunning ? ['queued'] : ['queued', 'preparing', 'starting', 'running', 'waiting']).includes(thread.status)) return 'run-status-not-idle';
+  if ((thread.pendingBackgroundTasks?.length ?? 0) > 0) return 'background-tasks';
+  if (thread.pinnedAt != null) return 'pinned';
+  if (thread.autoSettleDisabledAt != null) return 'auto-settle-disabled';
+  if (thread.settledOverride === 'active') return 'explicitly-active';
+  return null;
+}
+
+export function selectMergedThreads(snapshot, projectRoot, branches, includeRunning = false, report = () => {}) {
   const project = snapshot.projects.find(p => resolve(p.workspaceRoot) === resolve(projectRoot));
   return branches.flatMap(branch => {
     const matches = snapshot.threads.filter(thread =>
@@ -30,17 +43,23 @@ export function selectMergedThreads(snapshot, projectRoot, branches, includeRunn
       thread.settledOverride !== 'settled' &&
       thread.lineage?.relationshipToParent !== 'subagent',
     );
-    if (matches.length !== 1) return [];
+    if (matches.length !== 1) {
+      report({ reason: project ? 'matching-thread-count' : 'project-not-found', branch, count: matches.length });
+      return [];
+    }
     const thread = matches[0];
-    if ((thread.activityRunStatus != null && thread.activeRunId == null) ||
-        (!includeRunning && (thread.activeRunId != null || thread.activityRunStatus != null)) ||
-        thread.pendingRuntimeRequest != null || (thread.pendingGuestMessageCount ?? 0) > 0 ||
-        (includeRunning ? ['queued'] : ['queued', 'preparing', 'starting', 'running', 'waiting']).includes(thread.status) ||
-        (thread.pendingBackgroundTasks?.length ?? 0) > 0 ||
-        thread.pinnedAt != null || thread.autoSettleDisabledAt != null ||
-        thread.settledOverride === 'active') return [];
+    const reason = ineligibleReason(thread, includeRunning);
+    if (reason) { report({ reason, threadId: thread.id, branch, status: thread.status,
+      backgroundTasks: thread.pendingBackgroundTasks?.map(t => ({ taskId: t.taskId, kind: t.kind })) }); return []; }
     return [thread];
   });
+}
+
+function diagnostics(input, options) {
+  const log = options.log ?? console.log;
+  return (event, fields = {}) => log(JSON.stringify({
+    timestamp: new Date().toISOString(), event, threadId: input.threadId, runId: input.runId, ...fields,
+  }));
 }
 
 const scriptPath = fileURLToPath(import.meta.url);
@@ -61,32 +80,57 @@ function deferSettlement(thread, projectRoot, git) {
 
 export async function waitForMergedThread(input, options = {}) {
   const git = options.git ?? defaultGit;
+  const report = diagnostics(input, options);
+  report('worker-started', { branch: input.branch, tip: input.tip, projectRoot: input.projectRoot });
   return withT3Session({ ...options, sessionTtl: '1h' }, async ({ request, rpc, subscribe }) => {
     await subscribe('orchestration.subscribeShell', {}, update => {
       let thread;
       if (update.kind === 'snapshot') thread = update.snapshot.threads.find(t => t.id === input.threadId);
       else if (update.kind === 'thread.updated' && update.thread.id === input.threadId) thread = update.thread;
-      else return update.kind === 'thread.removed' && update.threadId === input.threadId;
-      return !thread || thread.latestRunId !== input.runId || thread.branch !== input.branch ||
+      else {
+        if (update.kind !== 'thread.removed' || update.threadId !== input.threadId) return false;
+        report('subscription-ended', { reason: 'thread-removed' });
+        return true;
+      }
+      if (!thread) {
+        report('subscription-waiting', { reason: 'thread-missing-from-snapshot' });
+        return false;
+      }
+      const done = thread.latestRunId !== input.runId || thread.branch !== input.branch ||
         (thread.activeRunId == null && thread.activityRunStatus == null);
+      if (done) report('subscription-ended', { reason: 'state-changed',
+        latestRunId: thread?.latestRunId, activeRunId: thread?.activeRunId,
+        activityRunStatus: thread?.activityRunStatus, status: thread?.status, branch: thread?.branch });
+      return done;
     }, options.waitMs ?? 30 * 60 * 1000);
 
     const snapshot = await request('/api/orchestration/shell');
     const thread = snapshot.threads.find(t => t.id === input.threadId);
-    if (!thread || thread.latestRunId !== input.runId || thread.branch !== input.branch ||
-        thread.status !== 'completed') return;
-    const eligible = selectMergedThreads(snapshot, input.projectRoot, [input.branch]);
+    const reason = !thread ? 'thread-missing' : thread.latestRunId !== input.runId ? 'run-replaced' :
+      thread.branch !== input.branch ? 'thread-branch-changed' : thread.status !== 'completed' ? 'run-not-completed' :
+      thread.settledAt != null || thread.settledOverride === 'settled' ? 'already-settled' : null;
+    if (reason) { report('settlement-skipped', { reason, status: thread?.status, latestRunId: thread?.latestRunId, branch: thread?.branch }); return; }
+    const eligible = selectMergedThreads(snapshot, input.projectRoot, [input.branch], false,
+      fields => report('settlement-skipped', fields));
     if (!eligible.some(t => t.id === input.threadId)) return;
     let currentTip;
     try { currentTip = git(['show-ref', '--verify', '--hash', `refs/heads/${input.branch}`]).trim(); }
     catch { currentTip = null; }
-    if (currentTip !== null && currentTip !== input.tip) return;
+    if (currentTip !== null && currentTip !== input.tip) {
+      report('settlement-skipped', { reason: 'branch-tip-changed', expectedTip: input.tip, currentTip });
+      return;
+    }
     git(['merge-base', '--is-ancestor', input.tip, 'refs/heads/main']);
+    if (options.dryRun) { report('would-settle'); return; }
+    report('settlement-requested');
     await rpc('orchestration.dispatchCommand', {
       type: 'thread.auto-settle', commandId: randomUUID(), threadId: thread.id,
       snapshotAt: thread.updatedAt,
     });
-    console.log(`Settled merged thread ${thread.id} after its run completed.`);
+    report('settlement-succeeded');
+  }).catch(error => {
+    report('worker-failed', { message: error.message });
+    throw error;
   });
 }
 
@@ -122,7 +166,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     try {
       if (process.argv[2] === '--wait') {
         const [threadId, runId, branch, tip, projectRoot] = process.argv.slice(3);
-        await waitForMergedThread({ threadId, runId, branch, tip, projectRoot });
+        await waitForMergedThread({ threadId, runId, branch, tip, projectRoot }, { dryRun: process.argv.includes('--dry-run') });
       } else console.log(await settleMergedThreads({ dryRun: process.argv.includes('--dry-run') }));
     }
     catch (error) {

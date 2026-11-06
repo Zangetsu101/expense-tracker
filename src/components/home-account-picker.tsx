@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { FlatList, Pressable, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { SymbolView } from 'expo-symbols';
 import { AppSheet } from './app-sheet';
 import type { Account } from '@/lib/database';
 import { theme } from '@/theme';
@@ -16,7 +17,7 @@ export function HomeAccountPicker({ accounts, selectedId, onSelect }: { accounts
   return <>
     <Pressable accessibilityRole="button" accessibilityLabel={`Choose account, ${selected?.name ?? 'All accounts'}`} accessibilityState={{ expanded: open }} onPress={() => { setQuery(''); setOpen(true); }} style={{ backgroundColor: c.raised, borderRadius: theme.radius.control, minHeight: 52, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
       <Text numberOfLines={2} style={{ flex: 1, color: c.text, fontWeight: '600', fontSize: 17 }}>{selected?.name ?? 'All accounts'}{selected ? ` · ${selected.currencyCode}` : ''}</Text>
-      <Text style={{ color: c.muted }}>⌄</Text>
+      <SymbolView name={{ ios: 'chevron.down', android: 'expand_more' }} size={24} tintColor={c.muted} />
     </Pressable>
     {open && <AppSheet pending={false} onDismiss={() => setOpen(false)}><View style={{ backgroundColor: c.surface, padding: 20, gap: 12, width, height: height * 0.65, borderTopLeftRadius: 24, borderTopRightRadius: 24 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>

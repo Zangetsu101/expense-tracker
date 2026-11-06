@@ -12,6 +12,8 @@ const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const root = new URL('../../', import.meta.url);
 const mocks = {
+  'expo-haptics': `export const AndroidHaptics={Keyboard_Tap:'keyboard'},ImpactFeedbackStyle={Light:'light'}; export const performAndroidHapticsAsync=async()=>{},impactAsync=async()=>{};`,
+  'react-native-reanimated': `import {useRef} from 'react'; export default {View:'AnimatedView'}; export const Easing={out:x=>x,cubic:x=>x},ReduceMotion={System:'system'}; export const useSharedValue=value=>useRef({value}).current,useAnimatedStyle=fn=>fn(),withTiming=value=>value;`,
   '@/components/home-account-picker': `export const HomeAccountPicker='HomeAccountPicker';`,
   '@/components/running-release': `export const RunningRelease='RunningRelease';`,
   '@/components/app-updates': `export const UpdatesRow='UpdatesRow';`,
@@ -26,6 +28,7 @@ const mocks = {
   '@/components/quick-add-category': `export const QuickAddCategory='Category';`,
   '@/lib/home-data': `export const homeData=async(_,id)=>{globalThis.__navTest.accountQueries.push(id);return {rows:[],summaries:[]}};`,
   '@/lib/database': `export const epochDay=d=>Math.floor(d.getTime()/86400000); export const listAccounts=async()=>globalThis.__navTest.accounts??[]; export const listCategories=async()=>[]; export const setFavoriteAccount=async()=>{};`,
+  '@/lib/reports': `export const accountBalances=async()=>[];`,
   '@/lib/categories': `export const listManagedCategories=async()=>[];`,
   '@/lib/transfers': `export const addTransfer=async()=>{}; export const transferAmountMinor=()=>{throw Error('Invalid amount')};`,
   '@/lib/lending': `export const listPeople=async()=>[]; export const listLendingTotals=async()=>[]; export const createPerson=async()=>{}; export const saveLendingEntry=async()=>{};`,

@@ -1,10 +1,10 @@
-import { database } from '@/lib/database';
+import { database, epochDay } from '@/lib/database';
 
 export type AccountBalance = { id: number; name: string; currencyCode: string; balanceMinor: number };
 export type CategorySpending = { categoryId: number | null; categoryName: string | null; currencyCode: string; amountMinor: number };
 export type MonthlySummary = { currencyCode: string; incomeMinor: number; expenseMinor: number };
 
-export async function accountBalances(): Promise<AccountBalance[]> {
+export async function accountBalances(today = epochDay(new Date())): Promise<AccountBalance[]> {
   const db = await database();
   return db.getAllAsync<AccountBalance>(`SELECT a.id, a.name, a.currencyCode,
     a.openingBalanceMinor + COALESCE(SUM(CASE
@@ -13,8 +13,8 @@ export async function accountBalances(): Promise<AccountBalance[]> {
       WHEN t.type = 'TRANSFER' AND t.accountId = a.id THEN -t.amountMinor
       WHEN t.type = 'TRANSFER' AND t.transferAccountId = a.id THEN t.amountMinor
       ELSE 0 END), 0) AS balanceMinor
-    FROM accounts a LEFT JOIN transactions t ON t.accountId = a.id OR (t.type = 'TRANSFER' AND t.transferAccountId = a.id)
-    GROUP BY a.id ORDER BY a.name, a.id`);
+    FROM accounts a LEFT JOIN transactions t ON (t.accountId = a.id OR (t.type = 'TRANSFER' AND t.transferAccountId = a.id)) AND t.date <= ?
+    GROUP BY a.id ORDER BY a.name, a.id`, [today]);
 }
 
 export async function monthlyReport(year: number, month: number, accountId?: number): Promise<{ spending: CategorySpending[]; summaries: MonthlySummary[] }> {

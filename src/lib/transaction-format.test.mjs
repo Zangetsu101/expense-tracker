@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { countLabel, formatEpochDay, formatTransactionAmount, transactionTitle } from './transaction-format.ts';
+import { countLabel, formatBalance, formatEpochDay, formatMoney, formatTransactionAmount, transactionTitle } from './transaction-format.ts';
 
 test('lending titles use kind and person ahead of category, including attributed imports', () => {
   for (const [lendingKind, type, expected] of [
@@ -46,4 +46,17 @@ test('activity dates use local calendar days across month and year boundaries', 
   assert.equal(formatActivityDay(today - 1, now), 'Yesterday');
   assert.equal(formatActivityDay(today - 2, now), '2025-12-30');
   assert.equal(formatActivityDay(today + 1, now), '2026-01-02');
+});
+
+test('formatMoney writes Taka with the symbol and grouping', () => {
+  assert.equal(formatMoney('EXPENSE', 245000, 'BDT'), '−৳2,450.00');
+  assert.equal(formatMoney('INCOME', 5, 'BDT'), '+৳0.05');
+  assert.equal(formatMoney('TRANSFER', 245000, 'BDT'), '৳2,450.00');
+});
+
+test('formatBalance signs negative balances only', () => {
+  assert.equal(formatBalance(245000, 'BDT'), '৳2,450.00');
+  assert.equal(formatBalance(-245000, 'BDT'), '−৳2,450.00');
+  assert.equal(formatBalance(0, 'BDT'), '৳0.00');
+  assert.equal(formatBalance(-150, 'USD'), `−${formatTransactionAmount('TRANSFER', 150, 'USD')}`);
 });

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight, useNavigation, usePreventRemove } from 'expo-router/react-navigation';
-import { ActivityIndicator, Alert, BackHandler, KeyboardAvoidingView, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, BackHandler, Keyboard, KeyboardAvoidingView, Pressable, ScrollView, Text, View } from 'react-native';
 import { epochDay, listAccounts, listCategories, type Account, type Category } from '@/lib/database';
 import { listManagedCategories, type ManagedCategory } from '@/lib/categories';
 import { addQuickTransaction } from '@/lib/quick-add-tags';
@@ -69,14 +69,12 @@ function QuickAddForm({ data }: { data: EntryData }) {
   const params = useLocalSearchParams<{ accountId?: string }>();
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
-  const amountInput = useRef<TextInput>(null);
   const [mode, setMode] = useState<Mode>('EXPENSE');
   const [amount, setAmount] = useState('');
-  const [calculatorOpen, setCalculatorOpen] = useState(false);
+  const [calculatorOpen, setCalculatorOpen] = useState(true);
   const dismissCalculator = useCallback(() => {
     try { if (amount) setAmount(calculateAmount(amount)); } catch {}
     setCalculatorOpen(false);
-    amountInput.current?.blur();
   }, [amount]);
   useEffect(() => {
     if (!calculatorOpen) return;
@@ -159,7 +157,9 @@ function QuickAddForm({ data }: { data: EntryData }) {
       <View style={{ gap: 6 }}><Label>{`Amount · ${account?.currencyCode ?? 'Select account'}`}</Label>
         <View style={{ flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderColor: c.line }}>
           <Text style={{ color: c.text, fontSize: 48, fontWeight: '300' }}>{account?.currencyCode === 'BDT' ? '৳' : account?.currencyCode === 'USD' ? '$' : ''}</Text>
-          <TextInput ref={amountInput} accessibilityLabel="Amount" autoFocus editable={!pending} showSoftInputOnFocus={false} caretHidden onBlur={() => { if (calculatorOpen) dismissCalculator(); }} onFocus={() => setCalculatorOpen(true)} onPressIn={() => { if (!pending) setCalculatorOpen(true); }} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={c.muted} value={amount} onChangeText={setAmount} style={{ flex: 1, color: c.text, fontSize: 48, fontWeight: '300', fontVariant: ['tabular-nums'] }} />
+          <Pressable accessibilityRole="button" accessibilityLabel="Amount" accessibilityValue={{ text: amount || '0.00' }} accessibilityHint="Opens the amount calculator" accessibilityState={{ disabled: pending }} disabled={pending} onPress={() => { Keyboard.dismiss(); setCalculatorOpen(true); }} style={{ flex: 1, minHeight: 64, justifyContent: 'center' }}>
+            <Text style={{ color: amount ? c.text : c.muted, fontSize: 48, fontWeight: '300', fontVariant: ['tabular-nums'] }}>{amount || '0.00'}</Text>
+          </Pressable>
         </View>
         {!calculatorOpen && !!amount && !validAmount && <Text accessibilityRole="alert" style={{ color: c.warning }}>Enter a positive amount with at most two decimal places.</Text>}
       </View>
@@ -207,8 +207,6 @@ function QuickAddForm({ data }: { data: EntryData }) {
       <FormButton label={saveLabel} loading={pending} disabled={!canSave} onPress={() => void save()} />
       </View>
     </ScrollView>
-    {calculatorOpen && <View style={{ backgroundColor: c.surface, paddingBottom: insets.bottom }}>
-      <AmountCalculator value={amount} onChange={setAmount} onDone={dismissCalculator} />
-    </View>}
+    <AmountCalculator open={calculatorOpen} bottomInset={insets.bottom} value={amount} onChange={setAmount} onDone={dismissCalculator} />
   </KeyboardAvoidingView>;
 }
