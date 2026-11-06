@@ -2,7 +2,7 @@
   "name": "expense-tracker-expo",
   "main": "expo-router/entry",
   "type": "module",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "dependencies": {
     "@expo/ui": "~57.0.20",
     "expo": "~57.0.25",
