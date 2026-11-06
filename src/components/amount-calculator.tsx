@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import { SymbolView } from 'expo-symbols';
 import Animated, { Easing, ReduceMotion, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { calculateAmount } from '@/lib/amount-calculator';
 import { theme } from '@/theme';
@@ -51,7 +52,7 @@ export function AmountCalculator({ value, onChange, onDone, open, bottomInset }:
   return <Animated.View style={[{ overflow: 'hidden' }, panelStyle]} pointerEvents={open ? 'auto' : 'none'}
     accessibilityElementsHidden={!open} importantForAccessibility={open ? 'auto' : 'no-hide-descendants'}>
     <View onLayout={({ nativeEvent }) => setContentHeight(nativeEvent.layout.height)}
-      style={{ position: 'absolute', bottom: 0, width: '100%', backgroundColor: c.surface, paddingBottom: bottomInset }}>
+      style={{ position: 'absolute', top: 0, width: '100%', backgroundColor: c.surface }}>
       <View accessibilityLabel="Amount keypad" style={{ backgroundColor: c.surface, borderTopWidth: 1, borderColor: c.line, padding: 8, gap: 6 }}>
         {!!error && <Text accessibilityRole="alert" style={{ color: c.warning, paddingHorizontal: 8 }}>{error}</Text>}
         {rows.map((row, index) => <View key={index} style={{ flexDirection: 'row', gap: 6 }}>
@@ -65,6 +66,12 @@ export function AmountCalculator({ value, onChange, onDone, open, bottomInset }:
             </Pressable>;
           })}
         </View>)}
+      </View>
+      <View style={{ paddingHorizontal: 36, height: Math.max(52, bottomInset + 24), justifyContent: 'center' }}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Hide amount keypad" onPress={onDone}
+          style={({ pressed }) => ({ width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: theme.radius.control, backgroundColor: pressed ? c.line : 'transparent' })}>
+          <SymbolView name={{ ios: 'chevron.down', android: 'expand_more' }} size={20} tintColor={c.text} />
+        </Pressable>
       </View>
     </View>
   </Animated.View>;
