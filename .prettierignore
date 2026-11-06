@@ -1,0 +1,8 @@
+# Generated files and vendored skills
+pnpm-lock.yaml
+skills-lock.json
+src/generated/
+.agents/
+
+# Local development artifacts
+coverage/

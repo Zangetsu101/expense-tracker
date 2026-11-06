@@ -1,11 +1,107 @@
 {
   "schemaVersion": 1,
-  "accounts": [{"id":1,"name":"Cash","currencyCode":"BDT","openingBalanceMinor":5000,"isFavorite":true},{"id":2,"name":"Bank USD","currencyCode":"USD","openingBalanceMinor":0,"isFavorite":false}],
-  "categories": [{"id":11,"name":"Groceries","type":"EXPENSE","parentId":10,"iconKey":"cart","needsReview":false},{"id":10,"name":"Food","type":"EXPENSE","parentId":null,"iconKey":null,"needsReview":false},{"id":12,"name":"Salary","type":"INCOME","parentId":null,"iconKey":null,"needsReview":false}],
-  "transactions": [{"id":100,"type":"EXPENSE","amountMinor":1299,"dateEpochDay":20000,"accountId":1,"transferAccountId":null,"categoryId":11,"note":"lunch, with a comma","excludeFromReport":false,"source":"MANUAL"},{"id":101,"type":"TRANSFER","amountMinor":100000,"dateEpochDay":20001,"accountId":1,"transferAccountId":2,"categoryId":null,"note":null,"excludeFromReport":false,"source":"IMPORT"},{"id":102,"type":"INCOME","amountMinor":500000,"dateEpochDay":20002,"accountId":2,"transferAccountId":null,"categoryId":12,"note":null,"excludeFromReport":true,"source":"ASSISTANT"}],
-  "lineItems": [{"id":200,"transactionId":100,"name":"Sandwich","amountMinor":999,"quantity":2.0}],
-  "tags": [{"id":300,"name":"work"},{"id":301,"name":"reimbursable"}],
-  "transactionTags": [{"transactionId":100,"tagId":300},{"transactionId":102,"tagId":301}],
-  "transferCandidates": [{"id":400,"outgoingTxnId":100,"incomingTxnId":101,"confidenceNote":"maybe","resolved":false}],
-  "settings": {"favoriteAccountId":1,"displayRate":{"base":"USD","quote":"BDT","rate":120.0}}
+  "accounts": [
+    {
+      "id": 1,
+      "name": "Cash",
+      "currencyCode": "BDT",
+      "openingBalanceMinor": 5000,
+      "isFavorite": true
+    },
+    {
+      "id": 2,
+      "name": "Bank USD",
+      "currencyCode": "USD",
+      "openingBalanceMinor": 0,
+      "isFavorite": false
+    }
+  ],
+  "categories": [
+    {
+      "id": 11,
+      "name": "Groceries",
+      "type": "EXPENSE",
+      "parentId": 10,
+      "iconKey": "cart",
+      "needsReview": false
+    },
+    {
+      "id": 10,
+      "name": "Food",
+      "type": "EXPENSE",
+      "parentId": null,
+      "iconKey": null,
+      "needsReview": false
+    },
+    {
+      "id": 12,
+      "name": "Salary",
+      "type": "INCOME",
+      "parentId": null,
+      "iconKey": null,
+      "needsReview": false
+    }
+  ],
+  "transactions": [
+    {
+      "id": 100,
+      "type": "EXPENSE",
+      "amountMinor": 1299,
+      "dateEpochDay": 20000,
+      "accountId": 1,
+      "transferAccountId": null,
+      "categoryId": 11,
+      "note": "lunch, with a comma",
+      "excludeFromReport": false,
+      "source": "MANUAL"
+    },
+    {
+      "id": 101,
+      "type": "TRANSFER",
+      "amountMinor": 100000,
+      "dateEpochDay": 20001,
+      "accountId": 1,
+      "transferAccountId": 2,
+      "categoryId": null,
+      "note": null,
+      "excludeFromReport": false,
+      "source": "IMPORT"
+    },
+    {
+      "id": 102,
+      "type": "INCOME",
+      "amountMinor": 500000,
+      "dateEpochDay": 20002,
+      "accountId": 2,
+      "transferAccountId": null,
+      "categoryId": 12,
+      "note": null,
+      "excludeFromReport": true,
+      "source": "ASSISTANT"
+    }
+  ],
+  "lineItems": [
+    { "id": 200, "transactionId": 100, "name": "Sandwich", "amountMinor": 999, "quantity": 2.0 }
+  ],
+  "tags": [
+    { "id": 300, "name": "work" },
+    { "id": 301, "name": "reimbursable" }
+  ],
+  "transactionTags": [
+    { "transactionId": 100, "tagId": 300 },
+    { "transactionId": 102, "tagId": 301 }
+  ],
+  "transferCandidates": [
+    {
+      "id": 400,
+      "outgoingTxnId": 100,
+      "incomingTxnId": 101,
+      "confidenceNote": "maybe",
+      "resolved": false
+    }
+  ],
+  "settings": {
+    "favoriteAccountId": 1,
+    "displayRate": { "base": "USD", "quote": "BDT", "rate": 120.0 }
+  }
 }

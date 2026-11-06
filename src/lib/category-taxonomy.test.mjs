@@ -9,11 +9,17 @@ const items = [
   { id: 4, name: 'Coffee', type: 'EXPENSE', parentId: 1 },
   { id: 5, name: 'Salary', type: 'INCOME', parentId: null },
 ];
-const tree = nodes => nodes.map(node => [node.item.name, tree(node.children)]);
+const tree = (nodes) => nodes.map((node) => [node.item.name, tree(node.children)]);
 
 test('browse preserves recursive grouping and search reveals ancestor paths or matching subtrees', () => {
   assert.deepEqual(tree(visibleTaxonomy(items, 'EXPENSE', '')), [
-    ['Food', [['Groceries', [['Vegetables', []]]], ['Coffee', []]]],
+    [
+      'Food',
+      [
+        ['Groceries', [['Vegetables', []]]],
+        ['Coffee', []],
+      ],
+    ],
   ]);
   assert.equal(visibleTaxonomy(items, 'EXPENSE', '')[0].reveal, false);
   const matches = visibleTaxonomy(items, 'EXPENSE', ' VEGETABLES ');
@@ -36,7 +42,9 @@ test('orphaned, cross-type, and cyclic categories remain browsable without recur
     { id: 5, name: 'Cycle B', type: 'EXPENSE', parentId: 4 },
   ];
   assert.deepEqual(tree(visibleTaxonomy(malformed, 'EXPENSE', '')), [
-    ['Orphan', []], ['Cross type', []], ['Cycle A', [['Cycle B', []]]],
+    ['Orphan', []],
+    ['Cross type', []],
+    ['Cycle A', [['Cycle B', []]]],
   ]);
   assert.equal(categoryPath(malformed, malformed[0]), 'Orphan');
   assert.equal(categoryPath(malformed, malformed[2]), 'Cross type');

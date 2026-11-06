@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { countLabel, formatBalance, formatEpochDay, formatMoney, formatTransactionAmount, transactionTitle } from './transaction-format.ts';
+import {
+  countLabel,
+  formatBalance,
+  formatEpochDay,
+  formatMoney,
+  formatTransactionAmount,
+  transactionTitle,
+} from './transaction-format.ts';
 
 test('lending titles use kind and person ahead of category, including attributed imports', () => {
   for (const [lendingKind, type, expected] of [
@@ -10,7 +17,10 @@ test('lending titles use kind and person ahead of category, including attributed
     ['REPAY', 'EXPENSE', 'Repaid to Sam'],
   ]) {
     for (const categoryName of [null, 'Loan']) {
-      assert.equal(transactionTitle({ type, categoryName, lendingKind, personName: 'Sam' }), expected);
+      assert.equal(
+        transactionTitle({ type, categoryName, lendingKind, personName: 'Sam' }),
+        expected,
+      );
     }
   }
 });
@@ -20,7 +30,10 @@ test('ordinary titles preserve categories and use readable uncategorized fallbac
   assert.equal(transactionTitle({ type: 'INCOME', categoryName: null }), 'Income');
   assert.equal(transactionTitle({ type: 'TRANSFER', categoryName: null }), 'Transfer');
   assert.equal(transactionTitle({ type: 'EXPENSE', categoryName: 'Food' }), 'Food');
-  assert.equal(transactionTitle({ type: 'EXPENSE', categoryName: 'Lunch', categoryPath: 'Food › Lunch' }), 'Food › Lunch');
+  assert.equal(
+    transactionTitle({ type: 'EXPENSE', categoryName: 'Lunch', categoryPath: 'Food › Lunch' }),
+    'Food › Lunch',
+  );
 });
 
 test('Expense and Income use consistent signs and unknown currency codes do not crash', () => {

@@ -104,15 +104,22 @@ test('historical assignment is explicit, direction safe, and preserves movement 
   assert.deepEqual(await accountBalances(), before);
   assert.equal((await api.listLendingTotals(p.id))[0].outstandingMinor, 400);
   await api.saveLendingEntry(input(p.id, 'LEND', 600, { id: linked.id }));
-  assert.equal((await api.listLendingEntries(p.id)).find((e) => e.id === linked.id).transactionId, 50);
   assert.equal(
-    sqlite.prepare('SELECT transactionId FROM moneylover_import_rows WHERE rowKey=?').get('original-csv-key')
-      .transactionId,
+    (await api.listLendingEntries(p.id)).find((e) => e.id === linked.id).transactionId,
+    50,
+  );
+  assert.equal(
+    sqlite
+      .prepare('SELECT transactionId FROM moneylover_import_rows WHERE rowKey=?')
+      .get('original-csv-key').transactionId,
     50,
   );
   await api.assignLendingTransaction(52, p.id);
   await api.assignLendingTransaction(54, p.id);
-  assert.equal((await api.listLendingTotals(p.id)).find((t) => t.direction === 'BORROWED').outstandingMinor, 700);
+  assert.equal(
+    (await api.listLendingTotals(p.id)).find((t) => t.direction === 'BORROWED').outstandingMinor,
+    700,
+  );
   await assert.rejects(api.assignLendingTransaction(53, p.id));
 });
 test('aggregate overpayment warnings cover edits, person/currency moves, and principal deletion without partial writes', async () => {
@@ -122,7 +129,10 @@ test('aggregate overpayment warnings cover edits, person/currency moves, and pri
   const edit = input(p.id, 'LEND', 500, { id: principal.id });
   assert.equal((await api.saveLendingEntry(edit)).status, 'confirmation_required');
   assert.equal((await api.listLendingTotals(p.id))[0].outstandingMinor, 200);
-  assert.equal((await api.deleteLendingEntry(principal.id, { confirmDelete: true })).status, 'confirmation_required');
+  assert.equal(
+    (await api.deleteLendingEntry(principal.id, { confirmDelete: true })).status,
+    'confirmation_required',
+  );
   await assert.rejects(api.deleteLendingEntry(repayment.id));
   await api.saveLendingEntry({ ...edit, confirmOverpayment: true });
   assert.equal((await api.listLendingTotals(p.id))[0].overpaidMinor, 300);
@@ -134,11 +144,13 @@ test('aggregate overpayment warnings cover edits, person/currency moves, and pri
   );
   sqlite.exec("INSERT INTO accounts(id,name,currencyCode) VALUES (9,'USD','USD')");
   assert.equal(
-    (await api.saveLendingEntry(input(p.id, 'LEND', 500, { id: principal.id, accountId: 9 }))).status,
+    (await api.saveLendingEntry(input(p.id, 'LEND', 500, { id: principal.id, accountId: 9 })))
+      .status,
     'confirmation_required',
   );
   assert.equal(
-    (await api.deleteLendingEntry(principal.id, { confirmDelete: true, confirmOverpayment: true })).status,
+    (await api.deleteLendingEntry(principal.id, { confirmDelete: true, confirmOverpayment: true }))
+      .status,
     'deleted',
   );
   assert.equal((await api.listLendingTotals(p.id))[0].overpaidMinor, 800);
@@ -153,9 +165,16 @@ test('writeoffs retain currency, dates and notes, affect no account, and never n
   const before = await accountBalances();
   const reportsBefore = await monthlyReport(2024, 10);
   const w = await api.saveLendingEntry(
-    input(p.id, 'WRITE_OFF_LENT', 200, { accountId: undefined, currencyCode: 'BDT', note: ' waived ', date: 19999 }),
+    input(p.id, 'WRITE_OFF_LENT', 200, {
+      accountId: undefined,
+      currencyCode: 'BDT',
+      note: ' waived ',
+      date: 19999,
+    }),
   );
-  await api.saveLendingEntry(input(p.id, 'WRITE_OFF_BORROWED', 100, { accountId: undefined, currencyCode: 'BDT' }));
+  await api.saveLendingEntry(
+    input(p.id, 'WRITE_OFF_BORROWED', 100, { accountId: undefined, currencyCode: 'BDT' }),
+  );
   assert.deepEqual(await accountBalances(), before);
   assert.deepEqual(await monthlyReport(2024, 10), reportsBefore);
   const rows = await api.listLendingTotals(p.id);
@@ -172,17 +191,24 @@ test('writeoffs retain currency, dates and notes, affect no account, and never n
   assert.equal(e.note, 'waived');
   assert.equal(e.date, 19999);
   assert.equal(
-    (await api.saveLendingEntry(input(p.id, 'WRITE_OFF_LENT', 1100, { currencyCode: 'BDT', id: w.id }))).status,
+    (
+      await api.saveLendingEntry(
+        input(p.id, 'WRITE_OFF_LENT', 1100, { currencyCode: 'BDT', id: w.id }),
+      )
+    ).status,
     'confirmation_required',
   );
   await api.saveLendingEntry(input(p.id, 'WRITE_OFF_LENT', 300, { currencyCode: 'BDT', id: w.id }));
   await api.deleteLendingEntry(w.id, { confirmDelete: true });
   assert.equal(
-    (await api.listLendingTotals(p.id)).find((t) => t.currencyCode === 'BDT' && t.direction === 'LENT')
-      .outstandingMinor,
+    (await api.listLendingTotals(p.id)).find(
+      (t) => t.currencyCode === 'BDT' && t.direction === 'LENT',
+    ).outstandingMinor,
     1000,
   );
-  await assert.rejects(api.saveLendingEntry(input(p.id, 'WRITE_OFF_LENT', 1, { currencyCode: undefined })));
+  await assert.rejects(
+    api.saveLendingEntry(input(p.id, 'WRITE_OFF_LENT', 1, { currencyCode: undefined })),
+  );
 });
 
 test('quick lending tags follow the linked Transaction and confirmation writes nothing early', async () => {
@@ -190,20 +216,38 @@ test('quick lending tags follow the linked Transaction and confirmation writes n
   const saved = await api.saveLendingEntry(input(p.id, 'LEND', 100, { tagText: ' Trip, trip ' }));
   assert.equal(saved.status, 'saved');
   const entry = (await api.listLendingEntries(p.id))[0];
-  const tags = () => sqlite.prepare('SELECT name FROM tags JOIN transaction_tags tt ON tt.tagId=tags.id WHERE tt.transactionId=?').all(entry.transactionId).map((t) => t.name);
+  const tags = () =>
+    sqlite
+      .prepare(
+        'SELECT name FROM tags JOIN transaction_tags tt ON tt.tagId=tags.id WHERE tt.transactionId=?',
+      )
+      .all(entry.transactionId)
+      .map((t) => t.name);
   assert.deepEqual(tags(), ['Trip']);
   await api.saveLendingEntry(input(p.id, 'LEND', 110, { id: entry.id }));
   assert.deepEqual(tags(), ['Trip']);
-  const pending = await api.saveLendingEntry(input(p.id, 'RECEIVE_REPAYMENT', 200, { tagText: 'Not yet' }));
+  const pending = await api.saveLendingEntry(
+    input(p.id, 'RECEIVE_REPAYMENT', 200, { tagText: 'Not yet' }),
+  );
   assert.equal(pending.status, 'confirmation_required');
   assert.equal((await api.listLendingEntries(p.id)).length, 1);
   assert.equal(sqlite.prepare("SELECT count(*) AS n FROM tags WHERE name='Not yet'").get().n, 0);
-  await api.saveLendingEntry(input(p.id, 'RECEIVE_REPAYMENT', 200, { tagText: 'Confirmed', confirmOverpayment: true }));
+  await api.saveLendingEntry(
+    input(p.id, 'RECEIVE_REPAYMENT', 200, { tagText: 'Confirmed', confirmOverpayment: true }),
+  );
   assert.equal((await api.listLendingEntries(p.id)).length, 2);
   assert.equal((await api.listLendingTotals(p.id))[0].overpaidMinor, 90);
-  sqlite.exec("CREATE TRIGGER fail_lending_tags BEFORE INSERT ON transaction_tags BEGIN SELECT RAISE(ABORT, 'tag failure'); END;");
-  await assert.rejects(() => api.saveLendingEntry(input(p.id, 'BORROW', 50, { tagText: 'Rollback lending' })), /tag failure/);
+  sqlite.exec(
+    "CREATE TRIGGER fail_lending_tags BEFORE INSERT ON transaction_tags BEGIN SELECT RAISE(ABORT, 'tag failure'); END;",
+  );
+  await assert.rejects(
+    () => api.saveLendingEntry(input(p.id, 'BORROW', 50, { tagText: 'Rollback lending' })),
+    /tag failure/,
+  );
   sqlite.exec('DROP TRIGGER fail_lending_tags');
   assert.equal((await api.listLendingEntries(p.id)).length, 2);
-  assert.equal(sqlite.prepare("SELECT count(*) AS n FROM tags WHERE name='Rollback lending'").get().n, 0);
+  assert.equal(
+    sqlite.prepare("SELECT count(*) AS n FROM tags WHERE name='Rollback lending'").get().n,
+    0,
+  );
 });

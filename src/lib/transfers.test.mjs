@@ -22,8 +22,14 @@ globalThis.__transferTestDb = {
   ...tx,
   withExclusiveTransactionAsync: async (callback) => {
     sqlite.exec('BEGIN');
-    try { const result = await callback(tx); sqlite.exec('COMMIT'); return result; }
-    catch (error) { sqlite.exec('ROLLBACK'); throw error; }
+    try {
+      const result = await callback(tx);
+      sqlite.exec('COMMIT');
+      return result;
+    } catch (error) {
+      sqlite.exec('ROLLBACK');
+      throw error;
+    }
   },
 };
 registerHooks({
@@ -33,15 +39,26 @@ registerHooks({
     return next(specifier, context);
   },
   load(url, context, next) {
-    if (url === 'test:database') return { format: 'module', source: 'export const database = async () => globalThis.__transferTestDb; export const epochDay = (date) => Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000);', shortCircuit: true };
+    if (url === 'test:database')
+      return {
+        format: 'module',
+        source:
+          'export const database = async () => globalThis.__transferTestDb; export const epochDay = (date) => Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000);',
+        shortCircuit: true,
+      };
     if (url.endsWith('.ts')) {
       const loaded = next(url, { ...context, format: 'module' });
-      return { ...loaded, format: 'module', source: stripTypeScriptTypes(loaded.source.toString()) };
+      return {
+        ...loaded,
+        format: 'module',
+        source: stripTypeScriptTypes(loaded.source.toString()),
+      };
     }
     return next(url, context);
   },
 });
-const { addTransfer, loadTransfer, saveTransferEdit, transferAmountMinor } = await import('./transfers.ts');
+const { addTransfer, loadTransfer, saveTransferEdit, transferAmountMinor } =
+  await import('./transfers.ts');
 
 test('amount parser accepts cents without rounding or unsafe integers', () => {
   assert.equal(transferAmountMinor(' 12.34 '), 1234);
@@ -54,9 +71,28 @@ test('amount parser accepts cents without rounding or unsafe integers', () => {
 
 test('saves one same-currency transfer with a local date and no category', async () => {
   await addTransfer({ amountMinor: 1234, fromAccountId: 1, toAccountId: 2, note: '  rent  ' });
-  const rows = sqlite.prepare('SELECT type, amountMinor, date, accountId, transferAccountId, categoryId, note FROM transactions').all();
+  const rows = sqlite
+    .prepare(
+      'SELECT type, amountMinor, date, accountId, transferAccountId, categoryId, note FROM transactions',
+    )
+    .all();
   const today = new Date();
-  assert.deepEqual(rows.map((row) => ({ ...row })), [{ type: 'TRANSFER', amountMinor: 1234, date: Math.floor(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()) / 86400000), accountId: 1, transferAccountId: 2, categoryId: null, note: 'rent' }]);
+  assert.deepEqual(
+    rows.map((row) => ({ ...row })),
+    [
+      {
+        type: 'TRANSFER',
+        amountMinor: 1234,
+        date: Math.floor(
+          Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()) / 86400000,
+        ),
+        accountId: 1,
+        transferAccountId: 2,
+        categoryId: null,
+        note: 'rent',
+      },
+    ],
+  );
 });
 
 test('invalid accounts, currency and amount leave the database unchanged', async () => {
@@ -76,14 +112,40 @@ test('invalid accounts, currency and amount leave the database unchanged', async
 });
 
 function insertTransfer() {
-  return Number(sqlite.prepare(`INSERT INTO transactions (type, amountMinor, date, accountId, transferAccountId, categoryId, note)
-    VALUES ('TRANSFER', 500, 20000, 1, 2, NULL, 'move')`).run().lastInsertRowid);
+  return Number(
+    sqlite
+      .prepare(
+        `INSERT INTO transactions (type, amountMinor, date, accountId, transferAccountId, categoryId, note)
+    VALUES ('TRANSFER', 500, 20000, 1, 2, NULL, 'move')`,
+      )
+      .run().lastInsertRowid,
+  );
 }
 
 test('loads a transfer with both account names and nothing else', async () => {
   const id = insertTransfer();
-  const expense = Number(sqlite.prepare(`INSERT INTO transactions (type, amountMinor, date, accountId) VALUES ('EXPENSE', 1, 20000, 1)`).run().lastInsertRowid);
-  assert.deepEqual({ ...(await loadTransfer(id)) }, { id, type: 'TRANSFER', amountMinor: 500, date: 20000, fromAccountId: 1, fromAccountName: 'Cash', toAccountId: 2, toAccountName: 'Bank', currencyCode: 'BDT', note: 'move' });
+  const expense = Number(
+    sqlite
+      .prepare(
+        `INSERT INTO transactions (type, amountMinor, date, accountId) VALUES ('EXPENSE', 1, 20000, 1)`,
+      )
+      .run().lastInsertRowid,
+  );
+  assert.deepEqual(
+    { ...(await loadTransfer(id)) },
+    {
+      id,
+      type: 'TRANSFER',
+      amountMinor: 500,
+      date: 20000,
+      fromAccountId: 1,
+      fromAccountName: 'Cash',
+      toAccountId: 2,
+      toAccountName: 'Bank',
+      currencyCode: 'BDT',
+      note: 'move',
+    },
+  );
   assert.equal(await loadTransfer(expense), null);
   assert.equal(await loadTransfer(99999), null);
 });
@@ -91,10 +153,38 @@ test('loads a transfer with both account names and nothing else', async () => {
 test('saves edited amount, accounts, date and note', async () => {
   const id = insertTransfer();
   const original = await loadTransfer(id);
-  await saveTransferEdit(original, { amountMinor: 750, fromAccountId: 4, toAccountId: 1, date: 19990, note: '  rent  ' });
-  assert.deepEqual({ ...sqlite.prepare('SELECT type, amountMinor, date, accountId, transferAccountId, categoryId, note FROM transactions WHERE id = ?').get(id) },
-    { type: 'TRANSFER', amountMinor: 750, date: 19990, accountId: 4, transferAccountId: 1, categoryId: null, note: 'rent' });
-  await saveTransferEdit(await loadTransfer(id), { amountMinor: 750, fromAccountId: 4, toAccountId: 1, date: 19990, note: '  ' });
+  await saveTransferEdit(original, {
+    amountMinor: 750,
+    fromAccountId: 4,
+    toAccountId: 1,
+    date: 19990,
+    note: '  rent  ',
+  });
+  assert.deepEqual(
+    {
+      ...sqlite
+        .prepare(
+          'SELECT type, amountMinor, date, accountId, transferAccountId, categoryId, note FROM transactions WHERE id = ?',
+        )
+        .get(id),
+    },
+    {
+      type: 'TRANSFER',
+      amountMinor: 750,
+      date: 19990,
+      accountId: 4,
+      transferAccountId: 1,
+      categoryId: null,
+      note: 'rent',
+    },
+  );
+  await saveTransferEdit(await loadTransfer(id), {
+    amountMinor: 750,
+    fromAccountId: 4,
+    toAccountId: 1,
+    date: 19990,
+    note: '  ',
+  });
   assert.equal(sqlite.prepare('SELECT note FROM transactions WHERE id = ?').get(id).note, null);
 });
 
@@ -122,18 +212,47 @@ test('rejects invalid transfer edits and stale originals without changes', async
 });
 
 test('quick transfer keeps the chosen day and tags, and rejects invalid drafts atomically', async () => {
-  await addTransfer({ amountMinor: 325, fromAccountId: 1, toAccountId: 2, date: new Date(2020, 0, 1, 23, 30), note: null, tagText: ' Travel, travel ' });
-  const rows = sqlite.prepare("SELECT t.date, tags.name FROM transactions t JOIN transaction_tags tt ON tt.transactionId=t.id JOIN tags ON tags.id=tt.tagId WHERE t.amountMinor=325").all();
-  assert.deepEqual(rows.map((r) => ({ ...r })), [{ date: 18262, name: 'Travel' }]);
+  await addTransfer({
+    amountMinor: 325,
+    fromAccountId: 1,
+    toAccountId: 2,
+    date: new Date(2020, 0, 1, 23, 30),
+    note: null,
+    tagText: ' Travel, travel ',
+  });
+  const rows = sqlite
+    .prepare(
+      'SELECT t.date, tags.name FROM transactions t JOIN transaction_tags tt ON tt.transactionId=t.id JOIN tags ON tags.id=tt.tagId WHERE t.amountMinor=325',
+    )
+    .all();
+  assert.deepEqual(
+    rows.map((r) => ({ ...r })),
+    [{ date: 18262, name: 'Travel' }],
+  );
   const count = () => sqlite.prepare('SELECT count(*) AS n FROM transactions').get().n;
   const before = count();
-  const future = new Date(); future.setDate(future.getDate() + 1);
+  const future = new Date();
+  future.setDate(future.getDate() + 1);
   for (const extra of [{ tagText: 'bad,' }, { date: future }, { date: new Date('invalid') }]) {
-    await assert.rejects(() => addTransfer({ amountMinor: 325, fromAccountId: 1, toAccountId: 2, note: null, ...extra }));
+    await assert.rejects(() =>
+      addTransfer({ amountMinor: 325, fromAccountId: 1, toAccountId: 2, note: null, ...extra }),
+    );
     assert.equal(count(), before);
   }
-  sqlite.exec("CREATE TRIGGER fail_transfer_tags BEFORE INSERT ON transaction_tags BEGIN SELECT RAISE(ABORT, 'tag failure'); END;");
-  await assert.rejects(() => addTransfer({ amountMinor: 325, fromAccountId: 1, toAccountId: 2, note: null, tagText: 'Rollback' }), /tag failure/);
+  sqlite.exec(
+    "CREATE TRIGGER fail_transfer_tags BEFORE INSERT ON transaction_tags BEGIN SELECT RAISE(ABORT, 'tag failure'); END;",
+  );
+  await assert.rejects(
+    () =>
+      addTransfer({
+        amountMinor: 325,
+        fromAccountId: 1,
+        toAccountId: 2,
+        note: null,
+        tagText: 'Rollback',
+      }),
+    /tag failure/,
+  );
   sqlite.exec('DROP TRIGGER fail_transfer_tags');
   assert.equal(count(), before);
   assert.equal(sqlite.prepare("SELECT count(*) AS n FROM tags WHERE name='Rollback'").get().n, 0);

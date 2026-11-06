@@ -22,15 +22,26 @@ function corroborated(out: MoneyLoverRow, inc: MoneyLoverRow): boolean {
   const source = normalized(out.account);
   const outNote = normalized(out.note);
   const inNote = normalized(inc.note);
-  return (outgoingCategories.has(outCategory) || incomingCategories.has(inCategory) || outCategory === 'transfer' || inCategory === 'transfer') && (
-    ['send to', 'sent to', 'transfer to', 'move to'].some((phrase) => outNote === `${phrase} ${destination}`) ||
-    ['from', 'received from', 'transfer from'].some((phrase) => inNote === `${phrase} ${source}`)
+  return (
+    (outgoingCategories.has(outCategory) ||
+      incomingCategories.has(inCategory) ||
+      outCategory === 'transfer' ||
+      inCategory === 'transfer') &&
+    (['send to', 'sent to', 'transfer to', 'move to'].some(
+      (phrase) => outNote === `${phrase} ${destination}`,
+    ) ||
+      ['from', 'received from', 'transfer from'].some((phrase) => inNote === `${phrase} ${source}`))
   );
 }
 
 /** Classify plausible same-currency MoneyLover transfer legs without resolving ambiguous matches. */
 export function classifyTransferPairs(rows: MoneyLoverRow[]): TransferMatches {
-  const candidates: { outgoingIndex: number; incomingIndex: number; pair: TransferPair; strong: boolean }[] = [];
+  const candidates: {
+    outgoingIndex: number;
+    incomingIndex: number;
+    pair: TransferPair;
+    strong: boolean;
+  }[] = [];
   const degree = new Array<number>(rows.length).fill(0);
   const incoming = new Map<string, number[]>();
   for (let index = 0; index < rows.length; index++) {
@@ -48,7 +59,12 @@ export function classifyTransferPairs(rows: MoneyLoverRow[]): TransferMatches {
     for (const j of incoming.get(key) ?? []) {
       const inc = rows[j];
       if (normalized(inc.account) === normalized(out.account)) continue;
-      candidates.push({ outgoingIndex: i, incomingIndex: j, pair: { outgoing: out, incoming: inc }, strong: corroborated(out, inc) });
+      candidates.push({
+        outgoingIndex: i,
+        incomingIndex: j,
+        pair: { outgoing: out, incoming: inc },
+        strong: corroborated(out, inc),
+      });
       degree[i]++;
       degree[j]++;
     }
@@ -57,7 +73,11 @@ export function classifyTransferPairs(rows: MoneyLoverRow[]): TransferMatches {
   const uncertain: TransferPair[] = [];
   const merged = new Set<number>();
   for (const candidate of candidates) {
-    if (candidate.strong && degree[candidate.outgoingIndex] === 1 && degree[candidate.incomingIndex] === 1) {
+    if (
+      candidate.strong &&
+      degree[candidate.outgoingIndex] === 1 &&
+      degree[candidate.incomingIndex] === 1
+    ) {
       highConfidence.push(candidate.pair);
       merged.add(candidate.outgoingIndex);
       merged.add(candidate.incomingIndex);

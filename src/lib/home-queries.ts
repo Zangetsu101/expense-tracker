@@ -15,10 +15,16 @@ export function homeSnapshotQuery(accountId: number | null, now: Date) {
   return queryOptions({
     queryKey: [...homeQueryKey, 'snapshot', accountId, today],
     queryFn: async () => {
-      const [activity, balances] = await Promise.all([homeData(now, accountId), accountBalances(today)]);
+      const [activity, balances] = await Promise.all([
+        homeData(now, accountId),
+        accountBalances(today),
+      ]);
       return { ...activity, balances: homeBalances(balances, accountId), accountId };
     },
   });
 }
 
-export type HomeSnapshot = Awaited<ReturnType<typeof homeData>> & { balances: ReturnType<typeof homeBalances>; accountId: number | null };
+export type HomeSnapshot = Awaited<ReturnType<typeof homeData>> & {
+  balances: ReturnType<typeof homeBalances>;
+  accountId: number | null;
+};

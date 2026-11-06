@@ -15,11 +15,25 @@ export type RunningRelease = {
 };
 
 export function releaseIdentity(release: RunningRelease) {
-  const source = release.platform === 'web' ? 'Web' : release.development || release.expoGo ? 'Development' :
-    release.isEnabled ? release.isEmbeddedLaunch ? 'Embedded' : 'OTA update' : 'Updates disabled';
+  const source =
+    release.platform === 'web'
+      ? 'Web'
+      : release.development || release.expoGo
+        ? 'Development'
+        : release.isEnabled
+          ? release.isEmbeddedLaunch
+            ? 'Embedded'
+            : 'OTA update'
+          : 'Updates disabled';
   const commit = release.commit && /^[a-f0-9]{40}$/i.test(release.commit) ? release.commit : null;
-  const label = source === 'Web' || source === 'Development' ? source :
-    commit ? `Release ${commit.slice(0, 7)}` : source === 'OTA update' && release.updateId ? `Update ${release.updateId.slice(0, 8)}` : source;
+  const label =
+    source === 'Web' || source === 'Development'
+      ? source
+      : commit
+        ? `Release ${commit.slice(0, 7)}`
+        : source === 'OTA update' && release.updateId
+          ? `Update ${release.updateId.slice(0, 8)}`
+          : source;
   return {
     summary: `Version ${release.version ?? 'unknown'} · ${label}`,
     details: [

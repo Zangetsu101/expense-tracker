@@ -10,10 +10,19 @@ registerHooks({
     return next(specifier, context);
   },
   load(url, context, next) {
-    if (url === 'test:sqlite') return { format: 'module', source: 'export const openDatabaseAsync = async () => { throw Error("not used"); };', shortCircuit: true };
+    if (url === 'test:sqlite')
+      return {
+        format: 'module',
+        source: 'export const openDatabaseAsync = async () => { throw Error("not used"); };',
+        shortCircuit: true,
+      };
     if (url.endsWith('.ts')) {
       const loaded = next(url, { ...context, format: 'module' });
-      return { ...loaded, format: 'module', source: stripTypeScriptTypes(loaded.source.toString()) };
+      return {
+        ...loaded,
+        format: 'module',
+        source: stripTypeScriptTypes(loaded.source.toString()),
+      };
     }
     return next(url, context);
   },
@@ -31,12 +40,20 @@ INSERT INTO accounts VALUES (1,'Cash','BDT'),(2,'Bank','BDT'),(3,'Dollar','USD')
 INSERT INTO categories VALUES (1,'Food','EXPENSE',NULL),(2,'Lunch','EXPENSE',1),(3,'Snacks','EXPENSE',2),(4,'Travel','EXPENSE',NULL),(5,'Food','INCOME',NULL),(6,'Refund','INCOME',5);
 INSERT INTO transactions VALUES (1,'EXPENSE',1200,20000,'coffee',1,NULL,1),(2,'TRANSFER',500,20001,'move',1,2,NULL),(3,'INCOME',800,20002,'bonus',2,NULL,NULL),(4,'EXPENSE',100,20000,'100%_literal',2,NULL,NULL),(5,'EXPENSE',1200,20003,'hosting',3,NULL,NULL);`);
 const search = (patch = {}, offset = 0) => {
-  const { sql, params } = searchStatement({ query: '', type: 'ALL', accountId: null, month: '', ...patch }, offset);
-  return db.prepare(sql).all(...params).map((row) => row.id);
+  const { sql, params } = searchStatement(
+    { query: '', type: 'ALL', accountId: null, month: '', ...patch },
+    offset,
+  );
+  return db
+    .prepare(sql)
+    .all(...params)
+    .map((row) => row.id);
 };
 
 test('Search returns lending labels ahead of notes and categories while keeping ordinary rows', () => {
-  db.exec("INSERT INTO people VALUES (1, 'Sam'); INSERT INTO lending_entries VALUES (1, 1, 'LEND')");
+  db.exec(
+    "INSERT INTO people VALUES (1, 'Sam'); INSERT INTO lending_entries VALUES (1, 1, 'LEND')",
+  );
   try {
     const { sql, params } = searchStatement({ query: '', type: 'ALL', accountId: null });
     const rows = db.prepare(sql).all(...params);
@@ -70,16 +87,29 @@ test('category, date presets and inclusive custom range combine with independent
   assert.deepEqual(search({ categoryId: 1, accountId: 2 }), []);
   const now = new Date(20002 * 86400000);
   const run = (patch) => {
-    const { sql, params } = searchStatement({ query: '', type: 'ALL', accountId: null, ...patch }, 0, now);
-    return db.prepare(sql).all(...params).map((row) => row.id);
+    const { sql, params } = searchStatement(
+      { query: '', type: 'ALL', accountId: null, ...patch },
+      0,
+      now,
+    );
+    return db
+      .prepare(sql)
+      .all(...params)
+      .map((row) => row.id);
   };
   assert.deepEqual(run({ datePreset: 'TODAY' }), [3]);
   assert.deepEqual(run({ datePreset: 'LAST_7_DAYS' }), [3, 2, 4, 1]);
   assert.deepEqual(run({ datePreset: 'THIS_MONTH' }), [5, 3, 2, 4, 1]);
   const startDate = new Date(20000 * 86400000).toISOString().slice(0, 10);
   assert.deepEqual(run({ datePreset: 'CUSTOM', startDate, endDate: startDate }), [4, 1]);
-  assert.throws(() => run({ datePreset: 'CUSTOM', startDate: '2024-02-30', endDate: startDate }), /valid dates/);
-  assert.throws(() => run({ datePreset: 'CUSTOM', startDate: '2025-01-02', endDate: '2025-01-01' }), /valid dates/);
+  assert.throws(
+    () => run({ datePreset: 'CUSTOM', startDate: '2024-02-30', endDate: startDate }),
+    /valid dates/,
+  );
+  assert.throws(
+    () => run({ datePreset: 'CUSTOM', startDate: '2025-01-02', endDate: '2025-01-01' }),
+    /valid dates/,
+  );
   assert.equal(validDate('2024-02-29'), true);
   assert.equal(validDate('2025-02-29'), false);
 });
@@ -96,7 +126,9 @@ test('amount modes compare stored minor units across currencies without conversi
 });
 
 test('nested category filters include only same-type descendants; text finds ancestor names and paths', () => {
-  db.exec(`INSERT INTO transactions VALUES (6,'EXPENSE',200,20004,'',1,NULL,2),(7,'EXPENSE',300,20005,'',1,NULL,3),(8,'EXPENSE',400,20006,'',1,NULL,4),(9,'INCOME',500,20007,'',1,NULL,6);`);
+  db.exec(
+    `INSERT INTO transactions VALUES (6,'EXPENSE',200,20004,'',1,NULL,2),(7,'EXPENSE',300,20005,'',1,NULL,3),(8,'EXPENSE',400,20006,'',1,NULL,4),(9,'INCOME',500,20007,'',1,NULL,6);`,
+  );
   assert.deepEqual(search({ categoryId: 1 }), [7, 6, 1]);
   assert.deepEqual(search({ categoryId: 2 }), [7, 6]);
   assert.deepEqual(search({ categoryId: 5 }), [9]);
@@ -104,8 +136,19 @@ test('nested category filters include only same-type descendants; text finds anc
   assert.deepEqual(search({ query: 'food' }), [9, 7, 6, 1]);
   assert.deepEqual(search({ query: 'lunch' }), [7, 6]);
   assert.deepEqual(search({ query: 'travel' }), [8]);
-  const { sql, params } = searchStatement({ query: '', type: 'ALL', accountId: null, categoryId: 2 });
-  assert.deepEqual(db.prepare(sql).all(...params).map(({ categoryPath }) => categoryPath), ['Food › Lunch › Snacks', 'Food › Lunch']);
+  const { sql, params } = searchStatement({
+    query: '',
+    type: 'ALL',
+    accountId: null,
+    categoryId: 2,
+  });
+  assert.deepEqual(
+    db
+      .prepare(sql)
+      .all(...params)
+      .map(({ categoryPath }) => categoryPath),
+    ['Food › Lunch › Snacks', 'Food › Lunch'],
+  );
   db.exec('DELETE FROM transactions WHERE id >= 6');
 });
 

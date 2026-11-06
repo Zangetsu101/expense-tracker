@@ -8,22 +8,84 @@ export function Shimmer() {
   const [reduceMotion, setReduceMotion] = useState(true);
   useEffect(() => {
     let active = true;
-    void AccessibilityInfo.isReduceMotionEnabled().then((enabled) => { if (active) setReduceMotion(enabled); });
+    void AccessibilityInfo.isReduceMotionEnabled().then((enabled) => {
+      if (active) setReduceMotion(enabled);
+    });
     const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduceMotion);
-    return () => { active = false; subscription.remove(); };
+    return () => {
+      active = false;
+      subscription.remove();
+    };
   }, []);
   useEffect(() => {
     if (reduceMotion || !width) return;
     progress.setValue(0);
-    const animation = Animated.loop(Animated.timing(progress, { toValue: 1, duration: 1800, easing: Easing.linear, useNativeDriver: true, isInteraction: false }));
+    const animation = Animated.loop(
+      Animated.timing(progress, {
+        toValue: 1,
+        duration: 1800,
+        easing: Easing.linear,
+        useNativeDriver: true,
+        isInteraction: false,
+      }),
+    );
     animation.start();
     return () => animation.stop();
   }, [progress, reduceMotion, width]);
-  return <View pointerEvents="none" accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" onLayout={(event) => setWidth(event.nativeEvent.layout.width)} style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
-    {!reduceMotion && width > 0 && <Animated.View style={{ position: 'absolute', top: 0, bottom: 0, width, experimental_backgroundImage: 'linear-gradient(100deg, transparent, rgba(139,224,190,0.12), transparent)', transform: [{ translateX: progress.interpolate({ inputRange: [0, 1], outputRange: [-width, width] }) }] }} />}
-  </View>;
+  return (
+    <View
+      pointerEvents="none"
+      accessible={false}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
+      style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}
+    >
+      {!reduceMotion && width > 0 && (
+        <Animated.View
+          style={{
+            position: 'absolute',
+            top: 0,
+            bottom: 0,
+            width,
+            experimental_backgroundImage:
+              'linear-gradient(100deg, transparent, rgba(139,224,190,0.12), transparent)',
+            transform: [
+              {
+                translateX: progress.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [-width, width],
+                }),
+              },
+            ],
+          }}
+        />
+      )}
+    </View>
+  );
 }
 
-export function Skeleton({ width = '65%', height = 14, animated = true }: { width?: DimensionValue; height?: number; animated?: boolean }) {
-  return <View accessible={false} style={{ width, height, borderRadius: 5, overflow: 'hidden', backgroundColor: theme.colors.raised }}>{animated && <Shimmer />}</View>;
+export function Skeleton({
+  width = '65%',
+  height = 14,
+  animated = true,
+}: {
+  width?: DimensionValue;
+  height?: number;
+  animated?: boolean;
+}) {
+  return (
+    <View
+      accessible={false}
+      style={{
+        width,
+        height,
+        borderRadius: 5,
+        overflow: 'hidden',
+        backgroundColor: theme.colors.raised,
+      }}
+    >
+      {animated && <Shimmer />}
+    </View>
+  );
 }

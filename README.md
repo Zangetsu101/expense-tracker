@@ -19,7 +19,7 @@ Keep an independent copy of your financial records before trying imports or rest
 
 ## Run locally
 
-Use Node.js 22.19 or newer and pnpm 10.33.2, as pinned in `package.json`.
+Use Node.js 22.22.1 or newer and pnpm 10.33.2 (pinned in `package.json`).
 
 ```sh
 pnpm install --frozen-lockfile
@@ -50,9 +50,28 @@ pnpm test:backup
 # ESLint, with warnings treated as failures
 pnpm lint
 
+# Prettier formatting
+pnpm format:check
+
 # All of the above
 pnpm check
 ```
+
+Use `pnpm lint:fix` to apply ESLint fixes and `pnpm format` to format files. Prettier
+uses single quotes and a 100-character print width, and skips generated files,
+vendored skills, and Git-ignored files. GitHub Actions runs `pnpm check` on pull
+requests and pushes to `main`; APK and OTA release workflows run it before publishing too.
+
+Enable the repository's Git hooks once per clone:
+
+```sh
+git config --local core.hooksPath .githooks
+```
+
+Before each commit, lint-staged runs ESLint fixes and Prettier on staged JS/TS files, and Prettier on
+other supported staged files. Fixes are staged automatically; unstaged edits are
+preserved. Unfixable lint errors block the commit. Typecheck and the full test suite
+remain in `pnpm check` and CI.
 
 ## Android APK releases
 

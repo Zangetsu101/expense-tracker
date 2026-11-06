@@ -2,7 +2,8 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { database } from './database';
 import { addTransactionTags, parseQuickAddTags } from './tag-store';
 
-export type LendingKind = 'LEND' | 'BORROW' | 'RECEIVE_REPAYMENT' | 'REPAY' | 'WRITE_OFF_LENT' | 'WRITE_OFF_BORROWED';
+export type LendingKind =
+  'LEND' | 'BORROW' | 'RECEIVE_REPAYMENT' | 'REPAY' | 'WRITE_OFF_LENT' | 'WRITE_OFF_BORROWED';
 export type Person = { id: number; name: string };
 export type LendingInput = {
   id?: number;
@@ -44,11 +45,19 @@ export type LendingResult =
   | { status: 'deleted' }
   | { status: 'confirmation_required'; warnings: LendingTotal[] };
 type DB = Pick<SQLiteDatabase, 'getAllAsync' | 'getFirstAsync' | 'runAsync'>;
-const kinds: LendingKind[] = ['LEND', 'BORROW', 'RECEIVE_REPAYMENT', 'REPAY', 'WRITE_OFF_LENT', 'WRITE_OFF_BORROWED'];
+const kinds: LendingKind[] = [
+  'LEND',
+  'BORROW',
+  'RECEIVE_REPAYMENT',
+  'REPAY',
+  'WRITE_OFF_LENT',
+  'WRITE_OFF_BORROWED',
+];
 const writeoff = (kind: LendingKind) => kind === 'WRITE_OFF_LENT' || kind === 'WRITE_OFF_BORROWED';
 const expense = (kind: LendingKind) => kind === 'LEND' || kind === 'REPAY';
 function positive(value: number) {
-  if (!Number.isSafeInteger(value) || value <= 0) throw new Error('Enter a positive integer amount or ID.');
+  if (!Number.isSafeInteger(value) || value <= 0)
+    throw new Error('Enter a positive integer amount or ID.');
 }
 export async function createPerson(name: string): Promise<Person> {
   name = name.trim();
@@ -58,7 +67,9 @@ export async function createPerson(name: string): Promise<Person> {
   return { id: result.lastInsertRowId, name };
 }
 export async function listPeople(): Promise<Person[]> {
-  return (await database()).getAllAsync<Person>('SELECT id, name FROM people ORDER BY name COLLATE NOCASE, id');
+  return (await database()).getAllAsync<Person>(
+    'SELECT id, name FROM people ORDER BY name COLLATE NOCASE, id',
+  );
 }
 async function entries(db: DB, personId?: number): Promise<LendingEntry[]> {
   return db.getAllAsync<LendingEntry>(
@@ -77,7 +88,9 @@ export async function listLendingEntries(personId?: number) {
 function totals(rows: LendingEntry[]): LendingTotal[] {
   const map = new Map<string, LendingTotal>();
   for (const row of rows) {
-    const direction = ['LEND', 'RECEIVE_REPAYMENT', 'WRITE_OFF_LENT'].includes(row.kind) ? 'LENT' : 'BORROWED';
+    const direction = ['LEND', 'RECEIVE_REPAYMENT', 'WRITE_OFF_LENT'].includes(row.kind)
+      ? 'LENT'
+      : 'BORROWED';
     const key = `${row.personId}:${row.currencyCode}:${direction}`;
     const total = map.get(key) ?? {
       personId: row.personId,
@@ -95,13 +108,17 @@ function totals(rows: LendingEntry[]): LendingTotal[] {
     const balance = total.principalMinor - total.repaidMinor - total.writtenOffMinor;
     total.outstandingMinor = Math.max(0, balance);
     total.overpaidMinor = Math.max(0, -balance);
-    if (![total.principalMinor, total.repaidMinor, total.writtenOffMinor].every(Number.isSafeInteger))
+    if (
+      ![total.principalMinor, total.repaidMinor, total.writtenOffMinor].every(Number.isSafeInteger)
+    )
       throw new Error('Lending total exceeds supported range.');
     map.set(key, total);
   }
   return [...map.values()].sort(
     (a, b) =>
-      a.personId - b.personId || a.currencyCode.localeCompare(b.currencyCode) || a.direction.localeCompare(b.direction),
+      a.personId - b.personId ||
+      a.currencyCode.localeCompare(b.currencyCode) ||
+      a.direction.localeCompare(b.direction),
   );
 }
 export async function listLendingTotals(personId?: number) {
@@ -112,17 +129,23 @@ function warnings(before: LendingEntry[], after: LendingEntry[]) {
   return totals(after).filter(
     (t) =>
       t.overpaidMinor >
-      (old.find((o) => o.personId === t.personId && o.currencyCode === t.currencyCode && o.direction === t.direction)
-        ?.overpaidMinor ?? 0),
+      (old.find(
+        (o) =>
+          o.personId === t.personId &&
+          o.currencyCode === t.currencyCode &&
+          o.direction === t.direction,
+      )?.overpaidMinor ?? 0),
   );
 }
 async function person(db: DB, id: number) {
   positive(id);
-  if (!(await db.getFirstAsync('SELECT id FROM people WHERE id=?', [id]))) throw new Error('Person not found.');
+  if (!(await db.getFirstAsync('SELECT id FROM people WHERE id=?', [id])))
+    throw new Error('Person not found.');
 }
 export async function saveLendingEntry(input: LendingInput): Promise<LendingResult> {
   const tags = input.tagText?.trim() ? parseQuickAddTags(input.tagText) : [];
-  if (tags.length && writeoff(input.kind)) throw new Error('Write-offs cannot have transaction tags.');
+  if (tags.length && writeoff(input.kind))
+    throw new Error('Write-offs cannot have transaction tags.');
   positive(input.amountMinor);
   if (!kinds.includes(input.kind)) throw new Error('Invalid lending kind.');
   if (!Number.isSafeInteger(input.date) || input.date < 0) throw new Error('Choose a valid date.');
@@ -138,12 +161,14 @@ export async function saveLendingEntry(input: LendingInput): Promise<LendingResu
     let currencyCode = input.currencyCode?.trim().toUpperCase();
     if (!writeoff(input.kind)) {
       positive(input.accountId ?? 0);
-      const account = await tx.getFirstAsync<{ currencyCode: string }>('SELECT currencyCode FROM accounts WHERE id=?', [
-        input.accountId!,
-      ]);
+      const account = await tx.getFirstAsync<{ currencyCode: string }>(
+        'SELECT currencyCode FROM accounts WHERE id=?',
+        [input.accountId!],
+      );
       if (!account) throw new Error('Account not found.');
       currencyCode = account.currencyCode;
-    } else if (!currencyCode || !/^[A-Z]{3}$/.test(currencyCode)) throw new Error('Choose a currency.');
+    } else if (!currencyCode || !/^[A-Z]{3}$/.test(currencyCode))
+      throw new Error('Choose a currency.');
     const row: LendingEntry = {
       id: input.id ?? -1,
       personId: input.personId,
@@ -179,7 +204,13 @@ export async function saveLendingEntry(input: LendingInput): Promise<LendingResu
       else {
         const r = await tx.runAsync(
           'INSERT INTO transactions (type,amountMinor,date,accountId,note,excludeFromReport) VALUES (?,?,?,?,?,1)',
-          [expense(input.kind) ? 'EXPENSE' : 'INCOME', row.amountMinor, row.date, row.accountId, row.note],
+          [
+            expense(input.kind) ? 'EXPENSE' : 'INCOME',
+            row.amountMinor,
+            row.date,
+            row.accountId,
+            row.note,
+          ],
         );
         transactionId = r.lastInsertRowId;
       }
@@ -188,7 +219,15 @@ export async function saveLendingEntry(input: LendingInput): Promise<LendingResu
       await tx.runAsync('DELETE FROM transaction_tags WHERE transactionId=?', [transactionId]);
       await addTransactionTags(tx, transactionId, tags);
     }
-    const values = [row.personId, row.kind, transactionId, row.currencyCode, row.amountMinor, row.date, row.note];
+    const values = [
+      row.personId,
+      row.kind,
+      transactionId,
+      row.currencyCode,
+      row.amountMinor,
+      row.date,
+      row.note,
+    ];
     if (original) {
       await tx.runAsync(
         'UPDATE lending_entries SET personId=?,kind=?,transactionId=?,currencyCode=?,amountMinor=?,date=?,note=? WHERE id=?',
@@ -226,7 +265,8 @@ export async function deleteLendingEntry(
       return;
     }
     await tx.runAsync('DELETE FROM lending_entries WHERE id=?', [id]);
-    if (row.transactionId !== null) await tx.runAsync('DELETE FROM transactions WHERE id=?', [row.transactionId]);
+    if (row.transactionId !== null)
+      await tx.runAsync('DELETE FROM transactions WHERE id=?', [row.transactionId]);
   });
   return result;
 }
@@ -273,10 +313,10 @@ export async function assignLendingTransaction(
       [personId, row.kind, transactionId, row.currencyCode, row.amountMinor, row.date, row.note],
     );
     await tx.runAsync('UPDATE transactions SET excludeFromReport=1 WHERE id=?', [transactionId]);
-    await tx.runAsync('UPDATE transfer_candidates SET resolved=1 WHERE outgoingTxnId=? OR incomingTxnId=?', [
-      transactionId,
-      transactionId,
-    ]);
+    await tx.runAsync(
+      'UPDATE transfer_candidates SET resolved=1 WHERE outgoingTxnId=? OR incomingTxnId=?',
+      [transactionId, transactionId],
+    );
     result = { status: 'saved', id: r.lastInsertRowId };
   });
   return result;

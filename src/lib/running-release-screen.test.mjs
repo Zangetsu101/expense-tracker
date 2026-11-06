@@ -24,34 +24,75 @@ const hooks = registerHooks({
     if (specifier in mocks) return { url: `updates-mock:${specifier}`, shortCircuit: true };
     if (specifier.startsWith('@/')) {
       const extension = specifier.startsWith('@/components/') ? '.tsx' : '.ts';
-      return { url: new URL(`${specifier.replace('@/', 'src/')}${extension}`, root).href, shortCircuit: true };
+      return {
+        url: new URL(`${specifier.replace('@/', 'src/')}${extension}`, root).href,
+        shortCircuit: true,
+      };
     }
-    return next(specifier, context.parentURL?.startsWith('updates-mock:') ? { ...context, parentURL: import.meta.url } : context);
+    return next(
+      specifier,
+      context.parentURL?.startsWith('updates-mock:')
+        ? { ...context, parentURL: import.meta.url }
+        : context,
+    );
   },
   load(url, context, next) {
-    if (url.startsWith('updates-mock:')) return { format: 'module', source: mocks[url.slice(13)], shortCircuit: true };
-    if (url.startsWith(root.href) && /\.tsx?$/.test(url)) return { format: 'module', shortCircuit: true, source: ts.transpileModule(readFileSync(new URL(url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX } }).outputText };
+    if (url.startsWith('updates-mock:'))
+      return { format: 'module', source: mocks[url.slice(13)], shortCircuit: true };
+    if (url.startsWith(root.href) && /\.tsx?$/.test(url))
+      return {
+        format: 'module',
+        shortCircuit: true,
+        source: ts.transpileModule(readFileSync(new URL(url), 'utf8'), {
+          compilerOptions: { module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX },
+        }).outputText,
+      };
     return next(url, context);
   },
 });
 const { RunningRelease } = await import('../components/running-release.tsx');
-test('release details open, expose selectable running metadata, explain copying and dismiss', async t => {
+test('release details open, expose selectable running metadata, explain copying and dismiss', async (t) => {
   let renderer;
-  t.after(async () => { await act(async () => renderer.unmount()); hooks.deregister(); delete globalThis.__DEV__; delete globalThis.__releaseTest; globalThis.IS_REACT_ACT_ENVIRONMENT = previousAct; });
-  await act(async () => { renderer = create(React.createElement(RunningRelease)); });
+  t.after(async () => {
+    await act(async () => renderer.unmount());
+    hooks.deregister();
+    delete globalThis.__DEV__;
+    delete globalThis.__releaseTest;
+    globalThis.IS_REACT_ACT_ENVIRONMENT = previousAct;
+  });
+  await act(async () => {
+    renderer = create(React.createElement(RunningRelease));
+  });
   assert.equal(renderer.root.findAllByType('AppSheet').length, 0);
   await act(async () => renderer.root.findByType('Pressable').props.onPress());
   const details = renderer.root.findByProps({ selectable: true });
   assert.match(details.props.children, /Update ID: running-id/);
   await act(async () => renderer.root.findByProps({ label: 'Copy details' }).props.onPress());
-  assert.match(renderer.root.findByProps({ accessibilityRole: 'alert' }).props.children, /Select all and Copy/);
-  state.clipboard = { setString: text => { state.copied = text; } };
+  assert.match(
+    renderer.root.findByProps({ accessibilityRole: 'alert' }).props.children,
+    /Select all and Copy/,
+  );
+  state.clipboard = {
+    setString: (text) => {
+      state.copied = text;
+    },
+  };
   await act(async () => renderer.root.findByProps({ label: 'Copy details' }).props.onPress());
   assert.equal(state.copied, details.props.children);
-  assert.equal(renderer.root.findByProps({ accessibilityRole: 'alert' }).props.children, 'Details copied.');
-  state.clipboard = { setString: () => { throw Error('unavailable'); } };
+  assert.equal(
+    renderer.root.findByProps({ accessibilityRole: 'alert' }).props.children,
+    'Details copied.',
+  );
+  state.clipboard = {
+    setString: () => {
+      throw Error('unavailable');
+    },
+  };
   await act(async () => renderer.root.findByProps({ label: 'Copy details' }).props.onPress());
-  assert.match(renderer.root.findByProps({ accessibilityRole: 'alert' }).props.children, /Select all and Copy/);
+  assert.match(
+    renderer.root.findByProps({ accessibilityRole: 'alert' }).props.children,
+    /Select all and Copy/,
+  );
   await act(async () => renderer.root.findByProps({ label: 'Close' }).props.onPress());
   assert.equal(renderer.root.findAllByType('AppSheet').length, 0);
   await act(async () => renderer.root.findByType('Pressable').props.onPress());

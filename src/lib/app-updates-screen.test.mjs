@@ -6,7 +6,17 @@ import React from 'react';
 import { act, create } from 'react-test-renderer';
 import ts from 'typescript';
 
-const state = { alerts: [], calls: [], native: { isChecking: false, isDownloading: false, isStartupProcedureRunning: true, isUpdatePending: false, isRestarting: false } };
+const state = {
+  alerts: [],
+  calls: [],
+  native: {
+    isChecking: false,
+    isDownloading: false,
+    isStartupProcedureRunning: true,
+    isUpdatePending: false,
+    isRestarting: false,
+  },
+};
 globalThis.__updatesTest = state;
 globalThis.__DEV__ = false;
 const previousAct = globalThis.IS_REACT_ACT_ENVIRONMENT;
@@ -24,13 +34,29 @@ const hooks = registerHooks({
     if (specifier in mocks) return { url: `updates-mock:${specifier}`, shortCircuit: true };
     if (specifier.startsWith('@/')) {
       const extension = specifier.startsWith('@/components/') ? '.tsx' : '.ts';
-      return { url: new URL(`${specifier.replace('@/', 'src/')}${extension}`, root).href, shortCircuit: true };
+      return {
+        url: new URL(`${specifier.replace('@/', 'src/')}${extension}`, root).href,
+        shortCircuit: true,
+      };
     }
-    return next(specifier, context.parentURL?.startsWith('updates-mock:') ? { ...context, parentURL: import.meta.url } : context);
+    return next(
+      specifier,
+      context.parentURL?.startsWith('updates-mock:')
+        ? { ...context, parentURL: import.meta.url }
+        : context,
+    );
   },
   load(url, context, next) {
-    if (url.startsWith('updates-mock:')) return { format: 'module', source: mocks[url.slice(13)], shortCircuit: true };
-    if (url.startsWith(root.href) && /\.tsx?$/.test(url)) return { format: 'module', shortCircuit: true, source: ts.transpileModule(readFileSync(new URL(url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX } }).outputText };
+    if (url.startsWith('updates-mock:'))
+      return { format: 'module', source: mocks[url.slice(13)], shortCircuit: true };
+    if (url.startsWith(root.href) && /\.tsx?$/.test(url))
+      return {
+        format: 'module',
+        shortCircuit: true,
+        source: ts.transpileModule(readFileSync(new URL(url), 'utf8'), {
+          compilerOptions: { module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX },
+        }).outputText,
+      };
     return next(url, context);
   },
 });
@@ -39,31 +65,53 @@ const { UpdatesRow: Screen } = await import('../components/app-updates.tsx');
 let renderer;
 const tree = () => React.createElement(AppUpdatesProvider, null, React.createElement(Screen));
 const button = () => renderer.root.findByType('Pressable');
-test('update row coordinates native startup, progress, readiness and confirmed restart', async t => {
+test('update row coordinates native startup, progress, readiness and confirmed restart', async (t) => {
   t.after(async () => {
     await act(async () => renderer?.unmount());
-    hooks.deregister(); delete globalThis.__updatesTest; delete globalThis.__DEV__;
+    hooks.deregister();
+    delete globalThis.__updatesTest;
+    delete globalThis.__DEV__;
     globalThis.IS_REACT_ACT_ENVIRONMENT = previousAct;
   });
-  await act(async () => { renderer = create(tree()); });
-  assert.equal(button().props.disabled, true); assert.deepEqual(state.calls, []);
-  state.native = { ...state.native, isStartupProcedureRunning: false, isDownloading: true, isUpdatePending: true, downloadProgress: 0.37 };
+  await act(async () => {
+    renderer = create(tree());
+  });
+  assert.equal(button().props.disabled, true);
+  assert.deepEqual(state.calls, []);
+  state.native = {
+    ...state.native,
+    isStartupProcedureRunning: false,
+    isDownloading: true,
+    isUpdatePending: true,
+    downloadProgress: 0.37,
+  };
   await act(async () => renderer.update(tree()));
-  assert.equal(button().props.accessibilityValue.text, 'Downloading update, 37%'); assert.equal(button().props.disabled, true);
+  assert.equal(button().props.accessibilityValue.text, 'Downloading update, 37%');
+  assert.equal(button().props.disabled, true);
   state.native = { ...state.native, isDownloading: false, isUpdatePending: true };
   await act(async () => renderer.update(tree()));
   assert.equal(button().props.accessibilityValue.text, 'Restart to update');
   assert.equal(renderer.root.findByType('SymbolView').props.name.android, 'restart_alt');
   assert.deepEqual(state.calls, []);
   await act(async () => button().props.onPress());
-  assert.deepEqual(state.calls, []); assert.match(state.alerts[0][1], /Unsaved/);
+  assert.deepEqual(state.calls, []);
+  assert.match(state.alerts[0][1], /Unsaved/);
   assert.equal(state.alerts[0][2][0].style, 'cancel');
   await act(async () => state.alerts[0][2][1].onPress());
   assert.deepEqual(state.calls, ['reload']);
-  await act(async () => renderer.unmount()); assert.equal(state.removed, true);
-  state.native = { ...state.native, isUpdatePending: false, isDownloading: false, isStartupProcedureRunning: false };
-  state.calls = []; state.fail = true;
-  await act(async () => { renderer = create(tree()); });
+  await act(async () => renderer.unmount());
+  assert.equal(state.removed, true);
+  state.native = {
+    ...state.native,
+    isUpdatePending: false,
+    isDownloading: false,
+    isStartupProcedureRunning: false,
+  };
+  state.calls = [];
+  state.fail = true;
+  await act(async () => {
+    renderer = create(tree());
+  });
   assert.equal(button().props.accessibilityValue.text, 'Check for updates');
   assert.equal(renderer.root.findAllByProps({ accessibilityRole: 'alert' }).length, 0);
   await act(async () => button().props.onPress());
@@ -73,8 +121,11 @@ test('update row coordinates native startup, progress, readiness and confirmed r
   await act(async () => button().props.onPress());
   assert.equal(renderer.root.findByType('SymbolView').props.name.android, 'check_circle');
   await act(async () => renderer.unmount());
-  globalThis.__DEV__ = true; state.calls = [];
-  await act(async () => { renderer = create(tree()); });
+  globalThis.__DEV__ = true;
+  state.calls = [];
+  await act(async () => {
+    renderer = create(tree());
+  });
   await act(async () => button().props.onPress());
   assert.match(state.alerts.at(-1)[1], /release build/);
   assert.deepEqual(state.calls, []);

@@ -39,6 +39,8 @@
     "@types/react": "~19.2.2",
     "eslint": "^9.39.5",
     "eslint-config-expo": "~57.0.2",
+    "lint-staged": "17.6.0",
+    "prettier": "3.9.10",
     "react-test-renderer": "19.2.3",
     "typescript": "~6.0.3"
   },
@@ -54,7 +56,16 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "pnpm lint --fix",
-    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm test:backup"
+    "format": "prettier . --write",
+    "format:check": "prettier . --check",
+    "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm test:backup"
+  },
+  "lint-staged": {
+    "*.{js,cjs,mjs,jsx,ts,tsx}": [
+      "eslint --fix --max-warnings 0 --no-warn-ignored",
+      "prettier --write --ignore-unknown"
+    ],
+    "!(*.{js,cjs,mjs,jsx,ts,tsx})": "prettier --write --ignore-unknown"
   },
   "private": true,
   "packageManager": "pnpm@10.33.2"

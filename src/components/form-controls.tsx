@@ -14,8 +14,13 @@ type FormButtonProps = {
 };
 
 export function FormButton({
-  label, onPress, variant = 'primary', disabled = false,
-  loading = false, accessibilityLabel, style,
+  label,
+  onPress,
+  variant = 'primary',
+  disabled = false,
+  loading = false,
+  accessibilityLabel,
+  style,
 }: FormButtonProps) {
   const blocked = disabled || loading;
   const color = variant === 'primary' ? c.onSelected : variant === 'danger' ? c.warning : c.text;
@@ -43,7 +48,9 @@ export function FormButton({
         style,
       ]}
     >
-      {loading ? <ActivityIndicator color={color} /> : (
+      {loading ? (
+        <ActivityIndicator color={color} />
+      ) : (
         <Text style={{ color, fontSize: t.type.body, fontWeight: '600' }}>{label}</Text>
       )}
     </Pressable>
@@ -81,14 +88,27 @@ type JoinedChoiceProps<T extends string> = {
   style?: StyleProp<ViewStyle>;
 };
 
-export function JoinedChoice<T extends string>({ value, options, onChange, disabled = false, style }: JoinedChoiceProps<T>) {
+export function JoinedChoice<T extends string>({
+  value,
+  options,
+  onChange,
+  disabled = false,
+  style,
+}: JoinedChoiceProps<T>) {
   return (
     <View
       accessibilityRole="radiogroup"
-      style={[{
-        flexDirection: 'row', borderWidth: 1, borderColor: c.line,
-        borderRadius: t.radius.control, borderCurve: 'continuous', overflow: 'hidden',
-      }, style]}
+      style={[
+        {
+          flexDirection: 'row',
+          borderWidth: 1,
+          borderColor: c.line,
+          borderRadius: t.radius.control,
+          borderCurve: 'continuous',
+          overflow: 'hidden',
+        },
+        style,
+      ]}
     >
       {options.map((option, index) => (
         <Pressable
@@ -109,7 +129,13 @@ export function JoinedChoice<T extends string>({ value, options, onChange, disab
             opacity: disabled ? 0.45 : pressed ? 0.65 : 1,
           })}
         >
-          <Text style={{ color: value === option.value ? c.onSelected : c.muted, fontSize: t.type.body, fontWeight: '600' }}>
+          <Text
+            style={{
+              color: value === option.value ? c.onSelected : c.muted,
+              fontSize: t.type.body,
+              fontWeight: '600',
+            }}
+          >
             {option.label}
           </Text>
         </Pressable>

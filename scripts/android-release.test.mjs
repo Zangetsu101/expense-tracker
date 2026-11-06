@@ -53,7 +53,8 @@ function runBuild(signing = {}) {
     if (name.startsWith('EXPENSE_TRACKER_')) delete env[name];
   }
   return spawnSync('bash', ['scripts/build-android-apk.sh'], {
-    env: { ...env, ...signing }, encoding: 'utf8',
+    env: { ...env, ...signing },
+    encoding: 'utf8',
   });
 }
 

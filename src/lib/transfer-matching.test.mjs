@@ -2,13 +2,24 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { classifyTransferPairs } from './transfer-matching.ts';
 
-const row = { sourceId: '1', note: '', amount: -50, category: 'Other Expense', account: 'Bank', currency: 'BDT', date: '2025-01-01', excludeFromReport: false };
+const row = {
+  sourceId: '1',
+  note: '',
+  amount: -50,
+  category: 'Other Expense',
+  account: 'Bank',
+  currency: 'BDT',
+  date: '2025-01-01',
+  excludeFromReport: false,
+};
 const incoming = { ...row, sourceId: '2', amount: 50, category: 'Other Income', account: 'Cash' };
 
 test('corroborated unique pair is safe to merge', () => {
   const out = { ...row, note: 'Send to Cash', category: 'Withdrawal' };
   assert.deepEqual(classifyTransferPairs([out, incoming]), {
-    highConfidence: [{ outgoing: out, incoming }], uncertain: [], singleSided: [],
+    highConfidence: [{ outgoing: out, incoming }],
+    uncertain: [],
+    singleSided: [],
   });
 });
 
@@ -17,7 +28,10 @@ test('multiple possible incoming legs never auto-merge even with a corroborated 
   const other = { ...incoming, sourceId: '3', account: 'Savings' };
   assert.deepEqual(classifyTransferPairs([out, incoming, other]), {
     highConfidence: [],
-    uncertain: [{ outgoing: out, incoming }, { outgoing: out, incoming: other }],
+    uncertain: [
+      { outgoing: out, incoming },
+      { outgoing: out, incoming: other },
+    ],
     singleSided: [out, incoming, other],
   });
 });
@@ -39,19 +53,27 @@ test('date, amount, sign, account and currency are all required', () => {
   ];
   for (const candidate of near) {
     assert.deepEqual(classifyTransferPairs([row, candidate]), {
-      highConfidence: [], uncertain: [], singleSided: [row, candidate],
+      highConfidence: [],
+      uncertain: [],
+      singleSided: [row, candidate],
     });
   }
 });
 
 test('transfer word alone or a non-transfer category does not justify an auto-merge', () => {
-  for (const out of [{ ...row, note: 'transfer' }, { ...row, note: 'Send to Cash' }, { ...row, category: 'Withdrawal fees' }]) {
+  for (const out of [
+    { ...row, note: 'transfer' },
+    { ...row, note: 'Send to Cash' },
+    { ...row, category: 'Withdrawal fees' },
+  ]) {
     assert.deepEqual(classifyTransferPairs([out, incoming]).highConfidence, []);
   }
 });
 
 test('coincidental same-day amount remains a review candidate and both rows remain single-sided', () => {
   assert.deepEqual(classifyTransferPairs([row, incoming]), {
-    highConfidence: [], uncertain: [{ outgoing: row, incoming }], singleSided: [row, incoming],
+    highConfidence: [],
+    uncertain: [{ outgoing: row, incoming }],
+    singleSided: [row, incoming],
   });
 });
