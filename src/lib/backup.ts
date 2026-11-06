@@ -305,7 +305,7 @@ export interface BackupStore {
 /** Android document picker / SAF boundary: URI is selected by the user, never a raw filesystem path. */
 export interface BackupDocuments {
   createJsonDocument(name: string): Promise<string | null>;
-  pickJsonDocument(): Promise<string | null>;
+  pickJsonDocument(): Promise<{ uri: string; name: string } | null>;
   writeText(uri: string, text: string): Promise<void>;
   readText(uri: string): Promise<string>;
 }
@@ -324,10 +324,12 @@ export async function exportBackup(
 export async function restoreBackup(
   store: BackupStore,
   documents: BackupDocuments,
+  confirm: (name: string) => Promise<boolean>,
 ): Promise<boolean> {
-  const uri = await documents.pickJsonDocument();
-  if (uri === null) return false;
-  const data = decodeBackup(await documents.readText(uri));
+  const document = await documents.pickJsonDocument();
+  if (document === null) return false;
+  const data = decodeBackup(await documents.readText(document.uri));
+  if (!(await confirm(document.name))) return false;
   await store.replace(data);
   return true;
 }

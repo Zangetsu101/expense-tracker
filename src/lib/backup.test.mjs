@@ -149,9 +149,10 @@ test('invalid lending metadata is rejected before replacement', async () => {
             },
           },
           {
-            pickJsonDocument: async () => 'content://backup',
+            pickJsonDocument: async () => ({ uri: 'content://backup', name: 'saved.json' }),
             readText: async () => JSON.stringify({ ...base, lendingEntries: [entry], ...patch }),
           },
+          async () => true,
         ),
       /backup|safe integer/,
     );
@@ -179,9 +180,10 @@ test('import row keys survive a JSON roundtrip and restore', async () => {
       },
     },
     {
-      pickJsonDocument: async () => 'content://backup',
+      pickJsonDocument: async () => ({ uri: 'content://backup', name: 'saved.json' }),
       readText: async () => json,
     },
+    async () => true,
   );
   assert.equal(restored, true);
   assert.deepEqual(replaced.moneyLoverImportRows, original.moneyLoverImportRows);
@@ -200,11 +202,72 @@ test('invalid import metadata never reaches the replacement boundary', async () 
           },
         },
         {
-          pickJsonDocument: async () => 'content://backup',
+          pickJsonDocument: async () => ({ uri: 'content://backup', name: 'saved.json' }),
           readText: async () => JSON.stringify(backup),
         },
+        async () => true,
       ),
     /Invalid backup moneyLoverImportRows/,
   );
   assert.equal(replaced, false);
+});
+
+test('restore validates before confirmation and waits for consent before replacement', async () => {
+  const events = [];
+  let finish;
+  const restoring = restoreBackup(
+    {
+      replace: async () => {
+        events.push('replace');
+      },
+    },
+    {
+      pickJsonDocument: async () => {
+        events.push('pick');
+        return { uri: 'content://backup', name: 'saved.json' };
+      },
+      readText: async () => {
+        events.push('read');
+        return native;
+      },
+    },
+    async (name) => {
+      events.push(`confirm:${name}`);
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    },
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(events, ['pick', 'read', 'confirm:saved.json']);
+  finish(true);
+  assert.equal(await restoring, true);
+  assert.equal(events.at(-1), 'replace');
+});
+
+test('restore cancellation and invalid files never replace data', async () => {
+  for (const scenario of ['picker cancelled', 'confirmation cancelled', 'invalid']) {
+    let confirmations = 0;
+    let replacements = 0;
+    const restoring = restoreBackup(
+      {
+        replace: async () => {
+          replacements++;
+        },
+      },
+      {
+        pickJsonDocument: async () =>
+          scenario === 'picker cancelled' ? null : { uri: 'content://backup', name: 'saved.json' },
+        readText: async () => (scenario === 'invalid' ? '{invalid' : native),
+      },
+      async () => {
+        confirmations++;
+        return false;
+      },
+    );
+    if (scenario === 'invalid') await assert.rejects(restoring);
+    else assert.equal(await restoring, false);
+    assert.equal(replacements, 0);
+    assert.equal(confirmations, scenario === 'confirmation cancelled' ? 1 : 0);
+  }
 });

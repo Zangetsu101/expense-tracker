@@ -17,7 +17,7 @@ const mocks = {
   'expo-router/react-navigation': `export function usePreventRemove(busy,callback){globalThis.__dataTools.navigation={busy,callback}}`,
   'react-native-safe-area-context': `export const useSafeAreaInsets=()=>({bottom:0});`,
   '@/lib/backup-adapter': `export const backupStore={},backupDocuments={};`,
-  '@/lib/backup': `export const exportBackup=(...args)=>{const s=globalThis.__dataTools;s.calls.push(['backup',...args]);return s.backup()};export const restoreBackup=(...args)=>{const s=globalThis.__dataTools;s.calls.push(['restore',...args]);return s.restore()};`,
+  '@/lib/backup': `export const exportBackup=(...args)=>{const s=globalThis.__dataTools;s.calls.push(['backup',...args]);return s.backup()};export const restoreBackup=(...args)=>{const s=globalThis.__dataTools;s.calls.push(['restore',...args]);return s.restore(args[2])};`,
   '@/lib/export-csv': `export const exportTransactionsCsv=()=>{const s=globalThis.__dataTools;s.calls.push(['export']);return s.export()};`,
   '@/lib/import-csv': `export const importMoneyLoverFile=(confirm)=>{const s=globalThis.__dataTools;s.calls.push(['import']);return s.import(confirm)};`,
 };
@@ -49,7 +49,7 @@ const hooks = registerHooks({
     return next(url, context);
   },
 });
-const { default: Screen } = await import('../app/data-tools.tsx');
+const { SettingsDataActions: Screen } = await import('../components/settings-data-actions.tsx');
 let renderer;
 const text = () =>
   renderer.root
@@ -80,13 +80,13 @@ async function mount() {
   state.calls = [];
   state.backup = async () => 'content://backup';
   state.export = async () => 'content://csv';
-  state.restore = async () => true;
+  state.restore = async (confirm) => confirm('saved.json');
   state.import = async () => 7;
   await act(async () => {
     renderer = create(React.createElement(Screen));
   });
 }
-test('Data tools screen', async (t) => {
+test('Settings data actions', async (t) => {
   t.afterEach(async () => {
     await act(async () => renderer?.unmount());
   });
@@ -96,28 +96,32 @@ test('Data tools screen', async (t) => {
     if (previousActEnvironment === undefined) delete globalThis.IS_REACT_ACT_ENVIRONMENT;
     else globalThis.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
   });
-  await t.test('restore confirms before picker and Cancel does not call restore', async () => {
-    await mount();
-    await press('Restore JSON backup');
-    assert.equal(state.calls.length, 0);
-    assert.equal(state.navigation.busy, true);
-    await choose('Cancel');
-    assert.equal(state.calls.length, 0);
-    assert.match(text(), /Restore JSON backup cancelled/);
-    await press('Restore JSON backup');
-    await choose('Choose backup');
-    assert.equal(state.calls[0][0], 'restore');
-    assert.match(text(), /Current data has been replaced/);
-  });
   await t.test(
-    'decode failure stays visible, retry confirms again, pending blocks duplicates and leaving',
+    'restore confirms the validated filename and Cancel does not replace data',
+    async () => {
+      await mount();
+      await press('Restore from file');
+      assert.equal(state.calls.length, 1);
+      assert.equal(state.navigation.busy, true);
+      assert.match(state.alerts.at(-1)[1], /saved.json/);
+      await choose('Cancel');
+      assert.equal(state.calls.length, 1);
+      assert.match(text(), /Restore from file cancelled/);
+      await press('Restore from file');
+      await choose('Replace data');
+      assert.equal(state.calls[0][0], 'restore');
+      assert.match(text(), /Current data has been replaced/);
+    },
+  );
+  await t.test(
+    'decode failure stays visible, retry works, pending blocks duplicates and leaving',
     async () => {
       await mount();
       state.restore = async () => {
         throw new Error('Invalid backup');
       };
-      await press('Restore JSON backup');
-      await choose('Choose backup');
+      await press('Restore from file');
+      assert.equal(state.alerts.length, 0);
       assert.match(text(), /failed\. Invalid backup/);
       let finish;
       state.restore = () =>
@@ -125,10 +129,9 @@ test('Data tools screen', async (t) => {
           finish = resolve;
         });
       await press('Retry');
-      assert.equal(state.calls.length, 1);
-      await choose('Choose backup');
-      assert.equal(button('Create JSON backup').props.disabled, true);
-      await press('Restore JSON backup');
+      assert.equal(state.calls.length, 2);
+      assert.equal(button('Create backup').props.disabled, true);
+      await press('Restore from file');
       assert.equal(state.calls.length, 2);
       await act(async () => state.navigation.callback());
       assert.equal(state.alerts.at(-1)[0], 'Operation in progress');
@@ -142,13 +145,12 @@ test('Data tools screen', async (t) => {
     state.backup = state.export = state.import = async () => null;
     state.restore = async () => false;
     for (const label of [
-      'Create JSON backup',
+      'Create backup',
       'Export transactions CSV',
-      'Import MoneyLover CSV',
-      'Restore JSON backup',
+      'Import from MoneyLover',
+      'Restore from file',
     ]) {
       await press(label);
-      if (label.startsWith('Restore')) await choose('Choose backup');
       assert.match(text(), new RegExp(`${label} cancelled`));
       assert.doesNotMatch(text(), /created\.|exported\.|imported\.|has been replaced/);
     }
@@ -163,12 +165,12 @@ test('Data tools screen', async (t) => {
         if (!answer) throw new Error('Mixed Categories require confirmation');
         return 2;
       };
-      await press('Import MoneyLover CSV');
+      await press('Import from MoneyLover');
       assert.match(state.alerts.at(-1)[1], /Other/);
       await choose('Cancel');
       assert.equal(answer, false);
-      assert.match(text(), /Import MoneyLover CSV cancelled/);
-      await press('Import MoneyLover CSV');
+      assert.match(text(), /Import from MoneyLover cancelled/);
+      await press('Import from MoneyLover');
       await choose('Create separate categories');
       assert.equal(answer, true);
       assert.match(text(), /2 transactions imported/);
@@ -180,11 +182,11 @@ test('Data tools screen', async (t) => {
       await mount();
       for (const count of [0, 1, 7]) {
         state.import = async () => count;
-        await press('Import MoneyLover CSV');
+        await press('Import from MoneyLover');
         assert.ok(text().includes(`${count} transaction${count === 1 ? '' : 's'} imported.`));
       }
-      await press('Create JSON backup');
-      assert.match(text(), /JSON backup created/);
+      await press('Create backup');
+      assert.match(text(), /Backup saved/);
       await press('Export transactions CSV');
       assert.match(text(), /Transactions CSV exported/);
       state.export = async () => {

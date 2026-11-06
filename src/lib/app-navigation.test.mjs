@@ -16,6 +16,10 @@ const mocks = {
   'react-native-reanimated': `import {useRef} from 'react'; export default {View:'AnimatedView'}; export const Easing={out:x=>x,cubic:x=>x},ReduceMotion={System:'system'}; export const useSharedValue=value=>useRef({value}).current,useAnimatedStyle=fn=>fn(),withTiming=value=>value;`,
   '@/components/home-account-picker': `export const HomeAccountPicker='HomeAccountPicker';`,
   '@/components/running-release': `export const RunningRelease='RunningRelease';`,
+  '@/lib/backup': `export const exportBackup=async()=>globalThis.__navTest.backup?.()??'content://backup'; export const restoreBackup=async()=>false;`,
+  '@/lib/backup-adapter': `export const backupStore={},backupDocuments={};`,
+  '@/lib/export-csv': `export const exportTransactionsCsv=async()=>null;`,
+  '@/lib/import-csv': `export const importMoneyLoverFile=async()=>null;`,
   '@/components/app-updates': `export const UpdatesRow='UpdatesRow';`,
   'react-native': `import React from 'react'; export const BackHandler={addEventListener:()=>({remove(){}})}; export const Keyboard={dismiss() {}}; export const KeyboardAvoidingView='KeyboardAvoidingView',View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator'; export const FlatList=p=>React.createElement('FlatList',null,p.ListHeaderComponent,p.ListFooterComponent); export const Alert={alert(){}}; export const AppState={currentState:'active',addEventListener:(_,fn)=>{globalThis.__navTest.lifecycle=fn;return {remove(){}}}};`,
   'expo-router': `import {useEffect} from 'react'; const s=globalThis.__navTest; export const useFocusEffect=fn=>useEffect(fn,[fn]); export const useLocalSearchParams=()=>({}); export const router={push:h=>s.calls.push(['push',h]),replace:h=>s.calls.push(['replace',h]),back:()=>s.calls.push(['back'])}; export const Link=({children})=>children; export const Stack={Screen:p=>{s.header={...s.header,...p.options};return null}};`,
@@ -37,6 +41,11 @@ const mocks = {
 const hooks = registerHooks({
   resolve(specifier, context, next) {
     if (specifier in mocks) return { url: `nav-mock:${specifier}`, shortCircuit: true };
+    if (specifier === '@/components/settings-data-actions')
+      return {
+        url: new URL('src/components/settings-data-actions.tsx', root).href,
+        shortCircuit: true,
+      };
     if (specifier === '@/components/amount-calculator')
       return {
         url: new URL('src/components/amount-calculator.tsx', root).href,
@@ -180,16 +189,46 @@ test('app navigation', async (t) => {
       assert.equal(state.accountQueries.at(-1), 2);
     },
   );
-  await t.test('Settings opens data tools and the Review Queue', async () => {
+  await t.test('Settings offers data actions directly and opens the Review Queue', async () => {
     await mount(Settings);
     assert.equal(renderer.root.findAllByType('RunningRelease').length, 1);
-    await press('Import, export and backup');
+    for (const label of [
+      'Create backup',
+      'Restore from file',
+      'Export transactions CSV',
+      'Import from MoneyLover',
+    ])
+      assert.ok(pressable(label));
+    assert.ok(!texts().includes('Import, export and backup'));
+    await press('Create backup');
+    assert.ok(texts().includes('Backup saved.'));
     await press('Review transfer candidates');
-    assert.deepEqual(state.calls, [
-      ['push', '/data-tools'],
-      ['push', '/review-queue'],
-    ]);
+    assert.deepEqual(state.calls, [['push', '/review-queue']]);
   });
+  await t.test(
+    'Settings blocks other controls during data operations and restores them after completion',
+    async () => {
+      let finish;
+      state.backup = () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        });
+      try {
+        await mount(Settings);
+        await press('Create backup');
+        assert.equal(pressable('Lending & borrowing').props.disabled, true);
+        assert.equal(pressable('Review transfer candidates').props.disabled, true);
+        const blocked = renderer.root
+          .findAllByType('View')
+          .find((n) => n.props.pointerEvents === 'none');
+        assert.equal(blocked.props.importantForAccessibility, 'no-hide-descendants');
+        await act(async () => finish('content://backup'));
+        assert.equal(pressable('Lending & borrowing').props.disabled, false);
+      } finally {
+        delete state.backup;
+      }
+    },
+  );
   await t.test(
     'Quick add centers its title and offers Cancel with transfer in the mode selector',
     async () => {
