@@ -224,6 +224,7 @@ export default function ReportsScreen() {
   const [scope, setScope] = useState<number | undefined>();
   const [accounts, setAccounts] = useState<ManagedAccount[]>([]);
   const [report, setReport] = useState<MonthlyReport>();
+  const loadedQuery = useRef<string | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
   const [retry, setRetry] = useState(0);
@@ -239,9 +240,14 @@ export default function ReportsScreen() {
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      setLoading(true);
+      const query = `${year}-${month}-${scope ?? "all"}`;
+      const refreshing = loadedQuery.current === query;
+      setLoading(!refreshing);
       setError(undefined);
-      setReport(undefined);
+      if (!refreshing) {
+        loadedQuery.current = undefined;
+        setReport(undefined);
+      }
       Promise.all([
         listManagedAccounts(),
         monthlyReport(year, month + 1, scope),
@@ -256,6 +262,7 @@ export default function ReportsScreen() {
             setScope(undefined);
             return;
           }
+          loadedQuery.current = query;
           setReport(nextReport);
           setLoading(false);
         })

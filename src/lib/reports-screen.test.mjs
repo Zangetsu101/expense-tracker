@@ -132,6 +132,18 @@ test('Reports screen behavior', async (t) => {
     assert.equal(labelled('Income, USD 120.00').length, 1);
   });
 
+  await t.test('changing month hides the previous totals until the new report arrives', async () => {
+    await mount();
+    const pending = deferred();
+    state.query = () => pending.promise;
+    const [year, month] = state.calls[0];
+    await press(`${month === 1 ? 'February' : 'January'} ${year}`);
+    assert.equal(labelled('Loading reports').length, 1);
+    assert.equal(labelled('Income, USD 120.00').length, 0);
+    await act(async () => pending.resolve(report(22000, 1000)));
+    assert.equal(labelled('Income, USD 220.00').length, 1);
+  });
+
   await t.test('late old request cannot replace the selected month report', async () => {
     const old = deferred();
     let requests = 0;

@@ -25,6 +25,7 @@ export default function AccountsScreen() {
   const [openingBalance, setOpeningBalance] = useState('0');
   const [sheet, setSheet] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string>();
   const [formError, setFormError] = useState<string>();
@@ -32,14 +33,14 @@ export default function AccountsScreen() {
   const load = useCallback(async () => {
     setLoading(true);
     setError(undefined);
-    setBalances({});
     try {
       const [rows, totals] = await Promise.all([listManagedAccounts(), accountBalances()]);
       const nextBalances = Object.fromEntries(totals.map(row => [row.id, row.balanceMinor]));
       if (rows.some(row => nextBalances[row.id] === undefined)) throw new Error('Account balances unavailable.');
       setAccounts(rows);
       setBalances(nextBalances);
-    } catch (e) { setBalances({}); setError(String(e)); }
+      setLoaded(true);
+    } catch (e) { setError(String(e)); }
     finally { setLoading(false); }
   }, []);
   useFocusEffect(useCallback(() => { void load(); }, [load]));
@@ -76,7 +77,7 @@ export default function AccountsScreen() {
 
   return <View style={{ flex: 1, backgroundColor: colors.bg }}>
     <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 24, gap: 18 }}>
-      {!loading && !error && accounts.length > 0 && <View style={{ backgroundColor: colors.raised, borderRadius: 20, padding: 20, gap: 8 }}>
+      {loaded && !error && accounts.length > 0 && <View style={{ backgroundColor: colors.raised, borderRadius: 20, padding: 20, gap: 8 }}>
         <Text style={{ color: colors.muted }}>Balance overview</Text>
         {sortedGroups.map(([code, group]) => {
           const total = group.reduce((sum, account) => sum + (balances[account.id] ?? account.openingBalanceMinor), 0);
@@ -89,7 +90,7 @@ export default function AccountsScreen() {
         <FormButton label="Add account" variant="secondary" disabled={pending} onPress={() => { setFormError(undefined); setSheet(true); }} />
       </View>
       {error && <><Text selectable accessibilityRole="alert" style={{ color: colors.negative }}>{error}</Text><FormButton label="Retry accounts" variant="secondary" disabled={pending} onPress={() => void load()} /></>}
-      {loading ? <ActivityIndicator color={colors.accent} /> : error ? null : accounts.length === 0 ? <Text style={{ color: colors.muted }}>No accounts yet.</Text> : sortedGroups.map(([code, group]) => <View key={code} style={{ gap: 8 }}>
+      {loading && !loaded ? <ActivityIndicator color={colors.accent} /> : error ? null : accounts.length === 0 ? <Text style={{ color: colors.muted }}>No accounts yet.</Text> : sortedGroups.map(([code, group]) => <View key={code} style={{ gap: 8 }}>
         <Text style={{ color: colors.accent, fontSize: 17, fontWeight: '700' }}>{code} · {countLabel(group.length, 'account', 'accounts')}</Text>
         {group.map(account => <View key={account.id} style={{ backgroundColor: colors.surface, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: colors.line, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <View style={{ flex: 1, gap: 4 }}>

@@ -21,14 +21,13 @@ export default function HomeScreen() {
   const [summaries, setSummaries] = useState<MonthlySummary[]>([]);
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
   const load = useCallback(() => {
     let active = true;
     setLoading(true);
     setError(undefined);
-    setRows([]);
-    setSummaries([]);
     homeData().then((result) => {
-      if (active) { setRows(result.rows); setSummaries(result.summaries); }
+      if (active) { setRows(result.rows); setSummaries(result.summaries); setLoaded(true); }
     }).catch((e) => { if (active) setError(String(e)); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, []);
@@ -53,9 +52,9 @@ export default function HomeScreen() {
             </View>
           </View>)}
         </View>
-        {loading && <ActivityIndicator color={colors.accent} />}
+        {loading && !loaded && <ActivityIndicator color={colors.accent} />}
         {error && <Text selectable accessibilityRole="alert" style={{ color: colors.text }}>{error}</Text>}
-        {!loading && !error && rows.length === 0 && <Text style={{ color: colors.muted }}>No transactions yet. Add one to get started.</Text>}
+        {loaded && !error && rows.length === 0 && <Text style={{ color: colors.muted }}>No transactions yet. Add one to get started.</Text>}
       </View>}
       renderItem={({ item, index }) => { const title = transactionTitle(item); return <View>
         {(index === 0 || rows[index - 1].date !== item.date) && <Text style={{ color: colors.muted, fontWeight: '700', paddingTop: 16, paddingBottom: 4 }}>{formatEpochDay(item.date)}</Text>}
