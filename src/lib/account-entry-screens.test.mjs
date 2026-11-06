@@ -99,7 +99,9 @@ test('Account entry screens', async t => {
     const key = async label => { await act(async () => nodes('Pressable').find(n => n.props.accessibilityLabel === label).props.onPress()); };
     await act(async () => amountField().props.onFocus());
     assert.equal(amountField().props.showSoftInputOnFocus, false);
-    await key('Add'); await key('3'); await key('Equals'); await key('7');
+    await key('Add');
+    assert.equal(nodes('Text').some(n => n.children.includes('Enter a positive amount with at most two decimal places.')), false);
+    await key('3'); await key('Equals'); await key('7');
     assert.equal(amountField().props.value, '7');
     await key('Done');
     assert.equal(amountField().props.value, '7.00');

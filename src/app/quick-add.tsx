@@ -161,7 +161,7 @@ function QuickAddForm({ data }: { data: EntryData }) {
           <Text style={{ color: c.text, fontSize: 48, fontWeight: '300' }}>{account?.currencyCode === 'BDT' ? '৳' : account?.currencyCode === 'USD' ? '$' : ''}</Text>
           <TextInput ref={amountInput} accessibilityLabel="Amount" autoFocus editable={!pending} showSoftInputOnFocus={false} caretHidden onBlur={() => { if (calculatorOpen) dismissCalculator(); }} onFocus={() => setCalculatorOpen(true)} onPressIn={() => { if (!pending) setCalculatorOpen(true); }} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={c.muted} value={amount} onChangeText={setAmount} style={{ flex: 1, color: c.text, fontSize: 48, fontWeight: '300', fontVariant: ['tabular-nums'] }} />
         </View>
-        {!!amount && !validAmount && <Text accessibilityRole="alert" style={{ color: c.warning }}>Enter a positive amount with at most two decimal places.</Text>}
+        {!calculatorOpen && !!amount && !validAmount && <Text accessibilityRole="alert" style={{ color: c.warning }}>Enter a positive amount with at most two decimal places.</Text>}
       </View>
       <View style={{ gap: 18 }} onTouchStart={() => { if (calculatorOpen) dismissCalculator(); }}>
       <JoinedChoice value={mode} options={modes} disabled={pending} onChange={(value) => { setMode(value); setError(''); }} />
