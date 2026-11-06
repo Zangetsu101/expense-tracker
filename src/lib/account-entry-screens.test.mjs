@@ -12,7 +12,7 @@ const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const root = new URL('../../', import.meta.url);
 const mocks = {
-  'react-native': `export const BackHandler={addEventListener:(_,callback)=>{globalThis.__entryTest.backHandler=callback;return {remove(){globalThis.__entryTest.backHandler=undefined}}}}; export const Keyboard={dismiss() {}}; export const KeyboardAvoidingView='KeyboardAvoidingView',View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator',FlatList='FlatList'; export const useWindowDimensions=()=>({width:390,height:844}); export const Alert={alert:(...args)=>globalThis.__entryTest.alert=args};`,
+  'react-native': `export const BackHandler={addEventListener:(_,callback)=>{globalThis.__entryTest.backHandler=callback;return {remove(){globalThis.__entryTest.backHandler=undefined}}}}; export const Keyboard={dismiss() {globalThis.__entryTest.keyboardDismissed=true}}; export const KeyboardAvoidingView='KeyboardAvoidingView',View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator',FlatList='FlatList'; export const useWindowDimensions=()=>({width:390,height:844}); export const Alert={alert:(...args)=>globalThis.__entryTest.alert=args};`,
   'expo-router': `import {useEffect} from 'react'; export const useFocusEffect=fn=>useEffect(fn,[fn]); export const useLocalSearchParams=()=>globalThis.__entryTest.params ?? {}; export const router={back:()=>globalThis.__entryTest.back=true}; export const Stack={Screen:()=>null};`,
   'expo-router/react-navigation': `export const useHeaderHeight=()=>88; export const useNavigation=()=>({dispatch:action=>globalThis.__entryTest.dispatched=action}); export const usePreventRemove=(enabled,callback)=>{globalThis.__entryTest.removal={enabled,callback}};`,
   'react-native-safe-area-context': `export const useSafeAreaInsets=()=>({bottom:0});`,
@@ -51,9 +51,9 @@ let renderer;
 const nodes = type => renderer.root.findAllByType(type);
 const button = label => nodes('FormButton').find(n => n.props.label === label);
 async function press(label) { await act(async () => button(label).props.onPress()); }
-async function change(label, value) { await act(async () => [...nodes('FormInput'), ...nodes('TextInput')].find(n => n.props.accessibilityLabel === label).props.onChangeText(value)); }
+async function change(label, value) { if (label === 'Amount') { await act(async () => renderer.root.find(n => n.type?.name === 'AmountCalculator').props.onChange(value)); return; } await act(async () => [...nodes('FormInput'), ...nodes('TextInput')].find(n => n.props.accessibilityLabel === label).props.onChangeText(value)); }
 async function mount(Screen) {
-  Object.assign(state, { list: async () => [], save: async () => ({ status: 'saved', id: 1 }), back: false, alert: undefined, loadError: false });
+  Object.assign(state, { list: async () => [], save: async () => ({ status: 'saved', id: 1 }), back: false, alert: undefined, loadError: false, keyboardDismissed: false });
   await act(async () => { renderer = create(React.createElement(Screen)); });
 }
 const text = () => nodes('Text').map(n => n.children.join('')).join('\n');
@@ -93,32 +93,34 @@ test('Account entry screens', async t => {
     let saved; state.save = async (...args) => { saved = args; }; await press('Save');
     assert.equal(saved[0].amountMinor, 1200); assert.equal(saved[0].accountId, 1); assert.equal(saved[0].categoryId, 3); assert.equal(saved[0].type, 'EXPENSE'); assert.equal(saved[0].note, 'Lunch'); assert.equal(saved[1], 'food'); assert.equal(state.back, true); assert.equal(state.alert, undefined);
   });
-  await t.test('Amount focus opens a docked keypad and Done resolves the calculation', async () => {
+  await t.test('Amount button uses only the docked keypad and Done resolves the calculation', async () => {
     await mount(QuickAdd); await change('Amount', '12');
-    const amountField = () => nodes('TextInput').find(n => n.props.accessibilityLabel === 'Amount');
+    const amountField = () => nodes('Pressable').find(n => n.props.accessibilityLabel === 'Amount');
     const key = async label => { await act(async () => nodes('Pressable').find(n => n.props.accessibilityLabel === label).props.onPress()); };
-    await act(async () => amountField().props.onFocus());
-    assert.equal(amountField().props.showSoftInputOnFocus, false);
+    await act(async () => amountField().props.onPress());
+    assert.equal(nodes('TextInput').length, 0);
+    assert.equal(amountField().props.accessibilityRole, 'button');
+    assert.equal(state.keyboardDismissed, true);
     await key('Add');
     assert.equal(nodes('Text').some(n => n.children.includes('Enter a positive amount with at most two decimal places.')), false);
     await key('3'); await key('Equals'); await key('7');
-    assert.equal(amountField().props.value, '7');
+    assert.equal(amountField().props.accessibilityValue.text, '7');
     await key('Done');
-    assert.equal(amountField().props.value, '7.00');
+    assert.equal(amountField().props.accessibilityValue.text, '7.00');
     assert.equal(nodes('Pressable').some(n => n.props.accessibilityLabel === 'Done'), false);
-    await act(async () => amountField().props.onFocus());
+    await act(async () => amountField().props.onPress());
     await key('Clear calculation'); await key('2'); await key('Divide'); await key('0'); await key('Equals');
     assert.ok(nodes('Text').some(n => n.children.includes('Cannot divide by zero.')));
     await key('Backspace'); await key('2'); await key('Done');
-    assert.equal(amountField().props.value, '1.00');
-    await act(async () => amountField().props.onFocus());
+    assert.equal(amountField().props.accessibilityValue.text, '1.00');
+    await act(async () => amountField().props.onPress());
     await key('Add'); await key('2');
-    await act(async () => amountField().props.onBlur());
-    assert.equal(amountField().props.value, '3.00');
-    await act(async () => amountField().props.onFocus());
+    await act(async () => nodes('ScrollView')[0].props.onScrollBeginDrag());
+    assert.equal(amountField().props.accessibilityValue.text, '3.00');
+    await act(async () => amountField().props.onPress());
     await key('Add'); await key('4');
     await act(async () => assert.equal(state.backHandler(), true));
-    assert.equal(amountField().props.value, '7.00');
+    assert.equal(amountField().props.accessibilityValue.text, '7.00');
     assert.equal(nodes('Pressable').some(n => n.props.accessibilityLabel === 'Done'), false);
     assert.equal(state.backHandler, undefined);
   });
@@ -172,7 +174,7 @@ test('Account entry screens', async t => {
     state.dispatched = undefined; state.removal.callback({ data: { action: { type: 'GO_BACK' } } }); assert.equal(state.dispatched, undefined);
     await act(async () => reject(Error('Save failed')));
     assert.match(text(), /Save failed/); assert.equal(state.back, false);
-    assert.equal(nodes('TextInput').find(n => n.props.accessibilityLabel === 'Amount').props.value, '12');
+    assert.equal(nodes('Pressable').find(n => n.props.accessibilityLabel === 'Amount').props.accessibilityValue.text, '12');
     assert.equal(nodes('FormInput').find(n => n.props.accessibilityLabel === 'Note').props.value, 'Draft');
     state.save = async () => {}; await press('Save'); assert.equal(state.back, true); assert.equal(state.alert, undefined);
   });
