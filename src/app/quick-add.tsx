@@ -1,12 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight, useNavigation, usePreventRemove } from 'expo-router/react-navigation';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, BackHandler, KeyboardAvoidingView, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { epochDay, listAccounts, listCategories, type Account, type Category } from '@/lib/database';
 import { listManagedCategories, type ManagedCategory } from '@/lib/categories';
 import { addQuickTransaction } from '@/lib/quick-add-tags';
 import { addTransfer, transferAmountMinor } from '@/lib/transfers';
 import { createPerson, listLendingTotals, listPeople, saveLendingEntry, type LendingKind, type LendingTotal, type Person } from '@/lib/lending';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { calculateAmount } from '@/lib/amount-calculator';
 import { AmountCalculator } from '@/components/amount-calculator';
 import { QuickAddDate } from '@/components/quick-add-date';
 import { QuickAddCategory } from '@/components/quick-add-category';
@@ -66,9 +68,24 @@ export default function QuickAdd() {
 function QuickAddForm({ data }: { data: EntryData }) {
   const params = useLocalSearchParams<{ accountId?: string }>();
   const headerHeight = useHeaderHeight();
+  const insets = useSafeAreaInsets();
+  const amountInput = useRef<TextInput>(null);
   const [mode, setMode] = useState<Mode>('EXPENSE');
   const [amount, setAmount] = useState('');
   const [calculatorOpen, setCalculatorOpen] = useState(false);
+  const dismissCalculator = useCallback(() => {
+    try { if (amount) setAmount(calculateAmount(amount)); } catch {}
+    setCalculatorOpen(false);
+    amountInput.current?.blur();
+  }, [amount]);
+  useEffect(() => {
+    if (!calculatorOpen) return;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      dismissCalculator();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [calculatorOpen, dismissCalculator]);
   const [accountId, setAccountId] = useState(resolveHomeAccount(data.accounts, parseAccountId(params.accountId)) ?? data.accounts[0]?.id);
   const [toId, setToId] = useState<number>();
   const [categoryIds, setCategoryIds] = useState({ EXPENSE: data.expense[0]?.id, INCOME: data.income[0]?.id });
@@ -96,8 +113,8 @@ function QuickAddForm({ data }: { data: EntryData }) {
   const matches = people.filter((item) => item.name.toLocaleLowerCase().includes(search));
   const canCreatePerson = !!search && !people.some((item) => item.name.toLocaleLowerCase() === search);
   let validAmount = false;
-  try { transferAmountMinor(amount); validAmount = true; } catch {}
-  const canSave = !calculatorOpen && validAmount && !!account && (mode === 'TRANSFER' ? destinations.some((item) => item.id === toId)
+  try { transferAmountMinor(calculateAmount(amount)); validAmount = true; } catch {}
+  const canSave = validAmount && !!account && (mode === 'TRANSFER' ? destinations.some((item) => item.id === toId)
     : mode === 'PERSON' ? !!person : !!categoryMode && categories.some((item) => item.id === categoryIds[categoryMode]));
   const saveLabel = mode === 'PERSON' ? ({ LEND: 'Save lending', BORROW: 'Save borrowing', RECEIVE_REPAYMENT: 'Save repayment received', REPAY: 'Save repayment made' }[action]) : mode === 'TRANSFER' ? 'Save transfer' : 'Save';
 
@@ -116,7 +133,7 @@ function QuickAddForm({ data }: { data: EntryData }) {
     if (busy.current || !canSave || !account) return;
     busy.current = true; setPending(true); setError('');
     try {
-      const amountMinor = transferAmountMinor(amount);
+      const amountMinor = transferAmountMinor(calculateAmount(amount));
       if (!Number.isFinite(date.getTime()) || epochDay(date) > epochDay(new Date())) throw new Error('Choose today or a past date.');
       if (mode === 'TRANSFER') {
         await addTransfer({ amountMinor, fromAccountId: account.id, toAccountId: toId!, note, date, tagText: tags });
@@ -138,15 +155,15 @@ function QuickAddForm({ data }: { data: EntryData }) {
 
   return <KeyboardAvoidingView style={{ flex: 1 }} behavior={process.env.EXPO_OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={headerHeight}>
     <Stack.Screen options={{ headerLeft: () => <CancelAction disabled={pending} />, gestureEnabled: !pending }} />
-    <ScrollView style={{ flex: 1 }} contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 22, gap: 18, paddingBottom: 48 }}>
+    <ScrollView style={{ flex: 1 }} contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" onScrollBeginDrag={() => { if (calculatorOpen) dismissCalculator(); }} contentContainerStyle={{ padding: 22, gap: 18, paddingBottom: 48 }}>
       <View style={{ gap: 6 }}><Label>{`Amount · ${account?.currencyCode ?? 'Select account'}`}</Label>
         <View style={{ flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderColor: c.line }}>
           <Text style={{ color: c.text, fontSize: 48, fontWeight: '300' }}>{account?.currencyCode === 'BDT' ? '৳' : account?.currencyCode === 'USD' ? '$' : ''}</Text>
-          <TextInput accessibilityLabel="Amount" autoFocus editable={!pending} showSoftInputOnFocus={false} caretHidden onFocus={() => setCalculatorOpen(true)} onPressIn={() => { if (!pending) setCalculatorOpen(true); }} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={c.muted} value={amount} onChangeText={setAmount} style={{ flex: 1, color: c.text, fontSize: 48, fontWeight: '300', fontVariant: ['tabular-nums'] }} />
+          <TextInput ref={amountInput} accessibilityLabel="Amount" autoFocus editable={!pending} showSoftInputOnFocus={false} caretHidden onBlur={() => { if (calculatorOpen) dismissCalculator(); }} onFocus={() => setCalculatorOpen(true)} onPressIn={() => { if (!pending) setCalculatorOpen(true); }} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={c.muted} value={amount} onChangeText={setAmount} style={{ flex: 1, color: c.text, fontSize: 48, fontWeight: '300', fontVariant: ['tabular-nums'] }} />
         </View>
-        {calculatorOpen && <AmountCalculator initialAmount={amount} onCancel={() => setCalculatorOpen(false)} onUse={(result) => { setAmount(result); setCalculatorOpen(false); }} />}
         {!!amount && !validAmount && <Text accessibilityRole="alert" style={{ color: c.warning }}>Enter a positive amount with at most two decimal places.</Text>}
       </View>
+      <View style={{ gap: 18 }} onTouchStart={() => { if (calculatorOpen) dismissCalculator(); }}>
       <JoinedChoice value={mode} options={modes} disabled={pending} onChange={(value) => { setMode(value); setError(''); }} />
       <View style={{ gap: 10 }}>
         <Label>{`${incoming ? 'Into' : 'From'} ${account?.name ?? 'an account'}`}</Label>
@@ -188,6 +205,10 @@ function QuickAddForm({ data }: { data: EntryData }) {
       </View>
       {!!error && <Text selectable accessibilityRole="alert" style={{ color: c.warning }}>{error}</Text>}
       <FormButton label={saveLabel} loading={pending} disabled={!canSave} onPress={() => void save()} />
+      </View>
     </ScrollView>
+    {calculatorOpen && <View style={{ backgroundColor: c.surface, paddingBottom: insets.bottom }}>
+      <AmountCalculator value={amount} onChange={setAmount} onDone={dismissCalculator} />
+    </View>}
   </KeyboardAvoidingView>;
 }

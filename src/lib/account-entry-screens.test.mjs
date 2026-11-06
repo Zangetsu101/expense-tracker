@@ -12,7 +12,7 @@ const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const root = new URL('../../', import.meta.url);
 const mocks = {
-  'react-native': `export const Keyboard={dismiss() {}}; export const KeyboardAvoidingView='KeyboardAvoidingView',View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator',FlatList='FlatList'; export const useWindowDimensions=()=>({width:390,height:844}); export const Alert={alert:(...args)=>globalThis.__entryTest.alert=args};`,
+  'react-native': `export const BackHandler={addEventListener:(_,callback)=>{globalThis.__entryTest.backHandler=callback;return {remove(){globalThis.__entryTest.backHandler=undefined}}}}; export const Keyboard={dismiss() {}}; export const KeyboardAvoidingView='KeyboardAvoidingView',View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator',FlatList='FlatList'; export const useWindowDimensions=()=>({width:390,height:844}); export const Alert={alert:(...args)=>globalThis.__entryTest.alert=args};`,
   'expo-router': `import {useEffect} from 'react'; export const useFocusEffect=fn=>useEffect(fn,[fn]); export const useLocalSearchParams=()=>globalThis.__entryTest.params ?? {}; export const router={back:()=>globalThis.__entryTest.back=true}; export const Stack={Screen:()=>null};`,
   'expo-router/react-navigation': `export const useHeaderHeight=()=>88; export const useNavigation=()=>({dispatch:action=>globalThis.__entryTest.dispatched=action}); export const usePreventRemove=(enabled,callback)=>{globalThis.__entryTest.removal={enabled,callback}};`,
   'react-native-safe-area-context': `export const useSafeAreaInsets=()=>({bottom:0});`,
@@ -93,17 +93,32 @@ test('Account entry screens', async t => {
     let saved; state.save = async (...args) => { saved = args; }; await press('Save');
     assert.equal(saved[0].amountMinor, 1200); assert.equal(saved[0].accountId, 1); assert.equal(saved[0].categoryId, 3); assert.equal(saved[0].type, 'EXPENSE'); assert.equal(saved[0].note, 'Lunch'); assert.equal(saved[1], 'food'); assert.equal(state.back, true); assert.equal(state.alert, undefined);
   });
-  await t.test('Calculator applies results, starts fresh after equals, and cancels without changing the amount', async () => {
+  await t.test('Amount focus opens a docked keypad and Done resolves the calculation', async () => {
     await mount(QuickAdd); await change('Amount', '12');
-    await act(async () => nodes('TextInput').find(n => n.props.accessibilityLabel === 'Amount').props.onPressIn());
-    assert.equal(button('Save').props.disabled, true);
-    await press('+'); await press('3'); await press('='); await press('7');
-    await press('Use amount');
-    assert.equal(nodes('TextInput').find(n => n.props.accessibilityLabel === 'Amount').props.value, '7.00');
-    await act(async () => nodes('TextInput').find(n => n.props.accessibilityLabel === 'Amount').props.onPressIn()); await press('C'); await press('2'); await press('÷'); await press('0'); await press('Use amount');
-    assert.ok(button('Cancel calculator'));
-    await press('Cancel calculator');
-    assert.equal(nodes('TextInput').find(n => n.props.accessibilityLabel === 'Amount').props.value, '7.00');
+    const amountField = () => nodes('TextInput').find(n => n.props.accessibilityLabel === 'Amount');
+    const key = async label => { await act(async () => nodes('Pressable').find(n => n.props.accessibilityLabel === label).props.onPress()); };
+    await act(async () => amountField().props.onFocus());
+    assert.equal(amountField().props.showSoftInputOnFocus, false);
+    await key('Add'); await key('3'); await key('Equals'); await key('7');
+    assert.equal(amountField().props.value, '7');
+    await key('Done');
+    assert.equal(amountField().props.value, '7.00');
+    assert.equal(nodes('Pressable').some(n => n.props.accessibilityLabel === 'Done'), false);
+    await act(async () => amountField().props.onFocus());
+    await key('Clear calculation'); await key('2'); await key('Divide'); await key('0'); await key('Equals');
+    assert.ok(nodes('Text').some(n => n.children.includes('Cannot divide by zero.')));
+    await key('Backspace'); await key('2'); await key('Done');
+    assert.equal(amountField().props.value, '1.00');
+    await act(async () => amountField().props.onFocus());
+    await key('Add'); await key('2');
+    await act(async () => amountField().props.onBlur());
+    assert.equal(amountField().props.value, '3.00');
+    await act(async () => amountField().props.onFocus());
+    await key('Add'); await key('4');
+    await act(async () => assert.equal(state.backHandler(), true));
+    assert.equal(amountField().props.value, '7.00');
+    assert.equal(nodes('Pressable').some(n => n.props.accessibilityLabel === 'Done'), false);
+    assert.equal(state.backHandler, undefined);
   });
   await t.test('Home account context overrides favorite and remains editable in Quick Add', async () => {
     state.params = { accountId: '2' };

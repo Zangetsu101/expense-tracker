@@ -1,41 +1,42 @@
 import { useState } from 'react';
-import { Text, View } from 'react-native';
-import { FormButton } from '@/components/form-controls';
+import { Pressable, Text, View } from 'react-native';
 import { calculateAmount } from '@/lib/amount-calculator';
 import { theme } from '@/theme';
 
-const rows = [['C', '⌫', '÷', '×'], ['7', '8', '9', '−'], ['4', '5', '6', '+'], ['1', '2', '3', '='], ['0', '.']];
+const rows = [['C', '÷', '×', '⌫'], ['7', '8', '9', '−'], ['4', '5', '6', '+'], ['1', '2', '3', '='], ['.', '0', 'Done']];
+const labels: Record<string, string> = { C: 'Clear calculation', '⌫': 'Backspace', '÷': 'Divide', '×': 'Multiply', '−': 'Subtract', '+': 'Add', '=': 'Equals', Done: 'Done' };
+const c = theme.colors;
 
-export function AmountCalculator({ initialAmount, onUse, onCancel }: {
-  initialAmount: string; onUse: (amount: string) => void; onCancel: () => void;
+export function AmountCalculator({ value, onChange, onDone }: {
+  value: string; onChange: (amount: string) => void; onDone: () => void;
 }) {
-  const [expression, setExpression] = useState(initialAmount);
   const [error, setError] = useState('');
   const [evaluated, setEvaluated] = useState(false);
-  function evaluate(use: boolean) {
-    try {
-      const result = calculateAmount(expression);
-      if (use && Number(result) <= 0) throw new Error('Use a positive amount.');
-      setExpression(result);
-      setEvaluated(true);
-      setError('');
-      if (use) onUse(result);
-    } catch (cause) { setError((cause as Error).message); }
+  function press(key: string) {
+    setError('');
+    if (key === 'Done') { onDone(); return; }
+    if (key === '=') {
+      try { onChange(calculateAmount(value)); setEvaluated(true); }
+      catch (cause) { setError((cause as Error).message); }
+      return;
+    }
+    let next = key === 'C' ? '' : key === '⌫' ? value.slice(0, -1) : evaluated && /^[0-9.]$/.test(key) ? key : value + key;
+    if (['+', '−', '×', '÷'].includes(key) && /[+−×÷]$/.test(value)) next = value.slice(0, -1) + key;
+    onChange(next);
+    setEvaluated(false);
   }
-  return <View style={{ gap: 8 }}>
-    <Text accessibilityLabel="Calculation" selectable style={{ color: theme.colors.text, fontSize: 26, fontVariant: ['tabular-nums'], textAlign: 'right' }}>{expression || '0'}</Text>
-    {rows.map((row, index) => <View key={index} style={{ flexDirection: 'row', gap: 8 }}>
-      {row.map((key) => <FormButton key={key} label={key} accessibilityLabel={key === '⌫' ? 'Backspace' : key === 'C' ? 'Clear calculation' : key} style={{ flex: 1 }} onPress={() => {
-        if (key === '=') { evaluate(false); return; }
-        setError('');
-        setExpression((current) => key === 'C' ? '' : key === '⌫' ? current.slice(0, -1) : evaluated && /^[0-9.]$/.test(key) ? key : current + key);
-        setEvaluated(false);
-      }} />)}
+  return <View accessibilityLabel="Amount keypad" style={{ backgroundColor: c.surface, borderTopWidth: 1, borderColor: c.line, padding: 8, gap: 6 }}>
+    {!!error && <Text accessibilityRole="alert" style={{ color: c.warning, paddingHorizontal: 8 }}>{error}</Text>}
+    {rows.map((row, index) => <View key={index} style={{ flexDirection: 'row', gap: 6 }}>
+      {row.map((key) => {
+        const digit = /^[0-9.]$/.test(key);
+        return <Pressable key={key} accessibilityRole="button" accessibilityLabel={labels[key] ?? key} onPress={() => press(key)} style={({ pressed }) => ({
+          flex: key === 'Done' ? 2 : 1, minHeight: 48, alignItems: 'center', justifyContent: 'center',
+          borderRadius: 6, backgroundColor: key === 'Done' ? c.selected : digit ? c.raised : c.root, opacity: pressed ? 0.6 : 1,
+        })}>
+          <Text style={{ color: digit || key === 'Done' ? c.text : c.accent, fontSize: key === 'Done' ? 17 : 24, fontWeight: '500', fontVariant: ['tabular-nums'] }}>{key}</Text>
+        </Pressable>;
+      })}
     </View>)}
-    {!!error && <Text accessibilityRole="alert" style={{ color: theme.colors.warning }}>{error}</Text>}
-    <View style={{ flexDirection: 'row', gap: 8 }}>
-      <FormButton label="Cancel calculator" onPress={onCancel} style={{ flex: 1 }} />
-      <FormButton label="Use amount" variant="primary" onPress={() => evaluate(true)} style={{ flex: 1 }} />
-    </View>
   </View>;
 }
