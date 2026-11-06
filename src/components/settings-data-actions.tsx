@@ -189,7 +189,15 @@ export function SettingsDataActions({ onBusyChange }: { onBusyChange?: (busy: bo
   );
 }
 
-export function SettingsGroup({ title, children }: { title: string; children: ReactNode }) {
+export function SettingsGroup({
+  title,
+  children,
+  clipContent = true,
+}: {
+  title: string;
+  children: ReactNode;
+  clipContent?: boolean;
+}) {
   return (
     <View style={{ gap: spacing.sm }}>
       <Text
@@ -205,7 +213,7 @@ export function SettingsGroup({ title, children }: { title: string; children: Re
           borderCurve: 'continuous',
           borderWidth: 1,
           borderColor: colors.line,
-          overflow: 'hidden',
+          overflow: clipContent ? 'hidden' : 'visible',
         }}
       >
         {children}

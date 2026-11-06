@@ -71,7 +71,7 @@ export default function SettingsScreen() {
           <Row disabled={busy} first label="Lending & borrowing" href="/lending" />
           <Row disabled={busy} label="Review transfer candidates" href="/review-queue" />
         </SettingsGroup>
-        <SettingsGroup title="App">
+        <SettingsGroup title="App" clipContent={false}>
           <UpdatesRow />
         </SettingsGroup>
         <RunningRelease />

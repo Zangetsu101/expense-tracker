@@ -121,7 +121,7 @@ export function UpdatesRow() {
         ? theme.colors.accent
         : theme.colors.muted;
   return (
-    <View onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)}>
+    <View>
       <Pressable
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
@@ -166,24 +166,31 @@ export function UpdatesRow() {
         <Text style={{ flex: 1, color: theme.colors.text, fontSize: theme.type.body }}>
           Updates
         </Text>
-        {busy ? (
-          <ActivityIndicator color={tint} accessibilityLabel={description} />
-        ) : (
-          <SymbolView
-            name={icon}
-            size={24}
-            tintColor={tint}
-            style={{ width: 24 * fontScale, height: 24 * fontScale }}
-          />
-        )}
+        <View onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)}>
+          {busy ? (
+            <ActivityIndicator color={tint} accessibilityLabel={description} />
+          ) : (
+            <SymbolView
+              name={icon}
+              size={24}
+              tintColor={tint}
+              style={{ width: 24 * fontScale, height: 24 * fontScale }}
+            />
+          )}
+        </View>
       </Pressable>
       {(hovered || focused || longPressed) && (
         <View
           pointerEvents="none"
           style={{
-            alignSelf: 'flex-end',
-            marginHorizontal: theme.spacing.lg,
+            position: 'absolute',
+            bottom: '100%',
+            right: theme.spacing.lg,
+            maxWidth: '90%',
             marginBottom: theme.spacing.sm,
+            zIndex: 1,
+            borderWidth: 1,
+            borderColor: theme.colors.line,
             padding: theme.spacing.sm,
             borderRadius: theme.radius.elbow,
             backgroundColor: theme.colors.raised,
