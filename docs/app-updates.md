@@ -10,6 +10,12 @@ This change uses existing native modules only and is suitable for an OTA to a co
 
 Reference: https://docs.expo.dev/versions/v57.0.0/sdk/updates/
 
+## Decision: Settings visit feedback (2026-11-06)
+
+Each visit to Settings starts the Updates row with the default check icon instead of the previous visit's success or failure. This is presentation state only: the shared controller, automatic-check cooldown, and downloaded update remain intact. In-progress checks/downloads/restarts and a downloaded update waiting for restart still show their live state. A manual check shows its result for the current visit; old error alerts are not replayed on re-entry.
+
+Hovering the row, focusing it with the keyboard, or holding it on touch reveals a small status tooltip below the row, inside the existing grouped surface. It explains the current icon or spinner, including download percentage when available. Hover/focus/hold never starts a check or restart. Leaving and revisiting Settings clears the tooltip. Restart still requires explicit confirmation.
+
 ## Decision: running release identity (2026-11-05)
 
 Settings ends with a tappable version/release line, separate from the unchanged compact Updates row. The details use the session's `expo-updates` constants (`updateId`, `createdAt`, `runtimeVersion`, `channel`, `isEmbeddedLaunch`, and emergency-launch diagnostics), never the downloaded/pending update from `useUpdates()`. Embedded launches, including emergency fallback, therefore describe the embedded JavaScript actually running. Development/Expo Go, web and disabled updates have explicit labels. Unknown commit metadata stays unknown; unstamped OTA launches use the running update ID as a fallback. Version comes from SDK 57 `Constants.expoConfig.version`, which describes the running manifest, rather than assuming the installed native binary version identifies its JavaScript.

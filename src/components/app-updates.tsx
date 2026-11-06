@@ -1,12 +1,14 @@
 import {
   createContext,
+  useCallback,
   use,
   useEffect,
   useState,
   useSyncExternalStore,
   type ReactNode,
 } from 'react';
-import { ActivityIndicator, Alert, AppState, Pressable, Text } from 'react-native';
+import { ActivityIndicator, Alert, AppState, Pressable, Text, View } from 'react-native';
+import { useFocusEffect } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import Constants from 'expo-constants';
 import * as Updates from 'expo-updates';
@@ -61,7 +63,23 @@ export function useAppUpdates() {
   };
 }
 export function UpdatesRow() {
-  const { status, progress, error, check, restart } = useAppUpdates();
+  const { status: updateStatus, progress, error, check, restart } = useAppUpdates();
+  const [checkedThisVisit, setCheckedThisVisit] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const [longPressed, setLongPressed] = useState(false);
+  useFocusEffect(
+    useCallback(() => {
+      setCheckedThisVisit(false);
+      setHovered(false);
+      setFocused(false);
+      setLongPressed(false);
+    }, []),
+  );
+  const status =
+    !checkedThisVisit && (updateStatus === 'current' || updateStatus === 'error')
+      ? 'idle'
+      : updateStatus;
   const busy = ['checking', 'downloading', 'restarting'].includes(status);
   const description = {
     unsupported: 'Updates are available in an installed release build.',
@@ -77,8 +95,8 @@ export function UpdatesRow() {
     error: 'Update failed. Tap to retry',
   }[status];
   useEffect(() => {
-    if (error) Alert.alert('Update failed', error);
-  }, [error]);
+    if (checkedThisVisit && error) Alert.alert('Update failed', error);
+  }, [checkedThisVisit, error]);
   const icon =
     status === 'ready'
       ? ({ ios: 'arrow.clockwise.circle.fill', android: 'restart_alt' } as const)
@@ -94,45 +112,77 @@ export function UpdatesRow() {
         ? theme.colors.accent
         : theme.colors.muted;
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel="Updates"
-      accessibilityValue={{ text: description }}
-      accessibilityState={{ disabled: busy, busy }}
-      disabled={busy}
-      onPress={() => {
-        if (status === 'unsupported') Alert.alert('Updates', description);
-        else if (status === 'ready')
-          Alert.alert(
-            'Restart to update?',
-            'Unsaved entries will be lost. Restart only after saving your work.',
-            [
-              { text: 'Cancel', style: 'cancel' },
-              {
-                text: 'Restart to update',
-                onPress: () => {
-                  void restart();
+    <View onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)}>
+      <Pressable
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        onLongPress={() => setLongPressed(true)}
+        onPressOut={() => setLongPressed(false)}
+        accessibilityRole="button"
+        accessibilityLabel="Updates"
+        accessibilityValue={{ text: description }}
+        accessibilityState={{ disabled: busy, busy }}
+        disabled={busy}
+        onPress={() => {
+          if (status === 'unsupported') Alert.alert('Updates', description);
+          else if (status === 'ready')
+            Alert.alert(
+              'Restart to update?',
+              'Unsaved entries will be lost. Restart only after saving your work.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Restart to update',
+                  onPress: () => {
+                    setCheckedThisVisit(true);
+                    void restart();
+                  },
                 },
-              },
-            ],
-          );
-        else void check();
-      }}
-      style={({ pressed }) => ({
-        flexDirection: 'row',
-        alignItems: 'center',
-        minHeight: theme.controlHeight,
-        paddingHorizontal: theme.spacing.lg,
-        paddingVertical: theme.spacing.xs,
-        opacity: pressed ? 0.6 : 1,
-      })}
-    >
-      <Text style={{ flex: 1, color: theme.colors.text, fontSize: theme.type.body }}>Updates</Text>
-      {busy ? (
-        <ActivityIndicator color={tint} accessibilityLabel={description} />
-      ) : (
-        <SymbolView name={icon} size={24} tintColor={tint} />
+              ],
+            );
+          else {
+            setCheckedThisVisit(true);
+            void check();
+          }
+        }}
+        style={({ pressed }) => ({
+          flexDirection: 'row',
+          alignItems: 'center',
+          minHeight: theme.controlHeight,
+          paddingHorizontal: theme.spacing.lg,
+          paddingVertical: theme.spacing.xs,
+          opacity: pressed ? 0.6 : 1,
+        })}
+      >
+        <Text style={{ flex: 1, color: theme.colors.text, fontSize: theme.type.body }}>
+          Updates
+        </Text>
+        {busy ? (
+          <ActivityIndicator color={tint} accessibilityLabel={description} />
+        ) : (
+          <SymbolView name={icon} size={24} tintColor={tint} />
+        )}
+      </Pressable>
+      {(hovered || focused || longPressed) && (
+        <View
+          pointerEvents="none"
+          style={{
+            alignSelf: 'flex-end',
+            marginHorizontal: theme.spacing.lg,
+            marginBottom: theme.spacing.sm,
+            padding: theme.spacing.sm,
+            borderRadius: theme.radius.elbow,
+            backgroundColor: theme.colors.raised,
+          }}
+        >
+          <Text
+            accessibilityLiveRegion="polite"
+            style={{ color: theme.colors.text, fontSize: theme.type.caption }}
+          >
+            {description}
+          </Text>
+        </View>
       )}
-    </Pressable>
+    </View>
   );
 }
