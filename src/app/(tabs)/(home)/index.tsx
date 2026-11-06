@@ -63,9 +63,9 @@ export default function HomeScreen() {
         {(index === 0 || rows[index - 1].date !== item.date) && <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, paddingTop: 16, paddingBottom: 4 }}>
           <Text style={{ color: colors.muted, fontWeight: '700' }}>{formatActivityDay(item.date)}</Text>
           <View style={{ flexShrink: 1, gap: 4 }}>
-            {dailySummaries.filter((summary) => summary.date === item.date).map((summary) => <View key={summary.currencyCode} style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 12 }}>
-              <Text selectable style={{ color: colors.muted, fontSize: 12, fontVariant: ['tabular-nums'] }}>Spent {amount('TRANSFER', summary.expenseMinor, summary.currencyCode)}</Text>
-              <Text selectable style={{ color: colors.accent, fontSize: 12, fontVariant: ['tabular-nums'] }}>Earned {amount('TRANSFER', summary.incomeMinor, summary.currencyCode)}</Text>
+            {dailySummaries.filter((summary) => summary.date === item.date && (summary.expenseMinor !== 0 || summary.incomeMinor !== 0)).map((summary) => <View key={summary.currencyCode} style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 12 }}>
+              {summary.expenseMinor !== 0 && <Text selectable style={{ color: colors.muted, fontSize: 12, fontVariant: ['tabular-nums'] }}>Spent {amount('TRANSFER', summary.expenseMinor, summary.currencyCode)}</Text>}
+              {summary.incomeMinor !== 0 && <Text selectable style={{ color: colors.accent, fontSize: 12, fontVariant: ['tabular-nums'] }}>Earned {amount('TRANSFER', summary.incomeMinor, summary.currencyCode)}</Text>}
             </View>)}
           </View>
         </View>}
