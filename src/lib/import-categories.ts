@@ -32,7 +32,9 @@ function curatedParent(name: string, type: ImportCategoryType): string | null {
   return null;
 }
 
-export function planImportCategories(rows: readonly CategorySignRow[]): { categories: PlannedCategory[] } {
+export function planImportCategories(rows: readonly CategorySignRow[]): {
+  categories: PlannedCategory[];
+} {
   const counts = new Map<string, { expense: number; income: number }>();
   for (const { category, amount } of rows) {
     const name = category.trim();
@@ -50,15 +52,30 @@ export function planImportCategories(rows: readonly CategorySignRow[]): { catego
     const type = needsConfirmation ? null : expense > 0 ? 'EXPENSE' : 'INCOME';
     const candidate = type ? curatedParent(name, type) : null;
     const parentCount = candidate ? counts.get(candidate) : undefined;
-    const parent = parentCount && (parentCount.income > 0 || parentCount.expense === 0) ? null : candidate;
+    const parent =
+      parentCount && (parentCount.income > 0 || parentCount.expense === 0) ? null : candidate;
     if (parent && !parents.has(parent)) {
       const parentCount = counts.get(parent);
       if (!parentCount) {
-        categories.push({ name: parent, type: 'EXPENSE', needsConfirmation: false, expenseCount: 0, incomeCount: 0, parent: null });
+        categories.push({
+          name: parent,
+          type: 'EXPENSE',
+          needsConfirmation: false,
+          expenseCount: 0,
+          incomeCount: 0,
+          parent: null,
+        });
       }
       parents.add(parent);
     }
-    categories.push({ name, type, needsConfirmation, expenseCount: expense, incomeCount: income, parent });
+    categories.push({
+      name,
+      type,
+      needsConfirmation,
+      expenseCount: expense,
+      incomeCount: income,
+      parent,
+    });
   }
   return { categories };
 }

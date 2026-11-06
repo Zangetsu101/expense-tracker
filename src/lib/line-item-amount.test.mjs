@@ -7,5 +7,6 @@ test('Line Item amounts preserve signed, zero and safe-integer minor units', () 
     assert.equal(parseLineItemAmount(formatLineItemAmount(amount)), amount);
   }
   assert.equal(parseLineItemAmount('+0.01'), 1);
-  for (const invalid of ['1.234', 'NaN', '', '90071992547410']) assert.throws(() => parseLineItemAmount(invalid));
+  for (const invalid of ['1.234', 'NaN', '', '90071992547410'])
+    assert.throws(() => parseLineItemAmount(invalid));
 });

@@ -23,12 +23,12 @@ See [Expo's debugging guide](https://docs.expo.dev/eas-update/debug/) if an upda
 
 One-time setup: add these repository secrets in [Actions secrets](https://github.com/Zangetsu101/expense-tracker/settings/secrets/actions):
 
-| Secret | Value |
-| --- | --- |
+| Secret                    | Value                                                                                                         |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | `ANDROID_KEYSTORE_BASE64` | Base64 encoding of the existing release keystore file (for example, `base64 -w 0 release.keystore` on Linux). |
-| `ANDROID_STORE_PASSWORD` | Keystore password. |
-| `ANDROID_KEY_ALIAS` | Existing key alias: `expense-tracker`. |
-| `ANDROID_KEY_PASSWORD` | Key password; the current local setup uses the same value as the store password. |
+| `ANDROID_STORE_PASSWORD`  | Keystore password.                                                                                            |
+| `ANDROID_KEY_ALIAS`       | Existing key alias: `expense-tracker`.                                                                        |
+| `ANDROID_KEY_PASSWORD`    | Key password; the current local setup uses the same value as the store password.                              |
 
 Reuse the existing signing key so installed apps can upgrade without uninstalling. Do not commit signing credentials. No Expo token is required for the APK build.
 

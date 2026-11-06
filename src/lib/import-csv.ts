@@ -7,8 +7,13 @@ import { classifyTransferPairs } from '@/lib/transfer-matching';
 import { planImportCategories } from '@/lib/import-categories';
 
 /** Confirmation means the user accepts separate Expense and Income categories for these names. */
-export async function importMoneyLoverFile(confirmMixedCategories?: (names: string[]) => Promise<boolean>): Promise<number | null> {
-  const selected = await DocumentPicker.getDocumentAsync({ type: ['text/csv', 'text/comma-separated-values', '*/*'], copyToCacheDirectory: false });
+export async function importMoneyLoverFile(
+  confirmMixedCategories?: (names: string[]) => Promise<boolean>,
+): Promise<number | null> {
+  const selected = await DocumentPicker.getDocumentAsync({
+    type: ['text/csv', 'text/comma-separated-values', '*/*'],
+    copyToCacheDirectory: false,
+  });
   if (selected.canceled) return null;
   const rows = parseMoneyLoverCsv(await new File(selected.assets[0].uri).text());
   if (!rows.length) throw new Error('No valid MoneyLover rows found.');
@@ -18,11 +23,23 @@ export async function importMoneyLoverFile(confirmMixedCategories?: (names: stri
   const matches = classifyTransferPairs(rows.filter((row) => !isLendingPrincipal(row)));
   for (const row of rows) {
     const currency = row.currency.trim().toUpperCase();
-    if (!row.account || !currency || !row.category || !Number.isSafeInteger(row.amountMinor) || row.amountMinor === 0) throw new Error('CSV contains an unsupported account, category, or amount.');
+    if (
+      !row.account ||
+      !currency ||
+      !row.category ||
+      !Number.isSafeInteger(row.amountMinor) ||
+      row.amountMinor === 0
+    )
+      throw new Error('CSV contains an unsupported account, category, or amount.');
   }
   const db = await database();
-  const alreadyImported = new Map((await db.getAllAsync<{ rowKey: string; transactionId: number }>(
-    'SELECT rowKey, transactionId FROM moneylover_import_rows')).map((row) => [row.rowKey, row.transactionId]));
+  const alreadyImported = new Map(
+    (
+      await db.getAllAsync<{ rowKey: string; transactionId: number }>(
+        'SELECT rowKey, transactionId FROM moneylover_import_rows',
+      )
+    ).map((row) => [row.rowKey, row.transactionId]),
+  );
   const categoryRows = [...matches.singleSided, ...principalRows];
   for (const pair of matches.highConfidence) {
     const outgoingId = alreadyImported.get(keys[indices.get(pair.outgoing)!]);
@@ -30,8 +47,15 @@ export async function importMoneyLoverFile(confirmMixedCategories?: (names: stri
     if (outgoingId || incomingId) categoryRows.push(pair.outgoing, pair.incoming);
   }
   const plan = planImportCategories(categoryRows);
-  const mixed = plan.categories.filter((category) => category.needsConfirmation &&
-    categoryRows.some((row) => row.category.trim() === category.name && !alreadyImported.has(keys[indices.get(row)!])))
+  const mixed = plan.categories
+    .filter(
+      (category) =>
+        category.needsConfirmation &&
+        categoryRows.some(
+          (row) =>
+            row.category.trim() === category.name && !alreadyImported.has(keys[indices.get(row)!]),
+        ),
+    )
     .map((category) => category.name);
   if (mixed.length && (!confirmMixedCategories || !(await confirmMixedCategories(mixed)))) {
     throw new Error(`Mixed Categories require confirmation before import: ${mixed.join(', ')}.`);
@@ -39,17 +63,23 @@ export async function importMoneyLoverFile(confirmMixedCategories?: (names: stri
 
   let inserted = 0;
   await db.withExclusiveTransactionAsync(async (tx) => {
-    const legacy = await tx.getAllAsync<LegacyImportRow>(`SELECT t.date, a.name AS account, a.currencyCode AS currency, c.name AS category,
+    const legacy =
+      await tx.getAllAsync<LegacyImportRow>(`SELECT t.date, a.name AS account, a.currencyCode AS currency, c.name AS category,
       t.amountMinor, t.type, t.note, t.excludeFromReport FROM transactions t
       JOIN accounts a ON a.id = t.accountId LEFT JOIN categories c ON c.id = t.categoryId
       WHERE t.type IN ('EXPENSE', 'INCOME') AND NOT EXISTS
       (SELECT 1 FROM moneylover_import_rows r WHERE r.transactionId = t.id)`);
     if (hasAmbiguousLegacyImport(rows, legacy)) {
-      throw new Error('CSV overlaps existing Transactions without row identities. Import stopped to avoid duplicates; review the existing data before retrying.');
+      throw new Error(
+        'CSV overlaps existing Transactions without row identities. Import stopped to avoid duplicates; review the existing data before retrying.',
+      );
     }
     const existing = new Map<string, number>();
     for (const key of keys) {
-      const found = await tx.getFirstAsync<{ transactionId: number }>('SELECT transactionId FROM moneylover_import_rows WHERE rowKey = ?', [key]);
+      const found = await tx.getFirstAsync<{ transactionId: number }>(
+        'SELECT transactionId FROM moneylover_import_rows WHERE rowKey = ?',
+        [key],
+      );
       if (found) existing.set(key, found.transactionId);
     }
     const id = (row: MoneyLoverRow) => indices.get(row)!;
@@ -62,13 +92,33 @@ export async function importMoneyLoverFile(confirmMixedCategories?: (names: stri
       const oldInc = existing.get(keys[inc]);
       if (oldOut || oldInc) {
         const oldId = oldOut ?? oldInc!;
-        const stored = await tx.getFirstAsync<{ type: string; amountMinor: number; date: number; sourceName: string; destinationName: string; currency: string }>(`SELECT t.type, t.amountMinor, t.date, a.name AS sourceName, b.name AS destinationName, a.currencyCode AS currency
-          FROM transactions t JOIN accounts a ON a.id = t.accountId LEFT JOIN accounts b ON b.id = t.transferAccountId WHERE t.id = ?`, [oldId]);
-        if (stored?.type === 'TRANSFER' && stored.amountMinor === Math.abs(pair.outgoing.amountMinor) && stored.date === day(pair.outgoing) &&
-            stored.sourceName.toLowerCase() === pair.outgoing.account.toLowerCase() && stored.destinationName?.toLowerCase() === pair.incoming.account.toLowerCase() &&
-            stored.currency === pair.outgoing.currency.trim().toUpperCase() && (!oldOut || !oldInc || oldOut === oldInc)) {
+        const stored = await tx.getFirstAsync<{
+          type: string;
+          amountMinor: number;
+          date: number;
+          sourceName: string;
+          destinationName: string;
+          currency: string;
+        }>(
+          `SELECT t.type, t.amountMinor, t.date, a.name AS sourceName, b.name AS destinationName, a.currencyCode AS currency
+          FROM transactions t JOIN accounts a ON a.id = t.accountId LEFT JOIN accounts b ON b.id = t.transferAccountId WHERE t.id = ?`,
+          [oldId],
+        );
+        if (
+          stored?.type === 'TRANSFER' &&
+          stored.amountMinor === Math.abs(pair.outgoing.amountMinor) &&
+          stored.date === day(pair.outgoing) &&
+          stored.sourceName.toLowerCase() === pair.outgoing.account.toLowerCase() &&
+          stored.destinationName?.toLowerCase() === pair.incoming.account.toLowerCase() &&
+          stored.currency === pair.outgoing.currency.trim().toUpperCase() &&
+          (!oldOut || !oldInc || oldOut === oldInc)
+        ) {
           for (const index of [out, inc]) {
-            if (!existing.has(keys[index])) await tx.runAsync('INSERT INTO moneylover_import_rows (rowKey, transactionId) VALUES (?, ?)', [keys[index], oldId]);
+            if (!existing.has(keys[index]))
+              await tx.runAsync(
+                'INSERT INTO moneylover_import_rows (rowKey, transactionId) VALUES (?, ?)',
+                [keys[index], oldId],
+              );
             merged.add(index);
           }
         } else {
@@ -78,12 +128,23 @@ export async function importMoneyLoverFile(confirmMixedCategories?: (names: stri
       }
       const source = await accountId(pair.outgoing);
       const destination = await accountId(pair.incoming);
-      const transaction = await tx.runAsync(`INSERT INTO transactions (type, amountMinor, date, accountId, transferAccountId, categoryId, note, excludeFromReport, source)
+      const transaction = await tx.runAsync(
+        `INSERT INTO transactions (type, amountMinor, date, accountId, transferAccountId, categoryId, note, excludeFromReport, source)
         VALUES ('TRANSFER', ?, ?, ?, ?, NULL, ?, ?, 'IMPORT')`,
-        [Math.abs(pair.outgoing.amountMinor), day(pair.outgoing), source, destination,
-          pair.outgoing.note || pair.incoming.note || null, Number(pair.outgoing.excludeFromReport || pair.incoming.excludeFromReport)]);
+        [
+          Math.abs(pair.outgoing.amountMinor),
+          day(pair.outgoing),
+          source,
+          destination,
+          pair.outgoing.note || pair.incoming.note || null,
+          Number(pair.outgoing.excludeFromReport || pair.incoming.excludeFromReport),
+        ],
+      );
       for (const index of [out, inc]) {
-        await tx.runAsync('INSERT INTO moneylover_import_rows (rowKey, transactionId) VALUES (?, ?)', [keys[index], transaction.lastInsertRowId]);
+        await tx.runAsync(
+          'INSERT INTO moneylover_import_rows (rowKey, transactionId) VALUES (?, ?)',
+          [keys[index], transaction.lastInsertRowId],
+        );
         merged.add(index);
       }
       inserted++;
@@ -95,19 +156,34 @@ export async function importMoneyLoverFile(confirmMixedCategories?: (names: stri
       const existingId = existing.get(keys[index]);
       if (existingId) {
         if (excludePrincipal) {
-          await tx.runAsync(`UPDATE transactions SET excludeFromReport = 1
+          await tx.runAsync(
+            `UPDATE transactions SET excludeFromReport = 1
             WHERE id = ? AND source = 'IMPORT' AND type = ? AND categoryId IN
             (SELECT id FROM categories WHERE name = ? COLLATE NOCASE AND type = ?)`,
-            [existingId, type, row.category, type]);
+            [existingId, type, row.category, type],
+          );
         }
         continue;
       }
       const account = await accountId(row);
       const category = await categoryId(row.category, type);
-      const transaction = await tx.runAsync(`INSERT INTO transactions (type, amountMinor, date, accountId, categoryId, note, excludeFromReport, source)
+      const transaction = await tx.runAsync(
+        `INSERT INTO transactions (type, amountMinor, date, accountId, categoryId, note, excludeFromReport, source)
         VALUES (?, ?, ?, ?, ?, ?, ?, 'IMPORT')`,
-        [type, Math.abs(row.amountMinor), day(row), account, category, row.note || null, Number(excludePrincipal || row.excludeFromReport)]);
-      await tx.runAsync('INSERT INTO moneylover_import_rows (rowKey, transactionId) VALUES (?, ?)', [keys[index], transaction.lastInsertRowId]);
+        [
+          type,
+          Math.abs(row.amountMinor),
+          day(row),
+          account,
+          category,
+          row.note || null,
+          Number(excludePrincipal || row.excludeFromReport),
+        ],
+      );
+      await tx.runAsync(
+        'INSERT INTO moneylover_import_rows (rowKey, transactionId) VALUES (?, ?)',
+        [keys[index], transaction.lastInsertRowId],
+      );
       existing.set(keys[index], transaction.lastInsertRowId);
       inserted++;
     }
@@ -116,36 +192,79 @@ export async function importMoneyLoverFile(confirmMixedCategories?: (names: stri
       const outgoing = existing.get(keys[id(pair.outgoing)]);
       const incoming = existing.get(keys[id(pair.incoming)]);
       if (!outgoing || !incoming || outgoing === incoming) continue;
-      const eligible = await tx.getFirstAsync(`SELECT 1 FROM transactions o JOIN transactions i ON i.id = ?
-        WHERE o.id = ? AND o.type = 'EXPENSE' AND i.type = 'INCOME'`, [incoming, outgoing]);
+      const eligible = await tx.getFirstAsync(
+        `SELECT 1 FROM transactions o JOIN transactions i ON i.id = ?
+        WHERE o.id = ? AND o.type = 'EXPENSE' AND i.type = 'INCOME'`,
+        [incoming, outgoing],
+      );
       if (!eligible) continue;
       const edge = `${outgoing}:${incoming}`;
       if (candidateEdges.has(edge)) continue;
       candidateEdges.add(edge);
-      const found = await tx.getFirstAsync('SELECT 1 FROM transfer_candidates WHERE outgoingTxnId = ? AND incomingTxnId = ?', [outgoing, incoming]);
-      if (!found) await tx.runAsync('INSERT INTO transfer_candidates (outgoingTxnId, incomingTxnId, confidenceNote) VALUES (?, ?, ?)',
-        [outgoing, incoming, 'Same date, amount and currency on different accounts; needs review.']);
+      const found = await tx.getFirstAsync(
+        'SELECT 1 FROM transfer_candidates WHERE outgoingTxnId = ? AND incomingTxnId = ?',
+        [outgoing, incoming],
+      );
+      if (!found)
+        await tx.runAsync(
+          'INSERT INTO transfer_candidates (outgoingTxnId, incomingTxnId, confidenceNote) VALUES (?, ?, ?)',
+          [
+            outgoing,
+            incoming,
+            'Same date, amount and currency on different accounts; needs review.',
+          ],
+        );
     }
 
     async function accountId(row: MoneyLoverRow): Promise<number> {
       const currency = row.currency.trim().toUpperCase();
-      const account = await tx.getFirstAsync<{ id: number; currencyCode: string }>('SELECT id, currencyCode FROM accounts WHERE name = ? COLLATE NOCASE', [row.account]);
+      const account = await tx.getFirstAsync<{ id: number; currencyCode: string }>(
+        'SELECT id, currencyCode FROM accounts WHERE name = ? COLLATE NOCASE',
+        [row.account],
+      );
       if (account) {
-        if (account.currencyCode !== currency) throw new Error(`Account ${row.account} uses a different currency.`);
+        if (account.currencyCode !== currency)
+          throw new Error(`Account ${row.account} uses a different currency.`);
         return account.id;
       }
-      return (await tx.runAsync('INSERT INTO accounts (name, currencyCode) VALUES (?, ?)', [row.account, currency])).lastInsertRowId;
+      return (
+        await tx.runAsync('INSERT INTO accounts (name, currencyCode) VALUES (?, ?)', [
+          row.account,
+          currency,
+        ])
+      ).lastInsertRowId;
     }
     async function categoryId(name: string, type: 'EXPENSE' | 'INCOME'): Promise<number> {
-      const found = await tx.getFirstAsync<{ id: number }>('SELECT id FROM categories WHERE name = ? COLLATE NOCASE AND type = ?', [name, type]);
+      const found = await tx.getFirstAsync<{ id: number }>(
+        'SELECT id FROM categories WHERE name = ? COLLATE NOCASE AND type = ?',
+        [name, type],
+      );
       if (found) return found.id;
-      const parentName = plan.categories.find((category) => category.name === name && category.type === type)?.parent;
+      const parentName = plan.categories.find(
+        (category) => category.name === name && category.type === type,
+      )?.parent;
       let parentId: number | null = null;
       if (parentName) {
-        const parent = await tx.getFirstAsync<{ id: number }>('SELECT id FROM categories WHERE name = ? COLLATE NOCASE AND type = ?', [parentName, type]);
-        parentId = parent?.id ?? (await tx.runAsync('INSERT INTO categories (name, type) VALUES (?, ?)', [parentName, type])).lastInsertRowId;
+        const parent = await tx.getFirstAsync<{ id: number }>(
+          'SELECT id FROM categories WHERE name = ? COLLATE NOCASE AND type = ?',
+          [parentName, type],
+        );
+        parentId =
+          parent?.id ??
+          (
+            await tx.runAsync('INSERT INTO categories (name, type) VALUES (?, ?)', [
+              parentName,
+              type,
+            ])
+          ).lastInsertRowId;
       }
-      return (await tx.runAsync('INSERT INTO categories (name, type, parentId) VALUES (?, ?, ?)', [name, type, parentId])).lastInsertRowId;
+      return (
+        await tx.runAsync('INSERT INTO categories (name, type, parentId) VALUES (?, ?, ?)', [
+          name,
+          type,
+          parentId,
+        ])
+      ).lastInsertRowId;
     }
   });
   return inserted;
@@ -153,8 +272,10 @@ export async function importMoneyLoverFile(confirmMixedCategories?: (names: stri
 
 function isLendingPrincipal(row: MoneyLoverRow): boolean {
   const category = row.category.trim().toLowerCase();
-  return ((category === 'loan' || category === 'repayment') && row.amountMinor < 0) ||
-    ((category === 'debt collection' || category === 'debt') && row.amountMinor > 0);
+  return (
+    ((category === 'loan' || category === 'repayment') && row.amountMinor < 0) ||
+    ((category === 'debt collection' || category === 'debt') && row.amountMinor > 0)
+  );
 }
 
 function day(row: MoneyLoverRow): number {

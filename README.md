@@ -50,9 +50,17 @@ pnpm test:backup
 # ESLint, with warnings treated as failures
 pnpm lint
 
+# Prettier formatting
+pnpm format:check
+
 # All of the above
 pnpm check
 ```
+
+Use `pnpm lint:fix` to apply ESLint fixes and `pnpm format` to format files. Prettier
+uses single quotes and a 100-character print width, and skips generated files,
+vendored skills, and Git-ignored files. GitHub Actions runs `pnpm check` on pull
+requests and pushes to `main`; APK and OTA release workflows run it before publishing too.
 
 ## Android APK releases
 

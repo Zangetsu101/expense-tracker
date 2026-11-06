@@ -74,9 +74,13 @@ export default function PersonScreen() {
                     style={{ padding: 16, backgroundColor: c.surface, borderRadius: 16, gap: 8 }}
                   >
                     <Text style={{ color: c.muted }}>
-                      {total.direction === 'LENT' ? 'They owe you' : 'You owe them'} · {total.currencyCode}
+                      {total.direction === 'LENT' ? 'They owe you' : 'You owe them'} ·{' '}
+                      {total.currencyCode}
                     </Text>
-                    <Text selectable style={{ color: c.text, fontSize: 24, fontVariant: ['tabular-nums'] }}>
+                    <Text
+                      selectable
+                      style={{ color: c.text, fontSize: 24, fontVariant: ['tabular-nums'] }}
+                    >
                       {(total.outstandingMinor / 100).toFixed(2)}
                     </Text>
                     <Text selectable style={{ color: c.accent }}>
@@ -93,7 +97,8 @@ export default function PersonScreen() {
         renderItem={({ item }) => (
           <View style={{ backgroundColor: c.surface, padding: 16, borderRadius: 16, gap: 8 }}>
             <Text selectable style={{ color: c.text }}>
-              {item.kind.replaceAll('_', ' ')} · {(item.amountMinor / 100).toFixed(2)} {item.currencyCode}
+              {item.kind.replaceAll('_', ' ')} · {(item.amountMinor / 100).toFixed(2)}{' '}
+              {item.currencyCode}
             </Text>
             <Text selectable style={{ color: c.muted }}>
               {formatEpochDay(item.date)} · {item.accountName ?? 'No Account movement'}
@@ -106,7 +111,9 @@ export default function PersonScreen() {
             <FormButton
               label="Edit entry"
               variant="secondary"
-              onPress={() => router.push({ pathname: '/lending/entry', params: { id: item.id, personId } })}
+              onPress={() =>
+                router.push({ pathname: '/lending/entry', params: { id: item.id, personId } })
+              }
             />
           </View>
         )}

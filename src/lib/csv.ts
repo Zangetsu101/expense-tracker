@@ -83,16 +83,18 @@ export function parseMoneyLoverCsv(text: string): MoneyLoverRow[] {
     if (!amountText || !Number.isFinite(amount) || date === null) return [];
     const amountMinor = parseMinorUnits(amountText);
     if (amountMinor === null) throw new Error(`CSV contains an unsupported amount: ${amountText}.`);
-    return [{
-      sourceId: columns[0].trim(),
-      note: columns[1].trim(),
-      amount,
-      amountMinor,
-      category: columns[3].trim(),
-      account: columns[4].trim(),
-      currency: columns[5].trim(),
-      date,
-      excludeFromReport: columns[8].trim().toLowerCase() === 'true',
-    }];
+    return [
+      {
+        sourceId: columns[0].trim(),
+        note: columns[1].trim(),
+        amount,
+        amountMinor,
+        category: columns[3].trim(),
+        account: columns[4].trim(),
+        currency: columns[5].trim(),
+        date,
+        excludeFromReport: columns[8].trim().toLowerCase() === 'true',
+      },
+    ];
   });
 }

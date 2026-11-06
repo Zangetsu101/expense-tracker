@@ -61,7 +61,8 @@ export default function LendingScreen() {
         ListHeaderComponent={
           <View style={{ gap: 16 }}>
             <Text style={{ color: c.muted }}>
-              People are shared across lending and borrowing. Balances stay separate by direction and currency.
+              People are shared across lending and borrowing. Balances stay separate by direction
+              and currency.
             </Text>
             <FormButton label="Add money movement" onPress={() => router.push('/lending/entry')} />
             <FormInput

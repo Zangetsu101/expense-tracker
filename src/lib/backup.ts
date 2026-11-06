@@ -4,22 +4,92 @@ export const BACKUP_SCHEMA_VERSION = 1;
 
 export interface BackupData {
   schemaVersion: number;
-  accounts: { id: number; name: string; currencyCode: string; openingBalanceMinor: number; isFavorite: boolean }[];
-  categories: { id: number; name: string; type: string; parentId: number | null; iconKey: string | null; needsReview: boolean }[];
-  transactions: { id: number; type: string; amountMinor: number; dateEpochDay: number; accountId: number; transferAccountId: number | null; categoryId: number | null; note: string | null; excludeFromReport: boolean; source: string }[];
-  lineItems: { id: number; transactionId: number; name: string; amountMinor: number; quantity: number | null }[];
+  accounts: {
+    id: number;
+    name: string;
+    currencyCode: string;
+    openingBalanceMinor: number;
+    isFavorite: boolean;
+  }[];
+  categories: {
+    id: number;
+    name: string;
+    type: string;
+    parentId: number | null;
+    iconKey: string | null;
+    needsReview: boolean;
+  }[];
+  transactions: {
+    id: number;
+    type: string;
+    amountMinor: number;
+    dateEpochDay: number;
+    accountId: number;
+    transferAccountId: number | null;
+    categoryId: number | null;
+    note: string | null;
+    excludeFromReport: boolean;
+    source: string;
+  }[];
+  lineItems: {
+    id: number;
+    transactionId: number;
+    name: string;
+    amountMinor: number;
+    quantity: number | null;
+  }[];
   tags: { id: number; name: string }[];
   transactionTags: { transactionId: number; tagId: number }[];
-  transferCandidates: { id: number; outgoingTxnId: number; incomingTxnId: number; confidenceNote: string; resolved: boolean }[];
-  settings: { favoriteAccountId: number | null; displayRate: { base: string; quote: string; rate: number } | null };
+  transferCandidates: {
+    id: number;
+    outgoingTxnId: number;
+    incomingTxnId: number;
+    confidenceNote: string;
+    resolved: boolean;
+  }[];
+  settings: {
+    favoriteAccountId: number | null;
+    displayRate: { base: string; quote: string; rate: number } | null;
+  };
   /** Expo extension to native v1; absent from backups written by the native app. */
   moneyLoverImportRows?: { rowKey: string; transactionId: number }[];
   people?: { id: number; name: string }[];
-  lendingEntries?: { id: number; personId: number; kind: string; transactionId: number | null; currencyCode: string; amountMinor: number; dateEpochDay: number; note: string | null }[];
+  lendingEntries?: {
+    id: number;
+    personId: number;
+    kind: string;
+    transactionId: number | null;
+    currencyCode: string;
+    amountMinor: number;
+    dateEpochDay: number;
+    note: string | null;
+  }[];
 }
 
-const arrays = ['accounts', 'categories', 'transactions', 'lineItems', 'tags', 'transactionTags', 'transferCandidates'] as const;
-const longFields = ['id', 'openingBalanceMinor', 'parentId', 'amountMinor', 'dateEpochDay', 'accountId', 'transferAccountId', 'categoryId', 'transactionId', 'tagId', 'outgoingTxnId', 'incomingTxnId', 'favoriteAccountId'] as const;
+const arrays = [
+  'accounts',
+  'categories',
+  'transactions',
+  'lineItems',
+  'tags',
+  'transactionTags',
+  'transferCandidates',
+] as const;
+const longFields = [
+  'id',
+  'openingBalanceMinor',
+  'parentId',
+  'amountMinor',
+  'dateEpochDay',
+  'accountId',
+  'transferAccountId',
+  'categoryId',
+  'transactionId',
+  'tagId',
+  'outgoingTxnId',
+  'incomingTxnId',
+  'favoriteAccountId',
+] as const;
 
 /** Reject unsafe Longs rather than silently corrupting IDs or minor-unit amounts. */
 function assertSafeLongs(value: unknown): void {
@@ -27,8 +97,11 @@ function assertSafeLongs(value: unknown): void {
     value.forEach(assertSafeLongs);
   } else if (value !== null && typeof value === 'object') {
     for (const [key, item] of Object.entries(value)) {
-      if (longFields.includes(key as typeof longFields[number]) && item != null &&
-          (typeof item !== 'number' || !Number.isSafeInteger(item))) {
+      if (
+        longFields.includes(key as (typeof longFields)[number]) &&
+        item != null &&
+        (typeof item !== 'number' || !Number.isSafeInteger(item))
+      ) {
         throw new Error(`Backup field ${key} is not a safe integer`);
       }
       assertSafeLongs(item);
@@ -67,25 +140,44 @@ function assertRawIntegersSafe(json: string): void {
 export function decodeBackup(json: string): BackupData {
   assertRawIntegersSafe(json);
   const raw: unknown = JSON.parse(json);
-  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Invalid backup');
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw))
+    throw new Error('Invalid backup');
   const data = raw as Record<string, unknown>;
-  if (!Number.isInteger(data.schemaVersion) || (data.schemaVersion as number) < 1 ||
-      (data.schemaVersion as number) > BACKUP_SCHEMA_VERSION) throw new Error('Unsupported backup schema version');
+  if (
+    !Number.isInteger(data.schemaVersion) ||
+    (data.schemaVersion as number) < 1 ||
+    (data.schemaVersion as number) > BACKUP_SCHEMA_VERSION
+  )
+    throw new Error('Unsupported backup schema version');
   for (const key of arrays) {
-    if (data[key] !== undefined && !Array.isArray(data[key])) throw new Error(`Invalid backup ${key}`);
+    if (data[key] !== undefined && !Array.isArray(data[key]))
+      throw new Error(`Invalid backup ${key}`);
   }
-  if (data.settings !== undefined && (data.settings === null || typeof data.settings !== 'object' || Array.isArray(data.settings))) {
+  if (
+    data.settings !== undefined &&
+    (data.settings === null || typeof data.settings !== 'object' || Array.isArray(data.settings))
+  ) {
     throw new Error('Invalid backup settings');
   }
   assertSafeLongs(data);
   if (data.moneyLoverImportRows !== undefined) {
-    if (!Array.isArray(data.moneyLoverImportRows)) throw new Error('Invalid backup moneyLoverImportRows');
+    if (!Array.isArray(data.moneyLoverImportRows))
+      throw new Error('Invalid backup moneyLoverImportRows');
     const keys = new Set<string>();
-    const transactionIds = new Set(((data.transactions ?? []) as { id: number }[]).map((row) => row.id));
+    const transactionIds = new Set(
+      ((data.transactions ?? []) as { id: number }[]).map((row) => row.id),
+    );
     for (const row of data.moneyLoverImportRows) {
-      if (row === null || typeof row !== 'object' || Array.isArray(row) ||
-          typeof row.rowKey !== 'string' || !row.rowKey ||
-          !Number.isSafeInteger(row.transactionId) || !transactionIds.has(row.transactionId) || keys.has(row.rowKey)) {
+      if (
+        row === null ||
+        typeof row !== 'object' ||
+        Array.isArray(row) ||
+        typeof row.rowKey !== 'string' ||
+        !row.rowKey ||
+        !Number.isSafeInteger(row.transactionId) ||
+        !transactionIds.has(row.transactionId) ||
+        keys.has(row.rowKey)
+      ) {
         throw new Error('Invalid backup moneyLoverImportRows');
       }
       keys.add(row.rowKey);
@@ -102,41 +194,73 @@ export function decodeBackup(json: string): BackupData {
     tags: (data.tags ?? []) as BackupData['tags'],
     transactionTags: (data.transactionTags ?? []) as BackupData['transactionTags'],
     transferCandidates: (data.transferCandidates ?? []) as BackupData['transferCandidates'],
-    settings: { favoriteAccountId: settings.favoriteAccountId ?? null, displayRate: settings.displayRate ?? null },
+    settings: {
+      favoriteAccountId: settings.favoriteAccountId ?? null,
+      displayRate: settings.displayRate ?? null,
+    },
     ...(data.people !== undefined ? { people: data.people as BackupData['people'] } : {}),
-    ...(data.lendingEntries !== undefined ? { lendingEntries: data.lendingEntries as BackupData['lendingEntries'] } : {}),
-    ...(data.moneyLoverImportRows !== undefined ? { moneyLoverImportRows: data.moneyLoverImportRows as BackupData['moneyLoverImportRows'] } : {}),
+    ...(data.lendingEntries !== undefined
+      ? { lendingEntries: data.lendingEntries as BackupData['lendingEntries'] }
+      : {}),
+    ...(data.moneyLoverImportRows !== undefined
+      ? { moneyLoverImportRows: data.moneyLoverImportRows as BackupData['moneyLoverImportRows'] }
+      : {}),
   };
 }
 
 function validateLending(data: Record<string, unknown>): void {
-  const fail = (): never => { throw new Error('Invalid backup lending metadata'); };
-  const record = (row: unknown): row is Record<string, unknown> => row !== null && typeof row === 'object' && !Array.isArray(row);
-  const id = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) > 0;
+  const fail = (): never => {
+    throw new Error('Invalid backup lending metadata');
+  };
+  const record = (row: unknown): row is Record<string, unknown> =>
+    row !== null && typeof row === 'object' && !Array.isArray(row);
+  const id = (value: unknown): value is number =>
+    Number.isSafeInteger(value) && (value as number) > 0;
   const people = data.people ?? [];
   const entries = data.lendingEntries ?? [];
-  if ((data.people !== undefined && !Array.isArray(data.people)) ||
-      (data.lendingEntries !== undefined && !Array.isArray(data.lendingEntries))) fail();
+  if (
+    (data.people !== undefined && !Array.isArray(data.people)) ||
+    (data.lendingEntries !== undefined && !Array.isArray(data.lendingEntries))
+  )
+    fail();
   const personIds = new Set<number>();
   const names = new Set<string>();
   for (const person of people as unknown[]) {
-    if (!record(person) || !id(person.id) || typeof person.name !== 'string' || !person.name.trim()) fail();
+    if (!record(person) || !id(person.id) || typeof person.name !== 'string' || !person.name.trim())
+      fail();
     const row = person as { id: number; name: string };
     // Match SQLite's NOCASE uniqueness (ASCII folding only).
     const name = row.name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
     if (personIds.has(row.id) || names.has(name)) fail();
-    personIds.add(row.id); names.add(name);
+    personIds.add(row.id);
+    names.add(name);
   }
   const ids = new Set<number>();
   const linked = new Set<number>();
   const transactions = (data.transactions ?? []) as BackupData['transactions'];
   const accounts = (data.accounts ?? []) as BackupData['accounts'];
   for (const entry of entries as unknown[]) {
-    if (!record(entry) || !id(entry.id) || !id(entry.personId) || !personIds.has(entry.personId) ||
-        typeof entry.kind !== 'string' || !['LEND', 'BORROW', 'RECEIVE_REPAYMENT', 'REPAY', 'WRITE_OFF_LENT', 'WRITE_OFF_BORROWED'].includes(entry.kind) ||
-        !id(entry.amountMinor) || !Number.isSafeInteger(entry.dateEpochDay) ||
-        typeof entry.currencyCode !== 'string' || !/^[A-Z]{3}$/.test(entry.currencyCode) ||
-        !(entry.note === null || typeof entry.note === 'string')) fail();
+    if (
+      !record(entry) ||
+      !id(entry.id) ||
+      !id(entry.personId) ||
+      !personIds.has(entry.personId) ||
+      typeof entry.kind !== 'string' ||
+      ![
+        'LEND',
+        'BORROW',
+        'RECEIVE_REPAYMENT',
+        'REPAY',
+        'WRITE_OFF_LENT',
+        'WRITE_OFF_BORROWED',
+      ].includes(entry.kind) ||
+      !id(entry.amountMinor) ||
+      !Number.isSafeInteger(entry.dateEpochDay) ||
+      typeof entry.currencyCode !== 'string' ||
+      !/^[A-Z]{3}$/.test(entry.currencyCode) ||
+      !(entry.note === null || typeof entry.note === 'string')
+    )
+      fail();
     const row = entry as NonNullable<BackupData['lendingEntries']>[number];
     if (ids.has(row.id)) fail();
     ids.add(row.id);
@@ -146,18 +270,26 @@ function validateLending(data: Record<string, unknown>): void {
       if (!id(row.transactionId) || linked.has(row.transactionId)) fail();
       const transaction = transactions.find((item) => item?.id === row.transactionId);
       const account = accounts.find((item) => item?.id === transaction?.accountId);
-      if (!transaction || !account || account.currencyCode !== row.currencyCode ||
-          transaction.type !== (row.kind === 'LEND' || row.kind === 'REPAY' ? 'EXPENSE' : 'INCOME') ||
-          !transaction.excludeFromReport || transaction.amountMinor !== row.amountMinor ||
-          transaction.dateEpochDay !== row.dateEpochDay || transaction.note !== row.note ||
-          transaction.transferAccountId !== null) fail();
+      if (
+        !transaction ||
+        !account ||
+        account.currencyCode !== row.currencyCode ||
+        transaction.type !== (row.kind === 'LEND' || row.kind === 'REPAY' ? 'EXPENSE' : 'INCOME') ||
+        !transaction.excludeFromReport ||
+        transaction.amountMinor !== row.amountMinor ||
+        transaction.dateEpochDay !== row.dateEpochDay ||
+        transaction.note !== row.note ||
+        transaction.transferAccountId !== null
+      )
+        fail();
       linked.add(row.transactionId!);
     }
   }
 }
 
 export function encodeBackup(data: BackupData): string {
-  if (data.schemaVersion !== BACKUP_SCHEMA_VERSION) throw new Error('Unsupported backup schema version');
+  if (data.schemaVersion !== BACKUP_SCHEMA_VERSION)
+    throw new Error('Unsupported backup schema version');
   assertSafeLongs(data);
   const json = JSON.stringify(data, null, 2);
   decodeBackup(json);
@@ -178,14 +310,21 @@ export interface BackupDocuments {
   readText(uri: string): Promise<string>;
 }
 
-export async function exportBackup(store: BackupStore, documents: BackupDocuments, name = 'expense-backup.json'): Promise<string | null> {
+export async function exportBackup(
+  store: BackupStore,
+  documents: BackupDocuments,
+  name = 'expense-backup.json',
+): Promise<string | null> {
   const json = encodeBackup(await store.snapshot());
   const uri = await documents.createJsonDocument(name);
   if (uri !== null) await documents.writeText(uri, json);
   return uri;
 }
 
-export async function restoreBackup(store: BackupStore, documents: BackupDocuments): Promise<boolean> {
+export async function restoreBackup(
+  store: BackupStore,
+  documents: BackupDocuments,
+): Promise<boolean> {
   const uri = await documents.pickJsonDocument();
   if (uri === null) return false;
   const data = decodeBackup(await documents.readText(uri));

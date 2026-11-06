@@ -12,7 +12,7 @@ async function callRpc(url, tag, payload, Socket, options = {}) {
   return new Promise((resolveCall, reject) => {
     const socket = new Socket(url);
     let finished = false;
-    const finish = error => {
+    const finish = (error) => {
       if (finished) return;
       finished = true;
       clearTimeout(timer);
@@ -20,32 +20,63 @@ async function callRpc(url, tag, payload, Socket, options = {}) {
       if (error) reject(error);
       else resolveCall();
     };
-    const timer = setTimeout(() => finish(new Error(`${tag} timed out.`)), options.timeoutMs ?? timeoutMs);
-    socket.addEventListener('open', () => socket.send(JSON.stringify({
-      _tag: 'Request', id: '1', tag,
-      payload, headers: [],
-    })));
-    socket.addEventListener('error', () => finish(new Error('T3 connection failed.')), { once: true });
-    socket.addEventListener('close', () => {
-      finish(new Error('T3 connection closed before acknowledgment.'));
-    }, { once: true });
-    socket.addEventListener('message', event => {
+    const timer = setTimeout(
+      () => finish(new Error(`${tag} timed out.`)),
+      options.timeoutMs ?? timeoutMs,
+    );
+    socket.addEventListener('open', () =>
+      socket.send(
+        JSON.stringify({
+          _tag: 'Request',
+          id: '1',
+          tag,
+          payload,
+          headers: [],
+        }),
+      ),
+    );
+    socket.addEventListener('error', () => finish(new Error('T3 connection failed.')), {
+      once: true,
+    });
+    socket.addEventListener(
+      'close',
+      () => {
+        finish(new Error('T3 connection closed before acknowledgment.'));
+      },
+      { once: true },
+    );
+    socket.addEventListener('message', (event) => {
       let message;
-      try { message = JSON.parse(event.data); }
-      catch { finish(new Error('Invalid T3 RPC response.')); return; }
-      if (message._tag === 'Ping') { socket.send(JSON.stringify({ _tag: 'Pong' })); return; }
+      try {
+        message = JSON.parse(event.data);
+      } catch {
+        finish(new Error('Invalid T3 RPC response.'));
+        return;
+      }
+      if (message._tag === 'Ping') {
+        socket.send(JSON.stringify({ _tag: 'Pong' }));
+        return;
+      }
       if (message.requestId !== '1' || finished) return;
       if (message._tag === 'Chunk' && options.onValue) {
         socket.send(JSON.stringify({ _tag: 'Ack', requestId: '1' }));
         try {
           for (const value of message.values) {
-            if (options.onValue(value)) { finish(); break; }
+            if (options.onValue(value)) {
+              finish();
+              break;
+            }
           }
-        } catch { finish(new Error('Invalid T3 subscription update.')); }
+        } catch {
+          finish(new Error('Invalid T3 subscription update.'));
+        }
         return;
       }
       if (message._tag !== 'Exit') return;
-      if (options.onValue) { finish(new Error(`${tag} ended before completion.`)); return; }
+      if (options.onValue) {
+        finish(new Error(`${tag} ended before completion.`));
+        return;
+      }
       finish(message.exit?._tag === 'Success' ? null : new Error(`${tag} failed.`));
     });
   });
@@ -57,39 +88,72 @@ export async function withT3Session(options, callback) {
   const cli = env.T3CODE_CLI_PATH ?? 't3';
   const run = options.execFile ?? execFile;
   const fetchApi = options.fetch ?? globalThis.fetch;
-  const runtime = JSON.parse(await (options.readFile ?? readFile)(join(t3Home, 'userdata/server-runtime.json'), 'utf8'));
+  const runtime = JSON.parse(
+    await (options.readFile ?? readFile)(join(t3Home, 'userdata/server-runtime.json'), 'utf8'),
+  );
   const origin = new URL(runtime.origin);
-  if (origin.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(origin.hostname)) {
+  if (
+    origin.protocol !== 'http:' ||
+    !['127.0.0.1', 'localhost', '[::1]'].includes(origin.hostname)
+  ) {
     throw new Error('Expected a local T3 server origin.');
   }
   async function command(args) {
     try {
-      return await run(cli, args, { encoding: 'utf8', timeout: timeoutMs, env, maxBuffer: 1024 * 1024 });
+      return await run(cli, args, {
+        encoding: 'utf8',
+        timeout: timeoutMs,
+        env,
+        maxBuffer: 1024 * 1024,
+      });
     } catch {
       throw new Error(`T3 credential ${args[2]} failed.`);
     }
   }
   const { stdout } = await command([
-    'auth', 'session', 'issue', '--scope', 'orchestration:read',
-    '--scope', 'orchestration:operate', '--ttl', options.sessionTtl ?? '1m',
-    '--label', 'thread lifecycle hook', '--json',
+    'auth',
+    'session',
+    'issue',
+    '--scope',
+    'orchestration:read',
+    '--scope',
+    'orchestration:operate',
+    '--ttl',
+    options.sessionTtl ?? '1m',
+    '--label',
+    'thread lifecycle hook',
+    '--json',
   ]);
   let credential;
-  try { credential = JSON.parse(stdout); }
-  catch { throw new Error('T3 returned an invalid credential response.'); }
   try {
-    if (typeof credential?.token !== 'string' || !credential.token.trim() ||
-        typeof credential?.sessionId !== 'string' || !credential.sessionId.trim()) {
+    credential = JSON.parse(stdout);
+  } catch {
+    throw new Error('T3 returned an invalid credential response.');
+  }
+  try {
+    if (
+      typeof credential?.token !== 'string' ||
+      !credential.token.trim() ||
+      typeof credential?.sessionId !== 'string' ||
+      !credential.sessionId.trim()
+    ) {
       throw new Error('T3 returned an invalid credential response.');
     }
     async function request(path, method = 'GET') {
       let response;
       try {
         response = await fetchApi(new URL(path, origin), {
-          method, signal: AbortSignal.timeout(timeoutMs), redirect: 'error',
-          headers: { authorization: `Bearer ${credential.token}`, 'x-t3-orchestration-protocol': '2' },
+          method,
+          signal: AbortSignal.timeout(timeoutMs),
+          redirect: 'error',
+          headers: {
+            authorization: `Bearer ${credential.token}`,
+            'x-t3-orchestration-protocol': '2',
+          },
         });
-      } catch { throw new Error('T3 request failed.'); }
+      } catch {
+        throw new Error('T3 request failed.');
+      }
       if (!response.ok) throw new Error(`T3 request failed: HTTP ${response.status}.`);
       return response.json();
     }
@@ -104,7 +168,8 @@ export async function withT3Session(options, callback) {
     return await callback({
       request,
       rpc: (tag, payload) => connect(tag, payload),
-      subscribe: (tag, payload, onValue, waitMs) => connect(tag, payload, { onValue, timeoutMs: waitMs }),
+      subscribe: (tag, payload, onValue, waitMs) =>
+        connect(tag, payload, { onValue, timeoutMs: waitMs }),
     });
   } finally {
     if (typeof credential?.sessionId === 'string' && credential.sessionId.trim()) {
