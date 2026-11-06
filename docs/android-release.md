@@ -15,7 +15,7 @@ One-time CI requirement: an Expo access token with project access, stored as the
 
 1. Merge the tested changes into `main`. Every push to `main` runs checks and publishes an Android OTA update to the `production` channel and environment, recording the commit SHA.
 2. Confirm **GitHub Actions → Publish Android OTA** succeeds. You can also use **Run workflow** on `main` with a description to publish manually.
-3. Verify on the installed app: fully close and reopen, allow the update to download, then close and reopen again to apply it.
+3. Verify on the installed release app: open **Settings → Updates** to check for and download the update. When it is ready, tap **Updates** again and confirm **Restart to update** to apply it. Finish any unsaved entries before restarting. Tap the version/release line in Settings to confirm the running commit matches the published commit.
 
 See [Expo's debugging guide](https://docs.expo.dev/eas-update/debug/) if an update does not arrive.
 
