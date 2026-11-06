@@ -9,13 +9,14 @@ import ts from 'typescript';
 const root = new URL('../../', import.meta.url);
 const hooks = registerHooks({
   resolve(specifier, context, next) {
-    if (['react-native', 'react-native-reanimated', 'expo-haptics'].includes(specifier)) return { url: `calculator-mock:${specifier}`, shortCircuit: true };
+    if (['react-native', 'react-native-reanimated', 'expo-haptics', 'expo-symbols'].includes(specifier)) return { url: `calculator-mock:${specifier}`, shortCircuit: true };
     if (specifier.startsWith('@/')) return { url: new URL(`src/${specifier.slice(2)}.ts`, root).href, shortCircuit: true };
     return next(specifier, context.parentURL?.startsWith('calculator-mock:') ? { ...context, parentURL: import.meta.url } : context);
   },
   load(url, context, next) {
     const mocks = {
       'calculator-mock:react-native': "export const Pressable='Pressable',Text='Text',View='View';",
+      'calculator-mock:expo-symbols': "export const SymbolView='SymbolView';",
       'calculator-mock:react-native-reanimated': `import { useRef } from 'react';
         export default { View: 'AnimatedView' };
         export const Easing = { out: x => x, cubic: x => x }, ReduceMotion = { System: 'system' };
@@ -60,6 +61,8 @@ test('keypad remains usable without haptics and hides closed controls', async t 
   await render(true);
   await act(async () => key('Done').props.onPress());
   assert.equal(done, 1);
+  await act(async () => key('Hide amount keypad').props.onPress());
+  assert.equal(done, 2);
   await render(false);
   const panel = renderer.root.findByType('AnimatedView');
   assert.equal(panel.props.pointerEvents, 'none');
