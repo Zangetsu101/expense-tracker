@@ -19,7 +19,7 @@ const mocks = {
   'react-native-safe-area-context': `export const useSafeAreaInsets=()=>({bottom:0});`,
   '@/components/loading': `export const Skeleton='Skeleton'; export const Shimmer='Shimmer';`,
   '@/components/home-account-picker': `export const HomeAccountPicker='HomeAccountPicker';`,
-  '@/lib/database': `export const listAccounts=async()=>[{id:1,name:'Cash',currencyCode:'USD',isFavorite:1},{id:2,name:'Bank',currencyCode:'USD',isFavorite:0}];`,
+  '@/lib/database': `export const listAccounts=async()=>{if(globalThis.__tabRefreshTest.accountsError)throw Error('accounts unavailable');return [{id:1,name:'Cash',currencyCode:'USD',isFavorite:1},{id:2,name:'Bank',currencyCode:'USD',isFavorite:0}];};`,
   '@/components/app-sheet': `export const AppSheet=({children})=>children;`,
   '@/components/category-browser': `import React from 'react'; export const CategoryBrowser=p=>React.createElement('CategoryBrowser',p);`,
   '@/lib/accounts': `export const listManagedAccounts=()=>globalThis.__tabRefreshTest.read('accounts'); export const createAccount=async()=>{}; export const setFavoriteAccount=async()=>{};`,
@@ -60,7 +60,7 @@ const texts = () => renderer.root.findAllByType('Text').map(n=>n.children.join('
 const snapshot = name => name === 'categories' ? renderer.root.findByType('CategoryBrowser').props.items : texts();
 const toggleFocus = async Screen => {await act(async()=>{state.focus++; renderer.update(React.createElement(Screen));});};
 test('tab refresh keeps loaded content stable', async t => {
-  t.afterEach(async()=>{await act(async()=>renderer?.unmount()); renderer=undefined;});
+  t.afterEach(async()=>{await act(async()=>renderer?.unmount()); renderer=undefined; delete state.accountsError;});
   t.after(()=>{hooks.deregister(); delete globalThis.__tabRefreshTest; globalThis.IS_REACT_ACT_ENVIRONMENT=previousActEnvironment;});
   await t.test('Home Account transitions retain the correct receipt meaning and recover without stale writes', async()=>{
     state.focus=0;
@@ -109,6 +109,36 @@ test('tab refresh keeps loaded content stable', async t => {
     state.read=async key=>fixtures[key];
     const retry=renderer.root.findAllByType('Pressable').find(n=>n.findAllByType('Text').some(t=>t.children.join('')==='Retry'));
     await act(async()=>retry.props.onPress());
+    assert.ok(texts().includes('Lunch'));
+  });
+  await t.test('Home preserves an empty result under its displayed scope even when switching fails',async()=>{
+    state.focus=0;
+    const Screen=screens[0][1];
+    state.read=async key=>key==='home'?{...fixtures.home,rows:[]}:fixtures[key];
+    await act(async()=>{renderer=create(React.createElement(Screen));});
+    const empty='No transactions in this account. Add one or choose another account.';
+    assert.ok(texts().includes(empty));
+    let reject;
+    state.read=(key)=>key==='home'?new Promise((_,fail)=>{reject=fail}):Promise.resolve(fixtures[key]);
+    await act(async()=>renderer.root.findByType('HomeAccountPicker').props.onSelect(null));
+    assert.ok(texts().includes(empty),'retained Account empty state must not become All accounts');
+    await act(async()=>reject(Error('unavailable')));
+    assert.ok(texts().includes(empty),'failed replacement keeps the previous empty result');
+  });
+  await t.test('Home Account lookup failure stops loading and recovers through cold retry',async()=>{
+    state.focus=0;
+    state.accountsError=true;
+    const Screen=screens[0][1];
+    await act(async()=>{renderer=create(React.createElement(Screen));});
+    const picker=()=>renderer.root.findByType('HomeAccountPicker');
+    assert.equal(picker().props.unavailable,true);
+    assert.equal(picker().props.loading,false);
+    assert.ok(texts().includes('Couldn’t load Home'));
+    delete state.accountsError;
+    state.read=async key=>fixtures[key];
+    const retry=renderer.root.findAllByType('Pressable').find(n=>n.findAllByType('Text').some(t=>t.children.join('')==='Retry'));
+    await act(async()=>retry.props.onPress());
+    assert.equal(picker().props.unavailable,false);
     assert.ok(texts().includes('Lunch'));
   });
   for (const [name,Screen] of screens) await t.test(name, async()=>{

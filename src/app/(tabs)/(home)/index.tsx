@@ -103,7 +103,7 @@ export default function HomeScreen() {
             <Link href={{ pathname: '/transactions', params: accountId === null ? {} : { accountId: String(accountId) } }} asChild><Pressable disabled={!loaded || changingAccount} accessibilityState={{ disabled: !loaded || changingAccount }} accessibilityRole="button" style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, padding: 8 })}><Text style={{ color: colors.accent }}>{accountId === null ? 'Search all' : 'Search account'}</Text></Pressable></Link>
           </View>
           {!loaded && loading && <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">{[0, 1, 2, 3].map((key) => <View key={key} style={{ flexDirection: 'row', alignItems: 'center', gap: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: colors.line }}><View style={{ flex: 1, gap: 8 }}><Skeleton width="65%" height={18} /><Skeleton width="45%" /></View><Skeleton width={68} height={18} /></View>)}</View>}
-          {loaded && !error && rows.length === 0 && <Text style={{ color: colors.muted }}>{accountId === null ? 'No transactions yet. Add one to get started.' : 'No transactions in this account. Add one or choose another account.'}</Text>}
+          {loaded && rows.length === 0 && <Text style={{ color: colors.muted }}>{displayedAccountId === null ? 'No transactions yet. Add one to get started.' : 'No transactions in this account. Add one or choose another account.'}</Text>}
         </View>
       </View>}
       renderItem={({ item, index }) => {

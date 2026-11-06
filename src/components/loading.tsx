@@ -24,6 +24,6 @@ export function Shimmer() {
   </View>;
 }
 
-export function Skeleton({ width = '65%', height = 14 }: { width?: DimensionValue; height?: number }) {
-  return <View accessible={false} style={{ width, height, borderRadius: 5, overflow: 'hidden', backgroundColor: theme.colors.raised }}><Shimmer /></View>;
+export function Skeleton({ width = '65%', height = 14, animated = true }: { width?: DimensionValue; height?: number; animated?: boolean }) {
+  return <View accessible={false} style={{ width, height, borderRadius: 5, overflow: 'hidden', backgroundColor: theme.colors.raised }}>{animated && <Shimmer />}</View>;
 }

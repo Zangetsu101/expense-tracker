@@ -48,4 +48,6 @@ test('failed Account selection keeps choosing and retrying as separate actions',
   await act(async()=>buttons()[1].props.onPress());
   assert.equal(renderer.root.findAllByType('AppSheet').length,1,'normal chevron opens selection');
   assert.equal(retries,1);
+  await act(async()=>renderer.update(React.createElement(HomeAccountPicker,{...props,error:false,unavailable:true,loading:false})));
+  assert.equal(renderer.root.findByType('Skeleton').props.animated,false,'unavailable Account name must stop shimmering after failure');
 });
