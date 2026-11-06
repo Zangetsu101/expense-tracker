@@ -237,3 +237,36 @@ test('dry-run worker logs its lifecycle without changing thread state', async ()
   assert.deepEqual(h.logs.map(log => log.event), ['worker-started', 'subscription-ended', 'would-settle']);
   assert.equal(h.frames.filter(f => f.tag === 'orchestration.dispatchCommand').length, 0);
 });
+
+test('snapshot omission keeps the subscription open until the same run completes', async () => {
+  const h = harness();
+  const running = { ...thread, latestRunId: 'run', activeRunId: 'run', status: 'running' };
+  const completed = { ...running, activeRunId: null, status: 'completed' };
+  h.setUpdates([
+    { kind: 'snapshot', snapshot: snapshot([]) },
+    { kind: 'thread.updated', thread: running },
+    { kind: 'thread.updated', thread: completed },
+  ]);
+  h.options.fetch = async url => {
+    if (String(url).endsWith('/shell')) {
+      assert.equal(h.logs.find(log => log.event === 'subscription-ended')?.status, 'completed');
+      return Response.json(snapshot([completed]));
+    }
+    return Response.json({ ticket: 'ticket' });
+  };
+  await waitForMergedThread({ threadId: 'thread', runId: 'run', branch: 'feature', tip: 'tip', projectRoot: '/project' }, {
+    ...h.options, git: args => args[0] === 'show-ref' ? 'tip' : '',
+  });
+  assert.equal(h.frames.filter(f => f.tag === 'orchestration.dispatchCommand').length, 1);
+  assert.equal(h.logs.at(-1).event, 'settlement-succeeded');
+});
+
+test('an omitted thread waits for timeout rather than fetching premature state', async () => {
+  const h = harness();
+  h.setUpdates([{ kind: 'snapshot', snapshot: snapshot([]) }]);
+  await assert.rejects(waitForMergedThread({ threadId: 'thread', runId: 'run', branch: 'feature' }, {
+    ...h.options, waitMs: 10,
+  }), /subscribeShell timed out/);
+  assert.equal(h.frames.filter(f => f.tag === 'orchestration.dispatchCommand').length, 0);
+  assert.deepEqual(h.commands.at(-1), ['auth', 'session', 'revoke', 'credential']);
+});

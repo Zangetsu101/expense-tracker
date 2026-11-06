@@ -92,9 +92,13 @@ export async function waitForMergedThread(input, options = {}) {
         report('subscription-ended', { reason: 'thread-removed' });
         return true;
       }
-      const done = !thread || thread.latestRunId !== input.runId || thread.branch !== input.branch ||
+      if (!thread) {
+        report('subscription-waiting', { reason: 'thread-missing-from-snapshot' });
+        return false;
+      }
+      const done = thread.latestRunId !== input.runId || thread.branch !== input.branch ||
         (thread.activeRunId == null && thread.activityRunStatus == null);
-      if (done) report('subscription-ended', { reason: !thread ? 'thread-missing' : 'state-changed',
+      if (done) report('subscription-ended', { reason: 'state-changed',
         latestRunId: thread?.latestRunId, activeRunId: thread?.activeRunId,
         activityRunStatus: thread?.activityRunStatus, status: thread?.status, branch: thread?.branch });
       return done;
