@@ -1,0 +1,5 @@
+#!/bin/sh
+# Git uses post-commit instead of post-merge when completing a conflicted merge.
+git rev-parse --verify --quiet HEAD^2 >/dev/null || exit 0
+root=$(git rev-parse --show-toplevel) || exit 1
+node "$root/scripts/settle-merged-threads.mjs"
