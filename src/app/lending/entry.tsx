@@ -1,7 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { ActivityIndicator, Alert, ScrollView, Text, View } from 'react-native';
-import { BottomSheet, Button, Column, Host, ScrollView as NativeScrollView, Text as NativeText } from '@expo/ui';
+import {
+  BottomSheet,
+  Button,
+  Column,
+  Host,
+  ScrollView as NativeScrollView,
+  Text as NativeText,
+} from '@expo/ui';
 import {
   createPerson,
   deleteLendingEntry,
@@ -98,7 +105,8 @@ export default function EntryScreen() {
           (w) =>
             `${w.currencyCode} · ${w.direction === 'LENT' ? 'They owe you' : 'You owe them'}: overpaid credit ${(w.overpaidMinor / 100).toFixed(2)}`,
         )
-        .join('\n') + '\nSave anyway? Excess remains visible as credit, not an opposite obligation.',
+        .join('\n') +
+        '\nSave anyway? Excess remains visible as credit, not an opposite obligation.',
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Confirm', onPress: action },
@@ -223,7 +231,8 @@ export default function EntryScreen() {
               />
             )}
             <Text style={{ color: c.muted }}>
-              Repayments reduce aggregate outstanding in this direction and currency, not an individual loan.
+              Repayments reduce aggregate outstanding in this direction and currency, not an
+              individual loan.
             </Text>
             <FormInput
               accessibilityLabel="Amount"
@@ -264,23 +273,45 @@ export default function EntryScreen() {
                 }
               />
             )}
-            <FormButton label="Cancel" variant="secondary" disabled={pending} onPress={() => router.back()} />
+            <FormButton
+              label="Cancel"
+              variant="secondary"
+              disabled={pending}
+              onPress={() => router.back()}
+            />
           </>
         )}
         {!!error && (
-          <FormButton label="Reload data" variant="secondary" disabled={pending} onPress={() => setRetry(retry + 1)} />
+          <FormButton
+            label="Reload data"
+            variant="secondary"
+            disabled={pending}
+            onPress={() => setRetry(retry + 1)}
+          />
         )}
       </ScrollView>
       <Host>
-        <BottomSheet isPresented={picker !== null} onDismiss={() => setPicker(null)} snapPoints={['half', 'full']}>
+        <BottomSheet
+          isPresented={picker !== null}
+          onDismiss={() => setPicker(null)}
+          snapPoints={['half', 'full']}
+        >
           <NativeScrollView>
             <Column>
               <NativeText>
-                {picker === 'kind' ? 'Choose action' : picker === 'person' ? 'Saved people' : 'Accounts'}
+                {picker === 'kind'
+                  ? 'Choose action'
+                  : picker === 'person'
+                    ? 'Saved people'
+                    : 'Accounts'}
               </NativeText>
               {picker === 'kind' &&
                 (Object.keys(labels) as LendingKind[])
-                  .filter((k) => originalWriteoff === undefined || k.startsWith('WRITE_OFF') === originalWriteoff)
+                  .filter(
+                    (k) =>
+                      originalWriteoff === undefined ||
+                      k.startsWith('WRITE_OFF') === originalWriteoff,
+                  )
                   .map((k) => (
                     <Button
                       key={k}

@@ -7,21 +7,35 @@ const sqlite = new DatabaseSync(':memory:');
 const adapter = {
   execAsync: async (sql) => sqlite.exec(sql),
   runAsync: async (sql, params = []) => sqlite.prepare(sql).run(...params),
-  getAllAsync: async (sql, params = []) => sqlite.prepare(sql).all(...params).map((row) => ({ ...row })),
+  getAllAsync: async (sql, params = []) =>
+    sqlite
+      .prepare(sql)
+      .all(...params)
+      .map((row) => ({ ...row })),
   getFirstAsync: async (sql, params = []) => sqlite.prepare(sql).get(...params) ?? null,
 };
 globalThis.__reportsSqliteAdapter = adapter;
 registerHooks({
   resolve(specifier, context, next) {
-    if (specifier === '@/lib/database') return { url: new URL('./database.ts', import.meta.url).href, shortCircuit: true };
+    if (specifier === '@/lib/database')
+      return { url: new URL('./database.ts', import.meta.url).href, shortCircuit: true };
     if (specifier === 'expo-sqlite') return { url: 'test:sqlite', shortCircuit: true };
     return next(specifier, context);
   },
   load(url, context, next) {
-    if (url === 'test:sqlite') return { format: 'module', source: 'export const openDatabaseAsync = async () => globalThis.__reportsSqliteAdapter;', shortCircuit: true };
+    if (url === 'test:sqlite')
+      return {
+        format: 'module',
+        source: 'export const openDatabaseAsync = async () => globalThis.__reportsSqliteAdapter;',
+        shortCircuit: true,
+      };
     if (url.endsWith('.ts')) {
       const loaded = next(url, { ...context, format: 'module' });
-      return { ...loaded, format: 'module', source: stripTypeScriptTypes(loaded.source.toString()) };
+      return {
+        ...loaded,
+        format: 'module',
+        source: stripTypeScriptTypes(loaded.source.toString()),
+      };
     }
     return next(url, context);
   },
@@ -35,12 +49,27 @@ sqlite.exec(`DELETE FROM transactions; DELETE FROM categories; DELETE FROM accou
     (1, 'Cash', 'USD', 1000), (2, 'Bank', 'USD', -200), (3, 'Wallet', 'BDT', 5000), (4, 'Empty', 'EUR', 75);
   INSERT INTO categories (id, name, type) VALUES (1, 'Food', 'EXPENSE'), (2, 'Salary', 'INCOME'), (3, 'Rent', 'EXPENSE');`);
 const day = (year, month, date) => epochDay(new Date(year, month - 1, date));
-const add = (id, type, amount, date, accountId, categoryId = null, excluded = 0, transferAccountId = null) =>
-  sqlite.prepare(`INSERT INTO transactions (id, type, amountMinor, date, accountId, categoryId, excludeFromReport, transferAccountId)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(id, type, amount, date, accountId, categoryId, excluded, transferAccountId);
+const add = (
+  id,
+  type,
+  amount,
+  date,
+  accountId,
+  categoryId = null,
+  excluded = 0,
+  transferAccountId = null,
+) =>
+  sqlite
+    .prepare(
+      `INSERT INTO transactions (id, type, amountMinor, date, accountId, categoryId, excludeFromReport, transferAccountId)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(id, type, amount, date, accountId, categoryId, excluded, transferAccountId);
 
 add(1, 'EXPENSE', 100, day(2025, 1, 1), 1, 1);
-sqlite.prepare("INSERT INTO line_items (transactionId, name, amountMinor) VALUES (1, 'Partial', 25)").run();
+sqlite
+  .prepare("INSERT INTO line_items (transactionId, name, amountMinor) VALUES (1, 'Partial', 25)")
+  .run();
 add(2, 'EXPENSE', 50, day(2025, 1, 31), 1, null);
 add(3, 'INCOME', 400, day(2025, 1, 15), 1, 2);
 add(4, 'TRANSFER', 250, day(2025, 1, 15), 1, null, 0, 2);
@@ -72,10 +101,13 @@ test('balances include today and omit future Expenses, Income and both Transfer 
     add(83, 'TRANSFER', 409, today + 1, 2, null, 0, 1);
     add(84, 'EXPENSE', 503, today + 1, 4);
     assert.deepEqual(await accountBalances(today), baseline);
-    assert.deepEqual(await accountBalances(today + 1), baseline.map(row => ({
-      ...row,
-      balanceMinor: row.balanceMinor + ({ 1: 1, 2: 101, 4: -503 }[row.id] ?? 0),
-    })));
+    assert.deepEqual(
+      await accountBalances(today + 1),
+      baseline.map((row) => ({
+        ...row,
+        balanceMinor: row.balanceMinor + ({ 1: 1, 2: 101, 4: -503 }[row.id] ?? 0),
+      })),
+    );
   } finally {
     sqlite.prepare('DELETE FROM transactions WHERE id BETWEEN 80 AND 84').run();
   }
@@ -92,7 +124,7 @@ test('default balance cutoff follows the local date across midnight in different
       process.env.TZ = zone;
       const balances = await accountBalances();
       assert.deepEqual(balances, await accountBalances(cutoff), zone);
-      assert.equal(balances.find(row => row.id === 1).balanceMinor, cashBalance, zone);
+      assert.equal(balances.find((row) => row.id === 1).balanceMinor, cashBalance, zone);
     }
   } finally {
     if (original === undefined) delete process.env.TZ;
@@ -155,14 +187,25 @@ test('calendar months include leap days and December rollover, including years 1
   // ISO dates provide an independent epoch-day fixture without JS year-1900 coercion.
   const isoDay = (iso) => Date.parse(`${iso}T00:00:00Z`) / 86400000;
   const fixtures = [
-    [100, '0001-01-01', 11], [101, '0099-12-31', 12], [102, '0100-01-01', 13],
-    [103, '2024-02-29', 14], [104, '2024-03-01', 15],
+    [100, '0001-01-01', 11],
+    [101, '0099-12-31', 12],
+    [102, '0100-01-01', 13],
+    [103, '2024-02-29', 14],
+    [104, '2024-03-01', 15],
   ];
   try {
     for (const [id, iso, amount] of fixtures) add(id, 'EXPENSE', amount, isoDay(iso), 1, 1);
-    for (const [year, month, amount] of [[1, 1, 11], [99, 12, 12], [100, 1, 13], [2024, 2, 14], [2024, 3, 15]]) {
+    for (const [year, month, amount] of [
+      [1, 1, 11],
+      [99, 12, 12],
+      [100, 1, 13],
+      [2024, 2, 14],
+      [2024, 3, 15],
+    ]) {
       assert.deepEqual(await monthlyReport(year, month, 1), {
-        spending: [{ categoryId: 1, categoryName: 'Food', currencyCode: 'USD', amountMinor: amount }],
+        spending: [
+          { categoryId: 1, categoryName: 'Food', currencyCode: 'USD', amountMinor: amount },
+        ],
         summaries: [{ currencyCode: 'USD', incomeMinor: 0, expenseMinor: amount }],
       });
     }
@@ -182,7 +225,10 @@ test('monthly reports reject invalid calendar periods and Account identifiers', 
     await assert.rejects(monthlyReport(2025, 1, accountId), /Invalid account/);
   }
   assert.deepEqual(await monthlyReport(9999, 12, 1), { spending: [], summaries: [] });
-  assert.deepEqual(await monthlyReport(2025, 1, Number.MAX_SAFE_INTEGER), { spending: [], summaries: [] });
+  assert.deepEqual(await monthlyReport(2025, 1, Number.MAX_SAFE_INTEGER), {
+    spending: [],
+    summaries: [],
+  });
 });
 
 test('monthly report boundaries do not shift with the local timezone', async () => {
@@ -190,13 +236,17 @@ test('monthly report boundaries do not shift with the local timezone', async () 
   try {
     for (const zone of ['UTC', 'America/Los_Angeles', 'Asia/Dhaka', 'Pacific/Kiritimati']) {
       process.env.TZ = zone;
-      assert.deepEqual(await monthlyReport(2025, 1, 1), {
-        spending: [
-          { categoryId: 1, categoryName: 'Food', currencyCode: 'USD', amountMinor: 100 },
-          { categoryId: null, categoryName: null, currencyCode: 'USD', amountMinor: 50 },
-        ],
-        summaries: [{ currencyCode: 'USD', incomeMinor: 400, expenseMinor: 150 }],
-      }, zone);
+      assert.deepEqual(
+        await monthlyReport(2025, 1, 1),
+        {
+          spending: [
+            { categoryId: 1, categoryName: 'Food', currencyCode: 'USD', amountMinor: 100 },
+            { categoryId: null, categoryName: null, currencyCode: 'USD', amountMinor: 50 },
+          ],
+          summaries: [{ currencyCode: 'USD', incomeMinor: 400, expenseMinor: 150 }],
+        },
+        zone,
+      );
     }
   } finally {
     if (original === undefined) delete process.env.TZ;
@@ -207,13 +257,40 @@ test('monthly report boundaries do not shift with the local timezone', async () 
 test('display rate combines SQLite report totals without altering per-currency amounts', async () => {
   const { spending, summaries } = await monthlyReport(2025, 1);
   const rate = { base: 'USD', quote: 'BDT', rate: 100 };
-  assert.equal(combinedMinor(summaries.map(({ currencyCode, incomeMinor }) => ({ currencyCode, amountMinor: incomeMinor })), rate), 600);
-  assert.equal(combinedMinor(summaries.map(({ currencyCode, expenseMinor }) => ({ currencyCode, amountMinor: expenseMinor })), rate), 300);
+  assert.equal(
+    combinedMinor(
+      summaries.map(({ currencyCode, incomeMinor }) => ({
+        currencyCode,
+        amountMinor: incomeMinor,
+      })),
+      rate,
+    ),
+    600,
+  );
+  assert.equal(
+    combinedMinor(
+      summaries.map(({ currencyCode, expenseMinor }) => ({
+        currencyCode,
+        amountMinor: expenseMinor,
+      })),
+      rate,
+    ),
+    300,
+  );
   assert.deepEqual(combinedCategorySpending(spending, rate), [
     { categoryId: 1, categoryName: 'Food', amountMinor: 200 },
     { categoryId: 3, categoryName: 'Rent', amountMinor: 50 },
     { categoryId: null, categoryName: null, amountMinor: 50 },
   ]);
-  assert.equal(combinedMinor(summaries.map(({ currencyCode, expenseMinor }) => ({ currencyCode, amountMinor: expenseMinor })), null), null);
+  assert.equal(
+    combinedMinor(
+      summaries.map(({ currencyCode, expenseMinor }) => ({
+        currencyCode,
+        amountMinor: expenseMinor,
+      })),
+      null,
+    ),
+    null,
+  );
   assert.deepEqual(combinedCategorySpending(spending, null), []);
 });

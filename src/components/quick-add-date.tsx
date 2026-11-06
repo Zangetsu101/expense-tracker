@@ -15,13 +15,53 @@ function day(days = 0) {
   return date;
 }
 function sameDate(a: Date, b: Date) {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
 }
-function Choice({ title, selected, disabled = false, onPress }: { title: string; selected: boolean; disabled?: boolean; onPress: () => void }) {
-  return <Pressable accessibilityRole="button" accessibilityLabel={title} accessibilityState={{ selected, disabled }} disabled={disabled} onPress={onPress} style={{ minHeight: 48, paddingHorizontal: 14, justifyContent: 'center', backgroundColor: selected ? theme.colors.selected : panel, borderRadius: 14, opacity: disabled ? 0.45 : 1 }}><Text style={{ color: selected ? theme.colors.onSelected : ink }}>{title}</Text></Pressable>;
+function Choice({
+  title,
+  selected,
+  disabled = false,
+  onPress,
+}: {
+  title: string;
+  selected: boolean;
+  disabled?: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={title}
+      accessibilityState={{ selected, disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      style={{
+        minHeight: 48,
+        paddingHorizontal: 14,
+        justifyContent: 'center',
+        backgroundColor: selected ? theme.colors.selected : panel,
+        borderRadius: 14,
+        opacity: disabled ? 0.45 : 1,
+      }}
+    >
+      <Text style={{ color: selected ? theme.colors.onSelected : ink }}>{title}</Text>
+    </Pressable>
+  );
 }
 
-export function QuickAddDate({ value: selected, onChange, disabled = false }: { value: Date; onChange: (date: Date) => void; disabled?: boolean }) {
+export function QuickAddDate({
+  value: selected,
+  onChange,
+  disabled = false,
+}: {
+  value: Date;
+  onChange: (date: Date) => void;
+  disabled?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const today = day();
   const isToday = sameDate(selected, today);
@@ -33,16 +73,53 @@ export function QuickAddDate({ value: selected, onChange, disabled = false }: { 
     onChange(local);
     setOpen(false);
   };
-  return <View style={{ gap: 12 }}>
-    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-      <Choice title="Today" selected={isToday} disabled={disabled} onPress={() => select(today)} />
-      <Choice title="Yesterday" selected={isYesterday} disabled={disabled} onPress={() => select(day(-1))} />
-      <Choice title={isCustomDate ? selected.toLocaleDateString(undefined, { dateStyle: 'medium' }) : 'Choose date…'} selected={isCustomDate} disabled={disabled} onPress={() => { setOpen(true); }} />
+  return (
+    <View style={{ gap: 12 }}>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+        <Choice
+          title="Today"
+          selected={isToday}
+          disabled={disabled}
+          onPress={() => select(today)}
+        />
+        <Choice
+          title="Yesterday"
+          selected={isYesterday}
+          disabled={disabled}
+          onPress={() => select(day(-1))}
+        />
+        <Choice
+          title={
+            isCustomDate
+              ? selected.toLocaleDateString(undefined, { dateStyle: 'medium' })
+              : 'Choose date…'
+          }
+          selected={isCustomDate}
+          disabled={disabled}
+          onPress={() => {
+            setOpen(true);
+          }}
+        />
+      </View>
+      {open && !disabled && (
+        <View style={{ backgroundColor: panel, borderRadius: 18, padding: 12 }}>
+          <Text style={{ color: muted, paddingBottom: 8 }}>Pick a past date</Text>
+          <NativeDatePicker
+            value={selected}
+            mode="date"
+            maximumDate={today}
+            display={process.env.EXPO_OS === 'ios' ? 'inline' : 'default'}
+            presentation={process.env.EXPO_OS === 'android' ? 'dialog' : 'inline'}
+            accentColor={accent}
+            {...(process.env.EXPO_OS === 'ios' ? { themeVariant: 'dark' as const } : {})}
+            onValueChange={(_, date) => select(date)}
+            onDismiss={() => setOpen(false)}
+          />
+          {process.env.EXPO_OS !== 'android' && (
+            <Choice title="Close date picker" selected={false} onPress={() => setOpen(false)} />
+          )}
+        </View>
+      )}
     </View>
-    {open && !disabled && <View style={{ backgroundColor: panel, borderRadius: 18, padding: 12 }}>
-      <Text style={{ color: muted, paddingBottom: 8 }}>Pick a past date</Text>
-      <NativeDatePicker value={selected} mode="date" maximumDate={today} display={process.env.EXPO_OS === 'ios' ? 'inline' : 'default'} presentation={process.env.EXPO_OS === 'android' ? 'dialog' : 'inline'} accentColor={accent} {...(process.env.EXPO_OS === 'ios' ? { themeVariant: 'dark' as const } : {})} onValueChange={(_, date) => select(date)} onDismiss={() => setOpen(false)} />
-      {process.env.EXPO_OS !== 'android' && <Choice title="Close date picker" selected={false} onPress={() => setOpen(false)} />}
-    </View>}
-  </View>;
+  );
 }

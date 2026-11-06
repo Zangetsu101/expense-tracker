@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { homeBalances, parseAccountId, resolveHomeAccount, watchHomeReopen } from './account-selection.ts';
+import {
+  homeBalances,
+  parseAccountId,
+  resolveHomeAccount,
+  watchHomeReopen,
+} from './account-selection.ts';
 
 const accounts = [
   { id: 1, name: 'Cash', currencyCode: 'BDT', isFavorite: 0 },
@@ -12,9 +17,21 @@ test('Home starts at the favorite, keeps explicit selections and recovers a miss
   assert.equal(resolveHomeAccount(accounts, 1), 1);
   assert.equal(resolveHomeAccount(accounts, null), null);
   assert.equal(resolveHomeAccount(accounts, 99), 2);
-  assert.equal(resolveHomeAccount(accounts.map((a) => ({ ...a, isFavorite: 0 })), undefined), null);
+  assert.equal(
+    resolveHomeAccount(
+      accounts.map((a) => ({ ...a, isFavorite: 0 })),
+      undefined,
+    ),
+    null,
+  );
   assert.equal(resolveHomeAccount([], undefined), null);
-  assert.equal(resolveHomeAccount(accounts.map((a) => ({ ...a, isFavorite: a.id === 1 ? 1 : 0 })), undefined), 1);
+  assert.equal(
+    resolveHomeAccount(
+      accounts.map((a) => ({ ...a, isFavorite: a.id === 1 ? 1 : 0 })),
+      undefined,
+    ),
+    1,
+  );
 });
 
 test('Account route context accepts a single positive safe integer only', () => {
@@ -24,16 +41,28 @@ test('Account route context accepts a single positive safe integer only', () => 
   }
 });
 
-
 test('Reopening resets to favorite, while tab focus and transient inactivity keep the selection', () => {
   let listener;
   let removed = false;
   let selected = 1;
   let resets = 0;
-  const stop = watchHomeReopen({
-    currentState: 'active',
-    addEventListener: (_, callback) => { listener = callback; return { remove: () => { removed = true; } }; },
-  }, () => { selected = resolveHomeAccount(accounts, undefined); resets++; });
+  const stop = watchHomeReopen(
+    {
+      currentState: 'active',
+      addEventListener: (_, callback) => {
+        listener = callback;
+        return {
+          remove: () => {
+            removed = true;
+          },
+        };
+      },
+    },
+    () => {
+      selected = resolveHomeAccount(accounts, undefined);
+      resets++;
+    },
+  );
   listener('active');
   listener('inactive');
   listener('active');
@@ -55,8 +84,15 @@ test('Reopening resets to favorite, while tab focus and transient inactivity kee
 });
 
 test('homeBalances scopes to the selected account', () => {
-  const rows = [{ id: 1, currencyCode: 'BDT', balanceMinor: 500 }, { id: 2, currencyCode: 'BDT', balanceMinor: -200 }, { id: 3, currencyCode: 'USD', balanceMinor: 100 }];
+  const rows = [
+    { id: 1, currencyCode: 'BDT', balanceMinor: 500 },
+    { id: 2, currencyCode: 'BDT', balanceMinor: -200 },
+    { id: 3, currencyCode: 'USD', balanceMinor: 100 },
+  ];
   assert.deepEqual(homeBalances(rows, 2), [{ currencyCode: 'BDT', balanceMinor: -200 }]);
-  assert.deepEqual(homeBalances(rows, null), [{ currencyCode: 'BDT', balanceMinor: 300 }, { currencyCode: 'USD', balanceMinor: 100 }]);
+  assert.deepEqual(homeBalances(rows, null), [
+    { currencyCode: 'BDT', balanceMinor: 300 },
+    { currencyCode: 'USD', balanceMinor: 100 },
+  ]);
   assert.deepEqual(homeBalances(rows, 9), []);
 });

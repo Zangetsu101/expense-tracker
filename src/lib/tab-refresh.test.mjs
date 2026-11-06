@@ -28,63 +28,140 @@ const mocks = {
 };
 const hooks = registerHooks({
   resolve(specifier, context, next) {
-    if (specifier === '@/components/form-controls') return { url: new URL('src/components/form-controls.tsx', root).href, shortCircuit: true };
+    if (specifier === '@/components/form-controls')
+      return { url: new URL('src/components/form-controls.tsx', root).href, shortCircuit: true };
     if (specifier in mocks) return { url: `tab-mock:${specifier}`, shortCircuit: true };
     if (specifier.startsWith('@/')) {
-      const path = specifier === '@/theme' ? 'src/theme.ts' : `${specifier.replace('@/', 'src/')}.ts`;
+      const path =
+        specifier === '@/theme' ? 'src/theme.ts' : `${specifier.replace('@/', 'src/')}.ts`;
       return { url: new URL(path, root).href, shortCircuit: true };
     }
-    return next(specifier, context.parentURL?.startsWith('tab-mock:') ? { ...context, parentURL: import.meta.url } : context);
+    return next(
+      specifier,
+      context.parentURL?.startsWith('tab-mock:')
+        ? { ...context, parentURL: import.meta.url }
+        : context,
+    );
   },
   load(url, context, next) {
-    if (url.startsWith('tab-mock:')) return { format: 'module', source: mocks[url.slice(9)], shortCircuit: true };
-    if (url.startsWith(root.href) && /\.tsx?$/.test(url)) return {
-      format: 'module', shortCircuit: true,
-      source: ts.transpileModule(readFileSync(new URL(url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX } }).outputText,
-    };
+    if (url.startsWith('tab-mock:'))
+      return { format: 'module', source: mocks[url.slice(9)], shortCircuit: true };
+    if (url.startsWith(root.href) && /\.tsx?$/.test(url))
+      return {
+        format: 'module',
+        shortCircuit: true,
+        source: ts.transpileModule(readFileSync(new URL(url), 'utf8'), {
+          compilerOptions: { module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX },
+        }).outputText,
+      };
     return next(url, context);
   },
 });
 
 const fixtures = {
-  home: {dailySummaries:[{date:20000,currencyCode:'USD',expenseMinor:500,incomeMinor:0}],rows:[{id:1,type:'EXPENSE',date:20000,amountMinor:500,currencyCode:'USD',accountName:'Cash',categoryName:'Lunch'}],summaries:[{currencyCode:'USD',expenseMinor:500,incomeMinor:1000}]},
-  accounts: [{id:1,name:'Cash',currencyCode:'USD',openingBalanceMinor:0,isFavorite:1}],
-  balances: [{id:1,name:'Cash',currencyCode:'USD',balanceMinor:1500}],
-  reports: {summaries:[{currencyCode:'USD',incomeMinor:1000,expenseMinor:500}],spending:[]},
-  categories: [{id:1,name:'Lunch',type:'EXPENSE',parentId:null}],
+  home: {
+    dailySummaries: [{ date: 20000, currencyCode: 'USD', expenseMinor: 500, incomeMinor: 0 }],
+    rows: [
+      {
+        id: 1,
+        type: 'EXPENSE',
+        date: 20000,
+        amountMinor: 500,
+        currencyCode: 'USD',
+        accountName: 'Cash',
+        categoryName: 'Lunch',
+      },
+    ],
+    summaries: [{ currencyCode: 'USD', expenseMinor: 500, incomeMinor: 1000 }],
+  },
+  accounts: [{ id: 1, name: 'Cash', currencyCode: 'USD', openingBalanceMinor: 0, isFavorite: 1 }],
+  balances: [{ id: 1, name: 'Cash', currencyCode: 'USD', balanceMinor: 1500 }],
+  reports: {
+    summaries: [{ currencyCode: 'USD', incomeMinor: 1000, expenseMinor: 500 }],
+    spending: [],
+  },
+  categories: [{ id: 1, name: 'Lunch', type: 'EXPENSE', parentId: null }],
 };
-const screens = await Promise.all(['(home)', 'accounts', 'reports', 'categories'].map(async name => [name, (await import(`../app/(tabs)/${name}/index.tsx`)).default]));
+const screens = await Promise.all(
+  ['(home)', 'accounts', 'reports', 'categories'].map(async (name) => [
+    name,
+    (await import(`../app/(tabs)/${name}/index.tsx`)).default,
+  ]),
+);
 let renderer;
-const texts = () => renderer.root.findAllByType('Text').map(n=>n.children.join(''));
-const snapshot = name => name === 'categories' ? renderer.root.findByType('CategoryBrowser').props.items : texts();
-const toggleFocus = async Screen => {await act(async()=>{state.focus++; renderer.update(React.createElement(Screen));});};
-test('tab refresh keeps loaded content stable', async t => {
-  t.afterEach(async()=>{await act(async()=>renderer?.unmount()); renderer=undefined;});
-  t.after(()=>{hooks.deregister(); delete globalThis.__tabRefreshTest; globalThis.IS_REACT_ACT_ENVIRONMENT=previousActEnvironment;});
-  for (const [name,Screen] of screens) await t.test(name, async()=>{
-    state.focus=0;
-    const initial=[];
-    state.read=key=>new Promise(resolve=>initial.push(()=>resolve(fixtures[key])));
-    await act(async()=>{renderer=create(React.createElement(Screen));});
-    assert.equal(renderer.root.findAllByType('ActivityIndicator').length,1,'first load still shows progress');
-    await act(async()=>initial.forEach(resolve=>resolve()));
-    const before=snapshot(name);
-    await toggleFocus(Screen);
-    const pending=[];
-    const updated={...fixtures, home:{...fixtures.home, rows:[]}, accounts:[], balances:[], reports:{summaries:[],spending:[]}, categories:[]};
-    state.read=key=>new Promise(resolve=>pending.push(()=>resolve(updated[key])));
-    await toggleFocus(Screen);
-    assert.ok(pending.length>0, 'returning to the tab still refreshes its data');
-    assert.deepEqual(snapshot(name),before,'loaded content must not disappear during a focus refresh');
-    assert.equal(renderer.root.findAllByType('ActivityIndicator').length,0,'refresh must not insert a spinner that shifts content');
-    await act(async()=>pending.forEach(resolve=>resolve()));
-    assert.notDeepEqual(snapshot(name),before,'fresh results, including empty results, replace the previous content');
-    const empty=snapshot(name);
-    await toggleFocus(Screen);
-    pending.length=0;
-    await toggleFocus(Screen);
-    assert.deepEqual(snapshot(name),empty,'an already empty screen stays stable during refresh too');
-    assert.equal(renderer.root.findAllByType('ActivityIndicator').length,0);
-    await act(async()=>pending.forEach(resolve=>resolve()));
+const texts = () => renderer.root.findAllByType('Text').map((n) => n.children.join(''));
+const snapshot = (name) =>
+  name === 'categories' ? renderer.root.findByType('CategoryBrowser').props.items : texts();
+const toggleFocus = async (Screen) => {
+  await act(async () => {
+    state.focus++;
+    renderer.update(React.createElement(Screen));
   });
+};
+test('tab refresh keeps loaded content stable', async (t) => {
+  t.afterEach(async () => {
+    await act(async () => renderer?.unmount());
+    renderer = undefined;
+  });
+  t.after(() => {
+    hooks.deregister();
+    delete globalThis.__tabRefreshTest;
+    globalThis.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+  });
+  for (const [name, Screen] of screens)
+    await t.test(name, async () => {
+      state.focus = 0;
+      const initial = [];
+      state.read = (key) => new Promise((resolve) => initial.push(() => resolve(fixtures[key])));
+      await act(async () => {
+        renderer = create(React.createElement(Screen));
+      });
+      assert.equal(
+        renderer.root.findAllByType('ActivityIndicator').length,
+        1,
+        'first load still shows progress',
+      );
+      await act(async () => initial.forEach((resolve) => resolve()));
+      const before = snapshot(name);
+      await toggleFocus(Screen);
+      const pending = [];
+      const updated = {
+        ...fixtures,
+        home: { ...fixtures.home, rows: [] },
+        accounts: [],
+        balances: [],
+        reports: { summaries: [], spending: [] },
+        categories: [],
+      };
+      state.read = (key) => new Promise((resolve) => pending.push(() => resolve(updated[key])));
+      await toggleFocus(Screen);
+      assert.ok(pending.length > 0, 'returning to the tab still refreshes its data');
+      assert.deepEqual(
+        snapshot(name),
+        before,
+        'loaded content must not disappear during a focus refresh',
+      );
+      assert.equal(
+        renderer.root.findAllByType('ActivityIndicator').length,
+        0,
+        'refresh must not insert a spinner that shifts content',
+      );
+      await act(async () => pending.forEach((resolve) => resolve()));
+      assert.notDeepEqual(
+        snapshot(name),
+        before,
+        'fresh results, including empty results, replace the previous content',
+      );
+      const empty = snapshot(name);
+      await toggleFocus(Screen);
+      pending.length = 0;
+      await toggleFocus(Screen);
+      assert.deepEqual(
+        snapshot(name),
+        empty,
+        'an already empty screen stays stable during refresh too',
+      );
+      assert.equal(renderer.root.findAllByType('ActivityIndicator').length, 0);
+      await act(async () => pending.forEach((resolve) => resolve()));
+    });
 });

@@ -37,14 +37,36 @@ const mocks = {
 const hooks = registerHooks({
   resolve(specifier, context, next) {
     if (specifier in mocks) return { url: `nav-mock:${specifier}`, shortCircuit: true };
-    if (specifier === '@/components/amount-calculator') return { url: new URL('src/components/amount-calculator.tsx', root).href, shortCircuit: true };
-    if (specifier === '@/components/entry-choices') return { url: new URL('src/components/entry-choices.tsx', root).href, shortCircuit: true };
-    if (specifier.startsWith('@/')) return { url: new URL(`${specifier.replace('@/', 'src/')}.ts`, root).href, shortCircuit: true };
-    return next(specifier, context.parentURL?.startsWith('nav-mock:') ? { ...context, parentURL: import.meta.url } : context);
+    if (specifier === '@/components/amount-calculator')
+      return {
+        url: new URL('src/components/amount-calculator.tsx', root).href,
+        shortCircuit: true,
+      };
+    if (specifier === '@/components/entry-choices')
+      return { url: new URL('src/components/entry-choices.tsx', root).href, shortCircuit: true };
+    if (specifier.startsWith('@/'))
+      return {
+        url: new URL(`${specifier.replace('@/', 'src/')}.ts`, root).href,
+        shortCircuit: true,
+      };
+    return next(
+      specifier,
+      context.parentURL?.startsWith('nav-mock:')
+        ? { ...context, parentURL: import.meta.url }
+        : context,
+    );
   },
   load(url, context, next) {
-    if (url.startsWith('nav-mock:')) return { format: 'module', source: mocks[url.slice(9)], shortCircuit: true };
-    if (url.startsWith(root.href) && /\.tsx?$/.test(url)) return { format: 'module', shortCircuit: true, source: ts.transpileModule(readFileSync(new URL(url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX } }).outputText };
+    if (url.startsWith('nav-mock:'))
+      return { format: 'module', source: mocks[url.slice(9)], shortCircuit: true };
+    if (url.startsWith(root.href) && /\.tsx?$/.test(url))
+      return {
+        format: 'module',
+        shortCircuit: true,
+        source: ts.transpileModule(readFileSync(new URL(url), 'utf8'), {
+          compilerOptions: { module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX },
+        }).outputText,
+      };
     return next(url, context);
   },
 });
@@ -53,14 +75,36 @@ const { default: Home } = await import('../app/(tabs)/(home)/index.tsx');
 const { default: Settings } = await import('../app/settings.tsx');
 const { default: QuickAdd } = await import('../app/quick-add.tsx');
 let renderer;
-const mount = async (Screen) => { state.calls = []; state.accountQueries = []; state.header = undefined; await act(async () => { renderer = create(React.createElement(Screen)); }); };
-const texts = (node = renderer.root) => node.findAllByType('Text').map(n => n.children.join(''));
-const pressable = (label, node = renderer.root) => node.findAllByType('Pressable').find(n => n.props.accessibilityLabel === label || texts(n).includes(label));
-const press = (label, node) => act(async () => { pressable(label, node).props.onPress(); });
-const headerPart = async (key) => { let part; await act(async () => { part = create(state.header[key]()); }); return part.root; };
+const mount = async (Screen) => {
+  state.calls = [];
+  state.accountQueries = [];
+  state.header = undefined;
+  await act(async () => {
+    renderer = create(React.createElement(Screen));
+  });
+};
+const texts = (node = renderer.root) => node.findAllByType('Text').map((n) => n.children.join(''));
+const pressable = (label, node = renderer.root) =>
+  node
+    .findAllByType('Pressable')
+    .find((n) => n.props.accessibilityLabel === label || texts(n).includes(label));
+const press = (label, node) =>
+  act(async () => {
+    pressable(label, node).props.onPress();
+  });
+const headerPart = async (key) => {
+  let part;
+  await act(async () => {
+    part = create(state.header[key]());
+  });
+  return part.root;
+};
 
-test('app navigation', async t => {
-  t.afterEach(async () => { await act(async () => renderer?.unmount()); delete state.accounts; });
+test('app navigation', async (t) => {
+  t.afterEach(async () => {
+    await act(async () => renderer?.unmount());
+    delete state.accounts;
+  });
   t.after(() => {
     hooks.deregister();
     delete globalThis.__navTest;
@@ -68,9 +112,12 @@ test('app navigation', async t => {
     else globalThis.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
   });
   await t.test('tabs are Home, Reports, Accounts and Categories with distinct icons', () => {
-    assert.deepEqual(appTabs.map(tab => tab.label), ['Home', 'Reports', 'Accounts', 'Categories']);
-    assert.equal(new Set(appTabs.map(tab => tab.md)).size, 4);
-    assert.equal(new Set(appTabs.map(tab => tab.sf)).size, 4);
+    assert.deepEqual(
+      appTabs.map((tab) => tab.label),
+      ['Home', 'Reports', 'Accounts', 'Categories'],
+    );
+    assert.equal(new Set(appTabs.map((tab) => tab.md)).size, 4);
+    assert.equal(new Set(appTabs.map((tab) => tab.sf)).size, 4);
   });
   await t.test('Home header opens Settings and the add button opens Quick add', async () => {
     await mount(Home);
@@ -79,46 +126,83 @@ test('app navigation', async t => {
     assert.ok(settings.props.style.minWidth >= 48 && settings.props.style.minHeight >= 48);
     await act(async () => settings.props.onPress());
     await press('Add transaction');
-    assert.deepEqual(state.calls, [['push', '/settings'], ['push', { pathname: '/quick-add', params: {} }]]);
+    assert.deepEqual(state.calls, [
+      ['push', '/settings'],
+      ['push', { pathname: '/quick-add', params: {} }],
+    ]);
   });
   await t.test('Home keeps Search all and drops the More list', async () => {
     await mount(Home);
     const shown = texts();
     assert.ok(shown.includes('Search all'));
-    for (const old of ['More', 'Transfer between accounts', 'Manage categories', 'Manage accounts', 'Reports', 'Review transfer candidates', 'Import, export and backup']) assert.ok(!shown.includes(old), old);
+    for (const old of [
+      'More',
+      'Transfer between accounts',
+      'Manage categories',
+      'Manage accounts',
+      'Reports',
+      'Review transfer candidates',
+      'Import, export and backup',
+    ])
+      assert.ok(!shown.includes(old), old);
   });
-  await t.test('Home starts at favorite, scopes Add, keeps All accounts and resets on reopening', async () => {
-    state.accounts = [{ id: 1, name: 'Cash', currencyCode: 'BDT', isFavorite: 0 }, { id: 2, name: 'Bank', currencyCode: 'BDT', isFavorite: 1 }];
-    await mount(Home);
-    const picker = () => renderer.root.findByType('HomeAccountPicker');
-    assert.equal(picker().props.selectedId, 2);
-    assert.equal(state.accountQueries.at(-1), 2);
-    await act(async () => picker().props.onSelect(1));
-    await press('Add transaction');
-    assert.deepEqual(state.calls.at(-1), ['push', { pathname: '/quick-add', params: { accountId: '1' } }]);
-    assert.ok(texts().includes('Search account'));
-    await act(async () => picker().props.onSelect(null));
-    assert.equal(picker().props.selectedId, null);
-    assert.equal(state.accountQueries.at(-1), null);
-    await act(async () => { state.lifecycle('inactive'); state.lifecycle('active'); });
-    assert.equal(picker().props.selectedId, null);
-    await act(async () => { state.lifecycle('background'); state.lifecycle('active'); });
-    assert.equal(picker().props.selectedId, 2);
-    assert.equal(state.accountQueries.at(-1), 2);
-  });
+  await t.test(
+    'Home starts at favorite, scopes Add, keeps All accounts and resets on reopening',
+    async () => {
+      state.accounts = [
+        { id: 1, name: 'Cash', currencyCode: 'BDT', isFavorite: 0 },
+        { id: 2, name: 'Bank', currencyCode: 'BDT', isFavorite: 1 },
+      ];
+      await mount(Home);
+      const picker = () => renderer.root.findByType('HomeAccountPicker');
+      assert.equal(picker().props.selectedId, 2);
+      assert.equal(state.accountQueries.at(-1), 2);
+      await act(async () => picker().props.onSelect(1));
+      await press('Add transaction');
+      assert.deepEqual(state.calls.at(-1), [
+        'push',
+        { pathname: '/quick-add', params: { accountId: '1' } },
+      ]);
+      assert.ok(texts().includes('Search account'));
+      await act(async () => picker().props.onSelect(null));
+      assert.equal(picker().props.selectedId, null);
+      assert.equal(state.accountQueries.at(-1), null);
+      await act(async () => {
+        state.lifecycle('inactive');
+        state.lifecycle('active');
+      });
+      assert.equal(picker().props.selectedId, null);
+      await act(async () => {
+        state.lifecycle('background');
+        state.lifecycle('active');
+      });
+      assert.equal(picker().props.selectedId, 2);
+      assert.equal(state.accountQueries.at(-1), 2);
+    },
+  );
   await t.test('Settings opens data tools and the Review Queue', async () => {
     await mount(Settings);
     assert.equal(renderer.root.findAllByType('RunningRelease').length, 1);
     await press('Import, export and backup');
     await press('Review transfer candidates');
-    assert.deepEqual(state.calls, [['push', '/data-tools'], ['push', '/review-queue']]);
+    assert.deepEqual(state.calls, [
+      ['push', '/data-tools'],
+      ['push', '/review-queue'],
+    ]);
   });
-  await t.test('Quick add centers its title and offers Cancel with transfer in the mode selector', async () => {
-    await mount(QuickAdd);
-    await press('Cancel', await headerPart('headerLeft'));
-    assert.equal(state.header.headerTitleAlign, 'center');
-    assert.equal(state.header.headerRight, undefined);
-    assert.ok(renderer.root.findAllByType('JoinedChoice')[0].props.options.some(option => option.value === 'TRANSFER'));
-    assert.deepEqual(state.calls, [['back']]);
-  });
+  await t.test(
+    'Quick add centers its title and offers Cancel with transfer in the mode selector',
+    async () => {
+      await mount(QuickAdd);
+      await press('Cancel', await headerPart('headerLeft'));
+      assert.equal(state.header.headerTitleAlign, 'center');
+      assert.equal(state.header.headerRight, undefined);
+      assert.ok(
+        renderer.root
+          .findAllByType('JoinedChoice')[0]
+          .props.options.some((option) => option.value === 'TRANSFER'),
+      );
+      assert.deepEqual(state.calls, [['back']]);
+    },
+  );
 });

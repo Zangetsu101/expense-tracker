@@ -10,13 +10,19 @@ const root = dirname(fileURLToPath(import.meta.url));
 const sql = new DatabaseSync(':memory:');
 let importCsv = '';
 const adapter = {
-  async execAsync(query) { sql.exec(query); },
+  async execAsync(query) {
+    sql.exec(query);
+  },
   async runAsync(query, args = []) {
     const result = sql.prepare(query).run(...args);
     return { lastInsertRowId: Number(result.lastInsertRowid), changes: Number(result.changes) };
   },
-  async getAllAsync(query, args = []) { return sql.prepare(query).all(...args); },
-  async getFirstAsync(query, args = []) { return sql.prepare(query).get(...args) ?? null; },
+  async getAllAsync(query, args = []) {
+    return sql.prepare(query).all(...args);
+  },
+  async getFirstAsync(query, args = []) {
+    return sql.prepare(query).get(...args) ?? null;
+  },
   async withExclusiveTransactionAsync(callback) {
     sql.exec('SAVEPOINT backup_test');
     try {
@@ -31,19 +37,55 @@ const adapter = {
 };
 registerHooks({
   resolve(specifier, context, nextResolve) {
-    const mocks = { 'expo-sqlite': 'sqlite', 'expo-document-picker': 'picker', 'expo-file-system/legacy': 'legacy', 'expo-file-system': 'file' };
+    const mocks = {
+      'expo-sqlite': 'sqlite',
+      'expo-document-picker': 'picker',
+      'expo-file-system/legacy': 'legacy',
+      'expo-file-system': 'file',
+    };
     if (mocks[specifier]) return { url: `test:${mocks[specifier]}`, shortCircuit: true };
-    const path = specifier.startsWith('@/lib/') ? resolve(root, specifier.slice(6)) :
-      specifier.startsWith('.') && context.parentURL?.endsWith('.ts') ? resolve(dirname(fileURLToPath(context.parentURL)), specifier) : null;
-    if (path) return nextResolve(pathToFileURL(path.endsWith('.ts') ? path : `${path}.ts`).href, context);
+    const path = specifier.startsWith('@/lib/')
+      ? resolve(root, specifier.slice(6))
+      : specifier.startsWith('.') && context.parentURL?.endsWith('.ts')
+        ? resolve(dirname(fileURLToPath(context.parentURL)), specifier)
+        : null;
+    if (path)
+      return nextResolve(pathToFileURL(path.endsWith('.ts') ? path : `${path}.ts`).href, context);
     return nextResolve(specifier, context);
   },
   load(url, context, nextLoad) {
-    if (url === 'test:sqlite') return { format: 'module', source: 'export const openDatabaseAsync = async () => globalThis.__backupDb;', shortCircuit: true };
-    if (url === 'test:picker') return { format: 'module', source: 'export const getDocumentAsync = async () => ({ canceled: false, assets: [{ uri: "test:csv" }] });', shortCircuit: true };
-    if (url === 'test:legacy') return { format: 'module', source: 'export const StorageAccessFramework = {}; export const writeAsStringAsync = async () => {};', shortCircuit: true };
-    if (url === 'test:file') return { format: 'module', source: 'export class File { async text() { return globalThis.__backupCsv(); } }', shortCircuit: true };
-    if (url.endsWith('.ts')) return { format: 'module', source: stripTypeScriptTypes(readFileSync(fileURLToPath(url), 'utf8')), shortCircuit: true };
+    if (url === 'test:sqlite')
+      return {
+        format: 'module',
+        source: 'export const openDatabaseAsync = async () => globalThis.__backupDb;',
+        shortCircuit: true,
+      };
+    if (url === 'test:picker')
+      return {
+        format: 'module',
+        source:
+          'export const getDocumentAsync = async () => ({ canceled: false, assets: [{ uri: "test:csv" }] });',
+        shortCircuit: true,
+      };
+    if (url === 'test:legacy')
+      return {
+        format: 'module',
+        source:
+          'export const StorageAccessFramework = {}; export const writeAsStringAsync = async () => {};',
+        shortCircuit: true,
+      };
+    if (url === 'test:file')
+      return {
+        format: 'module',
+        source: 'export class File { async text() { return globalThis.__backupCsv(); } }',
+        shortCircuit: true,
+      };
+    if (url.endsWith('.ts'))
+      return {
+        format: 'module',
+        source: stripTypeScriptTypes(readFileSync(fileURLToPath(url), 'utf8')),
+        shortCircuit: true,
+      };
     return nextLoad(url, context);
   },
 });
@@ -55,9 +97,25 @@ const { importMoneyLoverFile } = await import('./import-csv.ts');
 const { decodeBackup, encodeBackup, restoreBackup } = await import('./backup.ts');
 await database();
 
-const tables = ['accounts', 'categories', 'transactions', 'line_items', 'tags', 'transaction_tags', 'transfer_candidates', 'moneylover_import_rows', 'app_settings', 'people', 'lending_entries'];
-function state() { return tables.map((table) => sql.prepare(`SELECT * FROM ${table} ORDER BY 1`).all()); }
-function insert(query, ...values) { sql.prepare(query).run(...values); }
+const tables = [
+  'accounts',
+  'categories',
+  'transactions',
+  'line_items',
+  'tags',
+  'transaction_tags',
+  'transfer_candidates',
+  'moneylover_import_rows',
+  'app_settings',
+  'people',
+  'lending_entries',
+];
+function state() {
+  return tables.map((table) => sql.prepare(`SELECT * FROM ${table} ORDER BY 1`).all());
+}
+function insert(query, ...values) {
+  sql.prepare(query).run(...values);
+}
 function replaceDocument(data) {
   return restoreBackup(backupStore, {
     pickJsonDocument: async () => 'content://synthetic-backup',
@@ -66,28 +124,60 @@ function replaceDocument(data) {
 }
 
 test('SQLite snapshot and replace retain imported Accounts, Categories, Transfers, queue, keys, tags and Line Items', async () => {
-  insert("INSERT INTO accounts (id, name, currencyCode, openingBalanceMinor, isFavorite) VALUES (10, 'Wallet', 'BDT', 12000, 1)");
+  insert(
+    "INSERT INTO accounts (id, name, currencyCode, openingBalanceMinor, isFavorite) VALUES (10, 'Wallet', 'BDT', 12000, 1)",
+  );
   insert("INSERT INTO accounts (id, name, currencyCode) VALUES (11, 'Bank', 'BDT')");
   insert("INSERT INTO categories (id, name, type, iconKey) VALUES (20, 'Food', 'EXPENSE', 'food')");
-  insert("INSERT INTO categories (id, name, type, parentId, needsReview) VALUES (21, 'Lunch', 'EXPENSE', 20, 1)");
-  insert("INSERT INTO transactions (id, type, amountMinor, date, accountId, transferAccountId, source) VALUES (30, 'TRANSFER', 500, 20120, 10, 11, 'IMPORT')");
-  insert("INSERT INTO transactions (id, type, amountMinor, date, accountId, categoryId, note, excludeFromReport, source) VALUES (31, 'EXPENSE', 275, 20121, 10, 21, 'synthetic lunch', 1, 'IMPORT')");
-  insert("INSERT INTO transactions (id, type, amountMinor, date, accountId, source) VALUES (32, 'INCOME', 275, 20121, 11, 'IMPORT')");
-  insert("INSERT INTO line_items (id, transactionId, name, amountMinor, quantity) VALUES (40, 31, 'Rice', 275, 2.5)");
+  insert(
+    "INSERT INTO categories (id, name, type, parentId, needsReview) VALUES (21, 'Lunch', 'EXPENSE', 20, 1)",
+  );
+  insert(
+    "INSERT INTO transactions (id, type, amountMinor, date, accountId, transferAccountId, source) VALUES (30, 'TRANSFER', 500, 20120, 10, 11, 'IMPORT')",
+  );
+  insert(
+    "INSERT INTO transactions (id, type, amountMinor, date, accountId, categoryId, note, excludeFromReport, source) VALUES (31, 'EXPENSE', 275, 20121, 10, 21, 'synthetic lunch', 1, 'IMPORT')",
+  );
+  insert(
+    "INSERT INTO transactions (id, type, amountMinor, date, accountId, source) VALUES (32, 'INCOME', 275, 20121, 11, 'IMPORT')",
+  );
+  insert(
+    "INSERT INTO line_items (id, transactionId, name, amountMinor, quantity) VALUES (40, 31, 'Rice', 275, 2.5)",
+  );
   insert("INSERT INTO tags (id, name) VALUES (50, 'sample')");
   insert('INSERT INTO transaction_tags (transactionId, tagId) VALUES (31, 50)');
-  insert("INSERT INTO transfer_candidates (id, outgoingTxnId, incomingTxnId, confidenceNote, resolved) VALUES (60, 31, 32, 'weak match', 0)");
-  for (const [key, id] of [['outgoing-leg', 30], ['incoming-leg', 30], ['expense-leg', 31], ['income-leg', 32]]) {
+  insert(
+    "INSERT INTO transfer_candidates (id, outgoingTxnId, incomingTxnId, confidenceNote, resolved) VALUES (60, 31, 32, 'weak match', 0)",
+  );
+  for (const [key, id] of [
+    ['outgoing-leg', 30],
+    ['incoming-leg', 30],
+    ['expense-leg', 31],
+    ['income-leg', 32],
+  ]) {
     insert('INSERT INTO moneylover_import_rows (rowKey, transactionId) VALUES (?, ?)', key, id);
   }
-  insert("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('backupSettings', ?)", JSON.stringify({ favoriteAccountId: 10, displayRate: { base: 'BDT', quote: 'USD', rate: 0.01 } }));
+  insert(
+    "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('backupSettings', ?)",
+    JSON.stringify({
+      favoriteAccountId: 10,
+      displayRate: { base: 'BDT', quote: 'USD', rate: 0.01 },
+    }),
+  );
   const original = await backupStore.snapshot();
   const json = encodeBackup(original);
   assert.equal(original.categories.find((row) => row.id === 21).parentId, 20);
-  assert.deepEqual(original.moneyLoverImportRows.filter((row) => row.transactionId === 30).map((row) => row.rowKey), ['incoming-leg', 'outgoing-leg']);
+  assert.deepEqual(
+    original.moneyLoverImportRows
+      .filter((row) => row.transactionId === 30)
+      .map((row) => row.rowKey),
+    ['incoming-leg', 'outgoing-leg'],
+  );
   assert.equal(original.transactions.find((row) => row.id === 31).excludeFromReport, true);
   const before = state();
-  insert("INSERT INTO transactions (id, type, amountMinor, date, accountId) VALUES (99, 'EXPENSE', 1, 20122, 10)");
+  insert(
+    "INSERT INTO transactions (id, type, amountMinor, date, accountId) VALUES (99, 'EXPENSE', 1, 20122, 10)",
+  );
   await replaceDocument(decodeBackup(json));
   assert.deepEqual(state(), before);
   assert.deepEqual(await backupStore.snapshot(), original);
@@ -104,9 +194,13 @@ test('MoneyLover importer output survives SQLite backup and restore', async () =
   assert.equal(await importMoneyLoverFile(), 3);
   const original = await backupStore.snapshot();
   assert.equal(original.moneyLoverImportRows.length, 8);
-  assert.ok(original.transactions.some((row) => row.type === 'TRANSFER' && row.amountMinor === 1000));
+  assert.ok(
+    original.transactions.some((row) => row.type === 'TRANSFER' && row.amountMinor === 1000),
+  );
   const before = state();
-  insert("INSERT INTO transactions (type, amountMinor, date, accountId) VALUES ('EXPENSE', 1, 20122, 10)");
+  insert(
+    "INSERT INTO transactions (type, amountMinor, date, accountId) VALUES ('EXPENSE', 1, 20122, 10)",
+  );
   await replaceDocument(decodeBackup(encodeBackup(original)));
   assert.deepEqual(state(), before);
   assert.equal(await importMoneyLoverFile(), 0);
@@ -122,12 +216,30 @@ test('lending links, write-offs and people survive restore and keyed reimport wi
   const person = await lending.createPerson('Synthetic person');
   const [historical] = await lending.listUnassignedLendingTransactions();
   await lending.assignLendingTransaction(historical.transactionId, person.id);
-  await lending.saveLendingEntry({ personId: person.id, kind: 'WRITE_OFF_LENT', amountMinor: 100, date: 20150, currencyCode: 'BDT', note: 'synthetic waiver' });
+  await lending.saveLendingEntry({
+    personId: person.id,
+    kind: 'WRITE_OFF_LENT',
+    amountMinor: 100,
+    date: 20150,
+    currencyCode: 'BDT',
+    note: 'synthetic waiver',
+  });
   const { loadEditableTransaction, saveTransactionEdit } = await import('./transaction-edit.ts');
-  await saveTransactionEdit(await loadEditableTransaction(historical.transactionId), 'edited principal note', false, '');
+  await saveTransactionEdit(
+    await loadEditableTransaction(historical.transactionId),
+    'edited principal note',
+    false,
+    '',
+  );
   const original = await backupStore.snapshot();
-  assert.equal(original.lendingEntries.find(entry => entry.transactionId === historical.transactionId).note, 'edited principal note');
-  assert.deepEqual(original.people.map(row => ({ ...row })), [person]);
+  assert.equal(
+    original.lendingEntries.find((entry) => entry.transactionId === historical.transactionId).note,
+    'edited principal note',
+  );
+  assert.deepEqual(
+    original.people.map((row) => ({ ...row })),
+    [person],
+  );
   assert.equal(original.lendingEntries.length, 2);
   await replaceDocument(decodeBackup(encodeBackup(original)));
   assert.deepEqual(await backupStore.snapshot(), original);
@@ -140,37 +252,76 @@ test('assigned principal on either legacy transfer leg cannot be merged or lose 
   const lending = await import('./lending.ts');
   const { confirmCandidate, listReviewCandidates } = await import('./review-queue.ts');
   const person = await lending.createPerson('Legacy queue person');
-  for (const [kind, category, signedAmount, otherCategory] of [['LEND', 'Loan', -42, 'Salary'], ['BORROW', 'Debt', 43, 'Food']]) {
+  for (const [kind, category, signedAmount, otherCategory] of [
+    ['LEND', 'Loan', -42, 'Salary'],
+    ['BORROW', 'Debt', 43, 'Food'],
+  ]) {
     const note = `synthetic legacy ${kind}`;
-    importCsv = ['Id,Note,Amount,Category,Account,Currency,Date,Event,Exclude Report',
+    importCsv = [
+      'Id,Note,Amount,Category,Account,Currency,Date,Event,Exclude Report',
       `901,${note},${signedAmount},${category},Wallet,BDT,01/04/2025,,false`,
-      `902,synthetic counterpart,${-signedAmount},${otherCategory},Bank,BDT,01/04/2025,,false`].join('\n');
+      `902,synthetic counterpart,${-signedAmount},${otherCategory},Bank,BDT,01/04/2025,,false`,
+    ].join('\n');
     assert.equal(await importMoneyLoverFile(), 2);
-    const principal = (await lending.listUnassignedLendingTransactions()).find(row => row.note === note);
-    const counterpart = sql.prepare('SELECT id FROM transactions WHERE amountMinor = ? AND note = ?').get(Math.abs(signedAmount) * 100, 'synthetic counterpart');
-    const legs = kind === 'LEND' ? [principal.transactionId, counterpart.id] : [counterpart.id, principal.transactionId];
-    const candidate = await adapter.runAsync('INSERT INTO transfer_candidates (outgoingTxnId, incomingTxnId, confidenceNote) VALUES (?, ?, ?)', [...legs, 'Synthetic legacy candidate']);
+    const principal = (await lending.listUnassignedLendingTransactions()).find(
+      (row) => row.note === note,
+    );
+    const counterpart = sql
+      .prepare('SELECT id FROM transactions WHERE amountMinor = ? AND note = ?')
+      .get(Math.abs(signedAmount) * 100, 'synthetic counterpart');
+    const legs =
+      kind === 'LEND'
+        ? [principal.transactionId, counterpart.id]
+        : [counterpart.id, principal.transactionId];
+    const candidate = await adapter.runAsync(
+      'INSERT INTO transfer_candidates (outgoingTxnId, incomingTxnId, confidenceNote) VALUES (?, ?, ?)',
+      [...legs, 'Synthetic legacy candidate'],
+    );
     await lending.assignLendingTransaction(principal.transactionId, person.id);
-    assert.ok(!(await listReviewCandidates()).some(row => row.id === candidate.lastInsertRowId));
+    assert.ok(!(await listReviewCandidates()).some((row) => row.id === candidate.lastInsertRowId));
     await assert.rejects(confirmCandidate(candidate.lastInsertRowId));
     // A stale/unresolved candidate must also be rejected at the mutation boundary.
-    sql.prepare('UPDATE transfer_candidates SET resolved = 0 WHERE id = ?').run(candidate.lastInsertRowId);
+    sql
+      .prepare('UPDATE transfer_candidates SET resolved = 0 WHERE id = ?')
+      .run(candidate.lastInsertRowId);
     const before = await backupStore.snapshot();
     await assert.rejects(confirmCandidate(candidate.lastInsertRowId), /principal|lending/i);
     assert.deepEqual(await backupStore.snapshot(), before);
     await replaceDocument(decodeBackup(encodeBackup(before)));
-    assert.ok((await lending.listLendingEntries(person.id)).some(row => row.transactionId === principal.transactionId && row.kind === kind));
+    assert.ok(
+      (await lending.listLendingEntries(person.id)).some(
+        (row) => row.transactionId === principal.transactionId && row.kind === kind,
+      ),
+    );
   }
 });
 
 test('native v1 fixture restores into SQLite without import keys', async () => {
-  const native = readFileSync(new URL('../../scripts/fixtures/native-shaped-backup-v1.json', import.meta.url), 'utf8');
+  const native = readFileSync(
+    new URL('../../scripts/fixtures/native-shaped-backup-v1.json', import.meta.url),
+    'utf8',
+  );
   const data = decodeBackup(native);
   assert.equal(data.moneyLoverImportRows, undefined);
   await replaceDocument(data);
   const restored = await backupStore.snapshot();
-  for (const key of ['accounts', 'categories', 'transactions', 'lineItems', 'tags', 'transactionTags', 'transferCandidates', 'settings']) {
-    const expected = Array.isArray(data[key]) ? [...data[key]].sort((a, b) => key === 'transactionTags' ? a.transactionId - b.transactionId || a.tagId - b.tagId : a.id - b.id) : data[key];
+  for (const key of [
+    'accounts',
+    'categories',
+    'transactions',
+    'lineItems',
+    'tags',
+    'transactionTags',
+    'transferCandidates',
+    'settings',
+  ]) {
+    const expected = Array.isArray(data[key])
+      ? [...data[key]].sort((a, b) =>
+          key === 'transactionTags'
+            ? a.transactionId - b.transactionId || a.tagId - b.tagId
+            : a.id - b.id,
+        )
+      : data[key];
     assert.deepEqual(restored[key], expected, key);
   }
   assert.deepEqual(restored.moneyLoverImportRows, []);
@@ -181,9 +332,17 @@ test('native v1 fixture restores into SQLite without import keys', async () => {
 test('failed SQLite replacement rolls back every table including settings and import keys', async () => {
   const before = state();
   const data = await backupStore.snapshot();
-  data.accounts.push({ id: 999, name: 'New', currencyCode: 'BDT', openingBalanceMinor: 0, isFavorite: false });
+  data.accounts.push({
+    id: 999,
+    name: 'New',
+    currencyCode: 'BDT',
+    openingBalanceMinor: 0,
+    isFavorite: false,
+  });
   data.moneyLoverImportRows = [{ rowKey: 'new-key', transactionId: data.transactions[0].id }];
-  sql.exec("CREATE TRIGGER fail_backup BEFORE INSERT ON moneylover_import_rows BEGIN SELECT RAISE(ABORT, 'forced backup failure'); END");
+  sql.exec(
+    "CREATE TRIGGER fail_backup BEFORE INSERT ON moneylover_import_rows BEGIN SELECT RAISE(ABORT, 'forced backup failure'); END",
+  );
   try {
     await assert.rejects(backupStore.replace(data), /forced backup failure/);
     assert.deepEqual(state(), before);

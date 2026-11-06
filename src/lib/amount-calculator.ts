@@ -1,13 +1,18 @@
 /** Evaluate basic arithmetic and round the final result to currency precision. */
 export function calculateAmount(expression: string): string {
-  const source = expression.replace(/\s/g, '').replaceAll('×', '*').replaceAll('÷', '/').replaceAll('−', '-');
+  const source = expression
+    .replace(/\s/g, '')
+    .replaceAll('×', '*')
+    .replaceAll('÷', '/')
+    .replaceAll('−', '-');
   const tokens = source.match(/(?:\d+(?:\.\d*)?|\.\d+)|[+*/-]/g) ?? [];
   if (!source || tokens.join('') !== source) throw new Error('Enter a complete calculation.');
   let index = 0;
   function number(): number {
     const sign = tokens[index] === '-' ? (index++, -1) : 1;
     const token = tokens[index++];
-    if (!token || !/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(token)) throw new Error('Enter a complete calculation.');
+    if (!token || !/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(token))
+      throw new Error('Enter a complete calculation.');
     return sign * Number(token);
   }
   function term(): number {

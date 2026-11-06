@@ -1,7 +1,14 @@
 import { useCallback, useState } from 'react';
 import { Stack, useFocusEffect } from 'expo-router';
 import { ActivityIndicator, Alert, FlatList, Text, View } from 'react-native';
-import { BottomSheet, Button, Column, Host, ScrollView as NativeScrollView, Text as NativeText } from '@expo/ui';
+import {
+  BottomSheet,
+  Button,
+  Column,
+  Host,
+  ScrollView as NativeScrollView,
+  Text as NativeText,
+} from '@expo/ui';
 import {
   assignLendingTransaction,
   listPeople,
@@ -48,7 +55,9 @@ export default function UnassignedScreen() {
     setError('');
     setSelected(undefined);
     try {
-      const result = await assignLendingTransaction(row.transactionId, person.id, { confirmOverpayment: confirmed });
+      const result = await assignLendingTransaction(row.transactionId, person.id, {
+        confirmOverpayment: confirmed,
+      });
       if (result.status === 'confirmation_required')
         Alert.alert(
           'Overpayment warning',
@@ -78,9 +87,9 @@ export default function UnassignedScreen() {
         ListHeaderComponent={
           <View style={{ gap: 16 }}>
             <Text style={{ color: c.muted }}>
-              Assign only when you know the person. This links the existing historical Transaction without creating
-              another Account movement. Missing people are never guessed; balances remain incomplete until history is
-              reconciled.
+              Assign only when you know the person. This links the existing historical Transaction
+              without creating another Account movement. Missing people are never guessed; balances
+              remain incomplete until history is reconciled.
             </Text>
             {loading && <ActivityIndicator color={c.accent} />}
             {!!error && (
@@ -95,7 +104,9 @@ export default function UnassignedScreen() {
               <Text style={{ color: c.text }}>No unassigned historical lending entries.</Text>
             )}
             {!loading && people.length === 0 && (
-              <Text style={{ color: c.muted }}>Save a person in Lending & borrowing before assigning history.</Text>
+              <Text style={{ color: c.muted }}>
+                Save a person in Lending & borrowing before assigning history.
+              </Text>
             )}
           </View>
         }
@@ -103,9 +114,12 @@ export default function UnassignedScreen() {
           <View style={{ backgroundColor: c.surface, padding: 16, borderRadius: 16, gap: 8 }}>
             <Text selectable style={{ color: c.text }}>
               {
-                { LEND: 'Lent', BORROW: 'Borrowed', RECEIVE_REPAYMENT: 'Repayment received', REPAY: 'Repaid' }[
-                  item.kind
-                ]
+                {
+                  LEND: 'Lent',
+                  BORROW: 'Borrowed',
+                  RECEIVE_REPAYMENT: 'Repayment received',
+                  REPAY: 'Repaid',
+                }[item.kind]
               }{' '}
               · {(item.amountMinor / 100).toFixed(2)} {item.currencyCode}
             </Text>
@@ -127,7 +141,11 @@ export default function UnassignedScreen() {
         )}
       />
       <Host>
-        <BottomSheet isPresented={!!selected} onDismiss={() => setSelected(undefined)} snapPoints={['half', 'full']}>
+        <BottomSheet
+          isPresented={!!selected}
+          onDismiss={() => setSelected(undefined)}
+          snapPoints={['half', 'full']}
+        >
           <NativeScrollView>
             <Column>
               <NativeText>Choose the known person</NativeText>
