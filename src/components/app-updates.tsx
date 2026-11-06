@@ -202,6 +202,20 @@ export function UpdatesRow() {
           >
             {description}
           </Text>
+          <View
+            style={{
+              position: 'absolute',
+              bottom: -5,
+              right: 12 * fontScale - 5,
+              width: 10,
+              height: 10,
+              backgroundColor: theme.colors.raised,
+              borderRightWidth: 1,
+              borderBottomWidth: 1,
+              borderColor: theme.colors.line,
+              transform: [{ rotate: '45deg' }],
+            }}
+          />
         </View>
       )}
     </View>
