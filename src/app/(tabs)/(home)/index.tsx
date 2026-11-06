@@ -1,16 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, Stack, router, useFocusEffect } from 'expo-router';
+import { Link, Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { AppState, FlatList, Pressable, Text, View } from 'react-native';
+import { FlatList, Pressable, Text, View } from 'react-native';
 import { SymbolView } from 'expo-symbols';
-import { homeData, type DailySummary, type HomeTransaction } from '@/lib/home-data';
-import type { MonthlySummary } from '@/lib/reports';
 import { formatActivityDay, formatBalance, formatMoney, transactionTitle } from '@/lib/transaction-format';
 import { Skeleton } from '@/components/loading';
 import { HomeAccountPicker } from '@/components/home-account-picker';
-import { listAccounts, type Account } from '@/lib/database';
-import { homeBalances, resolveHomeAccount, watchHomeReopen, type CurrencyBalance } from '@/lib/account-selection';
-import { accountBalances } from '@/lib/reports';
+import type { CurrencyBalance } from '@/lib/account-selection';
+import { useHome } from '@/lib/use-home';
 import { theme } from '@/theme';
 
 const colors = { ...theme.colors, panel: theme.colors.surface };
@@ -20,43 +16,13 @@ function BalanceAmount({ balance, fontSize }: { balance: CurrencyBalance; fontSi
 }
 
 export default function HomeScreen() {
-  const selection = useRef<number | null | undefined>(undefined);
-  const [accountId, setAccountId] = useState<number | null>(null);
-  const [displayedAccountId, setDisplayedAccountId] = useState<number | null>(null);
-  const [accountsReady, setAccountsReady] = useState(false);
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [revision, setRevision] = useState(0);
-  useEffect(() => watchHomeReopen(AppState, () => {
-    selection.current = undefined;
-    setRevision((value) => value + 1);
-  }), []);
-  const [rows, setRows] = useState<HomeTransaction[]>([]);
-  const [balances, setBalances] = useState<CurrencyBalance[]>([]);
-  const [summaries, setSummaries] = useState<MonthlySummary[]>([]);
-  const [dailySummaries, setDailySummaries] = useState<DailySummary[]>([]);
-  const [error, setError] = useState<string>();
-  const [loading, setLoading] = useState(true);
-  const [loaded, setLoaded] = useState(false);
-  const load = useCallback(() => {
-    let active = true;
-    setLoading(true);
-    setError(undefined);
-    listAccounts().then(async (items) => {
-      const id = resolveHomeAccount(items, selection.current);
-      if (!active) return;
-      selection.current = id;
-      setAccountId(id); setAccounts(items); setAccountsReady(true);
-      const [result, totals] = await Promise.all([homeData(new Date(), id), accountBalances()]);
-      if (active) {
-        setDisplayedAccountId(id);
-        setBalances(homeBalances(totals, id)); setRows(result.rows); setSummaries(result.summaries); setDailySummaries(result.dailySummaries); setLoaded(true);
-      }
-    }).catch((e) => { if (active) setError(String(e)); }).finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  // Revision reloads the focused view after selection, reopening, or retry.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [revision]);
-  useFocusEffect(load);
+  const { accounts, accountsReady, accountId, snapshot, loading, error, retry, selectAccount } = useHome();
+  const loaded = !!snapshot;
+  const displayedAccountId = snapshot?.accountId ?? null;
+  const rows = snapshot?.rows ?? [];
+  const balances = snapshot?.balances ?? [];
+  const summaries = snapshot?.summaries ?? [];
+  const dailySummaries = snapshot?.dailySummaries ?? [];
   const changingAccount = loaded && accountId !== displayedAccountId;
   return <View style={{ flex: 1, backgroundColor: colors.background }}>
     <Stack.Screen options={{ headerRight: () => <Pressable onPress={() => router.push('/settings')} accessibilityRole="button" accessibilityLabel="Settings" style={{ minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center' }}><SymbolView name={{ ios: 'gearshape', android: 'settings' }} size={26} tintColor={colors.text} /></Pressable> }} />
@@ -64,7 +30,7 @@ export default function HomeScreen() {
     <FlatList contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: 20, paddingBottom: 100 }}
       data={rows} keyExtractor={(row) => String(row.id)}
       ListHeaderComponent={<View style={{ gap: 20, paddingBottom: 12 }}>
-        <HomeAccountPicker accounts={accounts} selectedId={accountId} loading={loading} unavailable={!accountsReady} error={loaded && !!error} onRetry={() => setRevision((value) => value + 1)} onSelect={(id) => { selection.current = id; setAccountId(id); setLoading(true); setError(undefined); setRevision((value) => value + 1); }} />
+        <HomeAccountPicker accounts={accounts} selectedId={accountId} loading={loading} unavailable={!accountsReady} error={loaded && !!error} onRetry={retry} onSelect={selectAccount} />
         <View pointerEvents={changingAccount ? 'none' : 'auto'} accessibilityElementsHidden={changingAccount} importantForAccessibility={changingAccount ? 'no-hide-descendants' : 'auto'} style={{ gap: 20, opacity: changingAccount ? 0.4 : 1 }}>
           <View style={{ backgroundColor: colors.panel, borderRadius: 16, borderCurve: 'continuous', padding: 18, gap: 12 }}>
             {!loaded && loading && <View accessibilityRole="progressbar" accessibilityLabel="Loading Home" style={{ gap: 12 }}>
@@ -75,7 +41,7 @@ export default function HomeScreen() {
             </View>}
             {!loaded && error && <View style={{ minHeight: 180, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
               <Text accessibilityRole="alert" style={{ color: colors.muted }}>Couldn’t load Home</Text>
-              <Pressable accessibilityRole="button" onPress={() => setRevision((value) => value + 1)} style={{ minHeight: 48, paddingHorizontal: 20, justifyContent: 'center', borderWidth: 1, borderColor: colors.warning, borderRadius: 12 }}><Text style={{ color: colors.warning }}>Retry</Text></Pressable>
+              <Pressable accessibilityRole="button" onPress={retry} style={{ minHeight: 48, paddingHorizontal: 20, justifyContent: 'center', borderWidth: 1, borderColor: colors.warning, borderRadius: 12 }}><Text style={{ color: colors.warning }}>Retry</Text></Pressable>
             </View>}
             {loaded && balances.length > 0 && <>
               <View style={{ gap: 4 }}>

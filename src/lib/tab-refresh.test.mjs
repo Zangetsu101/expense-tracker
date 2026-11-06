@@ -5,7 +5,9 @@ import { test } from 'node:test';
 import React from 'react';
 import { act, create } from 'react-test-renderer';
 import ts from 'typescript';
+import { QueryClientProvider, notifyManager, onlineManager } from '@tanstack/react-query';
 
+notifyManager.setScheduler(queueMicrotask);
 const state = { focus: 0, read: undefined };
 globalThis.__tabRefreshTest = state;
 const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
@@ -19,11 +21,11 @@ const mocks = {
   'react-native-safe-area-context': `export const useSafeAreaInsets=()=>({bottom:0});`,
   '@/components/loading': `export const Skeleton='Skeleton'; export const Shimmer='Shimmer';`,
   '@/components/home-account-picker': `export const HomeAccountPicker='HomeAccountPicker';`,
-  '@/lib/database': `export const listAccounts=async()=>{if(globalThis.__tabRefreshTest.accountsError)throw Error('accounts unavailable');return [{id:1,name:'Cash',currencyCode:'USD',isFavorite:1},{id:2,name:'Bank',currencyCode:'USD',isFavorite:0}];};`,
+  '@/lib/database': `export const epochDay=d=>Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/86400000); export const listAccounts=async()=>{if(globalThis.__tabRefreshTest.accountsError)throw Error('accounts unavailable');return globalThis.__tabRefreshTest.accountItems??[{id:1,name:'Cash',currencyCode:'USD',isFavorite:1},{id:2,name:'Bank',currencyCode:'USD',isFavorite:0}];};`,
   '@/components/app-sheet': `export const AppSheet=({children})=>children;`,
   '@/components/category-browser': `import React from 'react'; export const CategoryBrowser=p=>React.createElement('CategoryBrowser',p);`,
   '@/lib/accounts': `export const listManagedAccounts=()=>globalThis.__tabRefreshTest.read('accounts'); export const createAccount=async()=>{}; export const setFavoriteAccount=async()=>{};`,
-  '@/lib/reports': `export const monthlyReport=()=>globalThis.__tabRefreshTest.read('reports'); export const accountBalances=()=>globalThis.__tabRefreshTest.read('balances');`,
+  '@/lib/reports': `export const monthlyReport=()=>globalThis.__tabRefreshTest.read('reports'); export const accountBalances=today=>globalThis.__tabRefreshTest.read('balances',today);`,
   '@/lib/home-data': `export const homeData=(_,id)=>globalThis.__tabRefreshTest.read('home',id);`,
   '@/lib/categories': `export const listManagedCategories=()=>globalThis.__tabRefreshTest.read('categories'); export const createCategory=async()=>{}; export const renameCategory=async()=>{};`,
 };
@@ -55,19 +57,23 @@ const fixtures = {
   categories: [{id:1,name:'Lunch',type:'EXPENSE',parentId:null}],
 };
 const screens = await Promise.all(['(home)', 'accounts', 'reports', 'categories'].map(async name => [name, (await import(`../app/(tabs)/${name}/index.tsx`)).default]));
+const {createQueryClient}=await import('./query-client.ts');
+let queryClient;
+function QueryScreen({Screen}) {return React.createElement(QueryClientProvider,{client:queryClient},React.createElement(Screen));}
+function resetQueryClient(){queryClient?.clear();queryClient=createQueryClient();queryClient.setDefaultOptions({queries:{...queryClient.getDefaultOptions().queries,gcTime:Infinity}});}
 let renderer;
 const texts = () => renderer.root.findAllByType('Text').map(n=>n.children.join(''));
 const snapshot = name => name === 'categories' ? renderer.root.findByType('CategoryBrowser').props.items : texts();
-const toggleFocus = async Screen => {await act(async()=>{state.focus++; renderer.update(React.createElement(Screen));});};
+const toggleFocus = async Screen => {await act(async()=>{state.focus++; renderer.update(React.createElement(QueryScreen,{Screen}));});};
 test('tab refresh keeps loaded content stable', async t => {
-  t.afterEach(async()=>{await act(async()=>renderer?.unmount()); renderer=undefined; delete state.accountsError;});
-  t.after(()=>{hooks.deregister(); delete globalThis.__tabRefreshTest; globalThis.IS_REACT_ACT_ENVIRONMENT=previousActEnvironment;});
+  t.afterEach(async()=>{await act(async()=>renderer?.unmount()); renderer=undefined; queryClient?.clear(); delete state.accountsError; delete state.accountItems;});
+  t.after(()=>{notifyManager.setScheduler(callback=>setTimeout(callback,0)); hooks.deregister(); delete globalThis.__tabRefreshTest; globalThis.IS_REACT_ACT_ENVIRONMENT=previousActEnvironment;});
   await t.test('Home Account transitions retain the correct receipt meaning and recover without stale writes', async()=>{
     state.focus=0;
     const Screen=screens[0][1];
     const transfer={id:9,type:'TRANSFER',date:20000,amountMinor:500,currencyCode:'USD',accountId:1,transferAccountId:2,accountName:'Cash',transferAccountName:'Bank'};
     state.read=async key=>key==='home'?{...fixtures.home,rows:[transfer]}:fixtures[key];
-    await act(async()=>{renderer=create(React.createElement(Screen));});
+    await act(async()=>{resetQueryClient(); renderer=create(React.createElement(QueryScreen,{Screen}));});
     const picker=()=>renderer.root.findByType('HomeAccountPicker');
     const entry=()=>renderer.root.findAllByType('Pressable').find(n=>n.props.accessibilityLabel==='Transfer, Cash');
     assert.ok(texts().some(s=>s==='Sent to Bank'));
@@ -102,7 +108,7 @@ test('tab refresh keeps loaded content stable', async t => {
     state.focus=0;
     const Screen=screens[0][1];
     state.read=async()=>{throw new Error('unavailable')};
-    await act(async()=>{renderer=create(React.createElement(Screen));});
+    await act(async()=>{resetQueryClient(); renderer=create(React.createElement(QueryScreen,{Screen}));});
     assert.ok(texts().includes('Couldn’t load Home'));
     assert.equal(renderer.root.findAllByType('Skeleton').length,0);
     assert.ok(!texts().some(s=>s.includes('No transactions')));
@@ -115,7 +121,7 @@ test('tab refresh keeps loaded content stable', async t => {
     state.focus=0;
     const Screen=screens[0][1];
     state.read=async key=>key==='home'?{...fixtures.home,rows:[]}:fixtures[key];
-    await act(async()=>{renderer=create(React.createElement(Screen));});
+    await act(async()=>{resetQueryClient(); renderer=create(React.createElement(QueryScreen,{Screen}));});
     const empty='No transactions in this account. Add one or choose another account.';
     assert.ok(texts().includes(empty));
     let reject;
@@ -129,7 +135,7 @@ test('tab refresh keeps loaded content stable', async t => {
     state.focus=0;
     state.accountsError=true;
     const Screen=screens[0][1];
-    await act(async()=>{renderer=create(React.createElement(Screen));});
+    await act(async()=>{resetQueryClient(); renderer=create(React.createElement(QueryScreen,{Screen}));});
     const picker=()=>renderer.root.findByType('HomeAccountPicker');
     assert.equal(picker().props.unavailable,true);
     assert.equal(picker().props.loading,false);
@@ -141,11 +147,57 @@ test('tab refresh keeps loaded content stable', async t => {
     assert.equal(picker().props.unavailable,false);
     assert.ok(texts().includes('Lunch'));
   });
+  await t.test('Home reads SQLite offline and waits for the whole financial snapshot',async()=>{
+    state.focus=0;
+    const wasOnline=onlineManager.isOnline();
+    onlineManager.setOnline(false);
+    try {
+      let finishBalances;
+      state.read=key=>key==='balances'?new Promise(resolve=>{finishBalances=resolve}):Promise.resolve(fixtures[key]);
+      const Screen=screens[0][1];
+      await act(async()=>{resetQueryClient();renderer=create(React.createElement(QueryScreen,{Screen}));});
+      assert.ok(finishBalances,'local reads must run even when offline');
+      assert.ok(renderer.root.findAllByType('Skeleton').length>0);
+      assert.ok(!texts().includes('Lunch'),'activity must wait for balances');
+      await act(async()=>finishBalances(fixtures.balances));
+      assert.ok(texts().includes('Lunch'));
+    } finally {onlineManager.setOnline(wasOnline);}
+  });
+  await t.test('Home retains its initial Account when favorite changes on another screen',async()=>{
+    state.focus=0;
+    state.accountItems=[{id:1,name:'Cash',currencyCode:'USD',isFavorite:1},{id:2,name:'Bank',currencyCode:'USD',isFavorite:0}];
+    state.read=async key=>fixtures[key];
+    const Screen=screens[0][1];
+    await act(async()=>{resetQueryClient();renderer=create(React.createElement(QueryScreen,{Screen}));});
+    await toggleFocus(Screen);
+    state.accountItems=state.accountItems.map(a=>({...a,isFavorite:a.id===2?1:0}));
+    await toggleFocus(Screen);
+    assert.equal(renderer.root.findByType('HomeAccountPicker').props.selectedId,1);
+    assert.equal(renderer.root.findByType('HomeAccountPicker').props.accounts.find(a=>a.id===2).isFavorite,1,'Accounts refreshed without changing the scope');
+  });
+  await t.test('Home cache isolates Accounts and local dates and reuses the same fresh snapshot',async()=>{
+    resetQueryClient();
+    const {homeSnapshotQuery}=await import('./home-queries.ts');
+    const calls=[];
+    state.read=async(key,scope)=>{calls.push([key,scope]);return fixtures[key];};
+    const firstDay=new Date(2026,10,6,23,59);
+    const sameDay=new Date(2026,10,6,9);
+    const nextDay=new Date(2026,10,7,0,1);
+    await queryClient.fetchQuery({...homeSnapshotQuery(1,firstDay),staleTime:Infinity});
+    await queryClient.fetchQuery({...homeSnapshotQuery(1,sameDay),staleTime:Infinity});
+    assert.equal(calls.filter(([key])=>key==='home').length,1);
+    await queryClient.fetchQuery({...homeSnapshotQuery(2,firstDay),staleTime:Infinity});
+    await queryClient.fetchQuery({...homeSnapshotQuery(2,nextDay),staleTime:Infinity});
+    assert.deepEqual(calls.filter(([key])=>key==='home').map(([,id])=>id),[1,2,2]);
+    const cutoffs=calls.filter(([key])=>key==='balances').map(([,day])=>day);
+    assert.equal(cutoffs[2],cutoffs[0]+1,'next local date changes the balance cutoff');
+    assert.equal(queryClient.getQueryCache().getAll().length,3,'three independent snapshots are cached');
+  });
   for (const [name,Screen] of screens) await t.test(name, async()=>{
     state.focus=0;
     const initial=[];
     state.read=key=>new Promise(resolve=>initial.push(()=>resolve(fixtures[key])));
-    await act(async()=>{renderer=create(React.createElement(Screen));});
+    await act(async()=>{resetQueryClient(); renderer=create(React.createElement(QueryScreen,{Screen}));});
     if(name==='(home)') assert.ok(renderer.root.findAllByType('Skeleton').length>0,'Home uses first-load skeletons');
     else assert.equal(renderer.root.findAllByType('ActivityIndicator').length,1,'first load still shows progress');
     await act(async()=>initial.forEach(resolve=>resolve()));

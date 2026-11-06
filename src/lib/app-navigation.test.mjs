@@ -5,7 +5,9 @@ import { test } from 'node:test';
 import React from 'react';
 import { act, create } from 'react-test-renderer';
 import ts from 'typescript';
+import { QueryClientProvider, notifyManager } from '@tanstack/react-query';
 
+notifyManager.setScheduler(queueMicrotask);
 const state = { calls: [] };
 globalThis.__navTest = state;
 const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
@@ -53,16 +55,21 @@ const { appTabs } = await import('./app-navigation.ts');
 const { default: Home } = await import('../app/(tabs)/(home)/index.tsx');
 const { default: Settings } = await import('../app/settings.tsx');
 const { default: QuickAdd } = await import('../app/quick-add.tsx');
+const {createQueryClient}=await import('./query-client.ts');
+let queryClient;
+function QueryScreen({Screen}) {return React.createElement(QueryClientProvider,{client:queryClient},React.createElement(Screen));}
+function resetQueryClient(){queryClient?.clear();queryClient=createQueryClient();queryClient.setDefaultOptions({queries:{...queryClient.getDefaultOptions().queries,gcTime:Infinity}});}
 let renderer;
-const mount = async (Screen) => { state.calls = []; state.accountQueries = []; state.header = undefined; await act(async () => { renderer = create(React.createElement(Screen)); }); };
+const mount = async (Screen) => { state.calls = []; state.accountQueries = []; state.header = undefined; await act(async () => { resetQueryClient(); renderer = create(React.createElement(QueryScreen,{Screen})); }); };
 const texts = (node = renderer.root) => node.findAllByType('Text').map(n => n.children.join(''));
 const pressable = (label, node = renderer.root) => node.findAllByType('Pressable').find(n => n.props.accessibilityLabel === label || texts(n).includes(label));
 const press = (label, node) => act(async () => { pressable(label, node).props.onPress(); });
 const headerPart = async (key) => { let part; await act(async () => { part = create(state.header[key]()); }); return part.root; };
 
 test('app navigation', async t => {
-  t.afterEach(async () => { await act(async () => renderer?.unmount()); delete state.accounts; });
+  t.afterEach(async () => { await act(async () => renderer?.unmount()); queryClient?.clear(); delete state.accounts; });
   t.after(() => {
+    notifyManager.setScheduler(callback=>setTimeout(callback,0));
     hooks.deregister();
     delete globalThis.__navTest;
     if (previousActEnvironment === undefined) delete globalThis.IS_REACT_ACT_ENVIRONMENT;
@@ -106,6 +113,16 @@ test('app navigation', async t => {
     await act(async () => { state.lifecycle('background'); state.lifecycle('active'); });
     assert.equal(picker().props.selectedId, 2);
     assert.equal(state.accountQueries.at(-1), 2);
+  });
+  await t.test('Home reopening resolves a changed favorite from fresh Accounts, not the cache', async()=>{
+    state.accounts=[{id:1,name:'Cash',currencyCode:'BDT',isFavorite:1},{id:2,name:'Bank',currencyCode:'BDT',isFavorite:0}];
+    await mount(Home);
+    const picker=()=>renderer.root.findByType('HomeAccountPicker');
+    assert.equal(picker().props.selectedId,1);
+    state.accounts=state.accounts.map(a=>({...a,isFavorite:a.id===2?1:0}));
+    await act(async()=>{state.lifecycle('background');state.lifecycle('active');});
+    assert.equal(picker().props.selectedId,2);
+    assert.equal(state.accountQueries.at(-1),2);
   });
   await t.test('Settings opens data tools and the Review Queue', async () => {
     await mount(Settings);
