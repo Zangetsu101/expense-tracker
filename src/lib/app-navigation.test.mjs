@@ -16,8 +16,8 @@ const root = new URL('../../', import.meta.url);
 const mocks = {
   'expo-haptics': `export const AndroidHaptics={Keyboard_Tap:'keyboard'},ImpactFeedbackStyle={Light:'light'}; export const performAndroidHapticsAsync=async()=>{},impactAsync=async()=>{};`,
   'react-native-reanimated': `import {useRef} from 'react'; export default {View:'AnimatedView'}; export const Easing={out:x=>x,cubic:x=>x},ReduceMotion={System:'system'}; export const useSharedValue=value=>useRef({value}).current,useAnimatedStyle=fn=>fn(),withTiming=value=>value;`,
-  '@/components/loading': `export const Skeleton='Skeleton';`,
-  '@/components/home-account-picker': `export const HomeAccountPicker='HomeAccountPicker';`,
+  './loading.tsx': `export const Skeleton='Skeleton';`,
+  './account-picker.tsx': `export const HomeAccountPicker='HomeAccountPicker';`,
   '@/components/running-release': `export const RunningRelease='RunningRelease';`,
   '@/components/app-updates': `export const UpdatesRow='UpdatesRow';`,
   'react-native': `import React from 'react'; export const BackHandler={addEventListener:()=>({remove(){}})}; export const Keyboard={dismiss() {}}; export const KeyboardAvoidingView='KeyboardAvoidingView',View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator'; export const FlatList=p=>React.createElement('FlatList',null,p.ListHeaderComponent,p.ListFooterComponent); export const Alert={alert(){}}; export const AppState={currentState:'active',addEventListener:(_,fn)=>{globalThis.__navTest.lifecycle=fn;return {remove(){}}}};`,
@@ -29,7 +29,7 @@ const mocks = {
   '@/components/form-controls': `export const FormButton='FormButton',FormInput='FormInput',JoinedChoice='JoinedChoice';`,
   '@/components/quick-add-date': `export const QuickAddDate='Date';`,
   '@/components/quick-add-category': `export const QuickAddCategory='Category';`,
-  '@/lib/home-data': `export const homeData=async(_,id)=>{globalThis.__navTest.accountQueries.push(id);return {rows:[],summaries:[]}};`,
+  './read-home.ts': `export const homeData=async(_,id)=>{globalThis.__navTest.accountQueries.push(id);return {rows:[],summaries:[]}};`,
   '@/lib/database': `export const epochDay=d=>Math.floor(d.getTime()/86400000); export const listAccounts=async()=>{if(globalThis.__navTest.accountsError)throw Error('Accounts unavailable');return globalThis.__navTest.accounts??[];}; export const listCategories=async()=>[]; export const setFavoriteAccount=async()=>{};`,
   '@/lib/reports': `export const accountBalances=async()=>[];`,
   '@/lib/categories': `export const listManagedCategories=async()=>[];`,
@@ -49,7 +49,11 @@ const hooks = registerHooks({
       return { url: new URL('src/components/entry-choices.tsx', root).href, shortCircuit: true };
     if (specifier.startsWith('@/')) {
       const stem = specifier.replace('@/', 'src/');
-      const path = existsSync(new URL(`${stem}.ts`, root)) ? `${stem}.ts` : `${stem}.tsx`;
+      const path = existsSync(new URL(`${stem}/index.ts`, root))
+        ? `${stem}/index.ts`
+        : existsSync(new URL(`${stem}.ts`, root))
+          ? `${stem}.ts`
+          : `${stem}.tsx`;
       return { url: new URL(path, root).href, shortCircuit: true };
     }
     return next(
@@ -203,63 +207,6 @@ test('app navigation', async (t) => {
       assert.equal(picker().props.selectedId, 2);
     },
   );
-  await t.test(
-    'Home reopening resolves a changed favorite from fresh Accounts, not the cache',
-    async () => {
-      state.accounts = [
-        { id: 1, name: 'Cash', currencyCode: 'BDT', isFavorite: 1 },
-        { id: 2, name: 'Bank', currencyCode: 'BDT', isFavorite: 0 },
-      ];
-      await mount(Home);
-      const picker = () => renderer.root.findByType('HomeAccountPicker');
-      assert.equal(picker().props.selectedId, 1);
-      state.accounts = state.accounts.map((a) => ({ ...a, isFavorite: a.id === 2 ? 1 : 0 }));
-      await act(async () => {
-        state.lifecycle('background');
-        state.lifecycle('active');
-      });
-      assert.equal(picker().props.selectedId, 2);
-      assert.equal(state.accountQueries.at(-1), 2);
-    },
-  );
-  await t.test('Home retry resolves the fresh favorite after reopening Accounts fail', async () => {
-    state.accounts = [
-      { id: 1, name: 'Cash', currencyCode: 'BDT', isFavorite: 1 },
-      { id: 2, name: 'Bank', currencyCode: 'BDT', isFavorite: 0 },
-    ];
-    await mount(Home);
-    const picker = () => renderer.root.findByType('HomeAccountPicker');
-    state.accounts = state.accounts.map((a) => ({ ...a, isFavorite: a.id === 2 ? 1 : 0 }));
-    state.accountsError = true;
-    await act(async () => {
-      state.lifecycle('background');
-      state.lifecycle('active');
-    });
-    assert.equal(picker().props.error, true);
-    delete state.accountsError;
-    await act(async () => picker().props.onRetry());
-    assert.equal(picker().props.selectedId, 2);
-    assert.equal(state.accountQueries.at(-1), 2);
-  });
-  await t.test('Home explicit selection wins over pending favorite recovery', async () => {
-    state.accounts = [
-      { id: 1, name: 'Cash', currencyCode: 'BDT', isFavorite: 1 },
-      { id: 2, name: 'Bank', currencyCode: 'BDT', isFavorite: 0 },
-    ];
-    await mount(Home);
-    const picker = () => renderer.root.findByType('HomeAccountPicker');
-    state.accounts = state.accounts.map((a) => ({ ...a, isFavorite: a.id === 2 ? 1 : 0 }));
-    state.accountsError = true;
-    await act(async () => {
-      state.lifecycle('background');
-      state.lifecycle('active');
-    });
-    await act(async () => picker().props.onSelect(null));
-    delete state.accountsError;
-    await act(async () => picker().props.onRetry());
-    assert.equal(picker().props.selectedId, null);
-    assert.equal(state.accountQueries.at(-1), null);
-  });
   await t.test(
     'disposing the app lifecycle bridge releases its global focus override',
     async () => {

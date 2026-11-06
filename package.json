@@ -51,7 +51,7 @@
     "android:apk": "bash scripts/build-android-apk.sh",
     "ios": "pnpm start --ios",
     "web": "expo start --web",
-    "test": "node --test src/lib/*.test.mjs src/components/*.test.mjs scripts/*.test.mjs",
+    "test": "node --test src/lib/*.test.mjs src/components/*.test.mjs src/features/*/*.test.mjs scripts/*.test.mjs",
     "test:backup": "node scripts/check-backup-format.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",

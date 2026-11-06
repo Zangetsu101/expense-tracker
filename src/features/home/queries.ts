@@ -1,10 +1,10 @@
-import { queryOptions } from '@tanstack/react-query';
+import { queryOptions, type QueryClient } from '@tanstack/react-query';
 import { epochDay, listAccounts } from '@/lib/database';
-import { homeData } from '@/lib/home-data';
+import { homeData } from './read-home.ts';
 import { accountBalances } from '@/lib/reports';
-import { homeBalances } from '@/lib/account-selection';
+import { homeBalances } from './balances.ts';
 
-export const homeQueryKey = ['home'] as const;
+const homeQueryKey = ['home'] as const;
 
 export function homeAccountsQuery(session = 0) {
   return queryOptions({ queryKey: [...homeQueryKey, 'accounts', session], queryFn: listAccounts });
@@ -28,3 +28,7 @@ export type HomeSnapshot = Awaited<ReturnType<typeof homeData>> & {
   balances: ReturnType<typeof homeBalances>;
   accountId: number | null;
 };
+
+export function invalidateHome(client: QueryClient) {
+  return client.invalidateQueries({ queryKey: homeQueryKey });
+}

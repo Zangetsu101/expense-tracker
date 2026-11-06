@@ -9,10 +9,10 @@ import {
   formatMoney,
   transactionTitle,
 } from '@/lib/transaction-format';
-import { Skeleton } from '@/components/loading';
-import { HomeAccountPicker } from '@/components/home-account-picker';
-import type { CurrencyBalance } from '@/lib/account-selection';
-import type { HomeSnapshot } from '@/lib/home-queries';
+import { Skeleton } from './loading.tsx';
+import { HomeAccountPicker } from './account-picker.tsx';
+import type { CurrencyBalance } from './balances.ts';
+import type { HomeSnapshot } from './queries.ts';
 import type { Account } from '@/lib/database';
 import { theme } from '@/theme';
 

@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { FlatList, Pressable, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { SymbolView } from 'expo-symbols';
-import { Shimmer, Skeleton } from './loading';
-import { AppSheet } from './app-sheet';
+import { Shimmer, Skeleton } from './loading.tsx';
+import { AppSheet } from '@/components/app-sheet';
 import type { Account } from '@/lib/database';
 import { theme } from '@/theme';
 

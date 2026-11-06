@@ -14,6 +14,8 @@ The loading UI is being introduced one screen at a time, with review between scr
 
 ## Home
 
+Home implementation and feature tests live together in `src/features/home/`. Its public entry exports `HomeScreen` for the route and `invalidateHome` for app-level refreshes. Query options, reads, views, picker behavior, loading visuals, and retained-query handling stay inside the feature. Shared database, account-selection, and app lifecycle modules remain outside it.
+
 Accounts can become available before financial data. Quick Add uses the requested Account as soon as Accounts are known. Retained Transactions and scoped search wait for the matching financial data. Financial results, balances and displayed Account identity update together; abandoned requests cannot replace a later selection.
 
 Home refreshes after committed writes and native foregrounding, and resets to the favorite Account on a true reopening. Suspense fallbacks and deferred rendering own first loads and scope transitions. Current balances retain the local-today policy in ADR 0005.

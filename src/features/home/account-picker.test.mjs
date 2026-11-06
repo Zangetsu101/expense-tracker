@@ -6,12 +6,12 @@ import React from 'react';
 import { act, create } from 'react-test-renderer';
 import ts from 'typescript';
 
-const root = new URL('../../', import.meta.url);
+const root = new URL('../../../', import.meta.url);
 const mocks = {
   'react-native': `export const View='View',Text='Text',Pressable='Pressable',TextInput='TextInput',FlatList='FlatList'; export const useWindowDimensions=()=>({width:400,height:800});`,
   'expo-symbols': `export const SymbolView='SymbolView';`,
-  './loading': `export const Skeleton='Skeleton',Shimmer='Shimmer';`,
-  './app-sheet': `export const AppSheet='AppSheet';`,
+  './loading.tsx': `export const Skeleton='Skeleton',Shimmer='Shimmer';`,
+  '@/components/app-sheet': `export const AppSheet='AppSheet';`,
 };
 const hooks = registerHooks({
   resolve(specifier, context, next) {
@@ -34,7 +34,7 @@ const hooks = registerHooks({
     return next(url, context);
   },
 });
-const { HomeAccountPicker } = await import('./home-account-picker.tsx');
+const { HomeAccountPicker } = await import('./account-picker.tsx');
 
 test('failed Account selection keeps choosing and retrying as separate actions', async (t) => {
   const previous = globalThis.IS_REACT_ACT_ENVIRONMENT;

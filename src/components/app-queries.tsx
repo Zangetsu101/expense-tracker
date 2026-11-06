@@ -3,7 +3,7 @@ import { AppState } from 'react-native';
 import { focusManager, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { createQueryClient } from '@/lib/query-client';
 import { QuerySessionContext } from '@/lib/query-session';
-import { homeQueryKey } from '@/lib/home-queries';
+import { invalidateHome } from '@/features/home';
 import { subscribeDataChanges } from '@/lib/data-changes';
 
 export function AppQueryLifecycle({ children }: { children: ReactNode }) {
@@ -20,7 +20,7 @@ export function AppQueryLifecycle({ children }: { children: ReactNode }) {
     });
     const unsubscribe = subscribeDataChanges(() => {
       setSession((value) => ({ ...value, now: new Date() }));
-      void client.invalidateQueries({ queryKey: homeQueryKey });
+      void invalidateHome(client);
     });
     return () => {
       lifecycle.remove();
