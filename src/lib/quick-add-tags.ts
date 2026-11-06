@@ -1,3 +1,4 @@
+import { notifyDataChanged } from './data-changes.ts';
 import { database, epochDay } from './database';
 import { addTransactionTags, parseQuickAddTags } from './tag-store';
 export { MAX_QUICK_ADD_TAGS, parseQuickAddTags } from './tag-store';
@@ -32,4 +33,5 @@ export async function addQuickTransaction(input: QuickAddInput, tagText: string)
     );
     await addTransactionTags(tx, result.lastInsertRowId, tags);
   });
+  notifyDataChanged();
 }

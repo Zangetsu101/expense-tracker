@@ -1,6 +1,6 @@
 # Loading and retained content
 
-The loading UI is being introduced one screen at a time, with review between screens. Home is the first implementation and now uses TanStack Query for its local reads; see ADR 0006. Other screens migrate separately.
+The loading UI is being introduced one screen at a time, with review between screens. Home is the first implementation and now uses TanStack Query for its local reads; see ADRs 0006 and 0007. Other screens migrate separately.
 
 ## Agreed behavior
 
@@ -16,7 +16,7 @@ The loading UI is being introduced one screen at a time, with review between scr
 
 Accounts can become available before financial data. Quick Add uses the requested Account as soon as Accounts are known. Retained Transactions and scoped search wait for the matching financial data. Financial results, balances and displayed Account identity update together; abandoned requests cannot replace a later selection.
 
-Home refreshes on focus and resets to the favorite Account on reopening, as before. Current balances retain the local-today policy in ADR 0005.
+Home refreshes after committed writes and native foregrounding, and resets to the favorite Account on a true reopening. Suspense fallbacks and deferred rendering own first loads and scope transitions. Current balances retain the local-today policy in ADR 0005.
 
 ## Remaining screens
 

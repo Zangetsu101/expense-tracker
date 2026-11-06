@@ -1,3 +1,4 @@
+import { notifyDataChanged } from './data-changes.ts';
 import { database } from './database';
 
 const principalLegs = `SELECT t.id FROM transactions t
@@ -131,4 +132,5 @@ export async function confirmCandidate(id: number) {
     );
     await tx.runAsync('DELETE FROM transactions WHERE id = ?', [pair.incomingTxnId]);
   });
+  notifyDataChanged();
 }

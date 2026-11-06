@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { registerHooks } from 'node:module';
 import { test } from 'node:test';
 import React from 'react';
@@ -47,11 +47,11 @@ const hooks = registerHooks({
       };
     if (specifier === '@/components/entry-choices')
       return { url: new URL('src/components/entry-choices.tsx', root).href, shortCircuit: true };
-    if (specifier.startsWith('@/'))
-      return {
-        url: new URL(`${specifier.replace('@/', 'src/')}.ts`, root).href,
-        shortCircuit: true,
-      };
+    if (specifier.startsWith('@/')) {
+      const stem = specifier.replace('@/', 'src/');
+      const path = existsSync(new URL(`${stem}.ts`, root)) ? `${stem}.ts` : `${stem}.tsx`;
+      return { url: new URL(path, root).href, shortCircuit: true };
+    }
     return next(
       specifier,
       context.parentURL?.startsWith('nav-mock:')
@@ -78,12 +78,13 @@ const { default: Home } = await import('../app/(tabs)/(home)/index.tsx');
 const { default: Settings } = await import('../app/settings.tsx');
 const { default: QuickAdd } = await import('../app/quick-add.tsx');
 const { createQueryClient } = await import('./query-client.ts');
+const { AppQueryLifecycle } = await import('../components/app-queries.tsx');
 let queryClient;
 function QueryScreen({ Screen }) {
   return React.createElement(
     QueryClientProvider,
     { client: queryClient },
-    React.createElement(Screen),
+    React.createElement(AppQueryLifecycle, null, React.createElement(Screen)),
   );
 }
 function resetQueryClient() {
@@ -200,7 +201,6 @@ test('app navigation', async (t) => {
         state.lifecycle('active');
       });
       assert.equal(picker().props.selectedId, 2);
-      assert.equal(state.accountQueries.at(-1), 2);
     },
   );
   await t.test(

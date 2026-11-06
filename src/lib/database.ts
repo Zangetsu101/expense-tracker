@@ -1,3 +1,4 @@
+import { notifyDataChanged } from './data-changes.ts';
 import * as SQLite from 'expo-sqlite';
 
 export type Account = { id: number; name: string; currencyCode: string; isFavorite: number };
@@ -79,6 +80,7 @@ export async function setFavoriteAccount(accountId: number) {
       ]);
     }
   });
+  notifyDataChanged();
 }
 export async function recentTransactions() {
   return (await database())

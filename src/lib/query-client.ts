@@ -6,7 +6,7 @@ export function createQueryClient() {
       queries: {
         networkMode: 'always',
         retry: false,
-        refetchOnWindowFocus: false,
+        refetchOnWindowFocus: true,
         refetchOnReconnect: false,
       },
     },

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { registerHooks } from 'node:module';
 import { test } from 'node:test';
 import React from 'react';
@@ -14,14 +14,14 @@ const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const root = new URL('../../', import.meta.url);
 const mocks = {
-  'react-native': `import React from 'react'; export const View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator',KeyboardAvoidingView='KeyboardAvoidingView'; export const FlatList=p=>React.createElement('FlatList',p,p.ListHeaderComponent,p.data.map((item,index)=>React.createElement(React.Fragment,{key:item.id},p.renderItem({item,index})))); export const AppState={currentState:'active',addEventListener:()=>({remove(){}})}; export const Platform={OS:'android'}; export const useWindowDimensions=()=>({width:400,height:800});`,
+  'react-native': `import React from 'react'; export const View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator',KeyboardAvoidingView='KeyboardAvoidingView'; export const FlatList=p=>React.createElement('FlatList',p,p.ListHeaderComponent,p.data.map((item,index)=>React.createElement(React.Fragment,{key:item.id},p.renderItem({item,index})))); export const AppState={currentState:'active',addEventListener:(_,fn)=>{globalThis.__tabRefreshTest.lifecycle=fn;return {remove(){}}}}; export const Platform={OS:'android'}; export const useWindowDimensions=()=>({width:400,height:800});`,
   'expo-router': `import React from 'react'; export const Stack={Screen:()=>null}; export const Link=({children})=>children; export const router={push(){}}; export function useFocusEffect(callback){React.useEffect(()=>{if(globalThis.__tabRefreshTest.focus%2===0)return callback()},[callback,globalThis.__tabRefreshTest.focus]);}`,
   'expo-status-bar': `export const StatusBar=()=>null;`,
   'expo-symbols': `export const SymbolView='SymbolView';`,
   'react-native-safe-area-context': `export const useSafeAreaInsets=()=>({bottom:0});`,
   '@/components/loading': `export const Skeleton='Skeleton'; export const Shimmer='Shimmer';`,
   '@/components/home-account-picker': `export const HomeAccountPicker='HomeAccountPicker';`,
-  '@/lib/database': `export const epochDay=d=>Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/86400000); export const listAccounts=async()=>{if(globalThis.__tabRefreshTest.accountsError)throw Error('accounts unavailable');return globalThis.__tabRefreshTest.accountItems??[{id:1,name:'Cash',currencyCode:'USD',isFavorite:1},{id:2,name:'Bank',currencyCode:'USD',isFavorite:0}];};`,
+  '@/lib/database': `export const epochDay=d=>Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/86400000); export const listAccounts=async()=>{if(globalThis.__tabRefreshTest.accountsError)throw Error('accounts unavailable');return globalThis.__tabRefreshTest.accountItems??[{id:1,name:'Cash',currencyCode:'USD',isFavorite:1},{id:2,name:'Bank',currencyCode:'USD',isFavorite:0},{id:3,name:'Savings',currencyCode:'USD',isFavorite:0},{id:4,name:'Card',currencyCode:'USD',isFavorite:0}];};`,
   '@/components/app-sheet': `export const AppSheet=({children})=>children;`,
   '@/components/category-browser': `import React from 'react'; export const CategoryBrowser=p=>React.createElement('CategoryBrowser',p);`,
   '@/lib/accounts': `export const listManagedAccounts=()=>globalThis.__tabRefreshTest.read('accounts'); export const createAccount=async()=>{}; export const setFavoriteAccount=async()=>{};`,
@@ -35,8 +35,8 @@ const hooks = registerHooks({
       return { url: new URL('src/components/form-controls.tsx', root).href, shortCircuit: true };
     if (specifier in mocks) return { url: `tab-mock:${specifier}`, shortCircuit: true };
     if (specifier.startsWith('@/')) {
-      const path =
-        specifier === '@/theme' ? 'src/theme.ts' : `${specifier.replace('@/', 'src/')}.ts`;
+      const stem = specifier.replace('@/', 'src/');
+      const path = existsSync(new URL(`${stem}.ts`, root)) ? `${stem}.ts` : `${stem}.tsx`;
       return { url: new URL(path, root).href, shortCircuit: true };
     }
     return next(
@@ -92,12 +92,14 @@ const screens = await Promise.all(
   ]),
 );
 const { createQueryClient } = await import('./query-client.ts');
+const { AppQueryLifecycle } = await import('../components/app-queries.tsx');
+const { notifyDataChanged } = await import('./data-changes.ts');
 let queryClient;
 function QueryScreen({ Screen }) {
   return React.createElement(
     QueryClientProvider,
     { client: queryClient },
-    React.createElement(Screen),
+    React.createElement(AppQueryLifecycle, null, React.createElement(Screen)),
   );
 }
 function resetQueryClient() {
@@ -190,11 +192,11 @@ test('tab refresh keeps loaded content stable', async (t) => {
       await act(async () => requests[1].resolve({ ...fixtures.home, rows: [transfer] }));
       assert.equal(entry().props.disabled, false);
       assert.ok(texts().some((s) => s === 'Received from Cash'));
-      await act(async () => picker().props.onSelect(1));
-      await act(async () => picker().props.onSelect(2));
+      await act(async () => picker().props.onSelect(3));
+      await act(async () => picker().props.onSelect(4));
       await act(async () => requests[3].resolve({ ...fixtures.home, rows: [] }));
       await act(async () => requests[2].resolve({ ...fixtures.home, rows: [transfer] }));
-      assert.equal(picker().props.selectedId, 2);
+      assert.equal(picker().props.selectedId, 4);
       assert.equal(
         renderer.root.findByType('FlatList').props.data.length,
         0,
@@ -319,6 +321,7 @@ test('tab refresh keeps loaded content stable', async (t) => {
         ...a,
         isFavorite: a.id === 2 ? 1 : 0,
       }));
+      await act(async () => notifyDataChanged());
       await toggleFocus(Screen);
       assert.equal(renderer.root.findByType('HomeAccountPicker').props.selectedId, 1);
       assert.equal(
@@ -394,7 +397,11 @@ test('tab refresh keeps loaded content stable', async (t) => {
       };
       state.read = (key) => new Promise((resolve) => pending.push(() => resolve(updated[key])));
       await toggleFocus(Screen);
-      assert.ok(pending.length > 0, 'returning to the tab still refreshes its data');
+      if (name === '(home)') await act(async () => notifyDataChanged());
+      assert.ok(
+        pending.length > 0,
+        'successful writes refresh Home; tab focus refreshes unmigrated screens',
+      );
       assert.deepEqual(
         snapshot(name),
         before,
@@ -425,6 +432,7 @@ test('tab refresh keeps loaded content stable', async (t) => {
       await toggleFocus(Screen);
       pending.length = 0;
       await toggleFocus(Screen);
+      if (name === '(home)') await act(async () => notifyDataChanged());
       assert.deepEqual(
         snapshot(name),
         empty,

@@ -6,8 +6,8 @@ import { homeBalances } from '@/lib/account-selection';
 
 export const homeQueryKey = ['home'] as const;
 
-export function homeAccountsQuery() {
-  return queryOptions({ queryKey: [...homeQueryKey, 'accounts'], queryFn: listAccounts });
+export function homeAccountsQuery(session = 0) {
+  return queryOptions({ queryKey: [...homeQueryKey, 'accounts', session], queryFn: listAccounts });
 }
 
 export function homeSnapshotQuery(accountId: number | null, now: Date) {
