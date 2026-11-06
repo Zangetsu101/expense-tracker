@@ -1,6 +1,8 @@
 name: Publish Android OTA
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       message:
@@ -46,7 +48,7 @@ jobs:
         run: node scripts/stamp-release.mjs
       - name: Publish Android production update
         env:
-          UPDATE_MESSAGE: ${{ inputs.message }}
+          UPDATE_MESSAGE: ${{ inputs.message || 'Automatic update from main' }}
         run: >-
           eas update --channel production --platform android
           --environment production --non-interactive
