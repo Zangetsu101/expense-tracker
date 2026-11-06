@@ -1,6 +1,6 @@
 # Loading and retained content
 
-The loading UI is being introduced one screen at a time, with review between screens. Home is the first implementation and now uses TanStack Query for its local reads; see ADRs 0006 and 0007. Other screens migrate separately.
+The loading UI is being introduced one screen at a time, with review between screens. Home is the first implementation and now uses TanStack Query for its local reads. Other screens migrate separately.
 
 ## Agreed behavior
 
