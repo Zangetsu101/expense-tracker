@@ -15,7 +15,7 @@ const mocks = {
   '@/components/home-account-picker': `export const HomeAccountPicker='HomeAccountPicker';`,
   '@/components/running-release': `export const RunningRelease='RunningRelease';`,
   '@/components/app-updates': `export const UpdatesRow='UpdatesRow';`,
-  'react-native': `import React from 'react'; export const KeyboardAvoidingView='KeyboardAvoidingView',View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator'; export const FlatList=p=>React.createElement('FlatList',null,p.ListHeaderComponent,p.ListFooterComponent); export const Alert={alert(){}}; export const AppState={currentState:'active',addEventListener:(_,fn)=>{globalThis.__navTest.lifecycle=fn;return {remove(){}}}};`,
+  'react-native': `import React from 'react'; export const Keyboard={dismiss() {}}; export const KeyboardAvoidingView='KeyboardAvoidingView',View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator'; export const FlatList=p=>React.createElement('FlatList',null,p.ListHeaderComponent,p.ListFooterComponent); export const Alert={alert(){}}; export const AppState={currentState:'active',addEventListener:(_,fn)=>{globalThis.__navTest.lifecycle=fn;return {remove(){}}}};`,
   'expo-router': `import {useEffect} from 'react'; const s=globalThis.__navTest; export const useFocusEffect=fn=>useEffect(fn,[fn]); export const useLocalSearchParams=()=>({}); export const router={push:h=>s.calls.push(['push',h]),replace:h=>s.calls.push(['replace',h]),back:()=>s.calls.push(['back'])}; export const Link=({children})=>children; export const Stack={Screen:p=>{s.header={...s.header,...p.options};return null}};`,
   'expo-router/react-navigation': `export const useHeaderHeight=()=>88; export const useNavigation=()=>({dispatch(){}}); export const usePreventRemove=()=>{};`,
   'expo-status-bar': `export const StatusBar=()=>null;`,
@@ -34,6 +34,7 @@ const mocks = {
 const hooks = registerHooks({
   resolve(specifier, context, next) {
     if (specifier in mocks) return { url: `nav-mock:${specifier}`, shortCircuit: true };
+    if (specifier === '@/components/amount-calculator') return { url: new URL('src/components/amount-calculator.tsx', root).href, shortCircuit: true };
     if (specifier === '@/components/entry-choices') return { url: new URL('src/components/entry-choices.tsx', root).href, shortCircuit: true };
     if (specifier.startsWith('@/')) return { url: new URL(`${specifier.replace('@/', 'src/')}.ts`, root).href, shortCircuit: true };
     return next(specifier, context.parentURL?.startsWith('nav-mock:') ? { ...context, parentURL: import.meta.url } : context);

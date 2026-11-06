@@ -7,6 +7,7 @@ import { listManagedCategories, type ManagedCategory } from '@/lib/categories';
 import { addQuickTransaction } from '@/lib/quick-add-tags';
 import { addTransfer, transferAmountMinor } from '@/lib/transfers';
 import { createPerson, listLendingTotals, listPeople, saveLendingEntry, type LendingKind, type LendingTotal, type Person } from '@/lib/lending';
+import { AmountCalculator } from '@/components/amount-calculator';
 import { QuickAddDate } from '@/components/quick-add-date';
 import { QuickAddCategory } from '@/components/quick-add-category';
 import { AccountChoices, personBalanceSummary } from '@/components/entry-choices';
@@ -67,6 +68,7 @@ function QuickAddForm({ data }: { data: EntryData }) {
   const headerHeight = useHeaderHeight();
   const [mode, setMode] = useState<Mode>('EXPENSE');
   const [amount, setAmount] = useState('');
+  const [calculatorOpen, setCalculatorOpen] = useState(false);
   const [accountId, setAccountId] = useState(resolveHomeAccount(data.accounts, parseAccountId(params.accountId)) ?? data.accounts[0]?.id);
   const [toId, setToId] = useState<number>();
   const [categoryIds, setCategoryIds] = useState({ EXPENSE: data.expense[0]?.id, INCOME: data.income[0]?.id });
@@ -95,7 +97,7 @@ function QuickAddForm({ data }: { data: EntryData }) {
   const canCreatePerson = !!search && !people.some((item) => item.name.toLocaleLowerCase() === search);
   let validAmount = false;
   try { transferAmountMinor(amount); validAmount = true; } catch {}
-  const canSave = validAmount && !!account && (mode === 'TRANSFER' ? destinations.some((item) => item.id === toId)
+  const canSave = !calculatorOpen && validAmount && !!account && (mode === 'TRANSFER' ? destinations.some((item) => item.id === toId)
     : mode === 'PERSON' ? !!person : !!categoryMode && categories.some((item) => item.id === categoryIds[categoryMode]));
   const saveLabel = mode === 'PERSON' ? ({ LEND: 'Save lending', BORROW: 'Save borrowing', RECEIVE_REPAYMENT: 'Save repayment received', REPAY: 'Save repayment made' }[action]) : mode === 'TRANSFER' ? 'Save transfer' : 'Save';
 
@@ -140,8 +142,9 @@ function QuickAddForm({ data }: { data: EntryData }) {
       <View style={{ gap: 6 }}><Label>{`Amount · ${account?.currencyCode ?? 'Select account'}`}</Label>
         <View style={{ flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderColor: c.line }}>
           <Text style={{ color: c.text, fontSize: 48, fontWeight: '300' }}>{account?.currencyCode === 'BDT' ? '৳' : account?.currencyCode === 'USD' ? '$' : ''}</Text>
-          <TextInput accessibilityLabel="Amount" autoFocus editable={!pending} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={c.muted} value={amount} onChangeText={setAmount} style={{ flex: 1, color: c.text, fontSize: 48, fontWeight: '300', fontVariant: ['tabular-nums'] }} />
+          <TextInput accessibilityLabel="Amount" autoFocus editable={!pending} showSoftInputOnFocus={false} caretHidden onFocus={() => setCalculatorOpen(true)} onPressIn={() => { if (!pending) setCalculatorOpen(true); }} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={c.muted} value={amount} onChangeText={setAmount} style={{ flex: 1, color: c.text, fontSize: 48, fontWeight: '300', fontVariant: ['tabular-nums'] }} />
         </View>
+        {calculatorOpen && <AmountCalculator initialAmount={amount} onCancel={() => setCalculatorOpen(false)} onUse={(result) => { setAmount(result); setCalculatorOpen(false); }} />}
         {!!amount && !validAmount && <Text accessibilityRole="alert" style={{ color: c.warning }}>Enter a positive amount with at most two decimal places.</Text>}
       </View>
       <JoinedChoice value={mode} options={modes} disabled={pending} onChange={(value) => { setMode(value); setError(''); }} />
