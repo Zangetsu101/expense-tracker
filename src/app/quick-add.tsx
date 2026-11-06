@@ -207,8 +207,6 @@ function QuickAddForm({ data }: { data: EntryData }) {
       <FormButton label={saveLabel} loading={pending} disabled={!canSave} onPress={() => void save()} />
       </View>
     </ScrollView>
-    {calculatorOpen && <View style={{ backgroundColor: c.surface, paddingBottom: insets.bottom }}>
-      <AmountCalculator value={amount} onChange={setAmount} onDone={dismissCalculator} />
-    </View>}
+    <AmountCalculator open={calculatorOpen} bottomInset={insets.bottom} value={amount} onChange={setAmount} onDone={dismissCalculator} />
   </KeyboardAvoidingView>;
 }

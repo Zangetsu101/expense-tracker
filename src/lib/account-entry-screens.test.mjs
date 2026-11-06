@@ -12,6 +12,8 @@ const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const root = new URL('../../', import.meta.url);
 const mocks = {
+  'expo-haptics': `export const AndroidHaptics={Keyboard_Tap:'keyboard'},ImpactFeedbackStyle={Light:'light'}; export const performAndroidHapticsAsync=async()=>{},impactAsync=async()=>{};`,
+  'react-native-reanimated': `import {useRef} from 'react'; export default {View:'AnimatedView'}; export const Easing={out:x=>x,cubic:x=>x},ReduceMotion={System:'system'}; export const useSharedValue=value=>useRef({value}).current,useAnimatedStyle=fn=>fn(),withTiming=value=>value;`,
   'react-native': `export const BackHandler={addEventListener:(_,callback)=>{globalThis.__entryTest.backHandler=callback;return {remove(){globalThis.__entryTest.backHandler=undefined}}}}; export const Keyboard={dismiss() {globalThis.__entryTest.keyboardDismissed=true}}; export const KeyboardAvoidingView='KeyboardAvoidingView',View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator',FlatList='FlatList'; export const useWindowDimensions=()=>({width:390,height:844}); export const Alert={alert:(...args)=>globalThis.__entryTest.alert=args};`,
   'expo-router': `import {useEffect} from 'react'; export const useFocusEffect=fn=>useEffect(fn,[fn]); export const useLocalSearchParams=()=>globalThis.__entryTest.params ?? {}; export const router={back:()=>globalThis.__entryTest.back=true}; export const Stack={Screen:()=>null};`,
   'expo-router/react-navigation': `export const useHeaderHeight=()=>88; export const useNavigation=()=>({dispatch:action=>globalThis.__entryTest.dispatched=action}); export const usePreventRemove=(enabled,callback)=>{globalThis.__entryTest.removal={enabled,callback}};`,
@@ -107,7 +109,8 @@ test('Account entry screens', async t => {
     assert.equal(amountField().props.accessibilityValue.text, '7');
     await key('Done');
     assert.equal(amountField().props.accessibilityValue.text, '7.00');
-    assert.equal(nodes('Pressable').some(n => n.props.accessibilityLabel === 'Done'), false);
+    assert.equal(nodes('AnimatedView')[0].props.accessibilityElementsHidden, true);
+    assert.equal(nodes('AnimatedView')[0].props.pointerEvents, 'none');
     await act(async () => amountField().props.onPress());
     await key('Clear calculation'); await key('2'); await key('Divide'); await key('0'); await key('Equals');
     assert.ok(nodes('Text').some(n => n.children.includes('Cannot divide by zero.')));
@@ -121,7 +124,8 @@ test('Account entry screens', async t => {
     await key('Add'); await key('4');
     await act(async () => assert.equal(state.backHandler(), true));
     assert.equal(amountField().props.accessibilityValue.text, '7.00');
-    assert.equal(nodes('Pressable').some(n => n.props.accessibilityLabel === 'Done'), false);
+    assert.equal(nodes('AnimatedView')[0].props.accessibilityElementsHidden, true);
+    assert.equal(nodes('AnimatedView')[0].props.pointerEvents, 'none');
     assert.equal(state.backHandler, undefined);
   });
   await t.test('Home account context overrides favorite and remains editable in Quick Add', async () => {
