@@ -8,31 +8,44 @@ const execFile = promisify(execFileCallback);
 const timeoutMs = 10_000;
 
 // T3 uses Effect RPC JSON frames on /ws.
-async function callRpc(url, tag, payload, Socket) {
+async function callRpc(url, tag, payload, Socket, options = {}) {
   return new Promise((resolveCall, reject) => {
     const socket = new Socket(url);
+    let finished = false;
     const finish = error => {
+      if (finished) return;
+      finished = true;
       clearTimeout(timer);
       socket.close();
       if (error) reject(error);
       else resolveCall();
     };
-    const timer = setTimeout(() => finish(new Error(`${tag} timed out.`)), timeoutMs);
+    const timer = setTimeout(() => finish(new Error(`${tag} timed out.`)), options.timeoutMs ?? timeoutMs);
     socket.addEventListener('open', () => socket.send(JSON.stringify({
       _tag: 'Request', id: '1', tag,
       payload, headers: [],
     })));
     socket.addEventListener('error', () => finish(new Error('T3 connection failed.')), { once: true });
     socket.addEventListener('close', () => {
-      clearTimeout(timer);
-      reject(new Error('T3 connection closed before acknowledgment.'));
+      finish(new Error('T3 connection closed before acknowledgment.'));
     }, { once: true });
     socket.addEventListener('message', event => {
       let message;
       try { message = JSON.parse(event.data); }
       catch { finish(new Error('Invalid T3 RPC response.')); return; }
       if (message._tag === 'Ping') { socket.send(JSON.stringify({ _tag: 'Pong' })); return; }
-      if (message._tag !== 'Exit' || message.requestId !== '1') return;
+      if (message.requestId !== '1' || finished) return;
+      if (message._tag === 'Chunk' && options.onValue) {
+        socket.send(JSON.stringify({ _tag: 'Ack', requestId: '1' }));
+        try {
+          for (const value of message.values) {
+            if (options.onValue(value)) { finish(); break; }
+          }
+        } catch { finish(new Error('Invalid T3 subscription update.')); }
+        return;
+      }
+      if (message._tag !== 'Exit') return;
+      if (options.onValue) { finish(new Error(`${tag} ended before completion.`)); return; }
       finish(message.exit?._tag === 'Success' ? null : new Error(`${tag} failed.`));
     });
   });
@@ -80,15 +93,19 @@ export async function withT3Session(options, callback) {
       if (!response.ok) throw new Error(`T3 request failed: HTTP ${response.status}.`);
       return response.json();
     }
-    async function rpc(tag, payload) {
+    async function connect(tag, payload, callOptions) {
       const { ticket } = await request('/api/auth/websocket-ticket/rpc', 'POST');
       const url = new URL('/ws', origin);
       url.protocol = 'ws:';
       url.searchParams.set('wsTicket', ticket);
       url.searchParams.set('orchestrationProtocol', '2');
-      return callRpc(url, tag, payload, options.WebSocket ?? globalThis.WebSocket);
+      return callRpc(url, tag, payload, options.WebSocket ?? globalThis.WebSocket, callOptions);
     }
-    return await callback({ request, rpc });
+    return await callback({
+      request,
+      rpc: (tag, payload) => connect(tag, payload),
+      subscribe: (tag, payload, onValue, waitMs) => connect(tag, payload, { onValue, timeoutMs: waitMs }),
+    });
   } finally {
     if (typeof credential?.sessionId === 'string' && credential.sessionId.trim()) {
       await command(['auth', 'session', 'revoke', credential.sessionId]);

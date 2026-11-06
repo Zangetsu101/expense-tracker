@@ -48,17 +48,25 @@ test('only one eligible thread for a newly merged branch is selected', () => {
 
 function harness() {
   const frames = [], commands = [];
+  let updates = [{ kind: 'snapshot', snapshot: snapshot([{ ...thread, latestRunId: 'run', status: 'completed' }]) }];
   class Socket extends EventTarget {
     constructor() { super(); queueMicrotask(() => this.dispatchEvent(new Event('open'))); }
     send(data) {
       const frame = JSON.parse(data); frames.push(frame);
+      if (frame._tag === 'Ack' || frame._tag === 'Pong') return;
+      if (frame.tag === 'orchestration.subscribeShell') {
+        queueMicrotask(() => this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify({
+          _tag: 'Chunk', requestId: frame.id, values: updates,
+        }) })));
+        return;
+      }
       queueMicrotask(() => this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify({
         _tag: 'Exit', requestId: frame.id, exit: { _tag: 'Success' },
       }) })));
     }
     close() {}
   }
-  return { frames, commands, options: {
+  return { frames, commands, setUpdates(value) { updates = value; }, options: {
     git: args => {
       if (args[0] === 'symbolic-ref') return 'refs/heads/main\n';
       if (args[0] === 'rev-parse') return args.at(-1) === 'HEAD' ? 'after' : 'before';
@@ -131,14 +139,25 @@ test('running merged threads defer until the same run completes', async () => {
   assert.match(await settleMergedThreads({ ...h.options, defer: t => deferred.push(t.id) }), /1 deferred/);
   assert.deepEqual(deferred, ['thread']);
   assert.equal(h.frames.length, 0);
+  h.setUpdates([
+    { kind: 'snapshot', snapshot: snapshot([running]) },
+    { kind: 'thread.updated', thread: { ...running, id: 'unrelated', activeRunId: null } },
+    { kind: 'thread.updated', thread: { ...running, activeRunId: null, status: 'completed' } },
+  ]);
   let reads = 0;
-  h.options.fetch = async url => Response.json(String(url).endsWith('/shell')
-    ? snapshot([reads++ === 0 ? running : { ...running, activeRunId: null, status: 'completed' }]) : { ticket: 'ticket' });
+  h.options.fetch = async url => {
+    if (String(url).endsWith('/shell')) reads++;
+    return Response.json(String(url).endsWith('/shell')
+      ? snapshot([{ ...running, activeRunId: null, status: 'completed' }]) : { ticket: 'ticket' });
+  };
   const input = { threadId: 'thread', runId: 'run', branch: 'feature', tip: 'tip', projectRoot: '/project' };
   const git = args => args[0] === 'show-ref' ? 'tip' : '';
-  await waitForMergedThread(input, { ...h.options, git, sleep: async () => {} });
-  assert.equal(h.frames.length, 1);
-  assert.equal(h.frames[0].payload.threadId, 'thread');
+  await waitForMergedThread(input, { ...h.options, git });
+  assert.equal(reads, 1);
+  assert.deepEqual(h.frames.filter(f => f._tag === 'Request').map(f => f.tag), [
+    'orchestration.subscribeShell', 'orchestration.dispatchCommand',
+  ]);
+  assert.equal(h.frames.find(f => f.tag === 'orchestration.dispatchCommand').payload.threadId, 'thread');
   assert.deepEqual(h.commands.at(-1), ['auth', 'session', 'revoke', 'credential']);
 });
 
@@ -149,7 +168,7 @@ test('deferred settlement leaves failed, replaced, and changed-branch runs activ
     await waitForMergedThread({ threadId: 'thread', runId: 'run', branch: 'feature', tip: 'tip', projectRoot: '/project' }, {
       ...h.options, git: args => args[0] === 'show-ref' ? 'tip' : '',
     });
-    assert.equal(h.frames.length, 0);
+    assert.equal(h.frames.filter(f => f.tag === 'orchestration.dispatchCommand').length, 0);
     assert.deepEqual(h.commands.at(-1), ['auth', 'session', 'revoke', 'credential']);
   }
 });
@@ -169,6 +188,19 @@ test('deferred worker accepts deleted merged branch but rejects a moved branch',
         return '';
       },
     });
-    assert.equal(h.frames.length, deleted ? 1 : 0);
+    assert.equal(h.frames.filter(f => f.tag === 'orchestration.dispatchCommand').length, deleted ? 1 : 0);
   }
+});
+
+
+test('subscription timeout closes the connection and revokes credentials without settling', async () => {
+  const h = harness();
+  h.setUpdates([{ kind: 'snapshot', snapshot: snapshot([{ ...thread, latestRunId: 'run', activeRunId: 'run' }]) }]);
+  let gitCalls = 0;
+  await assert.rejects(waitForMergedThread({ threadId: 'thread', runId: 'run', branch: 'feature' }, {
+    ...h.options, waitMs: 10, git: () => { gitCalls++; },
+  }), /subscribeShell timed out/);
+  assert.equal(gitCalls, 0);
+  assert.equal(h.frames.filter(f => f.tag === 'orchestration.dispatchCommand').length, 0);
+  assert.deepEqual(h.commands.at(-1), ['auth', 'session', 'revoke', 'credential']);
 });

@@ -1,6 +1,5 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { openSync, closeSync } from 'node:fs';
-import { setTimeout as delay } from 'node:timers/promises';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -62,32 +61,32 @@ function deferSettlement(thread, projectRoot, git) {
 
 export async function waitForMergedThread(input, options = {}) {
   const git = options.git ?? defaultGit;
-  const sleep = options.sleep ?? delay;
-  const deadline = Date.now() + (options.waitMs ?? 30 * 60 * 1000);
-  return withT3Session({ ...options, sessionTtl: '1h' }, async ({ request, rpc }) => {
-    while (Date.now() < deadline) {
-      const snapshot = await request('/api/orchestration/shell');
-      const thread = snapshot.threads.find(t => t.id === input.threadId);
-      if (!thread || thread.latestRunId !== input.runId || thread.branch !== input.branch) return;
-      let currentTip;
-      try { currentTip = git(['show-ref', '--verify', '--hash', `refs/heads/${input.branch}`]).trim(); }
-      catch { currentTip = null; }
-      if (currentTip !== null && currentTip !== input.tip) return;
-      git(['merge-base', '--is-ancestor', input.tip, 'refs/heads/main']);
-      if (thread.activeRunId == null && thread.activityRunStatus == null) {
-        if (thread.status !== 'completed') return;
-        const eligible = selectMergedThreads(snapshot, input.projectRoot, [input.branch]);
-        if (!eligible.some(t => t.id === input.threadId)) return;
-        await rpc('orchestration.dispatchCommand', {
-          type: 'thread.auto-settle', commandId: randomUUID(), threadId: thread.id,
-          snapshotAt: thread.updatedAt,
-        });
-        console.log(`Settled merged thread ${thread.id} after its run completed.`);
-        return;
-      }
-      await sleep(2000);
-    }
-    throw new Error(`Timed out waiting for merged thread ${input.threadId}.`);
+  return withT3Session({ ...options, sessionTtl: '1h' }, async ({ request, rpc, subscribe }) => {
+    await subscribe('orchestration.subscribeShell', {}, update => {
+      let thread;
+      if (update.kind === 'snapshot') thread = update.snapshot.threads.find(t => t.id === input.threadId);
+      else if (update.kind === 'thread.updated' && update.thread.id === input.threadId) thread = update.thread;
+      else return update.kind === 'thread.removed' && update.threadId === input.threadId;
+      return !thread || thread.latestRunId !== input.runId || thread.branch !== input.branch ||
+        (thread.activeRunId == null && thread.activityRunStatus == null);
+    }, options.waitMs ?? 30 * 60 * 1000);
+
+    const snapshot = await request('/api/orchestration/shell');
+    const thread = snapshot.threads.find(t => t.id === input.threadId);
+    if (!thread || thread.latestRunId !== input.runId || thread.branch !== input.branch ||
+        thread.status !== 'completed') return;
+    const eligible = selectMergedThreads(snapshot, input.projectRoot, [input.branch]);
+    if (!eligible.some(t => t.id === input.threadId)) return;
+    let currentTip;
+    try { currentTip = git(['show-ref', '--verify', '--hash', `refs/heads/${input.branch}`]).trim(); }
+    catch { currentTip = null; }
+    if (currentTip !== null && currentTip !== input.tip) return;
+    git(['merge-base', '--is-ancestor', input.tip, 'refs/heads/main']);
+    await rpc('orchestration.dispatchCommand', {
+      type: 'thread.auto-settle', commandId: randomUUID(), threadId: thread.id,
+      snapshotAt: thread.updatedAt,
+    });
+    console.log(`Settled merged thread ${thread.id} after its run completed.`);
   });
 }
 
