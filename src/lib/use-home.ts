@@ -27,7 +27,7 @@ export function useHome() {
   const accountsQuery = useQuery({ ...homeAccountsQuery(), enabled: focused });
   const accounts = accountsQuery.data;
   const accountId = accounts ? resolveHomeAccount(accounts, selection) : null;
-  const resolvingFavorite = selection === undefined && accountsQuery.isFetching;
+  const resolvingFavorite = selection === undefined && (accountsQuery.isFetching || accountsQuery.isError);
   if (accounts && !resolvingFavorite && selection !== accountId) setSelection(accountId);
   const snapshotQuery = useQuery({ ...homeSnapshotQuery(accountId, now), enabled: focused && !!accounts && !resolvingFavorite });
   const snapshot = snapshotQuery.data ?? lastDisplayed;
@@ -37,7 +37,7 @@ export function useHome() {
   const error = (!accountsQuery.isFetching && accountsQuery.error) || (!snapshotQuery.isFetching && snapshotQuery.error);
   const retry = () => {
     if (accountsQuery.isError || !accounts) void accountsQuery.refetch();
-    if (accounts) void snapshotQuery.refetch();
+    if (accounts && !resolvingFavorite) void snapshotQuery.refetch();
   };
   const selectAccount = (id: number | null) => {
     setSelection(id);

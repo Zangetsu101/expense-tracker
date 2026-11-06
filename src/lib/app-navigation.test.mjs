@@ -30,7 +30,7 @@ const mocks = {
   '@/components/quick-add-date': `export const QuickAddDate='Date';`,
   '@/components/quick-add-category': `export const QuickAddCategory='Category';`,
   '@/lib/home-data': `export const homeData=async(_,id)=>{globalThis.__navTest.accountQueries.push(id);return {rows:[],summaries:[]}};`,
-  '@/lib/database': `export const epochDay=d=>Math.floor(d.getTime()/86400000); export const listAccounts=async()=>globalThis.__navTest.accounts??[]; export const listCategories=async()=>[]; export const setFavoriteAccount=async()=>{};`,
+  '@/lib/database': `export const epochDay=d=>Math.floor(d.getTime()/86400000); export const listAccounts=async()=>{if(globalThis.__navTest.accountsError)throw Error('Accounts unavailable');return globalThis.__navTest.accounts??[];}; export const listCategories=async()=>[]; export const setFavoriteAccount=async()=>{};`,
   '@/lib/reports': `export const accountBalances=async()=>[];`,
   '@/lib/categories': `export const listManagedCategories=async()=>[];`,
   '@/lib/transfers': `export const addTransfer=async()=>{}; export const transferAmountMinor=()=>{throw Error('Invalid amount')};`,
@@ -67,7 +67,7 @@ const press = (label, node) => act(async () => { pressable(label, node).props.on
 const headerPart = async (key) => { let part; await act(async () => { part = create(state.header[key]()); }); return part.root; };
 
 test('app navigation', async t => {
-  t.afterEach(async () => { await act(async () => renderer?.unmount()); queryClient?.clear(); delete state.accounts; });
+  t.afterEach(async () => { await act(async () => renderer?.unmount()); queryClient?.clear(); delete state.accounts; delete state.accountsError; });
   t.after(() => {
     notifyManager.setScheduler(callback=>setTimeout(callback,0));
     hooks.deregister();
@@ -123,6 +123,32 @@ test('app navigation', async t => {
     await act(async()=>{state.lifecycle('background');state.lifecycle('active');});
     assert.equal(picker().props.selectedId,2);
     assert.equal(state.accountQueries.at(-1),2);
+  });
+  await t.test('Home retry resolves the fresh favorite after reopening Accounts fail', async()=>{
+    state.accounts=[{id:1,name:'Cash',currencyCode:'BDT',isFavorite:1},{id:2,name:'Bank',currencyCode:'BDT',isFavorite:0}];
+    await mount(Home);
+    const picker=()=>renderer.root.findByType('HomeAccountPicker');
+    state.accounts=state.accounts.map(a=>({...a,isFavorite:a.id===2?1:0}));
+    state.accountsError=true;
+    await act(async()=>{state.lifecycle('background');state.lifecycle('active');});
+    assert.equal(picker().props.error,true);
+    delete state.accountsError;
+    await act(async()=>picker().props.onRetry());
+    assert.equal(picker().props.selectedId,2);
+    assert.equal(state.accountQueries.at(-1),2);
+  });
+  await t.test('Home explicit selection wins over pending favorite recovery', async()=>{
+    state.accounts=[{id:1,name:'Cash',currencyCode:'BDT',isFavorite:1},{id:2,name:'Bank',currencyCode:'BDT',isFavorite:0}];
+    await mount(Home);
+    const picker=()=>renderer.root.findByType('HomeAccountPicker');
+    state.accounts=state.accounts.map(a=>({...a,isFavorite:a.id===2?1:0}));
+    state.accountsError=true;
+    await act(async()=>{state.lifecycle('background');state.lifecycle('active');});
+    await act(async()=>picker().props.onSelect(null));
+    delete state.accountsError;
+    await act(async()=>picker().props.onRetry());
+    assert.equal(picker().props.selectedId,null);
+    assert.equal(state.accountQueries.at(-1),null);
   });
   await t.test('Settings opens data tools and the Review Queue', async () => {
     await mount(Settings);
