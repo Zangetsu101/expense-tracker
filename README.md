@@ -62,8 +62,13 @@ uses single quotes and a 100-character print width, and skips generated files,
 vendored skills, and Git-ignored files. GitHub Actions runs `pnpm check` on pull
 requests and pushes to `main`; APK and OTA release workflows run it before publishing too.
 
-`pnpm install` also installs the Git hooks through Husky. Before each commit,
-lint-staged runs ESLint fixes and Prettier on staged JS/TS files, and Prettier on
+Enable the repository's Git hooks once per clone:
+
+```sh
+git config --local core.hooksPath .githooks
+```
+
+Before each commit, lint-staged runs ESLint fixes and Prettier on staged JS/TS files, and Prettier on
 other supported staged files. Fixes are staged automatically; unstaged edits are
 preserved. Unfixable lint errors block the commit. Typecheck and the full test suite
 remain in `pnpm check` and CI.

@@ -38,14 +38,12 @@
     "@types/react": "~19.2.2",
     "eslint": "^9.39.5",
     "eslint-config-expo": "~57.0.2",
-    "husky": "9.1.7",
     "lint-staged": "17.6.0",
     "prettier": "3.9.10",
     "react-test-renderer": "19.2.3",
     "typescript": "~6.0.3"
   },
   "scripts": {
-    "prepare": "husky .githooks",
     "start": "expo start",
     "android": "pnpm start --android",
     "android:prebuild": "expo prebuild --platform android --no-install",
