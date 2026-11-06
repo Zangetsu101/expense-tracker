@@ -47,7 +47,7 @@ test('only one eligible thread for a newly merged branch is selected', () => {
 });
 
 function harness() {
-  const frames = [], commands = [];
+  const frames = [], commands = [], logs = [];
   let updates = [{ kind: 'snapshot', snapshot: snapshot([{ ...thread, latestRunId: 'run', status: 'completed' }]) }];
   class Socket extends EventTarget {
     constructor() { super(); queueMicrotask(() => this.dispatchEvent(new Event('open'))); }
@@ -66,7 +66,7 @@ function harness() {
     }
     close() {}
   }
-  return { frames, commands, setUpdates(value) { updates = value; }, options: {
+  return { frames, commands, logs, setUpdates(value) { updates = value; }, options: {
     git: args => {
       if (args[0] === 'symbolic-ref') return 'refs/heads/main\n';
       if (args[0] === 'rev-parse') return args.at(-1) === 'HEAD' ? 'after' : 'before';
@@ -75,6 +75,7 @@ function harness() {
       if (args.at(-1) === 'before') throw new Error('not ancestor');
       return '';
     },
+    log: message => logs.push(JSON.parse(message)),
     env: { T3CODE_CLI_PATH: '/bin/t3' },
     readFile: async () => JSON.stringify({ origin: 'http://127.0.0.1:3773' }),
     execFile: async (_cli, args) => {
@@ -203,4 +204,36 @@ test('subscription timeout closes the connection and revokes credentials without
   assert.equal(gitCalls, 0);
   assert.equal(h.frames.filter(f => f.tag === 'orchestration.dispatchCommand').length, 0);
   assert.deepEqual(h.commands.at(-1), ['auth', 'session', 'revoke', 'credential']);
+});
+
+
+test('worker logs exact skip reasons with thread and run identity', async () => {
+  for (const [changes, reason] of [
+    [{ status: 'failed' }, 'run-not-completed'],
+    [{ latestRunId: 'new-run' }, 'run-replaced'],
+    [{ pinnedAt: 'date' }, 'pinned'],
+    [{ pendingBackgroundTasks: [{ taskId: 'metro', kind: 'command', description: 'sensitive command' }] }, 'background-tasks'],
+    [{ settledAt: 'date' }, 'already-settled'],
+  ]) {
+    const h = harness();
+    h.options.fetch = async () => Response.json(snapshot([{ ...thread, latestRunId: 'run', status: 'completed', ...changes }]));
+    await waitForMergedThread({ threadId: 'thread', runId: 'run', branch: 'feature', tip: 'tip', projectRoot: '/project' }, h.options);
+    const skipped = h.logs.find(log => log.event === 'settlement-skipped');
+    assert.equal(skipped.reason, reason);
+    assert.equal(skipped.threadId, 'thread');
+    assert.equal(skipped.runId, 'run');
+    assert.ok(!JSON.stringify(h.logs).includes('sensitive command'));
+    assert.ok(!JSON.stringify(h.logs).includes('secret'));
+  }
+});
+
+test('dry-run worker logs its lifecycle without changing thread state', async () => {
+  const h = harness();
+  h.options.fetch = async url => Response.json(String(url).endsWith('/shell')
+    ? snapshot([{ ...thread, latestRunId: 'run', status: 'completed' }]) : { ticket: 'ticket' });
+  await waitForMergedThread({ threadId: 'thread', runId: 'run', branch: 'feature', tip: 'tip', projectRoot: '/project' }, {
+    ...h.options, dryRun: true, git: args => args[0] === 'show-ref' ? 'tip' : '',
+  });
+  assert.deepEqual(h.logs.map(log => log.event), ['worker-started', 'subscription-ended', 'would-settle']);
+  assert.equal(h.frames.filter(f => f.tag === 'orchestration.dispatchCommand').length, 0);
 });
