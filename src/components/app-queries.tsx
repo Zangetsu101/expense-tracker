@@ -25,6 +25,7 @@ export function AppQueryLifecycle({ children }: { children: ReactNode }) {
     return () => {
       lifecycle.remove();
       unsubscribe();
+      focusManager.setFocused(undefined);
     };
   }, [client]);
   return <QuerySessionContext value={session}>{children}</QuerySessionContext>;

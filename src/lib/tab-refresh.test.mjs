@@ -204,6 +204,63 @@ test('tab refresh keeps loaded content stable', async (t) => {
       );
     },
   );
+  await t.test(
+    'Home reopening retains the previous financial view while a new favorite loads and fails',
+    async () => {
+      state.focus = 0;
+      state.accountItems = [
+        { id: 1, name: 'Cash', currencyCode: 'USD', isFavorite: 1 },
+        { id: 2, name: 'Bank', currencyCode: 'USD', isFavorite: 0 },
+      ];
+      state.read = async (key) => fixtures[key];
+      const Screen = screens[0][1];
+      await act(async () => {
+        resetQueryClient();
+        renderer = create(React.createElement(QueryScreen, { Screen }));
+      });
+      const picker = () => renderer.root.findByType('HomeAccountPicker');
+      const entry = () =>
+        renderer.root
+          .findAllByType('Pressable')
+          .find((n) => n.props.accessibilityLabel === 'Lunch, Cash');
+      state.accountItems = state.accountItems.map((a) => ({
+        ...a,
+        isFavorite: a.id === 2 ? 1 : 0,
+      }));
+      let failBank;
+      state.read = (key, id) =>
+        key === 'home' && id === 2
+          ? new Promise((_, reject) => {
+              failBank = reject;
+            })
+          : Promise.resolve(fixtures[key]);
+      await act(async () => {
+        state.lifecycle('background');
+        state.lifecycle('active');
+      });
+      assert.equal(picker().props.selectedId, 2);
+      assert.ok(failBank);
+      assert.ok(texts().includes('Lunch'));
+      assert.equal(entry().props.disabled, true);
+      assert.equal(
+        renderer.root.findAllByType('Skeleton').length,
+        0,
+        'reopening must retain the financial subtree',
+      );
+      await act(async () => failBank(new Error('Bank read failed')));
+      assert.equal(picker().props.error, true);
+      assert.ok(texts().includes('Lunch'));
+      assert.equal(entry().props.disabled, true);
+      assert.ok(
+        !texts().includes('Couldn’t load Home'),
+        'a failed replacement must not become a cold error',
+      );
+      state.read = async (key) => (key === 'home' ? { ...fixtures.home, rows: [] } : fixtures[key]);
+      await act(async () => picker().props.onRetry());
+      assert.equal(picker().props.error, false);
+      assert.equal(renderer.root.findByType('FlatList').props.data.length, 0);
+    },
+  );
   await t.test('Home cold failure offers retry instead of empty state or skeletons', async () => {
     state.focus = 0;
     const Screen = screens[0][1];

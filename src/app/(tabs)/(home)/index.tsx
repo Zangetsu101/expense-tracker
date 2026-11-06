@@ -1,5 +1,10 @@
 import { Suspense, use, useDeferredValue, useMemo, useRef, useState } from 'react';
-import { QueryErrorResetBoundary, useQuery, useSuspenseQuery } from '@tanstack/react-query';
+import {
+  QueryErrorResetBoundary,
+  useQuery,
+  useQueryClient,
+  useSuspenseQuery,
+} from '@tanstack/react-query';
 import { HomeView, HomeSkeleton, HomeLoadError, type HomeControls } from '@/components/home-view';
 import { RetainedQueryBoundary } from '@/components/retained-query-boundary';
 import { resolveHomeAccount } from '@/lib/account-selection';
@@ -90,6 +95,7 @@ function AccountContent({
 }
 
 function Home({ reset }: { reset: () => void }) {
+  const client = useQueryClient();
   const session = use(QuerySessionContext);
   const deferred = useDeferredValue(session);
   const [selection, setSelection] = useState<Selection>();
@@ -119,11 +125,16 @@ function Home({ reset }: { reset: () => void }) {
         ref={boundary}
         request={deferred}
         requestKey={String(deferred.id)}
-        onReset={reset}
+        onReset={() => {
+          reset();
+          void client.resetQueries({
+            queryKey: homeAccountsQuery(deferred.id).queryKey,
+            exact: true,
+          });
+        }}
         fallback={(retry) => <HomeLoadError controls={coldControls} retry={retry} />}
         render={(ready, failed) => (
           <AccountContent
-            key={ready.id}
             session={ready}
             selection={failed ? selection?.accountId : selected}
             selectAccount={selectAccount}

@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import React from 'react';
 import { act, create } from 'react-test-renderer';
 import ts from 'typescript';
-import { QueryClientProvider, notifyManager } from '@tanstack/react-query';
+import { QueryClientProvider, focusManager, notifyManager } from '@tanstack/react-query';
 
 notifyManager.setScheduler(queueMicrotask);
 const state = { calls: [] };
@@ -260,6 +260,18 @@ test('app navigation', async (t) => {
     assert.equal(picker().props.selectedId, null);
     assert.equal(state.accountQueries.at(-1), null);
   });
+  await t.test(
+    'disposing the app lifecycle bridge releases its global focus override',
+    async () => {
+      const initialFocus = focusManager.isFocused();
+      await mount(Home);
+      await act(async () => state.lifecycle('background'));
+      assert.equal(focusManager.isFocused(), false);
+      await act(async () => renderer.unmount());
+      renderer = undefined;
+      assert.equal(focusManager.isFocused(), initialFocus);
+    },
+  );
   await t.test('Settings opens data tools and the Review Queue', async () => {
     await mount(Settings);
     assert.equal(renderer.root.findAllByType('RunningRelease').length, 1);
