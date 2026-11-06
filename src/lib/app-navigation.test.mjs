@@ -12,10 +12,11 @@ const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const root = new URL('../../', import.meta.url);
 const mocks = {
+  '@/components/home-account-picker': `export const HomeAccountPicker='HomeAccountPicker';`,
   '@/components/running-release': `export const RunningRelease='RunningRelease';`,
   '@/components/app-updates': `export const UpdatesRow='UpdatesRow';`,
-  'react-native': `import React from 'react'; export const KeyboardAvoidingView='KeyboardAvoidingView',View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator'; export const FlatList=p=>React.createElement('FlatList',null,p.ListHeaderComponent,p.ListFooterComponent); export const Alert={alert(){}};`,
-  'expo-router': `import {useEffect} from 'react'; const s=globalThis.__navTest; export const useFocusEffect=fn=>useEffect(fn,[fn]); export const router={push:h=>s.calls.push(['push',h]),replace:h=>s.calls.push(['replace',h]),back:()=>s.calls.push(['back'])}; export const Link=({children})=>children; export const Stack={Screen:p=>{s.header={...s.header,...p.options};return null}};`,
+  'react-native': `import React from 'react'; export const KeyboardAvoidingView='KeyboardAvoidingView',View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator'; export const FlatList=p=>React.createElement('FlatList',null,p.ListHeaderComponent,p.ListFooterComponent); export const Alert={alert(){}}; export const AppState={currentState:'active',addEventListener:(_,fn)=>{globalThis.__navTest.lifecycle=fn;return {remove(){}}}};`,
+  'expo-router': `import {useEffect} from 'react'; const s=globalThis.__navTest; export const useFocusEffect=fn=>useEffect(fn,[fn]); export const useLocalSearchParams=()=>({}); export const router={push:h=>s.calls.push(['push',h]),replace:h=>s.calls.push(['replace',h]),back:()=>s.calls.push(['back'])}; export const Link=({children})=>children; export const Stack={Screen:p=>{s.header={...s.header,...p.options};return null}};`,
   'expo-router/react-navigation': `export const useHeaderHeight=()=>88; export const useNavigation=()=>({dispatch(){}}); export const usePreventRemove=()=>{};`,
   'expo-status-bar': `export const StatusBar=()=>null;`,
   'expo-symbols': `export const SymbolView='SymbolView';`,
@@ -23,8 +24,8 @@ const mocks = {
   '@/components/form-controls': `export const FormButton='FormButton',FormInput='FormInput',JoinedChoice='JoinedChoice';`,
   '@/components/quick-add-date': `export const QuickAddDate='Date';`,
   '@/components/quick-add-category': `export const QuickAddCategory='Category';`,
-  '@/lib/home-data': `export const homeData=async()=>({rows:[],summaries:[]});`,
-  '@/lib/database': `export const epochDay=d=>Math.floor(d.getTime()/86400000); export const listAccounts=async()=>[]; export const listCategories=async()=>[]; export const setFavoriteAccount=async()=>{};`,
+  '@/lib/home-data': `export const homeData=async(_,id)=>{globalThis.__navTest.accountQueries.push(id);return {rows:[],summaries:[]}};`,
+  '@/lib/database': `export const epochDay=d=>Math.floor(d.getTime()/86400000); export const listAccounts=async()=>globalThis.__navTest.accounts??[]; export const listCategories=async()=>[]; export const setFavoriteAccount=async()=>{};`,
   '@/lib/categories': `export const listManagedCategories=async()=>[];`,
   '@/lib/transfers': `export const addTransfer=async()=>{}; export const transferAmountMinor=()=>{throw Error('Invalid amount')};`,
   '@/lib/lending': `export const listPeople=async()=>[]; export const listLendingTotals=async()=>[]; export const createPerson=async()=>{}; export const saveLendingEntry=async()=>{};`,
@@ -48,14 +49,14 @@ const { default: Home } = await import('../app/(tabs)/(home)/index.tsx');
 const { default: Settings } = await import('../app/settings.tsx');
 const { default: QuickAdd } = await import('../app/quick-add.tsx');
 let renderer;
-const mount = async (Screen) => { state.calls = []; state.header = undefined; await act(async () => { renderer = create(React.createElement(Screen)); }); };
+const mount = async (Screen) => { state.calls = []; state.accountQueries = []; state.header = undefined; await act(async () => { renderer = create(React.createElement(Screen)); }); };
 const texts = (node = renderer.root) => node.findAllByType('Text').map(n => n.children.join(''));
 const pressable = (label, node = renderer.root) => node.findAllByType('Pressable').find(n => n.props.accessibilityLabel === label || texts(n).includes(label));
 const press = (label, node) => act(async () => { pressable(label, node).props.onPress(); });
 const headerPart = async (key) => { let part; await act(async () => { part = create(state.header[key]()); }); return part.root; };
 
 test('app navigation', async t => {
-  t.afterEach(async () => { await act(async () => renderer?.unmount()); });
+  t.afterEach(async () => { await act(async () => renderer?.unmount()); delete state.accounts; });
   t.after(() => {
     hooks.deregister();
     delete globalThis.__navTest;
@@ -74,13 +75,32 @@ test('app navigation', async t => {
     assert.ok(settings.props.style.minWidth >= 48 && settings.props.style.minHeight >= 48);
     await act(async () => settings.props.onPress());
     await press('Add transaction');
-    assert.deepEqual(state.calls, [['push', '/settings'], ['push', '/quick-add']]);
+    assert.deepEqual(state.calls, [['push', '/settings'], ['push', { pathname: '/quick-add', params: {} }]]);
   });
   await t.test('Home keeps Search all and drops the More list', async () => {
     await mount(Home);
     const shown = texts();
     assert.ok(shown.includes('Search all'));
     for (const old of ['More', 'Transfer between accounts', 'Manage categories', 'Manage accounts', 'Reports', 'Review transfer candidates', 'Import, export and backup']) assert.ok(!shown.includes(old), old);
+  });
+  await t.test('Home starts at favorite, scopes Add, keeps All accounts and resets on reopening', async () => {
+    state.accounts = [{ id: 1, name: 'Cash', currencyCode: 'BDT', isFavorite: 0 }, { id: 2, name: 'Bank', currencyCode: 'BDT', isFavorite: 1 }];
+    await mount(Home);
+    const picker = () => renderer.root.findByType('HomeAccountPicker');
+    assert.equal(picker().props.selectedId, 2);
+    assert.equal(state.accountQueries.at(-1), 2);
+    await act(async () => picker().props.onSelect(1));
+    await press('Add transaction');
+    assert.deepEqual(state.calls.at(-1), ['push', { pathname: '/quick-add', params: { accountId: '1' } }]);
+    assert.ok(texts().includes('Search account'));
+    await act(async () => picker().props.onSelect(null));
+    assert.equal(picker().props.selectedId, null);
+    assert.equal(state.accountQueries.at(-1), null);
+    await act(async () => { state.lifecycle('inactive'); state.lifecycle('active'); });
+    assert.equal(picker().props.selectedId, null);
+    await act(async () => { state.lifecycle('background'); state.lifecycle('active'); });
+    assert.equal(picker().props.selectedId, 2);
+    assert.equal(state.accountQueries.at(-1), 2);
   });
   await t.test('Settings opens data tools and the Review Queue', async () => {
     await mount(Settings);

@@ -12,11 +12,13 @@ const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const root = new URL('../../', import.meta.url);
 const mocks = {
-  'react-native': `import React from 'react'; export const View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator',KeyboardAvoidingView='KeyboardAvoidingView'; export const FlatList=p=>React.createElement('FlatList',p,p.ListHeaderComponent,p.data.map((item,index)=>React.createElement(React.Fragment,{key:item.id},p.renderItem({item,index})))); export const Platform={OS:'android'}; export const useWindowDimensions=()=>({width:400,height:800});`,
+  'react-native': `import React from 'react'; export const View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator',KeyboardAvoidingView='KeyboardAvoidingView'; export const FlatList=p=>React.createElement('FlatList',p,p.ListHeaderComponent,p.data.map((item,index)=>React.createElement(React.Fragment,{key:item.id},p.renderItem({item,index})))); export const AppState={currentState:'active',addEventListener:()=>({remove(){}})}; export const Platform={OS:'android'}; export const useWindowDimensions=()=>({width:400,height:800});`,
   'expo-router': `import React from 'react'; export const Stack={Screen:()=>null}; export const Link=({children})=>children; export const router={push(){}}; export function useFocusEffect(callback){React.useEffect(()=>{if(globalThis.__tabRefreshTest.focus%2===0)return callback()},[callback,globalThis.__tabRefreshTest.focus]);}`,
   'expo-status-bar': `export const StatusBar=()=>null;`,
   'expo-symbols': `export const SymbolView='SymbolView';`,
   'react-native-safe-area-context': `export const useSafeAreaInsets=()=>({bottom:0});`,
+  '@/components/home-account-picker': `export const HomeAccountPicker='HomeAccountPicker';`,
+  '@/lib/database': `export const listAccounts=async()=>[{id:1,name:'Cash',currencyCode:'USD',isFavorite:1}];`,
   '@/components/app-sheet': `export const AppSheet=({children})=>children;`,
   '@/components/category-browser': `import React from 'react'; export const CategoryBrowser=p=>React.createElement('CategoryBrowser',p);`,
   '@/lib/accounts': `export const listManagedAccounts=()=>globalThis.__tabRefreshTest.read('accounts'); export const createAccount=async()=>{}; export const setFavoriteAccount=async()=>{};`,

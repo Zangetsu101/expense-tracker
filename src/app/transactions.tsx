@@ -1,10 +1,11 @@
 import { useCallback, useRef, useState } from 'react';
-import { Link, useFocusEffect } from 'expo-router';
+import { Link, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { ActivityIndicator, FlatList, KeyboardAvoidingView, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { listAccounts, type Account } from '@/lib/database';
 import { listManagedCategories, type ManagedCategory } from '@/lib/categories';
 import { PAGE_SIZE, parseAmountMinor, searchTransactions, validDate, type SearchFilters, type SearchRow } from '@/lib/transaction-search';
+import { parseAccountId } from '@/lib/account-selection';
 import { countLabel, formatEpochDay, formatTransactionAmount, transactionTitle } from '@/lib/transaction-format';
 
 const ink = '#edf1f4';
@@ -30,8 +31,9 @@ function Choice({ label, selected, onPress }: { label: string; selected: boolean
 
 export default function TransactionsScreen() {
   const insets = useSafeAreaInsets();
-  const [filters, setFilters] = useState<SearchFilters>({ ...initialFilters });
-  const [draft, setDraft] = useState<SearchFilters>({ ...initialFilters });
+  const params = useLocalSearchParams<{ accountId?: string }>();
+  const [filters, setFilters] = useState<SearchFilters>(() => ({ ...initialFilters, accountId: parseAccountId(params.accountId) ?? null }));
+  const [draft, setDraft] = useState<SearchFilters>(() => ({ ...initialFilters, accountId: parseAccountId(params.accountId) ?? null }));
   const [open, setOpen] = useState(false);
   const [categoryQuery, setCategoryQuery] = useState('');
   const [categoryWidth, setCategoryWidth] = useState(0);
