@@ -98,6 +98,27 @@ test('update row coordinates native startup, progress, readiness and confirmed r
   };
   await act(async () => renderer.update(tree()));
   assert.equal(button().props.accessibilityValue.text, 'Downloading update, 37%');
+  assert.equal(
+    renderer.root.findByProps({ accessibilityRole: 'progressbar' }).props.accessibilityValue.now,
+    37,
+  );
+  assert.equal(renderer.root.findAllByType('ActivityIndicator').length, 0);
+  for (const progress of [0, 0.5, 1]) {
+    state.native = { ...state.native, downloadProgress: progress };
+    await act(async () => renderer.update(tree()));
+    assert.equal(
+      renderer.root.findByProps({ accessibilityRole: 'progressbar' }).props.accessibilityValue.now,
+      progress * 100,
+    );
+    assert.equal(button().props.disabled, true);
+  }
+  state.native = { ...state.native, downloadProgress: undefined };
+  await act(async () => renderer.update(tree()));
+  assert.equal(renderer.root.findAllByProps({ accessibilityRole: 'progressbar' }).length, 0);
+  assert.equal(renderer.root.findAllByType('ActivityIndicator').length, 1);
+  assert.equal(button().props.accessibilityValue.text, 'Downloading update');
+  state.native = { ...state.native, downloadProgress: 0.37 };
+  await act(async () => renderer.update(tree()));
   assert.equal(button().props.disabled, true);
   await act(async () => hoverTarget().props.onPointerEnter());
   assert.deepEqual(help(), ['Downloading update, 37%']);

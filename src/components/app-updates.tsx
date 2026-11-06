@@ -22,6 +22,7 @@ import Constants from 'expo-constants';
 import * as Updates from 'expo-updates';
 import { createUpdateController, watchUpdateLifecycle } from '@/lib/app-updates';
 import { theme } from '@/theme';
+import { UpdateDownloadProgress } from '@/components/update-download-progress';
 
 const UpdateContext = createContext<ReturnType<typeof createUpdateController> | null>(null);
 export function AppUpdatesProvider({ children }: { children: ReactNode }) {
@@ -167,7 +168,9 @@ export function UpdatesRow() {
           Updates
         </Text>
         <View onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)}>
-          {busy ? (
+          {status === 'downloading' && progress !== undefined ? (
+            <UpdateDownloadProgress progress={progress} size={24 * fontScale} />
+          ) : busy ? (
             <ActivityIndicator color={tint} accessibilityLabel={description} />
           ) : (
             <SymbolView
