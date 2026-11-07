@@ -22,7 +22,31 @@ function SectionLayout({ children, label }: { children: ReactNode; label?: strin
   );
 }
 
-function ChoicesSkeleton({ label, layout }: { label: string; layout: ChoicesLayout }) {
+function PillSkeletonRows({ height, borderRadius }: { height: number; borderRadius: number }) {
+  return (
+    <View style={{ gap: 8 }}>
+      {[0, 1].map((row) => (
+        <View key={row} style={{ flexDirection: 'row', gap: 8 }}>
+          {[0, 1, 2, 3].map((column) => (
+            <View key={column} style={{ flex: 1 }}>
+              <Skeleton width="100%" height={height} borderRadius={borderRadius} />
+            </View>
+          ))}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function ChoicesSkeleton({
+  label,
+  layout,
+  pendingLabel,
+}: {
+  label: string;
+  layout: ChoicesLayout;
+  pendingLabel?: string;
+}) {
   return (
     <SectionLayout label={`Loading ${label}`}>
       {layout === 'categories' ? (
@@ -32,17 +56,15 @@ function ChoicesSkeleton({ label, layout }: { label: string; layout: ChoicesLayo
             <Skeleton width="35%" height={16} />
           </View>
           <CategorySearchInput disabled />
-          <View style={{ gap: 8 }}>
-            {[0, 1].map((row) => (
-              <View key={row} style={{ flexDirection: 'row', gap: 8 }}>
-                {[0, 1, 2, 3].map((column) => (
-                  <View key={column} style={{ flex: 1 }}>
-                    <Skeleton width="100%" height={38} borderRadius={12} />
-                  </View>
-                ))}
-              </View>
-            ))}
+          <PillSkeletonRows height={38} borderRadius={12} />
+        </>
+      ) : layout === 'accounts' ? (
+        <>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Text style={{ color: theme.colors.muted, fontSize: 12 }}>{pendingLabel}</Text>
+            <Skeleton width="35%" height={12} />
           </View>
+          <PillSkeletonRows height={48} borderRadius={14} />
         </>
       ) : (
         <>
@@ -99,11 +121,13 @@ export function ChoicesSection<T, K extends QueryKey>({
   options,
   label,
   layout,
+  pendingLabel,
   children,
 }: {
   options: UseSuspenseQueryOptions<T, Error, T, K>;
   label: string;
   layout: ChoicesLayout;
+  pendingLabel?: string;
   children: (data: T) => ReactNode;
 }) {
   return (
@@ -117,7 +141,9 @@ export function ChoicesSection<T, K extends QueryKey>({
             </SectionLayout>
           )}
         >
-          <Suspense fallback={<ChoicesSkeleton label={label} layout={layout} />}>
+          <Suspense
+            fallback={<ChoicesSkeleton label={label} layout={layout} pendingLabel={pendingLabel} />}
+          >
             <ReadyChoices options={options} label={label}>
               {children}
             </ReadyChoices>

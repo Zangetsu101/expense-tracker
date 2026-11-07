@@ -361,7 +361,12 @@ function QuickAddForm() {
               setError('');
             }}
           />
-          <ChoicesSection options={accountsQuery()} label="accounts" layout="accounts">
+          <ChoicesSection
+            options={accountsQuery()}
+            label="accounts"
+            layout="accounts"
+            pendingLabel={incoming ? 'Into' : 'From'}
+          >
             {(readyAccounts) => (
               <>
                 <InitialSelection
