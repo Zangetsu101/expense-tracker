@@ -25,12 +25,27 @@ function ChoicesSkeleton({ label, layout }: { label: string; layout: ChoicesLayo
   return (
     <SectionLayout label={`Loading ${label}`}>
       <Skeleton width="35%" height={16} />
-      {layout === 'categories' && <Skeleton width="100%" height={48} />}
-      <View style={{ flexDirection: 'row', gap: 8 }}>
-        <Skeleton width="30%" height={48} />
-        <Skeleton width="30%" height={48} />
-      </View>
-      {layout === 'categories' && <Skeleton width="65%" height={48} />}
+      {layout === 'categories' ? (
+        <>
+          <Skeleton width="100%" height={48} borderRadius={12} />
+          <View style={{ gap: 8 }}>
+            {[0, 1].map((row) => (
+              <View key={row} style={{ flexDirection: 'row', gap: 8 }}>
+                {[0, 1, 2, 3].map((column) => (
+                  <View key={column} style={{ flex: 1 }}>
+                    <Skeleton width="100%" height={38} borderRadius={12} />
+                  </View>
+                ))}
+              </View>
+            ))}
+          </View>
+        </>
+      ) : (
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <Skeleton width="30%" height={48} borderRadius={14} />
+          <Skeleton width="30%" height={48} borderRadius={14} />
+        </View>
+      )}
     </SectionLayout>
   );
 }

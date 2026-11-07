@@ -69,10 +69,12 @@ export function Skeleton({
   width = '65%',
   height = 14,
   animated = true,
+  borderRadius = 5,
 }: {
   width?: DimensionValue;
   height?: number;
   animated?: boolean;
+  borderRadius?: number;
 }) {
   return (
     <View
@@ -80,7 +82,7 @@ export function Skeleton({
       style={{
         width,
         height,
-        borderRadius: 5,
+        borderRadius,
         overflow: 'hidden',
         backgroundColor: theme.colors.raised,
       }}
