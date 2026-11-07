@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { registerHooks } from 'node:module';
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import React from 'react';
 import { act, create } from 'react-test-renderer';
 import ts from 'typescript';
@@ -35,6 +35,7 @@ const hooks = registerHooks({
   },
 });
 const { HomeAccountPicker, HomeAccountPickerSkeleton } = await import('./account-picker.tsx');
+after(() => hooks.deregister());
 
 test('failed Account selection keeps choosing and retrying as separate actions', async (t) => {
   const previous = globalThis.IS_REACT_ACT_ENVIRONMENT;
@@ -43,7 +44,6 @@ test('failed Account selection keeps choosing and retrying as separate actions',
     retries = 0;
   t.after(async () => {
     await act(async () => renderer?.unmount());
-    hooks.deregister();
     if (previous === undefined) delete globalThis.IS_REACT_ACT_ENVIRONMENT;
     else globalThis.IS_REACT_ACT_ENVIRONMENT = previous;
   });
@@ -77,20 +77,25 @@ test('failed Account selection keeps choosing and retrying as separate actions',
   await act(async () => buttons()[1].props.onPress());
   assert.equal(renderer.root.findAllByType('AppSheet').length, 1, 'normal chevron opens selection');
   assert.equal(retries, 1);
-  await act(async () => renderer.update(React.createElement(HomeAccountPickerSkeleton)));
-  assert.equal(
-    renderer.root.findAllByType('Pressable').length,
-    0,
-    'placeholder is not interactive',
-  );
+});
+
+test('Account picker placeholder has no actions and animates only while loading', async (t) => {
+  const previous = globalThis.IS_REACT_ACT_ENVIRONMENT;
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  let renderer;
+  t.after(async () => {
+    await act(async () => renderer?.unmount());
+    if (previous === undefined) delete globalThis.IS_REACT_ACT_ENVIRONMENT;
+    else globalThis.IS_REACT_ACT_ENVIRONMENT = previous;
+  });
+  await act(async () => {
+    renderer = create(React.createElement(HomeAccountPickerSkeleton, { animated: true }));
+  });
+  assert.equal(renderer.root.findAllByType('Pressable').length, 0);
   assert.equal(renderer.root.findAllByType('AppSheet').length, 0);
   assert.equal(renderer.root.findByType('Skeleton').props.animated, true);
   await act(async () =>
     renderer.update(React.createElement(HomeAccountPickerSkeleton, { animated: false })),
   );
-  assert.equal(
-    renderer.root.findByType('Skeleton').props.animated,
-    false,
-    'failed Accounts load uses a static placeholder',
-  );
+  assert.equal(renderer.root.findByType('Skeleton').props.animated, false);
 });

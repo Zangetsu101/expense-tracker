@@ -27,25 +27,26 @@ const pickerStyle: ViewStyle = {
   overflow: 'hidden',
 };
 
-export function HomeAccountPickerSkeleton({ animated = true }: { animated?: boolean }) {
+const labelSlotStyle: ViewStyle = { flex: 1, minHeight: 54, padding: 16, justifyContent: 'center' };
+const actionSlotStyle: ViewStyle = {
+  minWidth: 48,
+  minHeight: 54,
+  paddingRight: 8,
+  alignItems: 'center',
+  justifyContent: 'center',
+};
+
+export function HomeAccountPickerSkeleton({ animated }: { animated: boolean }) {
   return (
     <View
       style={pickerStyle}
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
     >
-      <View style={{ flex: 1, minHeight: 54, padding: 16, justifyContent: 'center' }}>
+      <View style={labelSlotStyle}>
         <Skeleton width={140} height={20} animated={animated} />
       </View>
-      <View
-        style={{
-          minWidth: 48,
-          minHeight: 54,
-          paddingRight: 8,
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
+      <View style={actionSlotStyle}>
         <SymbolView
           name={{ ios: 'chevron.down', android: 'expand_more' }}
           size={24}
@@ -98,7 +99,7 @@ export function HomeAccountPicker({
           }
           accessibilityState={{ expanded: open, busy: loading }}
           onPress={openPicker}
-          style={{ flex: 1, minHeight: 54, padding: 16, justifyContent: 'center' }}
+          style={labelSlotStyle}
         >
           <Text numberOfLines={2} style={{ color: c.text, fontWeight: '600', fontSize: 17 }}>
             {selected?.name ?? 'All accounts'}
@@ -110,13 +111,7 @@ export function HomeAccountPicker({
           accessibilityLabel={error ? 'Retry loading selected account' : 'Choose account'}
           accessibilityState={{ expanded: error ? undefined : open }}
           onPress={error ? onRetry : openPicker}
-          style={{
-            minWidth: 48,
-            minHeight: 54,
-            paddingRight: 8,
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
+          style={actionSlotStyle}
         >
           <SymbolView
             name={
