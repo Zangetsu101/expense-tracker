@@ -117,10 +117,14 @@ function insert(query, ...values) {
   sql.prepare(query).run(...values);
 }
 function replaceDocument(data) {
-  return restoreBackup(backupStore, {
-    pickJsonDocument: async () => 'content://synthetic-backup',
-    readText: async () => encodeBackup(data),
-  });
+  return restoreBackup(
+    backupStore,
+    {
+      pickJsonDocument: async () => ({ uri: 'content://synthetic-backup', name: 'saved.json' }),
+      readText: async () => encodeBackup(data),
+    },
+    async () => true,
+  );
 }
 
 test('SQLite snapshot and replace retain imported Accounts, Categories, Transfers, queue, keys, tags and Line Items', async () => {
