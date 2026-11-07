@@ -9,7 +9,7 @@ import {
   formatMoney,
   transactionTitle,
 } from '@/lib/transaction-format';
-import { Skeleton } from './loading.tsx';
+import { Skeleton } from '@/components/loading';
 import { HomeAccountPicker, HomeAccountPickerSkeleton } from './account-picker.tsx';
 import type { CurrencyBalance } from './balances.ts';
 import type { HomeSnapshot } from './queries.ts';

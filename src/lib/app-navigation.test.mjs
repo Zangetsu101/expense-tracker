@@ -16,7 +16,7 @@ const root = new URL('../../', import.meta.url);
 const mocks = {
   'expo-haptics': `export const AndroidHaptics={Keyboard_Tap:'keyboard'},ImpactFeedbackStyle={Light:'light'}; export const performAndroidHapticsAsync=async()=>{},impactAsync=async()=>{};`,
   'react-native-reanimated': `import {useRef} from 'react'; export default {View:'AnimatedView'}; export const Easing={out:x=>x,cubic:x=>x},ReduceMotion={System:'system'}; export const useSharedValue=value=>useRef({value}).current,useAnimatedStyle=fn=>fn(),withTiming=value=>value;`,
-  './loading.tsx': `export const Skeleton='Skeleton';`,
+  '@/components/loading': `export const Skeleton='Skeleton',Shimmer='Shimmer';`,
   './account-picker.tsx': `export const HomeAccountPicker='HomeAccountPicker',HomeAccountPickerSkeleton='HomeAccountPickerSkeleton';`,
   '@/components/running-release': `export const RunningRelease='RunningRelease';`,
   '@/lib/backup': `export const exportBackup=async()=>globalThis.__navTest.backup?.()??'content://backup'; export const restoreBackup=async()=>false;`,
@@ -266,6 +266,26 @@ test('app navigation', async (t) => {
       } finally {
         delete state.backup;
       }
+    },
+  );
+  await t.test(
+    'Quick add choices refresh after a committed SQLite change without resetting selection',
+    async () => {
+      state.accounts = [{ id: 1, name: 'Cash', currencyCode: 'USD', isFavorite: 1 }];
+      await mount(QuickAdd);
+      const choices = () => renderer.root.findAll((n) => n.type?.name === 'AccountChoices')[0];
+      assert.equal(choices().props.selectedId, 1);
+      state.accounts = [
+        { id: 1, name: 'Renamed', currencyCode: 'USD' },
+        { id: 2, name: 'Bank', currencyCode: 'USD', isFavorite: 1 },
+      ];
+      const { notifyDataChanged } = await import('./data-changes.ts');
+      await act(async () => notifyDataChanged());
+      assert.deepEqual(
+        choices().props.accounts.map((account) => account.name),
+        ['Renamed', 'Bank'],
+      );
+      assert.equal(choices().props.selectedId, 1);
     },
   );
   await t.test(

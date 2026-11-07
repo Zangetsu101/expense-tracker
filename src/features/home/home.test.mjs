@@ -14,11 +14,12 @@ const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const root = new URL('../../../', import.meta.url);
 const mocks = {
+  '@/features/quick-add': `export const invalidateQuickAdd=async()=>{};`,
   'react-native': `import React from 'react'; export const View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator',KeyboardAvoidingView='KeyboardAvoidingView'; export const FlatList=p=>React.createElement('FlatList',p,p.ListHeaderComponent,p.data.map((item,index)=>React.createElement(React.Fragment,{key:item.id},p.renderItem({item,index})))); export const AppState={currentState:'active',addEventListener:(_,fn)=>{globalThis.__homeScreenTest.lifecycle=fn;return {remove(){}}}}; export const Platform={OS:'android'}; export const useWindowDimensions=()=>({width:400,height:800});`,
   'expo-router': `export const Stack={Screen:()=>null}; export const Link=({children})=>children; export const router={push(){}};`,
   'expo-status-bar': `export const StatusBar=()=>null;`,
   'expo-symbols': `export const SymbolView='SymbolView';`,
-  './loading.tsx': `export const Skeleton='Skeleton'; export const Shimmer='Shimmer';`,
+  '@/components/loading': `export const Skeleton='Skeleton'; export const Shimmer='Shimmer';`,
   './account-picker.tsx': `export const HomeAccountPicker='HomeAccountPicker',HomeAccountPickerSkeleton='HomeAccountPickerSkeleton';`,
   '@/lib/database': `export const epochDay=d=>Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/86400000); export const listAccounts=async()=>{if(globalThis.__homeScreenTest.accountsRead)return globalThis.__homeScreenTest.accountsRead();if(globalThis.__homeScreenTest.accountsError)throw Error('accounts unavailable');return globalThis.__homeScreenTest.accountItems??[{id:1,name:'Cash',currencyCode:'USD',isFavorite:1},{id:2,name:'Bank',currencyCode:'USD',isFavorite:0},{id:3,name:'Savings',currencyCode:'USD',isFavorite:0},{id:4,name:'Card',currencyCode:'USD',isFavorite:0}];};`,
   '@/lib/reports': `export const monthlyReport=()=>globalThis.__homeScreenTest.read('reports'); export const accountBalances=today=>globalThis.__homeScreenTest.read('balances',today);`,
