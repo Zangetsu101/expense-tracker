@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useEffectEvent, useState, type ReactNode } from 'react';
 import { BackHandler, Keyboard, Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { calculateAmount } from '@/lib/amount-calculator';
@@ -28,7 +28,7 @@ export function AmountInput({
   const [calculatorOpen, setCalculatorOpen] = useState(true);
   const [validAmount, setValidAmount] = useState(false);
   const insets = useSafeAreaInsets();
-  const dismiss = useCallback(() => {
+  function dismiss() {
     if (!calculatorOpen) return;
     try {
       const calculated = calculateAmount(amount);
@@ -41,15 +41,16 @@ export function AmountInput({
       onChange(undefined);
     }
     setCalculatorOpen(false);
-  }, [amount, calculatorOpen, onChange]);
+  }
+  const onHardwareBack = useEffectEvent(() => {
+    dismiss();
+    return true;
+  });
   useEffect(() => {
     if (!calculatorOpen) return;
-    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      dismiss();
-      return true;
-    });
+    const subscription = BackHandler.addEventListener('hardwareBackPress', onHardwareBack);
     return () => subscription.remove();
-  }, [calculatorOpen, dismiss]);
+  }, [calculatorOpen]);
   const input = (
     <View style={{ gap: 6 }}>
       <Text

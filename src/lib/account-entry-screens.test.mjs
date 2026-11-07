@@ -312,6 +312,23 @@ test('Account entry screens', async (t) => {
     },
   );
   await t.test(
+    'Hardware back keeps its subscription while committing the latest expression',
+    async () => {
+      await mount(QuickAdd);
+      await chooseCategory(3);
+      const handler = state.backHandler;
+      await change('Amount', '7+2', false);
+      assert.equal(state.backHandler, handler);
+      await act(async () => assert.equal(handler(), true));
+      let saved;
+      state.save = async (draft) => {
+        saved = draft;
+      };
+      await press('Save');
+      assert.equal(saved.amountMinor, 900);
+    },
+  );
+  await t.test(
     'Quick add requires an explicit Category and saves the Home Account and draft values',
     async () => {
       await mount(QuickAdd);
