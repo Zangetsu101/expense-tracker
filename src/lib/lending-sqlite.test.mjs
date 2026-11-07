@@ -122,10 +122,17 @@ test('historical assignment is explicit, direction safe, and preserves movement 
   );
   await assert.rejects(api.assignLendingTransaction(53, p.id));
 });
-test('aggregate overpayment warnings cover edits, person/currency moves, and principal deletion without partial writes', async () => {
+test('aggregate overpayment warnings cover edits, person/currency moves, and principal deletion without partial writes', async (t) => {
   const p = await api.createPerson('Warnings');
   const principal = await api.saveLendingEntry(input(p.id, 'LEND', 1000));
   const repayment = await api.saveLendingEntry(input(p.id, 'RECEIVE_REPAYMENT', 800));
+  const { subscribeDataChanges } = await import('./data-changes.ts');
+  let changes = 0;
+  t.after(
+    subscribeDataChanges(() => {
+      changes++;
+    }),
+  );
   const edit = input(p.id, 'LEND', 500, { id: principal.id });
   assert.equal((await api.saveLendingEntry(edit)).status, 'confirmation_required');
   assert.equal((await api.listLendingTotals(p.id))[0].outstandingMinor, 200);
@@ -134,7 +141,9 @@ test('aggregate overpayment warnings cover edits, person/currency moves, and pri
     'confirmation_required',
   );
   await assert.rejects(api.deleteLendingEntry(repayment.id));
+  assert.equal(changes, 0, 'confirmation prompts and rejected writes must not refresh Home');
   await api.saveLendingEntry({ ...edit, confirmOverpayment: true });
+  assert.equal(changes, 1, 'confirmed commit refreshes Home once');
   assert.equal((await api.listLendingTotals(p.id))[0].overpaidMinor, 300);
   assert.equal((await api.listLendingTotals(p.id))[0].outstandingMinor, 0);
   const q = await api.createPerson('Other');

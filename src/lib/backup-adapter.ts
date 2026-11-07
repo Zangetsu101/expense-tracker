@@ -1,3 +1,4 @@
+import { notifyDataChanged } from './data-changes.ts';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { File } from 'expo-file-system';
@@ -147,6 +148,7 @@ export const backupStore: BackupStore = {
         [JSON.stringify(data.settings)],
       );
     });
+    notifyDataChanged();
   },
 };
 type SQLiteValue = string | number | null;

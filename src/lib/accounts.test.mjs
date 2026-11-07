@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { registerHooks, stripTypeScriptTypes } from 'node:module';
 
 const db = new DatabaseSync(':memory:');
+let failCommit = false;
 db.exec(
   'CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT NOT NULL, currencyCode TEXT NOT NULL, openingBalanceMinor INTEGER NOT NULL DEFAULT 0, isFavorite INTEGER NOT NULL DEFAULT 0)',
 );
@@ -15,6 +16,7 @@ const adapter = {
     db.exec('SAVEPOINT create_account');
     try {
       const result = await callback(adapter);
+      if (failCommit) throw new Error('commit failed');
       db.exec('RELEASE create_account');
       return result;
     } catch (error) {
@@ -84,4 +86,39 @@ test('creation validates before writing, parameterizes names and stores currency
   assert.equal(rows[1].openingBalanceMinor, 2500);
   await setFavoriteAccount(rows[1].id);
   assert.equal((await listManagedAccounts())[0].name, 'Savings');
+});
+
+test('Account cache notification follows commit and excludes failed writes', async () => {
+  const { subscribeDataChanges } = await import('./data-changes.ts');
+  const events = [];
+  const unsubscribe = subscribeDataChanges(() =>
+    events.push({
+      inTransaction: db.isTransaction,
+      found: db.prepare('SELECT id FROM accounts WHERE name = ?').get('Cache notification'),
+    }),
+  );
+  try {
+    await createAccount({ name: 'Cache notification', currencyCode: 'USD', openingBalance: '1' });
+    assert.equal(events.length, 1);
+    assert.equal(events[0].inTransaction, false, 'observers must only see committed writes');
+    assert.ok(events[0].found);
+    failCommit = true;
+    await assert.rejects(
+      createAccount({ name: 'Rolled back notification', currencyCode: 'USD', openingBalance: '1' }),
+      /commit failed/,
+    );
+    assert.equal(
+      db.prepare('SELECT id FROM accounts WHERE name = ?').get('Rolled back notification'),
+      undefined,
+    );
+    assert.equal(events.length, 1, 'rollback must not refresh the cache');
+    failCommit = false;
+    await assert.rejects(
+      createAccount({ name: 'Cache notification', currencyCode: 'USD', openingBalance: '1' }),
+    );
+    assert.equal(events.length, 1, 'rejected duplicate must not refresh the cache');
+  } finally {
+    failCommit = false;
+    unsubscribe();
+  }
 });

@@ -1,7 +1,7 @@
 import { database, epochDay } from '@/lib/database';
 import type { MonthlySummary } from '@/lib/reports';
 import type { TransactionRow } from '@/lib/database';
-import type { LendingLabel } from './transaction-format';
+import type { LendingLabel } from '@/lib/transaction-format';
 
 export type HomeTransaction = TransactionRow &
   LendingLabel & {

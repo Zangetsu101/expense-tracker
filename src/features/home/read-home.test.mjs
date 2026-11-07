@@ -18,7 +18,7 @@ globalThis.__homeSqliteAdapter = adapter;
 registerHooks({
   resolve(specifier, context, next) {
     if (specifier === '@/lib/database')
-      return { url: new URL('./database.ts', import.meta.url).href, shortCircuit: true };
+      return { url: new URL('../../lib/database.ts', import.meta.url).href, shortCircuit: true };
     if (specifier === 'expo-sqlite') return { url: 'test:sqlite', shortCircuit: true };
     return next(specifier, context);
   },
@@ -40,9 +40,9 @@ registerHooks({
     return next(url, context);
   },
 });
-const { database, epochDay } = await import('./database.ts');
-const { homeData } = await import('./home-data.ts');
-const { transactionTitle } = await import('./transaction-format.ts');
+const { database, epochDay } = await import('../../lib/database.ts');
+const { homeData } = await import('./read-home.ts');
+const { transactionTitle } = await import('../../lib/transaction-format.ts');
 await database();
 sqlite.exec(`DELETE FROM transactions; DELETE FROM categories; DELETE FROM accounts;
   INSERT INTO accounts (id, name, currencyCode) VALUES (1, 'Cash', 'BDT'), (2, 'Bank', 'USD');

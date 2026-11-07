@@ -1,24 +1,84 @@
 import { useState } from 'react';
-import { FlatList, Pressable, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import {
+  FlatList,
+  Pressable,
+  Text,
+  TextInput,
+  View,
+  useWindowDimensions,
+  type ViewStyle,
+} from 'react-native';
 import { SymbolView } from 'expo-symbols';
-import { AppSheet } from './app-sheet';
+import { Shimmer, Skeleton } from './loading.tsx';
+import { AppSheet } from '@/components/app-sheet';
 import type { Account } from '@/lib/database';
 import { theme } from '@/theme';
 
 const c = theme.colors;
 
+const pickerStyle: ViewStyle = {
+  backgroundColor: c.raised,
+  borderRadius: theme.radius.control,
+  minHeight: 56,
+  flexDirection: 'row',
+  alignItems: 'center',
+  borderWidth: 1,
+  borderColor: 'transparent',
+  overflow: 'hidden',
+};
+
+const labelSlotStyle: ViewStyle = { flex: 1, minHeight: 54, padding: 16, justifyContent: 'center' };
+const actionSlotStyle: ViewStyle = {
+  minWidth: 48,
+  minHeight: 54,
+  paddingRight: 8,
+  alignItems: 'center',
+  justifyContent: 'center',
+};
+
+export function HomeAccountPickerSkeleton({ animated }: { animated: boolean }) {
+  return (
+    <View
+      style={pickerStyle}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+    >
+      <View style={labelSlotStyle}>
+        <Skeleton width={140} height={20} animated={animated} />
+      </View>
+      <View style={actionSlotStyle}>
+        <SymbolView
+          name={{ ios: 'chevron.down', android: 'expand_more' }}
+          size={24}
+          tintColor={c.muted}
+        />
+      </View>
+    </View>
+  );
+}
+
 export function HomeAccountPicker({
   accounts,
   selectedId,
   onSelect,
+  loading = false,
+  error = false,
+  onRetry,
 }: {
   accounts: Account[];
   selectedId: number | null;
   onSelect: (id: number | null) => void;
+  loading?: boolean;
+  error?: boolean;
+  onRetry?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const { width, height } = useWindowDimensions();
+  const openPicker = () => {
+    setQuery('');
+    setOpen(true);
+  };
   const selected = accounts.find((account) => account.id === selectedId);
   const options = [
     { id: null, name: 'All accounts', currencyCode: '', isFavorite: 0 },
@@ -30,34 +90,41 @@ export function HomeAccountPicker({
   );
   return (
     <>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`Choose account, ${selected?.name ?? 'All accounts'}`}
-        accessibilityState={{ expanded: open }}
-        onPress={() => {
-          setQuery('');
-          setOpen(true);
-        }}
-        style={{
-          backgroundColor: c.raised,
-          borderRadius: theme.radius.control,
-          minHeight: 52,
-          padding: 16,
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 12,
-        }}
-      >
-        <Text numberOfLines={2} style={{ flex: 1, color: c.text, fontWeight: '600', fontSize: 17 }}>
-          {selected?.name ?? 'All accounts'}
-          {selected ? ` · ${selected.currencyCode}` : ''}
-        </Text>
-        <SymbolView
-          name={{ ios: 'chevron.down', android: 'expand_more' }}
-          size={24}
-          tintColor={c.muted}
-        />
-      </Pressable>
+      <View style={{ ...pickerStyle, borderColor: error ? c.warning : 'transparent' }}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Choose account, ${selected?.name ?? 'All accounts'}`}
+          accessibilityHint={
+            error ? 'Loading failed. Use the retry button or choose another account.' : undefined
+          }
+          accessibilityState={{ expanded: open, busy: loading }}
+          onPress={openPicker}
+          style={labelSlotStyle}
+        >
+          <Text numberOfLines={2} style={{ color: c.text, fontWeight: '600', fontSize: 17 }}>
+            {selected?.name ?? 'All accounts'}
+            {selected ? ` · ${selected.currencyCode}` : ''}
+          </Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={error ? 'Retry loading selected account' : 'Choose account'}
+          accessibilityState={{ expanded: error ? undefined : open }}
+          onPress={error ? onRetry : openPicker}
+          style={actionSlotStyle}
+        >
+          <SymbolView
+            name={
+              error
+                ? { ios: 'arrow.clockwise', android: 'refresh' }
+                : { ios: 'chevron.down', android: 'expand_more' }
+            }
+            size={24}
+            tintColor={error ? c.warning : c.muted}
+          />
+        </Pressable>
+        {loading && <Shimmer />}
+      </View>
       {open && (
         <AppSheet pending={false} onDismiss={() => setOpen(false)}>
           <View

@@ -1,11 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import {
-  homeBalances,
-  parseAccountId,
-  resolveHomeAccount,
-  watchHomeReopen,
-} from './account-selection.ts';
+import { parseAccountId, resolveHomeAccount } from './account-selection.ts';
 
 const accounts = [
   { id: 1, name: 'Cash', currencyCode: 'BDT', isFavorite: 0 },
@@ -39,60 +34,4 @@ test('Account route context accepts a single positive safe integer only', () => 
   for (const value of [undefined, '', '0', '-1', '1.5', '1e2', '1abc', ['1'], '9007199254740992']) {
     assert.equal(parseAccountId(value), undefined);
   }
-});
-
-test('Reopening resets to favorite, while tab focus and transient inactivity keep the selection', () => {
-  let listener;
-  let removed = false;
-  let selected = 1;
-  let resets = 0;
-  const stop = watchHomeReopen(
-    {
-      currentState: 'active',
-      addEventListener: (_, callback) => {
-        listener = callback;
-        return {
-          remove: () => {
-            removed = true;
-          },
-        };
-      },
-    },
-    () => {
-      selected = resolveHomeAccount(accounts, undefined);
-      resets++;
-    },
-  );
-  listener('active');
-  listener('inactive');
-  listener('active');
-  assert.equal(selected, 1);
-  assert.equal(resets, 0);
-  listener('inactive');
-  listener('background');
-  listener('inactive');
-  listener('active');
-  assert.equal(selected, 2);
-  assert.equal(resets, 1);
-  selected = null;
-  listener('background');
-  listener('active');
-  assert.equal(selected, 2);
-  assert.equal(resets, 2);
-  stop();
-  assert.equal(removed, true);
-});
-
-test('homeBalances scopes to the selected account', () => {
-  const rows = [
-    { id: 1, currencyCode: 'BDT', balanceMinor: 500 },
-    { id: 2, currencyCode: 'BDT', balanceMinor: -200 },
-    { id: 3, currencyCode: 'USD', balanceMinor: 100 },
-  ];
-  assert.deepEqual(homeBalances(rows, 2), [{ currencyCode: 'BDT', balanceMinor: -200 }]);
-  assert.deepEqual(homeBalances(rows, null), [
-    { currencyCode: 'BDT', balanceMinor: 300 },
-    { currencyCode: 'USD', balanceMinor: 100 },
-  ]);
-  assert.deepEqual(homeBalances(rows, 9), []);
 });

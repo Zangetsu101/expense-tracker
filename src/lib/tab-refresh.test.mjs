@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { registerHooks } from 'node:module';
 import { test } from 'node:test';
 import React from 'react';
@@ -12,18 +12,15 @@ const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const root = new URL('../../', import.meta.url);
 const mocks = {
-  'react-native': `import React from 'react'; export const View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator',KeyboardAvoidingView='KeyboardAvoidingView'; export const FlatList=p=>React.createElement('FlatList',p,p.ListHeaderComponent,p.data.map((item,index)=>React.createElement(React.Fragment,{key:item.id},p.renderItem({item,index})))); export const AppState={currentState:'active',addEventListener:()=>({remove(){}})}; export const Platform={OS:'android'}; export const useWindowDimensions=()=>({width:400,height:800});`,
+  'react-native': `import React from 'react'; export const View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator',KeyboardAvoidingView='KeyboardAvoidingView'; export const FlatList=p=>React.createElement('FlatList',p,p.ListHeaderComponent,p.data.map((item,index)=>React.createElement(React.Fragment,{key:item.id},p.renderItem({item,index})))); export const AppState={currentState:'active',addEventListener:(_,fn)=>{globalThis.__tabRefreshTest.lifecycle=fn;return {remove(){}}}}; export const Platform={OS:'android'}; export const useWindowDimensions=()=>({width:400,height:800});`,
   'expo-router': `import React from 'react'; export const Stack={Screen:()=>null}; export const Link=({children})=>children; export const router={push(){}}; export function useFocusEffect(callback){React.useEffect(()=>{if(globalThis.__tabRefreshTest.focus%2===0)return callback()},[callback,globalThis.__tabRefreshTest.focus]);}`,
   'expo-status-bar': `export const StatusBar=()=>null;`,
   'expo-symbols': `export const SymbolView='SymbolView';`,
   'react-native-safe-area-context': `export const useSafeAreaInsets=()=>({bottom:0});`,
-  '@/components/home-account-picker': `export const HomeAccountPicker='HomeAccountPicker';`,
-  '@/lib/database': `export const listAccounts=async()=>[{id:1,name:'Cash',currencyCode:'USD',isFavorite:1}];`,
   '@/components/app-sheet': `export const AppSheet=({children})=>children;`,
   '@/components/category-browser': `import React from 'react'; export const CategoryBrowser=p=>React.createElement('CategoryBrowser',p);`,
   '@/lib/accounts': `export const listManagedAccounts=()=>globalThis.__tabRefreshTest.read('accounts'); export const createAccount=async()=>{}; export const setFavoriteAccount=async()=>{};`,
-  '@/lib/reports': `export const monthlyReport=()=>globalThis.__tabRefreshTest.read('reports'); export const accountBalances=()=>globalThis.__tabRefreshTest.read('balances');`,
-  '@/lib/home-data': `export const homeData=()=>globalThis.__tabRefreshTest.read('home');`,
+  '@/lib/reports': `export const monthlyReport=()=>globalThis.__tabRefreshTest.read('reports'); export const accountBalances=today=>globalThis.__tabRefreshTest.read('balances',today);`,
   '@/lib/categories': `export const listManagedCategories=()=>globalThis.__tabRefreshTest.read('categories'); export const createCategory=async()=>{}; export const renameCategory=async()=>{};`,
 };
 const hooks = registerHooks({
@@ -32,8 +29,12 @@ const hooks = registerHooks({
       return { url: new URL('src/components/form-controls.tsx', root).href, shortCircuit: true };
     if (specifier in mocks) return { url: `tab-mock:${specifier}`, shortCircuit: true };
     if (specifier.startsWith('@/')) {
-      const path =
-        specifier === '@/theme' ? 'src/theme.ts' : `${specifier.replace('@/', 'src/')}.ts`;
+      const stem = specifier.replace('@/', 'src/');
+      const path = existsSync(new URL(`${stem}/index.ts`, root))
+        ? `${stem}/index.ts`
+        : existsSync(new URL(`${stem}.ts`, root))
+          ? `${stem}.ts`
+          : `${stem}.tsx`;
       return { url: new URL(path, root).href, shortCircuit: true };
     }
     return next(
@@ -59,21 +60,6 @@ const hooks = registerHooks({
 });
 
 const fixtures = {
-  home: {
-    dailySummaries: [{ date: 20000, currencyCode: 'USD', expenseMinor: 500, incomeMinor: 0 }],
-    rows: [
-      {
-        id: 1,
-        type: 'EXPENSE',
-        date: 20000,
-        amountMinor: 500,
-        currencyCode: 'USD',
-        accountName: 'Cash',
-        categoryName: 'Lunch',
-      },
-    ],
-    summaries: [{ currencyCode: 'USD', expenseMinor: 500, incomeMinor: 1000 }],
-  },
   accounts: [{ id: 1, name: 'Cash', currencyCode: 'USD', openingBalanceMinor: 0, isFavorite: 1 }],
   balances: [{ id: 1, name: 'Cash', currencyCode: 'USD', balanceMinor: 1500 }],
   reports: {
@@ -83,7 +69,7 @@ const fixtures = {
   categories: [{ id: 1, name: 'Lunch', type: 'EXPENSE', parentId: null }],
 };
 const screens = await Promise.all(
-  ['(home)', 'accounts', 'reports', 'categories'].map(async (name) => [
+  ['accounts', 'reports', 'categories'].map(async (name) => [
     name,
     (await import(`../app/(tabs)/${name}/index.tsx`)).default,
   ]),
@@ -106,7 +92,8 @@ test('tab refresh keeps loaded content stable', async (t) => {
   t.after(() => {
     hooks.deregister();
     delete globalThis.__tabRefreshTest;
-    globalThis.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+    if (previousActEnvironment === undefined) delete globalThis.IS_REACT_ACT_ENVIRONMENT;
+    else globalThis.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
   });
   for (const [name, Screen] of screens)
     await t.test(name, async () => {
@@ -119,7 +106,7 @@ test('tab refresh keeps loaded content stable', async (t) => {
       assert.equal(
         renderer.root.findAllByType('ActivityIndicator').length,
         1,
-        'first load still shows progress',
+        'first load shows progress',
       );
       await act(async () => initial.forEach((resolve) => resolve()));
       const before = snapshot(name);
@@ -127,7 +114,6 @@ test('tab refresh keeps loaded content stable', async (t) => {
       const pending = [];
       const updated = {
         ...fixtures,
-        home: { ...fixtures.home, rows: [] },
         accounts: [],
         balances: [],
         reports: { summaries: [], spending: [] },
@@ -135,7 +121,7 @@ test('tab refresh keeps loaded content stable', async (t) => {
       };
       state.read = (key) => new Promise((resolve) => pending.push(() => resolve(updated[key])));
       await toggleFocus(Screen);
-      assert.ok(pending.length > 0, 'returning to the tab still refreshes its data');
+      assert.ok(pending.length > 0, 'returning to the tab refreshes its data');
       assert.deepEqual(
         snapshot(name),
         before,

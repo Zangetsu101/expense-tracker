@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { registerHooks } from 'node:module';
 import { test } from 'node:test';
 import React from 'react';
 import { act, create } from 'react-test-renderer';
 import ts from 'typescript';
+import { QueryClientProvider, focusManager, notifyManager } from '@tanstack/react-query';
 
+notifyManager.setScheduler(queueMicrotask);
 const state = { calls: [] };
 globalThis.__navTest = state;
 const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
@@ -14,7 +16,8 @@ const root = new URL('../../', import.meta.url);
 const mocks = {
   'expo-haptics': `export const AndroidHaptics={Keyboard_Tap:'keyboard'},ImpactFeedbackStyle={Light:'light'}; export const performAndroidHapticsAsync=async()=>{},impactAsync=async()=>{};`,
   'react-native-reanimated': `import {useRef} from 'react'; export default {View:'AnimatedView'}; export const Easing={out:x=>x,cubic:x=>x},ReduceMotion={System:'system'}; export const useSharedValue=value=>useRef({value}).current,useAnimatedStyle=fn=>fn(),withTiming=value=>value;`,
-  '@/components/home-account-picker': `export const HomeAccountPicker='HomeAccountPicker';`,
+  './loading.tsx': `export const Skeleton='Skeleton';`,
+  './account-picker.tsx': `export const HomeAccountPicker='HomeAccountPicker',HomeAccountPickerSkeleton='HomeAccountPickerSkeleton';`,
   '@/components/running-release': `export const RunningRelease='RunningRelease';`,
   '@/lib/backup': `export const exportBackup=async()=>globalThis.__navTest.backup?.()??'content://backup'; export const restoreBackup=async()=>false;`,
   '@/lib/backup-adapter': `export const backupStore={},backupDocuments={};`,
@@ -30,8 +33,8 @@ const mocks = {
   '@/components/form-controls': `export const FormButton='FormButton',FormInput='FormInput',JoinedChoice='JoinedChoice';`,
   '@/components/quick-add-date': `export const QuickAddDate='Date';`,
   '@/components/quick-add-category': `export const QuickAddCategory='Category';`,
-  '@/lib/home-data': `export const homeData=async(_,id)=>{globalThis.__navTest.accountQueries.push(id);return {rows:[],summaries:[]}};`,
-  '@/lib/database': `export const epochDay=d=>Math.floor(d.getTime()/86400000); export const listAccounts=async()=>globalThis.__navTest.accounts??[]; export const listCategories=async()=>[]; export const setFavoriteAccount=async()=>{};`,
+  './read-home.ts': `export const homeData=async(_,id)=>{globalThis.__navTest.accountQueries.push(id);return {rows:[],summaries:[]}};`,
+  '@/lib/database': `export const epochDay=d=>Math.floor(d.getTime()/86400000); export const listAccounts=async()=>{if(globalThis.__navTest.accountsError)throw Error('Accounts unavailable');return globalThis.__navTest.accounts??[];}; export const listCategories=async()=>[]; export const setFavoriteAccount=async()=>{};`,
   '@/lib/reports': `export const accountBalances=async()=>[];`,
   '@/lib/categories': `export const listManagedCategories=async()=>[];`,
   '@/lib/transfers': `export const addTransfer=async()=>{}; export const transferAmountMinor=()=>{throw Error('Invalid amount')};`,
@@ -53,11 +56,15 @@ const hooks = registerHooks({
       };
     if (specifier === '@/components/entry-choices')
       return { url: new URL('src/components/entry-choices.tsx', root).href, shortCircuit: true };
-    if (specifier.startsWith('@/'))
-      return {
-        url: new URL(`${specifier.replace('@/', 'src/')}.ts`, root).href,
-        shortCircuit: true,
-      };
+    if (specifier.startsWith('@/')) {
+      const stem = specifier.replace('@/', 'src/');
+      const path = existsSync(new URL(`${stem}/index.ts`, root))
+        ? `${stem}/index.ts`
+        : existsSync(new URL(`${stem}.ts`, root))
+          ? `${stem}.ts`
+          : `${stem}.tsx`;
+      return { url: new URL(path, root).href, shortCircuit: true };
+    }
     return next(
       specifier,
       context.parentURL?.startsWith('nav-mock:')
@@ -83,13 +90,31 @@ const { appTabs } = await import('./app-navigation.ts');
 const { default: Home } = await import('../app/(tabs)/(home)/index.tsx');
 const { default: Settings } = await import('../app/settings.tsx');
 const { default: QuickAdd } = await import('../app/quick-add.tsx');
+const { createQueryClient } = await import('./query-client.ts');
+const { AppQueryLifecycle } = await import('../components/app-queries.tsx');
+let queryClient;
+function QueryScreen({ Screen }) {
+  return React.createElement(
+    QueryClientProvider,
+    { client: queryClient },
+    React.createElement(AppQueryLifecycle, null, React.createElement(Screen)),
+  );
+}
+function resetQueryClient() {
+  queryClient?.clear();
+  queryClient = createQueryClient();
+  queryClient.setDefaultOptions({
+    queries: { ...queryClient.getDefaultOptions().queries, gcTime: Infinity },
+  });
+}
 let renderer;
 const mount = async (Screen) => {
   state.calls = [];
   state.accountQueries = [];
   state.header = undefined;
   await act(async () => {
-    renderer = create(React.createElement(Screen));
+    resetQueryClient();
+    renderer = create(React.createElement(QueryScreen, { Screen }));
   });
 };
 const texts = (node = renderer.root) => node.findAllByType('Text').map((n) => n.children.join(''));
@@ -112,9 +137,12 @@ const headerPart = async (key) => {
 test('app navigation', async (t) => {
   t.afterEach(async () => {
     await act(async () => renderer?.unmount());
+    queryClient?.clear();
     delete state.accounts;
+    delete state.accountsError;
   });
   t.after(() => {
+    notifyManager.setScheduler((callback) => setTimeout(callback, 0));
     hooks.deregister();
     delete globalThis.__navTest;
     if (previousActEnvironment === undefined) delete globalThis.IS_REACT_ACT_ENVIRONMENT;
@@ -156,7 +184,7 @@ test('app navigation', async (t) => {
       assert.ok(!shown.includes(old), old);
   });
   await t.test(
-    'Home starts at favorite, scopes Add, keeps All accounts and resets on reopening',
+    'Home starts at favorite, scopes Add and keeps All accounts after backgrounding',
     async () => {
       state.accounts = [
         { id: 1, name: 'Cash', currencyCode: 'BDT', isFavorite: 0 },
@@ -185,8 +213,19 @@ test('app navigation', async (t) => {
         state.lifecycle('background');
         state.lifecycle('active');
       });
-      assert.equal(picker().props.selectedId, 2);
-      assert.equal(state.accountQueries.at(-1), 2);
+      assert.equal(picker().props.selectedId, null);
+    },
+  );
+  await t.test(
+    'disposing the app lifecycle bridge releases its global focus override',
+    async () => {
+      const initialFocus = focusManager.isFocused();
+      await mount(Home);
+      await act(async () => state.lifecycle('background'));
+      assert.equal(focusManager.isFocused(), false);
+      await act(async () => renderer.unmount());
+      renderer = undefined;
+      assert.equal(focusManager.isFocused(), initialFocus);
     },
   );
   await t.test('Settings offers data actions directly and opens the Review Queue', async () => {
