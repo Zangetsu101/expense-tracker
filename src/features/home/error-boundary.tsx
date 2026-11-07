@@ -2,15 +2,20 @@ import { Component, type ReactNode } from 'react';
 
 type Props = {
   children: ReactNode;
+  resetKey?: string;
   onReset: () => void;
   fallback: (retry: () => void) => ReactNode;
 };
 
-export class ErrorBoundary extends Component<Props, { failed: boolean }> {
-  state = { failed: false };
+export class ErrorBoundary extends Component<Props, { failed: boolean; resetKey?: string }> {
+  state = { failed: false, resetKey: this.props.resetKey };
 
   static getDerivedStateFromError() {
     return { failed: true };
+  }
+
+  static getDerivedStateFromProps(props: Props, state: { resetKey?: string }) {
+    return props.resetKey !== state.resetKey ? { failed: false, resetKey: props.resetKey } : null;
   }
 
   private retry = () => {

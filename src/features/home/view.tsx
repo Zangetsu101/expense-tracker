@@ -485,7 +485,8 @@ function HomeFallback({
               selectedId={controls.accountId}
               loading={controls.loading}
               unavailable={!controls.accountsReady}
-              error={false}
+              error={controls.error}
+              onRetry={controls.retry}
               onSelect={controls.selectAccount}
             />
             <View
@@ -521,23 +522,27 @@ function HomeFallback({
     </HomeChrome>
   );
 }
-export function HomeSkeleton({ controls }: { controls: HomeControls }) {
+export function FinancialSkeleton({ controls }: { controls: HomeControls }) {
   return (
-    <HomeFallback
-      controls={{ ...controls, loading: true, error: false }}
-      summary={<LoadingSummary />}
-      activity={<LoadingRows />}
-    />
+    <HomeFallback controls={controls} summary={<LoadingSummary />} activity={<LoadingRows />} />
   );
 }
-export function HomeLoadError({ controls, retry }: { controls: HomeControls; retry: () => void }) {
+export function FinancialError({
+  controls,
+  retry,
+  message = 'Couldn’t load account activity',
+}: {
+  controls: HomeControls;
+  retry: () => void;
+  message?: string;
+}) {
   return (
     <HomeFallback
-      controls={{ ...controls, loading: false, error: false }}
+      controls={controls}
       summary={
         <View style={{ minHeight: 180, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
           <Text accessibilityRole="alert" style={{ color: colors.muted }}>
-            Couldn’t load Home
+            {message}
           </Text>
           <Pressable
             accessibilityRole="button"
@@ -569,10 +574,12 @@ const unavailableAccounts: HomeControls = {
   selectAccount: () => {},
 };
 
-export function AccountsSkeleton() {
-  return <HomeSkeleton controls={unavailableAccounts} />;
+export function HomeScreenSkeleton() {
+  return <FinancialSkeleton controls={{ ...unavailableAccounts, loading: true }} />;
 }
 
-export function AccountsLoadError({ retry }: { retry: () => void }) {
-  return <HomeLoadError controls={unavailableAccounts} retry={retry} />;
+export function HomeScreenError({ retry }: { retry: () => void }) {
+  return (
+    <FinancialError controls={unavailableAccounts} retry={retry} message="Couldn’t load Home" />
+  );
 }

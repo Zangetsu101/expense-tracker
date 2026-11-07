@@ -97,6 +97,10 @@ function resetQueryClient() {
 }
 let renderer;
 const texts = () => renderer.root.findAllByType('Text').map((n) => n.children.join(''));
+const financialRetry = () =>
+  renderer.root
+    .findAllByType('Pressable')
+    .find((n) => n.findAllByType('Text').some((t) => t.children.join('') === 'Retry'));
 test('Home loading, retained content and cache behavior', async (t) => {
   t.afterEach(async () => {
     await act(async () => renderer?.unmount());
@@ -178,7 +182,7 @@ test('Home loading, retained content and cache behavior', async (t) => {
           : Promise.resolve(fixtures[key]);
       await act(async () => picker().props.onSelect(2));
       assert.equal(picker().props.selectedId, 2, 'selection changes before data');
-      assert.equal(picker().props.loading, true);
+      assert.equal(picker().props.loading, false);
       assert.equal(entry().props.disabled, true, 'old Transactions cannot be opened');
       assert.ok(
         texts().some((s) => s === 'Sent to Bank'),
@@ -192,11 +196,12 @@ test('Home loading, retained content and cache behavior', async (t) => {
         false,
       );
       await act(async () => requests[0].reject(new Error('read failed')));
-      assert.equal(picker().props.error, true);
+      assert.equal(picker().props.error, false);
       assert.equal(picker().props.loading, false);
       assert.equal(picker().props.selectedId, 2);
-      assert.equal(entry().props.disabled, true);
-      await act(async () => picker().props.onRetry());
+      assert.equal(entry(), undefined);
+      assert.ok(texts().includes('Couldn’t load account activity'));
+      await act(async () => financialRetry().props.onPress());
       assert.equal(picker().props.error, false);
       await act(async () => requests[1].resolve({ ...fixtures.home, rows: [transfer] }));
       assert.equal(entry().props.disabled, false);
@@ -244,7 +249,7 @@ test('Home loading, retained content and cache behavior', async (t) => {
       resetQueryClient();
       renderer = create(React.createElement(QueryScreen, { Screen }));
     });
-    assert.ok(texts().includes('Couldn’t load Home'));
+    assert.ok(texts().includes('Couldn’t load account activity'));
     assert.equal(renderer.root.findAllByType('Skeleton').length, 0);
     assert.ok(!texts().some((s) => s.includes('No transactions')));
     state.read = async (key) => fixtures[key];
@@ -255,7 +260,7 @@ test('Home loading, retained content and cache behavior', async (t) => {
     assert.ok(texts().includes('Lunch'));
   });
   await t.test(
-    'Home preserves an empty result under its displayed scope even when switching fails',
+    'Home retains an empty result while switching, then replaces it on error',
     async () => {
       const Screen = HomeScreen;
       state.read = async (key) => (key === 'home' ? { ...fixtures.home, rows: [] } : fixtures[key]);
@@ -278,7 +283,8 @@ test('Home loading, retained content and cache behavior', async (t) => {
         'retained Account empty state must not become All accounts',
       );
       await act(async () => reject(Error('unavailable')));
-      assert.ok(texts().includes(empty), 'failed replacement keeps the previous empty result');
+      assert.ok(!texts().includes(empty), 'error replaces previous content');
+      assert.ok(texts().includes('Couldn’t load account activity'));
     },
   );
   await t.test(
@@ -311,30 +317,77 @@ test('Home loading, retained content and cache behavior', async (t) => {
       assert.ok(texts().includes('Lunch'));
     },
   );
+  await t.test('Accounts and financial errors have independent retries', async () => {
+    state.read = async (key) => fixtures[key];
+    await act(async () => {
+      resetQueryClient();
+      renderer = create(React.createElement(QueryScreen, { Screen: HomeScreen }));
+    });
+    const picker = () => renderer.root.findByType('HomeAccountPicker');
+    let financialReads = 0;
+    state.read = async (key, id) => {
+      if (key === 'home' && id === 2) {
+        financialReads++;
+        throw Error('Bank unavailable');
+      }
+      return fixtures[key];
+    };
+    await act(async () => picker().props.onSelect(2));
+    assert.equal(picker().props.error, false);
+    assert.ok(texts().includes('Couldn’t load account activity'));
+    assert.ok(!texts().includes('Lunch'));
+    state.accountsError = true;
+    await act(async () => notifyDataChanged());
+    assert.equal(picker().props.error, true);
+    const readsBeforeAccountsRetry = financialReads;
+    delete state.accountsError;
+    await act(async () => picker().props.onRetry());
+    assert.equal(
+      financialReads,
+      readsBeforeAccountsRetry,
+      'Accounts retry does not retry financial data',
+    );
+    assert.equal(picker().props.error, false);
+    assert.ok(texts().includes('Couldn’t load account activity'));
+    state.accountsError = true;
+    state.read = async (key) => (key === 'home' ? { ...fixtures.home, rows: [] } : fixtures[key]);
+    await act(async () => financialRetry().props.onPress());
+    assert.equal(picker().props.selectedId, 2);
+    assert.ok(!texts().includes('Couldn’t load account activity'));
+    assert.equal(renderer.root.findByType('FlatList').props.data.length, 0);
+  });
+  await t.test('a financial error can be escaped by choosing another Account', async () => {
+    state.read = async (key, id) => {
+      if (key === 'home' && id === 1) throw Error('unavailable');
+      return fixtures[key];
+    };
+    await act(async () => {
+      resetQueryClient();
+      renderer = create(React.createElement(QueryScreen, { Screen: HomeScreen }));
+    });
+    assert.ok(texts().includes('Couldn’t load account activity'));
+    await act(async () => renderer.root.findByType('HomeAccountPicker').props.onSelect(2));
+    assert.ok(texts().includes('Lunch'));
+    assert.equal(renderer.root.findByType('HomeAccountPicker').props.selectedId, 2);
+  });
   await t.test(
-    'one picker retry recovers Accounts and a failed replacement snapshot independently',
+    'a failed background financial refresh shows its own error and retries cached data',
     async () => {
       state.read = async (key) => fixtures[key];
       await act(async () => {
         resetQueryClient();
         renderer = create(React.createElement(QueryScreen, { Screen: HomeScreen }));
       });
-      const picker = () => renderer.root.findByType('HomeAccountPicker');
-      state.read = async (key, id) => {
-        if (key === 'home' && id === 2) throw Error('Bank unavailable');
-        return fixtures[key];
+      state.read = async () => {
+        throw Error('unavailable');
       };
-      await act(async () => picker().props.onSelect(2));
-      assert.equal(picker().props.error, true);
-      state.accountsError = true;
       await act(async () => notifyDataChanged());
-      assert.ok(texts().includes('Lunch'), 'previous snapshot stays visible');
-      delete state.accountsError;
-      state.read = async (key) => (key === 'home' ? { ...fixtures.home, rows: [] } : fixtures[key]);
-      await act(async () => picker().props.onRetry());
-      assert.equal(picker().props.selectedId, 2);
-      assert.equal(picker().props.error, false);
-      assert.equal(renderer.root.findByType('FlatList').props.data.length, 0);
+      assert.ok(texts().includes('Couldn’t load account activity'));
+      assert.ok(!texts().includes('Lunch'));
+      assert.equal(renderer.root.findByType('HomeAccountPicker').props.error, false);
+      state.read = async (key) => fixtures[key];
+      await act(async () => financialRetry().props.onPress());
+      assert.ok(texts().includes('Lunch'));
     },
   );
   await t.test(
@@ -549,7 +602,7 @@ test('Home loading, retained content and cache behavior', async (t) => {
     await act(async () => notifyDataChanged());
     assert.ok(pending.length > 0, 'committed writes refresh Home');
     assert.deepEqual(texts(), before, 'loaded content must not disappear during a refresh');
-    assert.equal(renderer.root.findByType('HomeAccountPicker').props.loading, true);
+    assert.equal(renderer.root.findByType('HomeAccountPicker').props.loading, false);
     assert.ok(
       renderer.root
         .findAllByType('Pressable')

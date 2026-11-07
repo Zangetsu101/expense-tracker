@@ -1,15 +1,14 @@
-import { Suspense, use, useDeferredValue, useMemo, useRef, useState } from 'react';
-import { QueryErrorResetBoundary, useQuery, useSuspenseQuery } from '@tanstack/react-query';
+import { Suspense, use, useDeferredValue, useMemo, useState } from 'react';
+import { QueryErrorResetBoundary, useSuspenseQuery } from '@tanstack/react-query';
 import {
   HomeView,
-  HomeSkeleton,
-  HomeLoadError,
-  AccountsSkeleton,
-  AccountsLoadError,
+  FinancialSkeleton,
+  FinancialError,
+  HomeScreenSkeleton,
+  HomeScreenError,
   type HomeControls,
 } from './view.tsx';
 import { ErrorBoundary } from './error-boundary.tsx';
-import { RetainedQueryBoundary } from './retained-query.tsx';
 import { resolveHomeAccount } from '@/lib/account-selection';
 import { epochDay } from '@/lib/database';
 import { homeAccountsQuery, homeSnapshotQuery } from './queries.ts';
@@ -26,7 +25,10 @@ function FinancialContent({
   controls: HomeControls;
   muted: boolean;
 }) {
-  const { data } = useSuspenseQuery(homeSnapshotQuery(request.accountId, request.now));
+  const { data, error, isFetching } = useSuspenseQuery(
+    homeSnapshotQuery(request.accountId, request.now),
+  );
+  if (error && !isFetching) throw error;
   return <HomeView {...controls} snapshot={data} muted={muted} />;
 }
 
@@ -44,43 +46,28 @@ function FinancialSection({
   const deferred = useDeferredValue(request);
   const stale =
     accountId !== deferred.accountId || epochDay(request.now) !== epochDay(deferred.now);
-  const requestedSnapshot = useQuery({ ...homeSnapshotQuery(accountId, now), enabled: false });
-  const boundary = useRef<RetainedQueryBoundary<FinancialRequest>>(null);
-  const retry = () => {
-    if (accountControls.error) accountControls.retry();
-    if (requestedSnapshot.error) {
-      if (requestedSnapshot.data) void requestedSnapshot.refetch();
-      else boundary.current?.retry();
-    }
-  };
   const controls = {
     ...accountControls,
-    loading: accountControls.loading || stale || requestedSnapshot.isFetching,
-    error: accountControls.error || (!!requestedSnapshot.error && !requestedSnapshot.isFetching),
-    retry,
     selectAccount: (id: number | null) => {
       reset();
       accountControls.selectAccount(id);
     },
   };
   return (
-    <Suspense fallback={<HomeSkeleton controls={controls} />}>
-      <RetainedQueryBoundary
-        ref={boundary}
-        request={deferred}
-        requestKey={`${deferred.accountId}:${epochDay(deferred.now)}`}
-        onReset={reset}
-        fallback={(retry) => <HomeLoadError controls={controls} retry={retry} />}
-        render={(ready, failedRead) => (
-          <FinancialContent
-            key={`${ready.accountId}:${epochDay(ready.now)}`}
-            request={ready}
-            controls={controls}
-            muted={stale || failedRead}
-          />
-        )}
-      />
-    </Suspense>
+    <ErrorBoundary
+      resetKey={`${accountId}:${epochDay(now)}`}
+      onReset={reset}
+      fallback={(retry) => <FinancialError controls={controls} retry={retry} />}
+    >
+      <Suspense fallback={<FinancialSkeleton controls={controls} />}>
+        <FinancialContent
+          key={`${deferred.accountId}:${epochDay(deferred.now)}`}
+          request={deferred}
+          controls={controls}
+          muted={stale}
+        />
+      </Suspense>
+    </ErrorBoundary>
   );
 }
 
@@ -112,8 +99,8 @@ export default function HomeScreen() {
   return (
     <QueryErrorResetBoundary>
       {({ reset }) => (
-        <ErrorBoundary onReset={reset} fallback={(retry) => <AccountsLoadError retry={retry} />}>
-          <Suspense fallback={<AccountsSkeleton />}>
+        <ErrorBoundary onReset={reset} fallback={(retry) => <HomeScreenError retry={retry} />}>
+          <Suspense fallback={<HomeScreenSkeleton />}>
             <Home />
           </Suspense>
         </ErrorBoundary>
