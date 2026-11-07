@@ -13,20 +13,9 @@ import { theme } from '@/theme';
 
 type ChoicesLayout = 'accounts' | 'categories' | 'people';
 
-function SectionLayout({
-  layout,
-  children,
-  label,
-}: {
-  layout: ChoicesLayout;
-  children: ReactNode;
-  label?: string;
-}) {
+function SectionLayout({ children, label }: { children: ReactNode; label?: string }) {
   return (
-    <View
-      accessibilityLabel={label}
-      style={{ gap: 10, minHeight: layout === 'categories' ? 210 : 90 }}
-    >
+    <View accessibilityLabel={label} style={{ gap: 10 }}>
       {children}
     </View>
   );
@@ -34,7 +23,7 @@ function SectionLayout({
 
 function ChoicesSkeleton({ label, layout }: { label: string; layout: ChoicesLayout }) {
   return (
-    <SectionLayout layout={layout} label={`Loading ${label}`}>
+    <SectionLayout label={`Loading ${label}`}>
       <Skeleton width="35%" height={16} />
       {layout === 'categories' && <Skeleton width="100%" height={48} />}
       <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -60,17 +49,15 @@ function ChoicesError({ label, retry }: { label: string; retry: () => void }) {
 function ReadyChoices<T, K extends QueryKey>({
   options,
   label,
-  layout,
   children,
 }: {
   options: UseSuspenseQueryOptions<T, Error, T, K>;
   label: string;
-  layout: ChoicesLayout;
   children: (data: T) => ReactNode;
 }) {
   const { data, error, isFetching, refetch } = useSuspenseQuery(options);
   return (
-    <SectionLayout layout={layout}>
+    <SectionLayout>
       {children(data)}
       {isFetching && (
         <View
@@ -103,13 +90,13 @@ export function ChoicesSection<T, K extends QueryKey>({
         <ErrorBoundary
           onReset={reset}
           fallback={(retry) => (
-            <SectionLayout layout={layout}>
+            <SectionLayout>
               <ChoicesError label={label} retry={retry} />
             </SectionLayout>
           )}
         >
           <Suspense fallback={<ChoicesSkeleton label={label} layout={layout} />}>
-            <ReadyChoices options={options} label={label} layout={layout}>
+            <ReadyChoices options={options} label={label}>
               {children}
             </ReadyChoices>
           </Suspense>
