@@ -1,11 +1,13 @@
 import { theme } from '@/theme';
 import { useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
+import Animated, { LinearTransition, ReduceMotion } from 'react-native-reanimated';
 import type { ManagedCategory } from '@/lib/categories';
 
 const ink = '#f2f4f0';
 const muted = '#aab9b7';
 const panel = '#1d2a30';
+const chipTransition = LinearTransition.duration(220).reduceMotion(ReduceMotion.System);
 
 type Props = {
   categories: ManagedCategory[];
@@ -48,6 +50,7 @@ export function QuickSelectCategory({
   const [query, setQuery] = useState('');
   const [width, setWidth] = useState(0);
   const [widths, setWidths] = useState<Record<number, number>>({});
+  const [heights, setHeights] = useState<Record<number, number>>({});
   const byId = new Map(categories.map((category) => [category.id, category]));
   const path = (category: ManagedCategory) => {
     const names = [category.name];
@@ -82,7 +85,10 @@ export function QuickSelectCategory({
     rows[row].push(category);
     used += (used ? 8 : 0) + chipWidth;
   }
-  const chip = (category: ManagedCategory) => (
+  const rowHeights = rows.map((items) =>
+    Math.max(0, ...items.map((item) => heights[item.id] ?? 0)),
+  );
+  const chip = (category: ManagedCategory, stretch = false) => (
     <Pressable
       key={category.id}
       accessibilityRole="button"
@@ -91,6 +97,7 @@ export function QuickSelectCategory({
       disabled={disabled}
       onPress={() => onSelect(category.id)}
       style={{
+        height: stretch ? '100%' : undefined,
         paddingHorizontal: 13,
         paddingVertical: 10,
         borderRadius: 12,
@@ -119,6 +126,10 @@ export function QuickSelectCategory({
               key={category.id}
               onLayout={(event) => {
                 const measured = event.nativeEvent.layout.width;
+                const height = event.nativeEvent.layout.height;
+                setHeights((old) =>
+                  old[category.id] === height ? old : { ...old, [category.id]: height },
+                );
                 setWidths((old) =>
                   old[category.id] === measured ? old : { ...old, [category.id]: measured },
                 );
@@ -128,12 +139,29 @@ export function QuickSelectCategory({
             </View>
           ))}
         </View>
-        <View style={{ gap: 8 }}>
-          {rows.map((items, index) => (
-            <View key={index} style={{ flexDirection: 'row', gap: 8, overflow: 'hidden' }}>
-              {items.map(chip)}
-            </View>
-          ))}
+        <View style={{ height: rowHeights[0] + 8 + rowHeights[1] }}>
+          {rows.flatMap((items, rowIndex) => {
+            let start = 0;
+            return items.map((category) => {
+              const x = start;
+              start += widths[category.id] + 8;
+              return (
+                <Animated.View
+                  key={category.id}
+                  layout={chipTransition}
+                  style={{
+                    position: 'absolute',
+                    start: x,
+                    top: rowIndex === 0 ? 0 : rowHeights[0] + 8,
+                    width: widths[category.id],
+                    height: rowHeights[rowIndex],
+                  }}
+                >
+                  {chip(category, true)}
+                </Animated.View>
+              );
+            });
+          })}
         </View>
         {matches.length === 0 && (
           <Text style={{ color: muted, padding: 12 }}>No matching categories</Text>
