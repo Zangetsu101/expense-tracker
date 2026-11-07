@@ -1,11 +1,14 @@
 import { Suspense, use, useDeferredValue, useMemo, useRef, useState } from 'react';
+import { QueryErrorResetBoundary, useQuery, useSuspenseQuery } from '@tanstack/react-query';
 import {
-  QueryErrorResetBoundary,
-  useQuery,
-  useQueryClient,
-  useSuspenseQuery,
-} from '@tanstack/react-query';
-import { HomeView, HomeSkeleton, HomeLoadError, type HomeControls } from './view.tsx';
+  HomeView,
+  HomeSkeleton,
+  HomeLoadError,
+  AccountsSkeleton,
+  AccountsLoadError,
+  type HomeControls,
+} from './view.tsx';
+import { ErrorBoundary } from './error-boundary.tsx';
 import { RetainedQueryBoundary } from './retained-query.tsx';
 import { resolveHomeAccount } from '@/lib/account-selection';
 import { epochDay } from '@/lib/database';
@@ -27,50 +30,36 @@ function FinancialContent({
   return <HomeView {...controls} snapshot={data} muted={muted} />;
 }
 
-function AccountContent({
+function FinancialSection({
   now,
-  selection,
-  selectAccount,
-  failed,
-  accountsError,
-  reloadingAccounts,
-  retryAccounts,
+  controls: accountControls,
   reset,
 }: {
   now: Date;
-  selection: number | null | undefined;
-  selectAccount: (id: number | null) => void;
-  failed: boolean;
-  accountsError: boolean;
-  reloadingAccounts: boolean;
-  retryAccounts: () => void;
+  controls: HomeControls;
   reset: () => void;
 }) {
-  const { data: accounts } = useSuspenseQuery(homeAccountsQuery());
-  const accountId = resolveHomeAccount(accounts, selection);
+  const { accountId } = accountControls;
   const request = useMemo(() => ({ accountId, now }), [accountId, now]);
   const deferred = useDeferredValue(request);
   const stale =
     accountId !== deferred.accountId || epochDay(request.now) !== epochDay(deferred.now);
+  // Observe the requested scope while Suspense may still be rendering the previous scope.
   const status = useQuery({ ...homeSnapshotQuery(accountId, now), enabled: false });
   const boundary = useRef<RetainedQueryBoundary<FinancialRequest>>(null);
-  const retry =
-    failed || accountsError
-      ? retryAccounts
-      : () => {
-          reset();
-          if (status.data) void status.refetch();
-          else boundary.current?.retry();
-        };
+  const retry = () => {
+    if (status.data) void status.refetch();
+    else boundary.current?.retry();
+  };
   const controls = {
-    accounts,
-    accountsReady: true,
-    accountId,
-    loading: reloadingAccounts || stale || status.isFetching,
-    error:
-      ((failed || accountsError) && !reloadingAccounts) || (!!status.error && !status.isFetching),
-    retry,
-    selectAccount,
+    ...accountControls,
+    loading: accountControls.loading || stale || status.isFetching,
+    error: accountControls.error || (!!status.error && !status.isFetching),
+    retry: accountControls.error ? accountControls.retry : retry,
+    selectAccount: (id: number | null) => {
+      reset();
+      accountControls.selectAccount(id);
+    },
   };
   return (
     <Suspense fallback={<HomeSkeleton controls={controls} />}>
@@ -85,7 +74,7 @@ function AccountContent({
             key={`${ready.accountId}:${epochDay(ready.now)}`}
             request={ready}
             controls={controls}
-            muted={failed || stale || failedRead}
+            muted={stale || failedRead}
           />
         )}
       />
@@ -93,65 +82,40 @@ function AccountContent({
   );
 }
 
-function Home({ reset }: { reset: () => void }) {
-  const client = useQueryClient();
+function Home() {
+  const { data: accounts, isFetching, error, refetch } = useSuspenseQuery(homeAccountsQuery());
+  const [selectedAccountId, setSelectedAccountId] = useState(() =>
+    resolveHomeAccount(accounts, undefined),
+  );
   const now = use(QueryTimeContext);
-  const deferred = useDeferredValue(now);
-  const [selection, setSelection] = useState<number | null>();
-  const status = useQuery({ ...homeAccountsQuery(), enabled: false });
-  if (status.data) {
-    const resolved = resolveHomeAccount(status.data, selection);
-    if (selection !== resolved) setSelection(resolved);
-  }
-  const boundary = useRef<RetainedQueryBoundary<Date>>(null);
-  const selectAccount = (accountId: number | null) => {
-    reset();
-    setSelection(accountId);
-  };
-  const coldControls = {
-    accounts: [],
-    accountsReady: false,
-    accountId: null,
-    loading: true,
-    error: false,
-    retry: () => boundary.current?.retry(),
-    selectAccount,
+  const controls: HomeControls = {
+    accounts,
+    accountsReady: true,
+    accountId: resolveHomeAccount(accounts, selectedAccountId),
+    loading: isFetching,
+    error: !!error && !isFetching,
+    retry: () => {
+      void refetch();
+    },
+    selectAccount: setSelectedAccountId,
   };
   return (
-    <Suspense fallback={<HomeSkeleton controls={coldControls} />}>
-      <RetainedQueryBoundary
-        ref={boundary}
-        request={deferred}
-        requestKey="accounts"
-        onReset={() => {
-          reset();
-          void client.resetQueries({
-            queryKey: homeAccountsQuery().queryKey,
-            exact: true,
-          });
-        }}
-        fallback={(retry) => <HomeLoadError controls={coldControls} retry={retry} />}
-        render={(ready, failed) => (
-          <AccountContent
-            now={ready}
-            selection={selection}
-            selectAccount={selectAccount}
-            failed={failed}
-            accountsError={!!status.error}
-            reloadingAccounts={status.isFetching}
-            retryAccounts={() => {
-              reset();
-              if (status.data) void status.refetch();
-              else boundary.current?.retry();
-            }}
-            reset={reset}
-          />
-        )}
-      />
-    </Suspense>
+    <QueryErrorResetBoundary>
+      {({ reset }) => <FinancialSection now={now} controls={controls} reset={reset} />}
+    </QueryErrorResetBoundary>
   );
 }
 
 export default function HomeScreen() {
-  return <QueryErrorResetBoundary>{({ reset }) => <Home reset={reset} />}</QueryErrorResetBoundary>;
+  return (
+    <QueryErrorResetBoundary>
+      {({ reset }) => (
+        <ErrorBoundary onReset={reset} fallback={(retry) => <AccountsLoadError retry={retry} />}>
+          <Suspense fallback={<AccountsSkeleton />}>
+            <Home />
+          </Suspense>
+        </ErrorBoundary>
+      )}
+    </QueryErrorResetBoundary>
+  );
 }

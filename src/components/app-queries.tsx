@@ -18,6 +18,7 @@ export function AppQueryLifecycle({ children }: { children: ReactNode }) {
       }
       if (next !== 'inactive') previous = next;
     });
+    // Bridge committed SQLite writes to the query cache until mutation onSuccess handlers own invalidation.
     const unsubscribe = subscribeDataChanges(() => {
       setNow(new Date());
       void invalidateHome(client);

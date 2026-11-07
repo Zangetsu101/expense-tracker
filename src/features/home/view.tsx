@@ -558,3 +558,21 @@ export function HomeLoadError({ controls, retry }: { controls: HomeControls; ret
     />
   );
 }
+
+const unavailableAccounts: HomeControls = {
+  accounts: [],
+  accountsReady: false,
+  accountId: null,
+  loading: false,
+  error: false,
+  retry: () => {},
+  selectAccount: () => {},
+};
+
+export function AccountsSkeleton() {
+  return <HomeSkeleton controls={unavailableAccounts} />;
+}
+
+export function AccountsLoadError({ retry }: { retry: () => void }) {
+  return <HomeLoadError controls={unavailableAccounts} retry={retry} />;
+}

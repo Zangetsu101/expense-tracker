@@ -20,7 +20,7 @@ const mocks = {
   'expo-symbols': `export const SymbolView='SymbolView';`,
   './loading.tsx': `export const Skeleton='Skeleton'; export const Shimmer='Shimmer';`,
   './account-picker.tsx': `export const HomeAccountPicker='HomeAccountPicker';`,
-  '@/lib/database': `export const epochDay=d=>Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/86400000); export const listAccounts=async()=>{if(globalThis.__homeScreenTest.accountsError)throw Error('accounts unavailable');return globalThis.__homeScreenTest.accountItems??[{id:1,name:'Cash',currencyCode:'USD',isFavorite:1},{id:2,name:'Bank',currencyCode:'USD',isFavorite:0},{id:3,name:'Savings',currencyCode:'USD',isFavorite:0},{id:4,name:'Card',currencyCode:'USD',isFavorite:0}];};`,
+  '@/lib/database': `export const epochDay=d=>Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/86400000); export const listAccounts=async()=>{if(globalThis.__homeScreenTest.accountsRead)return globalThis.__homeScreenTest.accountsRead();if(globalThis.__homeScreenTest.accountsError)throw Error('accounts unavailable');return globalThis.__homeScreenTest.accountItems??[{id:1,name:'Cash',currencyCode:'USD',isFavorite:1},{id:2,name:'Bank',currencyCode:'USD',isFavorite:0},{id:3,name:'Savings',currencyCode:'USD',isFavorite:0},{id:4,name:'Card',currencyCode:'USD',isFavorite:0}];};`,
   '@/lib/reports': `export const monthlyReport=()=>globalThis.__homeScreenTest.read('reports'); export const accountBalances=today=>globalThis.__homeScreenTest.read('balances',today);`,
   './read-home.ts': `export const homeData=(_,id)=>globalThis.__homeScreenTest.read('home',id);`,
 };
@@ -103,6 +103,7 @@ test('Home loading, retained content and cache behavior', async (t) => {
     renderer = undefined;
     queryClient?.clear();
     delete state.accountsError;
+    delete state.accountsRead;
     delete state.accountItems;
   });
   t.after(() => {
@@ -111,6 +112,36 @@ test('Home loading, retained content and cache behavior', async (t) => {
     delete globalThis.__homeScreenTest;
     if (previousActEnvironment === undefined) delete globalThis.IS_REACT_ACT_ENVIRONMENT;
     else globalThis.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+  });
+  await t.test('Accounts suspend before selection and financial reads initialize', async () => {
+    let finishAccounts;
+    state.accountsRead = () =>
+      new Promise((resolve) => {
+        finishAccounts = resolve;
+      });
+    const scopes = [];
+    state.read = async (key, id) => {
+      if (key === 'home') scopes.push(id);
+      return fixtures[key];
+    };
+    await act(async () => {
+      resetQueryClient();
+      renderer = create(React.createElement(QueryScreen, { Screen: HomeScreen }));
+    });
+    const picker = () => renderer.root.findByType('HomeAccountPicker');
+    assert.equal(picker().props.unavailable, true);
+    assert.equal(picker().props.loading, true);
+    assert.ok(renderer.root.findAllByType('Skeleton').length > 0);
+    assert.deepEqual(scopes, [], 'financial reads wait for the default Account');
+    await act(async () =>
+      finishAccounts([
+        { id: 1, name: 'Cash', currencyCode: 'USD', isFavorite: 0 },
+        { id: 2, name: 'Bank', currencyCode: 'USD', isFavorite: 1 },
+      ]),
+    );
+    assert.equal(picker().props.selectedId, 2);
+    assert.equal(picker().props.unavailable, false);
+    assert.deepEqual(scopes, [2]);
   });
   await t.test(
     'Home Account transitions retain the correct receipt meaning and recover without stale writes',
@@ -263,12 +294,19 @@ test('Home loading, retained content and cache behavior', async (t) => {
       assert.equal(picker().props.unavailable, true);
       assert.equal(picker().props.loading, false);
       assert.ok(texts().includes('Couldn’t load Home'));
-      delete state.accountsError;
       state.read = async (key) => fixtures[key];
       const retry = renderer.root
         .findAllByType('Pressable')
         .find((n) => n.findAllByType('Text').some((t) => t.children.join('') === 'Retry'));
       await act(async () => retry.props.onPress());
+      assert.ok(texts().includes('Couldn’t load Home'), 'a failed retry stays recoverable');
+      assert.equal(picker().props.loading, false);
+      assert.equal(renderer.root.findAllByType('Skeleton').length, 0);
+      delete state.accountsError;
+      const retryAgain = renderer.root
+        .findAllByType('Pressable')
+        .find((n) => n.findAllByType('Text').some((t) => t.children.join('') === 'Retry'));
+      await act(async () => retryAgain.props.onPress());
       assert.equal(picker().props.unavailable, false);
       assert.ok(texts().includes('Lunch'));
     },
