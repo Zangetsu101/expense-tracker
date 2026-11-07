@@ -274,6 +274,7 @@ test('app navigation', async (t) => {
       state.accounts = [{ id: 1, name: 'Cash', currencyCode: 'USD', isFavorite: 1 }];
       await mount(QuickAdd);
       const choices = () => renderer.root.findAll((n) => n.type?.name === 'AccountChoices')[0];
+      await act(async () => choices().props.onSelect(1));
       assert.equal(choices().props.selectedId, 1);
       state.accounts = [
         { id: 1, name: 'Renamed', currencyCode: 'USD' },

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { accountsQuery, categoriesQuery, peopleQuery, includeCreatedPerson } from './queries.ts';
-import { ChoicesSection, InitialSelection } from './view.tsx';
+import { ChoicesSection } from './view.tsx';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight, useNavigation, usePreventRemove } from 'expo-router/react-navigation';
 import {
@@ -25,7 +25,7 @@ import { QuickAddDate } from '@/components/quick-add-date';
 import { QuickAddCategory } from '@/components/quick-add-category';
 import { AccountChoices, personBalanceSummary } from '@/components/entry-choices';
 import { FormButton, FormInput, JoinedChoice } from '@/components/form-controls';
-import { parseAccountId, resolveHomeAccount } from '@/lib/account-selection';
+import { parseAccountId } from '@/lib/account-selection';
 import { theme } from '@/theme';
 
 const c = theme.colors;
@@ -136,25 +136,12 @@ function QuickAddForm() {
     });
     return () => subscription.remove();
   }, [calculatorOpen, dismissCalculator]);
-  const [accountId, setAccountId] = useState<number | null>();
+  const [accountId, setAccountId] = useState(() => parseAccountId(params.accountId));
   const [toId, setToId] = useState<number>();
   const [categoryIds, setCategoryIds] = useState<{
-    EXPENSE?: number | null;
-    INCOME?: number | null;
+    EXPENSE?: number;
+    INCOME?: number;
   }>({});
-  const initializeAccount = useCallback((id: number | undefined) => {
-    setAccountId((current) => (current === undefined ? (id ?? null) : current));
-  }, []);
-  const initializeExpense = useCallback((id: number | undefined) => {
-    setCategoryIds((current) =>
-      current.EXPENSE === undefined ? { ...current, EXPENSE: id ?? null } : current,
-    );
-  }, []);
-  const initializeIncome = useCallback((id: number | undefined) => {
-    setCategoryIds((current) =>
-      current.INCOME === undefined ? { ...current, INCOME: id ?? null } : current,
-    );
-  }, []);
   const [personId, setPersonId] = useState<number>();
   const [query, setQuery] = useState('');
   const [action, setAction] = useState<PersonAction>('LEND');
@@ -369,18 +356,11 @@ function QuickAddForm() {
           >
             {(readyAccounts) => (
               <>
-                <InitialSelection
-                  value={
-                    resolveHomeAccount(readyAccounts, parseAccountId(params.accountId)) ??
-                    readyAccounts[0]?.id
-                  }
-                  onInitialize={initializeAccount}
-                />
                 <View style={{ gap: 10 }}>
                   <Label>{`${incoming ? 'Into' : 'From'} ${account?.name ?? 'an account'}`}</Label>
                   <AccountChoices
                     accounts={readyAccounts}
-                    selectedId={accountId ?? undefined}
+                    selectedId={accountId}
                     disabled={pending}
                     onSelect={(id) => {
                       setAccountId(id);
@@ -523,14 +503,10 @@ function QuickAddForm() {
             >
               {(readyCategories) => (
                 <>
-                  <InitialSelection
-                    value={readyCategories.ordered[0]?.id}
-                    onInitialize={categoryMode === 'EXPENSE' ? initializeExpense : initializeIncome}
-                  />
                   <QuickAddCategory
                     categories={readyCategories.managed}
                     orderedIds={readyCategories.ordered.map((item) => item.id)}
-                    selectedId={categoryIds[categoryMode] ?? undefined}
+                    selectedId={categoryIds[categoryMode]}
                     disabled={pending}
                     onSelect={(id) => setCategoryIds((ids) => ({ ...ids, [categoryMode]: id }))}
                   />

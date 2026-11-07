@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useState, type ReactNode } from 'react';
+import { Suspense, type ReactNode } from 'react';
 import {
   QueryErrorResetBoundary,
   useSuspenseQuery,
@@ -154,16 +154,4 @@ export function ChoicesSection<T, K extends QueryKey>({
       )}
     </QueryErrorResetBoundary>
   );
-}
-
-export function InitialSelection({
-  value,
-  onInitialize,
-}: {
-  value: number | undefined;
-  onInitialize: (value: number | undefined) => void;
-}) {
-  const [initialValue] = useState(() => value);
-  useEffect(() => onInitialize(initialValue), [initialValue, onInitialize]);
-  return null;
 }
