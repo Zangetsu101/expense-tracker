@@ -10,10 +10,9 @@ import { RetainedQueryBoundary } from './retained-query.tsx';
 import { resolveHomeAccount } from '@/lib/account-selection';
 import { epochDay } from '@/lib/database';
 import { homeAccountsQuery, homeSnapshotQuery } from './queries.ts';
-import { QuerySessionContext, type QuerySession } from '@/lib/query-session';
+import { QueryTimeContext } from '@/lib/query-time';
 
 type FinancialRequest = { accountId: number | null; now: Date };
-type Selection = { session: number; accountId: number | null };
 
 function FinancialContent({
   request,
@@ -29,7 +28,7 @@ function FinancialContent({
 }
 
 function AccountContent({
-  session,
+  now,
   selection,
   selectAccount,
   failed,
@@ -38,7 +37,7 @@ function AccountContent({
   retryAccounts,
   reset,
 }: {
-  session: QuerySession;
+  now: Date;
   selection: number | null | undefined;
   selectAccount: (id: number | null) => void;
   failed: boolean;
@@ -47,13 +46,13 @@ function AccountContent({
   retryAccounts: () => void;
   reset: () => void;
 }) {
-  const { data: accounts } = useSuspenseQuery(homeAccountsQuery(session.id));
+  const { data: accounts } = useSuspenseQuery(homeAccountsQuery());
   const accountId = resolveHomeAccount(accounts, selection);
-  const request = useMemo(() => ({ accountId, now: session.now }), [accountId, session.now]);
+  const request = useMemo(() => ({ accountId, now }), [accountId, now]);
   const deferred = useDeferredValue(request);
   const stale =
     accountId !== deferred.accountId || epochDay(request.now) !== epochDay(deferred.now);
-  const status = useQuery({ ...homeSnapshotQuery(accountId, session.now), enabled: false });
+  const status = useQuery({ ...homeSnapshotQuery(accountId, now), enabled: false });
   const boundary = useRef<RetainedQueryBoundary<FinancialRequest>>(null);
   const retry =
     failed || accountsError
@@ -96,19 +95,18 @@ function AccountContent({
 
 function Home({ reset }: { reset: () => void }) {
   const client = useQueryClient();
-  const session = use(QuerySessionContext);
-  const deferred = useDeferredValue(session);
-  const [selection, setSelection] = useState<Selection>();
-  const status = useQuery({ ...homeAccountsQuery(session.id), enabled: false });
-  const selected = selection?.session === session.id ? selection.accountId : undefined;
+  const now = use(QueryTimeContext);
+  const deferred = useDeferredValue(now);
+  const [selection, setSelection] = useState<number | null>();
+  const status = useQuery({ ...homeAccountsQuery(), enabled: false });
   if (status.data) {
-    const resolved = resolveHomeAccount(status.data, selected);
-    if (selected !== resolved) setSelection({ session: session.id, accountId: resolved });
+    const resolved = resolveHomeAccount(status.data, selection);
+    if (selection !== resolved) setSelection(resolved);
   }
-  const boundary = useRef<RetainedQueryBoundary<QuerySession>>(null);
+  const boundary = useRef<RetainedQueryBoundary<Date>>(null);
   const selectAccount = (accountId: number | null) => {
     reset();
-    setSelection({ session: session.id, accountId });
+    setSelection(accountId);
   };
   const coldControls = {
     accounts: [],
@@ -124,19 +122,19 @@ function Home({ reset }: { reset: () => void }) {
       <RetainedQueryBoundary
         ref={boundary}
         request={deferred}
-        requestKey={String(deferred.id)}
+        requestKey="accounts"
         onReset={() => {
           reset();
           void client.resetQueries({
-            queryKey: homeAccountsQuery(deferred.id).queryKey,
+            queryKey: homeAccountsQuery().queryKey,
             exact: true,
           });
         }}
         fallback={(retry) => <HomeLoadError controls={coldControls} retry={retry} />}
         render={(ready, failed) => (
           <AccountContent
-            session={ready}
-            selection={failed ? selection?.accountId : selected}
+            now={ready}
+            selection={selection}
             selectAccount={selectAccount}
             failed={failed}
             accountsError={!!status.error}

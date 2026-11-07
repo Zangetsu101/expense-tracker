@@ -2,24 +2,24 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { AppState } from 'react-native';
 import { focusManager, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { createQueryClient } from '@/lib/query-client';
-import { QuerySessionContext } from '@/lib/query-session';
+import { QueryTimeContext } from '@/lib/query-time';
 import { invalidateHome } from '@/features/home';
 import { subscribeDataChanges } from '@/lib/data-changes';
 
 export function AppQueryLifecycle({ children }: { children: ReactNode }) {
   const client = useQueryClient();
-  const [session, setSession] = useState(() => ({ id: 0, now: new Date() }));
+  const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     let previous = AppState.currentState;
     const lifecycle = AppState.addEventListener('change', (next) => {
       if (next !== 'inactive') focusManager.setFocused(next === 'active');
       if (next === 'active' && previous === 'background') {
-        setSession((value) => ({ id: value.id + 1, now: new Date() }));
+        setNow(new Date());
       }
       if (next !== 'inactive') previous = next;
     });
     const unsubscribe = subscribeDataChanges(() => {
-      setSession((value) => ({ ...value, now: new Date() }));
+      setNow(new Date());
       void invalidateHome(client);
     });
     return () => {
@@ -28,7 +28,7 @@ export function AppQueryLifecycle({ children }: { children: ReactNode }) {
       focusManager.setFocused(undefined);
     };
   }, [client]);
-  return <QuerySessionContext value={session}>{children}</QuerySessionContext>;
+  return <QueryTimeContext value={now}>{children}</QueryTimeContext>;
 }
 
 export function AppQueriesProvider({ children }: { children: ReactNode }) {

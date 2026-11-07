@@ -184,7 +184,7 @@ test('app navigation', async (t) => {
       assert.ok(!shown.includes(old), old);
   });
   await t.test(
-    'Home starts at favorite, scopes Add, keeps All accounts and resets on reopening',
+    'Home starts at favorite, scopes Add and keeps All accounts after backgrounding',
     async () => {
       state.accounts = [
         { id: 1, name: 'Cash', currencyCode: 'BDT', isFavorite: 0 },
@@ -213,7 +213,7 @@ test('app navigation', async (t) => {
         state.lifecycle('background');
         state.lifecycle('active');
       });
-      assert.equal(picker().props.selectedId, 2);
+      assert.equal(picker().props.selectedId, null);
     },
   );
   await t.test(

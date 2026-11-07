@@ -183,59 +183,25 @@ test('Home loading, retained content and cache behavior', async (t) => {
     },
   );
   await t.test(
-    'Home reopening retains the previous financial view while a new favorite loads and fails',
+    'Home keeps an explicit selection after backgrounding and resets on remount',
     async () => {
-      state.accountItems = [
-        { id: 1, name: 'Cash', currencyCode: 'USD', isFavorite: 1 },
-        { id: 2, name: 'Bank', currencyCode: 'USD', isFavorite: 0 },
-      ];
       state.read = async (key) => fixtures[key];
-      const Screen = HomeScreen;
       await act(async () => {
         resetQueryClient();
-        renderer = create(React.createElement(QueryScreen, { Screen }));
+        renderer = create(React.createElement(QueryScreen, { Screen: HomeScreen }));
       });
       const picker = () => renderer.root.findByType('HomeAccountPicker');
-      const entry = () =>
-        renderer.root
-          .findAllByType('Pressable')
-          .find((n) => n.props.accessibilityLabel === 'Lunch, Cash');
-      state.accountItems = state.accountItems.map((a) => ({
-        ...a,
-        isFavorite: a.id === 2 ? 1 : 0,
-      }));
-      let failBank;
-      state.read = (key, id) =>
-        key === 'home' && id === 2
-          ? new Promise((_, reject) => {
-              failBank = reject;
-            })
-          : Promise.resolve(fixtures[key]);
+      await act(async () => picker().props.onSelect(2));
       await act(async () => {
         state.lifecycle('background');
         state.lifecycle('active');
       });
       assert.equal(picker().props.selectedId, 2);
-      assert.ok(failBank);
-      assert.ok(texts().includes('Lunch'));
-      assert.equal(entry().props.disabled, true);
-      assert.equal(
-        renderer.root.findAllByType('Skeleton').length,
-        0,
-        'reopening must retain the financial subtree',
-      );
-      await act(async () => failBank(new Error('Bank read failed')));
-      assert.equal(picker().props.error, true);
-      assert.ok(texts().includes('Lunch'));
-      assert.equal(entry().props.disabled, true);
-      assert.ok(
-        !texts().includes('Couldn’t load Home'),
-        'a failed replacement must not become a cold error',
-      );
-      state.read = async (key) => (key === 'home' ? { ...fixtures.home, rows: [] } : fixtures[key]);
-      await act(async () => picker().props.onRetry());
-      assert.equal(picker().props.error, false);
-      assert.equal(renderer.root.findByType('FlatList').props.data.length, 0);
+      await act(async () => renderer.unmount());
+      await act(async () => {
+        renderer = create(React.createElement(QueryScreen, { Screen: HomeScreen }));
+      });
+      assert.equal(picker().props.selectedId, 1, 'a new mount starts at the favorite');
     },
   );
   await t.test('Home cold failure offers retry instead of empty state or skeletons', async () => {
@@ -391,7 +357,7 @@ test('Home loading, retained content and cache behavior', async (t) => {
     },
   );
   await t.test(
-    'Home reopening resolves a changed favorite from fresh Accounts, not the cache',
+    'Home keeps its initial Account after backgrounding despite a changed favorite',
     async () => {
       state.accountItems = [
         { id: 1, name: 'Cash', currencyCode: 'BDT', isFavorite: 1 },
@@ -412,53 +378,67 @@ test('Home loading, retained content and cache behavior', async (t) => {
         state.lifecycle('background');
         state.lifecycle('active');
       });
-      assert.equal(picker().props.selectedId, 2);
+      assert.equal(picker().props.selectedId, 1);
     },
   );
-  await t.test('Home retry resolves the fresh favorite after reopening Accounts fail', async () => {
-    state.accountItems = [
-      { id: 1, name: 'Cash', currencyCode: 'BDT', isFavorite: 1 },
-      { id: 2, name: 'Bank', currencyCode: 'BDT', isFavorite: 0 },
-    ];
-    state.read = async (key) => fixtures[key];
-    await act(async () => {
-      resetQueryClient();
-      renderer = create(React.createElement(QueryScreen, { Screen: HomeScreen }));
-    });
-    const picker = () => renderer.root.findByType('HomeAccountPicker');
-    state.accountItems = state.accountItems.map((a) => ({ ...a, isFavorite: a.id === 2 ? 1 : 0 }));
-    state.accountsError = true;
-    await act(async () => {
-      state.lifecycle('background');
-      state.lifecycle('active');
-    });
-    assert.equal(picker().props.error, true);
-    delete state.accountsError;
-    await act(async () => picker().props.onRetry());
-    assert.equal(picker().props.selectedId, 2);
-  });
-  await t.test('Home explicit selection wins over pending favorite recovery', async () => {
-    state.accountItems = [
-      { id: 1, name: 'Cash', currencyCode: 'BDT', isFavorite: 1 },
-      { id: 2, name: 'Bank', currencyCode: 'BDT', isFavorite: 0 },
-    ];
-    state.read = async (key) => fixtures[key];
-    await act(async () => {
-      resetQueryClient();
-      renderer = create(React.createElement(QueryScreen, { Screen: HomeScreen }));
-    });
-    const picker = () => renderer.root.findByType('HomeAccountPicker');
-    state.accountItems = state.accountItems.map((a) => ({ ...a, isFavorite: a.id === 2 ? 1 : 0 }));
-    state.accountsError = true;
-    await act(async () => {
-      state.lifecycle('background');
-      state.lifecycle('active');
-    });
-    await act(async () => picker().props.onSelect(null));
-    delete state.accountsError;
-    await act(async () => picker().props.onRetry());
-    assert.equal(picker().props.selectedId, null);
-  });
+  await t.test(
+    'Home keeps its Account when foreground Accounts refresh fails and is retried',
+    async () => {
+      state.accountItems = [
+        { id: 1, name: 'Cash', currencyCode: 'BDT', isFavorite: 1 },
+        { id: 2, name: 'Bank', currencyCode: 'BDT', isFavorite: 0 },
+      ];
+      state.read = async (key) => fixtures[key];
+      await act(async () => {
+        resetQueryClient();
+        renderer = create(React.createElement(QueryScreen, { Screen: HomeScreen }));
+      });
+      const picker = () => renderer.root.findByType('HomeAccountPicker');
+      state.accountItems = state.accountItems.map((a) => ({
+        ...a,
+        isFavorite: a.id === 2 ? 1 : 0,
+      }));
+      state.accountsError = true;
+      await queryClient.invalidateQueries({ queryKey: ['home'], refetchType: 'none' });
+      await act(async () => {
+        state.lifecycle('background');
+        state.lifecycle('active');
+      });
+      assert.equal(picker().props.error, true);
+      delete state.accountsError;
+      await act(async () => picker().props.onRetry());
+      assert.equal(picker().props.selectedId, 1);
+    },
+  );
+  await t.test(
+    'Home allows explicit selection while a foreground Accounts refresh fails',
+    async () => {
+      state.accountItems = [
+        { id: 1, name: 'Cash', currencyCode: 'BDT', isFavorite: 1 },
+        { id: 2, name: 'Bank', currencyCode: 'BDT', isFavorite: 0 },
+      ];
+      state.read = async (key) => fixtures[key];
+      await act(async () => {
+        resetQueryClient();
+        renderer = create(React.createElement(QueryScreen, { Screen: HomeScreen }));
+      });
+      const picker = () => renderer.root.findByType('HomeAccountPicker');
+      state.accountItems = state.accountItems.map((a) => ({
+        ...a,
+        isFavorite: a.id === 2 ? 1 : 0,
+      }));
+      state.accountsError = true;
+      await queryClient.invalidateQueries({ queryKey: ['home'], refetchType: 'none' });
+      await act(async () => {
+        state.lifecycle('background');
+        state.lifecycle('active');
+      });
+      await act(async () => picker().props.onSelect(null));
+      delete state.accountsError;
+      await act(async () => picker().props.onRetry());
+      assert.equal(picker().props.selectedId, null);
+    },
+  );
   await t.test('committed writes refresh retained Home content without navigation', async () => {
     const Screen = HomeScreen;
     const initial = [];
