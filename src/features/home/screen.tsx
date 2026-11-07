@@ -1,5 +1,5 @@
 import { Suspense, use, useDeferredValue, useMemo, useState } from 'react';
-import { QueryErrorResetBoundary, useSuspenseQuery } from '@tanstack/react-query';
+import { QueryErrorResetBoundary, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import {
   HomeView,
   FinancialSkeleton,
@@ -41,6 +41,7 @@ function FinancialSection({
   controls: HomeControls;
   reset: () => void;
 }) {
+  const client = useQueryClient();
   const { accountId } = accountControls;
   const request = useMemo(() => ({ accountId, now }), [accountId, now]);
   const deferred = useDeferredValue(request);
@@ -55,8 +56,14 @@ function FinancialSection({
   };
   return (
     <ErrorBoundary
-      resetKey={`${accountId}:${epochDay(now)}`}
-      onReset={reset}
+      resetKey={`${deferred.accountId}:${epochDay(deferred.now)}`}
+      onReset={() => {
+        reset();
+        void client.resetQueries({
+          queryKey: homeSnapshotQuery(deferred.accountId, deferred.now).queryKey,
+          exact: true,
+        });
+      }}
       fallback={(retry) => <FinancialError controls={controls} retry={retry} />}
     >
       <Suspense fallback={<FinancialSkeleton controls={controls} />}>

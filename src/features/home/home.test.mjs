@@ -80,6 +80,7 @@ const { HomeScreen } = await import('./index.ts');
 const { createQueryClient } = await import('../../lib/query-client.ts');
 const { AppQueryLifecycle } = await import('../../components/app-queries.tsx');
 const { notifyDataChanged } = await import('../../lib/data-changes.ts');
+const { QueryTimeContext } = await import('../../lib/query-time.ts');
 let queryClient;
 function QueryScreen({ Screen }) {
   return React.createElement(
@@ -357,8 +358,12 @@ test('Home loading, retained content and cache behavior', async (t) => {
     assert.equal(renderer.root.findByType('FlatList').props.data.length, 0);
   });
   await t.test('a financial error can be escaped by choosing another Account', async () => {
+    let failedReads = 0;
     state.read = async (key, id) => {
-      if (key === 'home' && id === 1) throw Error('unavailable');
+      if (key === 'home' && id === 1) {
+        failedReads++;
+        throw Error('unavailable');
+      }
       return fixtures[key];
     };
     await act(async () => {
@@ -369,6 +374,7 @@ test('Home loading, retained content and cache behavior', async (t) => {
     await act(async () => renderer.root.findByType('HomeAccountPicker').props.onSelect(2));
     assert.ok(texts().includes('Lunch'));
     assert.equal(renderer.root.findByType('HomeAccountPicker').props.selectedId, 2);
+    assert.equal(failedReads, 1, 'switching does not remount the failed scope');
   });
   await t.test(
     'a failed background financial refresh shows its own error and retries cached data',
@@ -376,18 +382,53 @@ test('Home loading, retained content and cache behavior', async (t) => {
       state.read = async (key) => fixtures[key];
       await act(async () => {
         resetQueryClient();
+        queryClient.setDefaultOptions({
+          queries: { ...queryClient.getDefaultOptions().queries, staleTime: Infinity },
+        });
         renderer = create(React.createElement(QueryScreen, { Screen: HomeScreen }));
       });
       state.read = async () => {
         throw Error('unavailable');
       };
-      await act(async () => notifyDataChanged());
+      await act(async () => queryClient.refetchQueries({ queryKey: ['home', 'snapshot'] }));
       assert.ok(texts().includes('Couldn’t load account activity'));
       assert.ok(!texts().includes('Lunch'));
       assert.equal(renderer.root.findByType('HomeAccountPicker').props.error, false);
-      state.read = async (key) => fixtures[key];
+      const pending = [];
+      state.read = (key) => new Promise((resolve) => pending.push(() => resolve(fixtures[key])));
       await act(async () => financialRetry().props.onPress());
+      assert.ok(!texts().includes('Lunch'), 'retry does not flash the failed cached snapshot');
+      assert.ok(renderer.root.findAllByType('Skeleton').length > 0);
+      await act(async () => pending.forEach((resolve) => resolve()));
       assert.ok(texts().includes('Lunch'));
+    },
+  );
+  await t.test(
+    'a new local date clears a financial error without rereading the failed date',
+    async () => {
+      let now = new Date(2026, 10, 6, 23, 59);
+      const Screen = () =>
+        React.createElement(QueryTimeContext, { value: now }, React.createElement(HomeScreen));
+      const balanceDates = [];
+      state.read = async (key, day) => {
+        if (key === 'balances') balanceDates.push(day);
+        if (key === 'home') throw Error('unavailable');
+        return fixtures[key];
+      };
+      await act(async () => {
+        resetQueryClient();
+        renderer = create(React.createElement(QueryScreen, { Screen }));
+      });
+      assert.ok(texts().includes('Couldn’t load account activity'));
+      now = new Date(2026, 10, 7, 0, 1);
+      state.read = async (key, day) => {
+        if (key === 'balances') balanceDates.push(day);
+        return fixtures[key];
+      };
+      await act(async () => renderer.update(React.createElement(QueryScreen, { Screen })));
+      assert.ok(texts().includes('Lunch'));
+      assert.equal(balanceDates.length, 2);
+      assert.equal(balanceDates[1], balanceDates[0] + 1);
     },
   );
   await t.test(
