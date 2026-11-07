@@ -409,7 +409,7 @@ test('Home loading, retained content and cache behavior', async (t) => {
     assert.equal(failedReads, 1, 'switching does not remount the failed scope');
   });
   await t.test(
-    'a failed background financial refresh shows its own error and retries cached data',
+    'a failed background financial refresh keeps cached content active and a later refresh recovers',
     async () => {
       state.read = async (key) => fixtures[key];
       await act(async () => {
@@ -419,20 +419,22 @@ test('Home loading, retained content and cache behavior', async (t) => {
         });
         renderer = create(React.createElement(QueryScreen, { Screen: HomeScreen }));
       });
+      const before = texts();
       state.read = async () => {
         throw Error('unavailable');
       };
       await act(async () => queryClient.refetchQueries({ queryKey: ['home', 'snapshot'] }));
-      assert.ok(texts().includes('Couldn’t load account activity'));
-      assert.ok(!texts().includes('Lunch'));
+      assert.deepEqual(texts(), before);
+      assert.ok(!texts().includes('Couldn’t load account activity'));
+      assert.equal(renderer.root.findAllByType('Skeleton').length, 0);
+      const entry = renderer.root
+        .findAllByType('Pressable')
+        .find((n) => n.props.accessibilityLabel === 'Lunch, Cash');
+      assert.equal(entry.props.disabled, false);
       assert.equal(renderer.root.findByType('HomeAccountPicker').props.error, false);
-      const pending = [];
-      state.read = (key) => new Promise((resolve) => pending.push(() => resolve(fixtures[key])));
-      await act(async () => financialRetry().props.onPress());
-      assert.ok(!texts().includes('Lunch'), 'retry does not flash the failed cached snapshot');
-      assert.ok(renderer.root.findAllByType('Skeleton').length > 0);
-      await act(async () => pending.forEach((resolve) => resolve()));
-      assert.ok(texts().includes('Lunch'));
+      state.read = async (key) => (key === 'home' ? { ...fixtures.home, rows: [] } : fixtures[key]);
+      await act(async () => queryClient.refetchQueries({ queryKey: ['home', 'snapshot'] }));
+      assert.equal(renderer.root.findByType('FlatList').props.data.length, 0);
     },
   );
   await t.test(

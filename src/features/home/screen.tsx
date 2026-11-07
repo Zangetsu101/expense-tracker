@@ -1,5 +1,5 @@
 import { Suspense, use, useDeferredValue, useMemo, useState } from 'react';
-import { QueryErrorResetBoundary, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
+import { QueryErrorResetBoundary, useSuspenseQuery } from '@tanstack/react-query';
 import {
   FinancialView,
   HomeLayout,
@@ -18,10 +18,7 @@ import { QueryTimeContext } from '@/lib/query-time';
 type FinancialRequest = { accountId: number | null; now: Date };
 
 function FinancialContent({ request, muted }: { request: FinancialRequest; muted: boolean }) {
-  const { data, error, isFetching } = useSuspenseQuery(
-    homeSnapshotQuery(request.accountId, request.now),
-  );
-  if (error && !isFetching) throw error;
+  const { data } = useSuspenseQuery(homeSnapshotQuery(request.accountId, request.now));
   return <FinancialView snapshot={data} muted={muted} />;
 }
 
@@ -34,7 +31,6 @@ function FinancialSection({
   accountId: number | null;
   reset: () => void;
 }) {
-  const client = useQueryClient();
   const request = useMemo(() => ({ accountId, now }), [accountId, now]);
   const deferred = useDeferredValue(request);
   const stale =
@@ -42,13 +38,7 @@ function FinancialSection({
   return (
     <ErrorBoundary
       resetKey={`${deferred.accountId}:${epochDay(deferred.now)}`}
-      onReset={() => {
-        reset();
-        void client.resetQueries({
-          queryKey: homeSnapshotQuery(deferred.accountId, deferred.now).queryKey,
-          exact: true,
-        });
-      }}
+      onReset={reset}
       fallback={(retry) => <FinancialError accountId={accountId} retry={retry} />}
     >
       <Suspense fallback={<FinancialSkeleton accountId={accountId} />}>
