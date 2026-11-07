@@ -135,3 +135,36 @@ test('search, overflow, parent paths and selection retain their meaning after re
     await act(async () => renderer.unmount());
   }
 });
+
+test('a tall offscreen Category cannot stretch visible measurement rows', async () => {
+  const { renderer } = await mount();
+  try {
+    const hidden = renderer.root
+      .findAllByType('View')
+      .find((v) => v.props.importantForAccessibility === 'no-hide-descendants');
+    assert.equal(hidden.props.style.alignItems, 'flex-start');
+    const measures = hidden.findAllByType('View').filter((v) => v.props.onLayout);
+    await act(async () => {
+      renderer.root
+        .findAllByType('View')
+        .find((v) => v.props.onLayout)
+        .props.onLayout({ nativeEvent: { layout: { width: 120 } } });
+      measures[3].props.onLayout({ nativeEvent: { layout: { width: 110, height: 140 } } });
+    });
+    assert.deepEqual(labels(renderer), ['Food', 'Travel']);
+    assert.deepEqual(
+      chips(renderer).map((c) => [c.props.style.top, c.props.style.height]),
+      [
+        [0, 40],
+        [48, 60],
+      ],
+    );
+    assert.ok(
+      renderer.root
+        .findAllByType('Text')
+        .some((t) => t.children.includes('Refine search to see more')),
+    );
+  } finally {
+    await act(async () => renderer.unmount());
+  }
+});

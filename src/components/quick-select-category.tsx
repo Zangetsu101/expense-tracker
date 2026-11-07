@@ -119,7 +119,12 @@ export function QuickSelectCategory({
           pointerEvents="none"
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
-          style={{ position: 'absolute', opacity: 0, flexDirection: 'row' }}
+          style={{
+            position: 'absolute',
+            opacity: 0,
+            flexDirection: 'row',
+            alignItems: 'flex-start',
+          }}
         >
           {categories.map((category) => (
             <View
