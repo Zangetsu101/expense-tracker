@@ -10,7 +10,7 @@ import { ErrorBoundary } from '@/components/query-error-boundary';
 import { Skeleton, Shimmer } from '@/components/loading';
 import { FormButton } from '@/components/form-controls';
 import { theme } from '@/theme';
-import { CategorySearchInput } from '@/components/quick-add-category';
+import { CategorySearchInput } from '@/components/quick-select-category';
 
 type ChoicesLayout = 'accounts' | 'categories' | 'people';
 

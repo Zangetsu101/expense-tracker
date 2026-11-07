@@ -14,6 +14,7 @@ const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const root = new URL('../../', import.meta.url);
 const mocks = {
+  '@/lib/category-prediction-history': `export const listCategoryEvidence=async()=>globalThis.__entryTest.evidence??[];`,
   '@/components/loading': `export const Skeleton='Skeleton',Shimmer='Shimmer';`,
   'expo-symbols': `export const SymbolView='SymbolView';`,
   'expo-haptics': `export const AndroidHaptics={Keyboard_Tap:'keyboard'},ImpactFeedbackStyle={Light:'light'}; export const performAndroidHapticsAsync=async()=>{},impactAsync=async()=>{};`,
@@ -26,14 +27,14 @@ const mocks = {
   '@/components/form-controls': `export const FormButton='FormButton',FormInput='FormInput',JoinedChoice='JoinedChoice';`,
   '@/components/app-sheet': `import React from 'react'; export function AppSheet(props){return React.createElement('Sheet',props,props.children);}`,
   '@/components/quick-add-date': `export const QuickAddDate='Date';`,
-  '@/components/quick-add-category': `export const QuickAddCategory='Category',CategorySearchInput='CategorySearchInput';`,
+  '@/components/quick-select-category': `export const QuickSelectCategory='Category',CategorySearchInput='CategorySearchInput';`,
   '@/lib/lending': `export const listPeople=async()=>globalThis.__entryTest.readPeople?.()??[{id:1,name:'Rafi'}]; export const listLendingTotals=async()=>globalThis.__entryTest.readTotals?.()??[]; export const createPerson=async name=>globalThis.__entryTest.createPerson?.(name)??({id:2,name:name.trim()}); export const saveLendingEntry=x=>globalThis.__entryTest.save(x);`,
   '@/lib/accounts': `export const listManagedAccounts=()=>globalThis.__entryTest.list(); export const createAccount=x=>globalThis.__entryTest.save(x); export const setFavoriteAccount=async()=>{};`,
   '@/lib/reports': `export const accountBalances=async()=>globalThis.__entryTest.balances ?? [{id:1,balanceMinor:100}];`,
   '@/lib/database': `export const epochDay=d=>Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/86400000); export const listAccounts=async()=>{if(globalThis.__entryTest.readAccounts)return globalThis.__entryTest.readAccounts();if(globalThis.__entryTest.loadError)throw Error('Load failed');return [{id:1,name:'Cash',currencyCode:'USD',isFavorite:1},{id:2,name:'Bank',currencyCode:'USD'},{id:4,name:'Foreign',currencyCode:'BDT'}]}; export const listCategories=async type=>globalThis.__entryTest.readCategories?.(type)??[{id:3,name:'Food'}]; export const setFavoriteAccount=async()=>{};`,
-  '@/lib/categories': `export const listManagedCategories=async()=>globalThis.__entryTest.readManaged?.()??[{id:3,name:'Food',type:'EXPENSE',parentId:null,parentName:null,needsReview:0}];`,
+  '@/lib/categories': `export const listManagedCategories=async()=>[]; export const listCategoriesByRecentUse=async type=>globalThis.__entryTest.readManaged?.(type)??[{id:3,name:'Food',type:'EXPENSE',parentId:null,parentName:null,needsReview:0}];`,
   '@/lib/quick-add-tags': `export const addQuickTransaction=(...args)=>globalThis.__entryTest.save(...args);`,
-  '@/lib/transfers': `export const transferAmountMinor=x=>{const n=Number(x)*100;if(!Number.isSafeInteger(n)||n<=0)throw Error('Invalid amount');return n}; export const addTransfer=x=>globalThis.__entryTest.save(x);`,
+  '@/lib/transfers': `export const addTransfer=x=>globalThis.__entryTest.save(x);`,
 };
 const hooks = registerHooks({
   resolve(specifier, context, next) {
@@ -95,11 +96,20 @@ const button = (label) => nodes('FormButton').find((n) => n.props.label === labe
 async function press(label) {
   await act(async () => button(label).props.onPress());
 }
-async function change(label, value) {
+async function change(label, value, finalize = true) {
   if (label === 'Amount') {
+    await act(async () =>
+      nodes('Pressable')
+        .find((n) => n.props.accessibilityLabel === 'Amount')
+        .props.onPress(),
+    );
     await act(async () =>
       renderer.root.find((n) => n.type?.name === 'AmountCalculator').props.onChange(value),
     );
+    if (finalize)
+      await act(async () =>
+        renderer.root.find((n) => n.type?.name === 'AmountCalculator').props.onDone(),
+      );
     return;
   }
   await act(async () =>
@@ -233,6 +243,72 @@ test('Account entry screens', async (t) => {
       await press('Retry accounts');
       assert.equal(saves, 1);
       assert.doesNotMatch(text(), /Refetch failed/);
+    },
+  );
+  await t.test('Quick add ranks after Done without selecting a Category', async () => {
+    await mount(QuickAdd);
+    state.readManaged = async () => [
+      { id: 3, name: 'Food' },
+      { id: 4, name: 'Travel' },
+    ];
+    state.evidence = [{ categoryId: 4, accountId: 1, amountMinor: 1200, day: 1 }];
+    await act(async () => queryClient.invalidateQueries({ queryKey: ['quick-add', 'categories'] }));
+    await change('Amount', '12', false);
+    assert.equal(nodes('Category')[0].props.orderedIds, undefined);
+    assert.deepEqual(
+      nodes('Category')[0].props.categories.map((c) => c.id),
+      [3, 4],
+    );
+    await act(async () =>
+      nodes('Pressable')
+        .find((n) => n.props.accessibilityLabel === 'Done')
+        .props.onPress(),
+    );
+    assert.deepEqual(nodes('Category')[0].props.orderedIds, [4, 3]);
+    assert.equal(nodes('Category')[0].props.selectedId, undefined);
+    await chooseCategory(3);
+    assert.equal(nodes('Category')[0].props.selectedId, 3);
+    delete state.evidence;
+  });
+  await t.test(
+    'Amount input commits a parsed value only when dismissed and clears invalid input',
+    async () => {
+      await mount(QuickAdd);
+      await chooseCategory(3);
+      await change('Amount', '10+2', false);
+      assert.equal(button('Save').props.disabled, true);
+      await act(async () =>
+        renderer.root.find((n) => n.type?.name === 'AmountCalculator').props.onDone(),
+      );
+      assert.equal(button('Save').props.disabled, false);
+      await change('Amount', '1/0');
+      assert.equal(button('Save').props.disabled, true);
+      assert.ok(
+        nodes('Text').some((n) =>
+          n.children.includes('Enter a positive amount with at most two decimal places.'),
+        ),
+      );
+    },
+  );
+  await t.test(
+    'Save cannot submit a previously committed amount while editing a new expression',
+    async () => {
+      await mount(QuickAdd);
+      await chooseCategory(3);
+      await change('Amount', '12');
+      let saved;
+      state.save = async (draft) => {
+        saved = draft;
+      };
+      await change('Amount', '20', false);
+      assert.equal(button('Save').props.disabled, true);
+      await press('Save');
+      assert.equal(saved, undefined);
+      await act(async () =>
+        renderer.root.find((n) => n.type?.name === 'AmountCalculator').props.onDone(),
+      );
+      await press('Save');
+      assert.equal(saved.amountMinor, 2000);
     },
   );
   await t.test(
@@ -456,7 +532,7 @@ test('Account entry screens', async (t) => {
       assert.equal(
         nodes('Pressable').find((n) => n.props.accessibilityLabel === 'Amount').props
           .accessibilityValue.text,
-        '12',
+        '12.00',
       );
       assert.equal(
         nodes('FormInput').find((n) => n.props.accessibilityLabel === 'Note').props.value,
@@ -503,15 +579,11 @@ test('Account entry screens', async (t) => {
     },
   );
   await t.test('Quick add draft stays editable while independent choices load', async () => {
-    let resolveAccounts, resolveCategories, resolveManaged;
+    let resolveAccounts, resolveManaged;
     let peopleReads = 0;
     state.readAccounts = () =>
       new Promise((resolve) => {
         resolveAccounts = resolve;
-      });
-    state.readCategories = () =>
-      new Promise((resolve) => {
-        resolveCategories = resolve;
       });
     state.readManaged = () =>
       new Promise((resolve) => {
@@ -523,7 +595,6 @@ test('Account entry screens', async (t) => {
     };
     await mount(QuickAdd);
     assert.equal(typeof resolveAccounts, 'function');
-    assert.equal(typeof resolveCategories, 'function');
     assert.equal(typeof resolveManaged, 'function');
     assert.equal(peopleReads, 0);
     await change('Amount', '12');
@@ -531,7 +602,6 @@ test('Account entry screens', async (t) => {
     assert.equal(button('Save').props.disabled, true);
     const noteInput = nodes('FormInput').find((n) => n.props.accessibilityLabel === 'Note');
     await act(async () => {
-      resolveCategories([{ id: 3, name: 'Food' }]);
       resolveManaged([{ id: 3, name: 'Food', type: 'EXPENSE' }]);
     });
     assert.equal(nodes('Category').length, 1);
@@ -558,16 +628,12 @@ test('Account entry screens', async (t) => {
   });
   await t.test('A pending mode cannot supply save prerequisites to a different mode', async () => {
     let resolveExpense;
-    state.readCategories = (type) =>
+    state.readManaged = (type) =>
       type === 'EXPENSE'
         ? new Promise((resolve) => {
             resolveExpense = resolve;
           })
         : [{ id: 5, name: 'Salary' }];
-    state.readManaged = async () => [
-      { id: 3, name: 'Food', type: 'EXPENSE' },
-      { id: 5, name: 'Salary', type: 'INCOME' },
-    ];
     await mount(QuickAdd);
     await change('Amount', '9');
     await act(async () => nodes('JoinedChoice')[0].props.onChange('INCOME'));

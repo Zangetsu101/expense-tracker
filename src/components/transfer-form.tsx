@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { BottomSheet, Button, Column, Host, Text as NativeText } from '@expo/ui';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { listAccounts, type Account } from '@/lib/database';
-import { transferAmountMinor } from '@/lib/transfers';
+import { parsePositiveAmountMinor } from '@/lib/amount';
 import { QuickAddDate } from '@/components/quick-add-date';
 import { theme } from '@/theme';
 import { FormButton, FormInput } from '@/components/form-controls';
@@ -91,7 +91,7 @@ export function TransferForm({
     source.currencyCode === destination.currencyCode;
   let validAmount = false;
   try {
-    transferAmountMinor(amount);
+    parsePositiveAmountMinor(amount);
     validAmount = true;
   } catch {}
 
@@ -109,7 +109,7 @@ export function TransferForm({
   async function save() {
     if (pending) return;
     try {
-      const amountMinor = transferAmountMinor(amount);
+      const amountMinor = parsePositiveAmountMinor(amount);
       if (
         !source ||
         !destination ||

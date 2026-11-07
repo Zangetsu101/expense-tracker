@@ -9,7 +9,7 @@ const panel = '#1d2a30';
 
 type Props = {
   categories: ManagedCategory[];
-  orderedIds: number[];
+  orderedIds?: number[];
   selectedId?: number;
   onSelect: (id: number) => void;
   disabled?: boolean;
@@ -38,7 +38,7 @@ export function CategorySearchInput({
   );
 }
 
-export function QuickAddCategory({
+export function QuickSelectCategory({
   categories,
   orderedIds,
   selectedId,
@@ -62,7 +62,7 @@ export function QuickAddCategory({
   };
   const activeId = selectedId;
   const active = activeId == null ? undefined : byId.get(activeId);
-  const matches = orderedIds
+  const matches = (orderedIds ?? categories.map((category) => category.id))
     .map((id) => byId.get(id))
     .filter(
       (item): item is ManagedCategory =>

@@ -1,28 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { accountsQuery, categoriesQuery, peopleQuery, includeCreatedPerson } from './queries.ts';
 import { ChoicesSection } from './view.tsx';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight, useNavigation, usePreventRemove } from 'expo-router/react-navigation';
-import {
-  Alert,
-  BackHandler,
-  Keyboard,
-  KeyboardAvoidingView,
-  Pressable,
-  ScrollView,
-  Text,
-  View,
-} from 'react-native';
+import { Alert, KeyboardAvoidingView, Pressable, ScrollView, Text, View } from 'react-native';
 import { epochDay } from '@/lib/database';
 import { addQuickTransaction } from '@/lib/quick-add-tags';
-import { addTransfer, transferAmountMinor } from '@/lib/transfers';
+import { addTransfer } from '@/lib/transfers';
 import { createPerson, saveLendingEntry, type LendingKind, type LendingTotal } from '@/lib/lending';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { calculateAmount } from '@/lib/amount-calculator';
-import { AmountCalculator } from '@/components/amount-calculator';
+import { AmountInput } from '@/components/amount-input';
+import { useRankedCategories } from './use-ranked-categories.ts';
 import { QuickAddDate } from '@/components/quick-add-date';
-import { QuickAddCategory } from '@/components/quick-add-category';
+import { QuickSelectCategory } from '@/components/quick-select-category';
 import { AccountChoices, personBalanceSummary } from '@/components/entry-choices';
 import { FormButton, FormInput, JoinedChoice } from '@/components/form-controls';
 import { parseAccountId } from '@/lib/account-selection';
@@ -115,27 +105,11 @@ function QuickAddForm() {
   const categoryRead = useQuery({ ...categoriesQuery(categoryMode ?? 'EXPENSE'), enabled: false });
   const peopleRead = useQuery({ ...peopleQuery(), enabled: false });
   const accounts = accountsRead.data ?? [];
-  const categories = categoryRead.data?.ordered ?? [];
+  const categories = categoryRead.data ?? [];
   const people = peopleRead.data?.people ?? [];
   const params = useLocalSearchParams<{ accountId?: string }>();
   const headerHeight = useHeaderHeight();
-  const insets = useSafeAreaInsets();
-  const [amount, setAmount] = useState('');
-  const [calculatorOpen, setCalculatorOpen] = useState(true);
-  const dismissCalculator = useCallback(() => {
-    try {
-      if (amount) setAmount(calculateAmount(amount));
-    } catch {}
-    setCalculatorOpen(false);
-  }, [amount]);
-  useEffect(() => {
-    if (!calculatorOpen) return;
-    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      dismissCalculator();
-      return true;
-    });
-    return () => subscription.remove();
-  }, [calculatorOpen, dismissCalculator]);
+  const [amountMinor, setAmountMinor] = useState<number>();
   const [accountId, setAccountId] = useState(() => parseAccountId(params.accountId));
   const [toId, setToId] = useState<number>();
   const [categoryIds, setCategoryIds] = useState<{
@@ -157,6 +131,13 @@ function QuickAddForm() {
   });
   const account = accounts.find((item) => item.id === accountId);
   const person = people.find((item) => item.id === personId);
+  const orderedCategoryIds = useRankedCategories(
+    categoryRead.data,
+    categoryMode,
+    account,
+    amountMinor,
+    epochDay(date),
+  );
   const destinations = accounts.filter(
     (item) => item.id !== accountId && item.currencyCode === account?.currencyCode,
   );
@@ -167,11 +148,7 @@ function QuickAddForm() {
   const matches = people.filter((item) => item.name.toLocaleLowerCase().includes(search));
   const canCreatePerson =
     !!search && !people.some((item) => item.name.toLocaleLowerCase() === search);
-  let validAmount = false;
-  try {
-    transferAmountMinor(calculateAmount(amount));
-    validAmount = true;
-  } catch {}
+  const validAmount = amountMinor !== undefined;
   const canSave =
     !!accountsRead.data &&
     (mode === 'TRANSFER' || (mode === 'PERSON' ? !!peopleRead.data : !!categoryRead.data)) &&
@@ -213,12 +190,11 @@ function QuickAddForm() {
   }
 
   async function save() {
-    if (busy.current || !canSave || !account) return;
+    if (busy.current || !canSave || !account || amountMinor === undefined) return;
     busy.current = true;
     setPending(true);
     setError('');
     try {
-      const amountMinor = transferAmountMinor(calculateAmount(amount));
       if (!Number.isFinite(date.getTime()) || epochDay(date) > epochDay(new Date()))
         throw new Error('Choose today or a past date.');
       if (mode === 'TRANSFER') {
@@ -269,296 +245,257 @@ function QuickAddForm() {
   }
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={process.env.EXPO_OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={headerHeight}
-    >
-      <Stack.Screen
-        options={{
-          headerLeft: () => <CancelAction disabled={pending} />,
-          gestureEnabled: !pending,
-        }}
-      />
-      <ScrollView
-        style={{ flex: 1 }}
-        contentInsetAdjustmentBehavior="automatic"
-        keyboardShouldPersistTaps="handled"
-        onScrollBeginDrag={() => {
-          if (calculatorOpen) dismissCalculator();
-        }}
-        contentContainerStyle={{ padding: 22, gap: 18, paddingBottom: 48 }}
-      >
-        <View style={{ gap: 6 }}>
-          <Label>{`Amount · ${account?.currencyCode ?? 'Select account'}`}</Label>
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              borderBottomWidth: 1,
-              borderColor: c.line,
-            }}
-          >
-            <Text style={{ color: c.text, fontSize: 48, fontWeight: '300' }}>
-              {account?.currencyCode === 'BDT' ? '৳' : account?.currencyCode === 'USD' ? '$' : ''}
-            </Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Amount"
-              accessibilityValue={{ text: amount || '0.00' }}
-              accessibilityHint="Opens the amount calculator"
-              accessibilityState={{ disabled: pending }}
-              disabled={pending}
-              onPress={() => {
-                Keyboard.dismiss();
-                setCalculatorOpen(true);
-              }}
-              style={{ flex: 1, minHeight: 64, justifyContent: 'center' }}
-            >
-              <Text
-                style={{
-                  color: amount ? c.text : c.muted,
-                  fontSize: 48,
-                  fontWeight: '300',
-                  fontVariant: ['tabular-nums'],
-                }}
-              >
-                {amount || '0.00'}
-              </Text>
-            </Pressable>
-          </View>
-          {!calculatorOpen && !!amount && !validAmount && (
-            <Text accessibilityRole="alert" style={{ color: c.warning }}>
-              Enter a positive amount with at most two decimal places.
-            </Text>
-          )}
-        </View>
-        <View
-          style={{ gap: 18 }}
-          onTouchStart={() => {
-            if (calculatorOpen) dismissCalculator();
-          }}
+    <AmountInput currency={account?.currencyCode} disabled={pending} onChange={setAmountMinor}>
+      {({ input, keypad, dismiss: dismissCalculator, editing }) => (
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={process.env.EXPO_OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={headerHeight}
         >
-          <JoinedChoice
-            value={mode}
-            options={modes}
-            disabled={pending}
-            onChange={(value) => {
-              setMode(value);
-              setError('');
+          <Stack.Screen
+            options={{
+              headerLeft: () => <CancelAction disabled={pending} />,
+              gestureEnabled: !pending,
             }}
           />
-          <ChoicesSection
-            options={accountsQuery()}
-            label="accounts"
-            layout="accounts"
-            pendingLabel={incoming ? 'Into' : 'From'}
+          <ScrollView
+            style={{ flex: 1 }}
+            contentInsetAdjustmentBehavior="automatic"
+            keyboardShouldPersistTaps="handled"
+            onScrollBeginDrag={() => {
+              dismissCalculator();
+            }}
+            contentContainerStyle={{ padding: 22, gap: 18, paddingBottom: 48 }}
           >
-            {(readyAccounts) => (
-              <>
-                <View style={{ gap: 10 }}>
-                  <Label>{`${incoming ? 'Into' : 'From'} ${account?.name ?? 'an account'}`}</Label>
-                  <AccountChoices
-                    accounts={readyAccounts}
-                    selectedId={accountId}
-                    disabled={pending}
-                    onSelect={(id) => {
-                      setAccountId(id);
-                      setToId(undefined);
-                      setError('');
-                    }}
-                  />
-                  {!readyAccounts.length && (
-                    <Text style={{ color: c.muted }}>
-                      Create an account in the Accounts tab before adding a transaction.
-                    </Text>
-                  )}
-                </View>
-                {mode === 'TRANSFER' && (
-                  <View style={{ gap: 10 }}>
-                    <Label>{`To ${destinations.find((item) => item.id === toId)?.name ?? 'another account'}`}</Label>
-                    <AccountChoices
-                      accounts={destinations}
-                      selectedId={toId}
-                      disabled={pending}
-                      onSelect={setToId}
-                    />
-                    {!destinations.length && (
-                      <Text style={{ color: c.muted }}>
-                        No other {account?.currencyCode ?? 'same-currency'} account. Create one in
-                        Accounts or choose a different source.
-                      </Text>
-                    )}
-                  </View>
-                )}
-              </>
-            )}
-          </ChoicesSection>
-          {mode === 'PERSON' && (
-            <>
-              <View style={{ gap: 10 }}>
-                <Label>{`With ${person?.name ?? 'a person'}`}</Label>
-                <FormInput
-                  accessibilityLabel="Search people"
-                  placeholder="Find or add a person"
-                  value={query}
-                  onChangeText={setQuery}
-                  editable={!pending}
-                />
-              </View>
-              <ChoicesSection options={peopleQuery()} label="people" layout="people">
-                {(readyPeople) => (
+            {input}
+            <View
+              style={{ gap: 18 }}
+              onTouchStart={() => {
+                dismissCalculator();
+              }}
+            >
+              <JoinedChoice
+                value={mode}
+                options={modes}
+                disabled={pending}
+                onChange={(value) => {
+                  setMode(value);
+                  setError('');
+                }}
+              />
+              <ChoicesSection
+                options={accountsQuery()}
+                label="accounts"
+                layout="accounts"
+                pendingLabel={incoming ? 'Into' : 'From'}
+              >
+                {(readyAccounts) => (
                   <>
                     <View style={{ gap: 10 }}>
-                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                        {matches.map((item) => {
-                          const selected = item.id === personId;
-                          return (
-                            <Pressable
-                              key={item.id}
-                              accessibilityRole="button"
-                              accessibilityLabel={item.name}
-                              accessibilityState={{ selected, disabled: pending }}
-                              disabled={pending}
-                              onPress={() => setPersonId(item.id)}
-                              style={({ pressed }) => ({
-                                paddingHorizontal: 14,
-                                paddingVertical: 8,
-                                minHeight: 48,
-                                maxWidth: '100%',
-                                borderRadius: 14,
-                                backgroundColor: selected ? c.selected : c.surface,
-                                opacity: pending ? 0.45 : pressed ? 0.7 : 1,
-                                gap: 4,
-                              })}
-                            >
-                              <Text
-                                style={{
-                                  color: c.text,
-                                  fontSize: 15,
-                                  fontWeight: selected ? '700' : '500',
-                                }}
-                              >
-                                {item.name}
-                              </Text>
-                              <Text
-                                style={{ color: selected ? c.onSelected : c.muted, fontSize: 12 }}
-                              >
-                                {personBalanceSummary(
-                                  readyPeople.totals,
-                                  item.id,
-                                  account?.currencyCode ?? '',
-                                )}
-                              </Text>
-                            </Pressable>
-                          );
-                        })}
-                      </View>
-                      {!matches.length && (
+                      <Label>{`${incoming ? 'Into' : 'From'} ${account?.name ?? 'an account'}`}</Label>
+                      <AccountChoices
+                        accounts={readyAccounts}
+                        selectedId={accountId}
+                        disabled={pending}
+                        onSelect={(id) => {
+                          setAccountId(id);
+                          setToId(undefined);
+                          setError('');
+                        }}
+                      />
+                      {!readyAccounts.length && (
                         <Text style={{ color: c.muted }}>
-                          {search
-                            ? 'No matching people.'
-                            : 'No saved people. Enter a name to add one.'}
+                          Create an account in the Accounts tab before adding a transaction.
                         </Text>
                       )}
-                      {canCreatePerson && (
-                        <FormButton
-                          label={`Add “${query.trim()}”`}
-                          variant="secondary"
-                          disabled={pending}
-                          onPress={() => void addPerson()}
-                        />
-                      )}
                     </View>
+                    {mode === 'TRANSFER' && (
+                      <View style={{ gap: 10 }}>
+                        <Label>{`To ${destinations.find((item) => item.id === toId)?.name ?? 'another account'}`}</Label>
+                        <AccountChoices
+                          accounts={destinations}
+                          selectedId={toId}
+                          disabled={pending}
+                          onSelect={setToId}
+                        />
+                        {!destinations.length && (
+                          <Text style={{ color: c.muted }}>
+                            No other {account?.currencyCode ?? 'same-currency'} account. Create one
+                            in Accounts or choose a different source.
+                          </Text>
+                        )}
+                      </View>
+                    )}
                   </>
                 )}
               </ChoicesSection>
-              <View style={{ gap: 10 }}>
-                <Label>What happened</Label>
-                <JoinedChoice<PersonAction>
-                  value={action}
-                  options={principalActions}
-                  disabled={pending}
-                  onChange={setAction}
-                />
-                <JoinedChoice<PersonAction>
-                  value={action}
-                  options={repaymentActions}
-                  disabled={pending}
-                  onChange={setAction}
-                />
-              </View>
-              <Text style={{ color: c.muted }}>
-                {incoming ? 'Money into' : 'Money out of'} {account?.name ?? 'the selected account'}
-                . Excluded from spending reports. Recorded person balances may be incomplete.
-              </Text>
-            </>
-          )}
-          {categoryMode && (
-            <ChoicesSection
-              key={categoryMode}
-              layout="categories"
-              options={categoriesQuery(categoryMode)}
-              label={`${categoryMode === 'EXPENSE' ? 'expense' : 'income'} categories`}
-            >
-              {(readyCategories) => (
+              {mode === 'PERSON' && (
                 <>
-                  <QuickAddCategory
-                    categories={readyCategories.managed}
-                    orderedIds={readyCategories.ordered.map((item) => item.id)}
-                    selectedId={categoryIds[categoryMode]}
-                    disabled={pending}
-                    onSelect={(id) => setCategoryIds((ids) => ({ ...ids, [categoryMode]: id }))}
-                  />
-                  {!readyCategories.ordered.length && (
-                    <Text style={{ color: c.muted }}>
-                      Create an {categoryMode === 'EXPENSE' ? 'expense' : 'income'} category in
-                      Settings before saving.
-                    </Text>
-                  )}
+                  <View style={{ gap: 10 }}>
+                    <Label>{`With ${person?.name ?? 'a person'}`}</Label>
+                    <FormInput
+                      accessibilityLabel="Search people"
+                      placeholder="Find or add a person"
+                      value={query}
+                      onChangeText={setQuery}
+                      editable={!pending}
+                    />
+                  </View>
+                  <ChoicesSection options={peopleQuery()} label="people" layout="people">
+                    {(readyPeople) => (
+                      <>
+                        <View style={{ gap: 10 }}>
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                            {matches.map((item) => {
+                              const selected = item.id === personId;
+                              return (
+                                <Pressable
+                                  key={item.id}
+                                  accessibilityRole="button"
+                                  accessibilityLabel={item.name}
+                                  accessibilityState={{ selected, disabled: pending }}
+                                  disabled={pending}
+                                  onPress={() => setPersonId(item.id)}
+                                  style={({ pressed }) => ({
+                                    paddingHorizontal: 14,
+                                    paddingVertical: 8,
+                                    minHeight: 48,
+                                    maxWidth: '100%',
+                                    borderRadius: 14,
+                                    backgroundColor: selected ? c.selected : c.surface,
+                                    opacity: pending ? 0.45 : pressed ? 0.7 : 1,
+                                    gap: 4,
+                                  })}
+                                >
+                                  <Text
+                                    style={{
+                                      color: c.text,
+                                      fontSize: 15,
+                                      fontWeight: selected ? '700' : '500',
+                                    }}
+                                  >
+                                    {item.name}
+                                  </Text>
+                                  <Text
+                                    style={{
+                                      color: selected ? c.onSelected : c.muted,
+                                      fontSize: 12,
+                                    }}
+                                  >
+                                    {personBalanceSummary(
+                                      readyPeople.totals,
+                                      item.id,
+                                      account?.currencyCode ?? '',
+                                    )}
+                                  </Text>
+                                </Pressable>
+                              );
+                            })}
+                          </View>
+                          {!matches.length && (
+                            <Text style={{ color: c.muted }}>
+                              {search
+                                ? 'No matching people.'
+                                : 'No saved people. Enter a name to add one.'}
+                            </Text>
+                          )}
+                          {canCreatePerson && (
+                            <FormButton
+                              label={`Add “${query.trim()}”`}
+                              variant="secondary"
+                              disabled={pending}
+                              onPress={() => void addPerson()}
+                            />
+                          )}
+                        </View>
+                      </>
+                    )}
+                  </ChoicesSection>
+                  <View style={{ gap: 10 }}>
+                    <Label>What happened</Label>
+                    <JoinedChoice<PersonAction>
+                      value={action}
+                      options={principalActions}
+                      disabled={pending}
+                      onChange={setAction}
+                    />
+                    <JoinedChoice<PersonAction>
+                      value={action}
+                      options={repaymentActions}
+                      disabled={pending}
+                      onChange={setAction}
+                    />
+                  </View>
+                  <Text style={{ color: c.muted }}>
+                    {incoming ? 'Money into' : 'Money out of'}{' '}
+                    {account?.name ?? 'the selected account'}. Excluded from spending reports.
+                    Recorded person balances may be incomplete.
+                  </Text>
                 </>
               )}
-            </ChoicesSection>
-          )}
-          <View style={{ gap: 12 }}>
-            <Label>Note · optional</Label>
-            <FormInput
-              accessibilityLabel="Note"
-              placeholder="Add a note"
-              value={note}
-              onChangeText={setNote}
-              editable={!pending}
-            />
-            <Label>Tags · optional</Label>
-            <FormInput
-              accessibilityLabel="Tags, separated by commas"
-              placeholder="Comma-separated tags"
-              value={tags}
-              onChangeText={setTags}
-              editable={!pending}
-            />
-            <QuickAddDate value={date} onChange={setDate} disabled={pending} />
-          </View>
-          {!!error && (
-            <Text selectable accessibilityRole="alert" style={{ color: c.warning }}>
-              {error}
-            </Text>
-          )}
-          <FormButton
-            label={saveLabel}
-            loading={pending}
-            disabled={!canSave}
-            onPress={() => void save()}
-          />
-        </View>
-      </ScrollView>
-      <AmountCalculator
-        open={calculatorOpen}
-        bottomInset={insets.bottom}
-        value={amount}
-        onChange={setAmount}
-        onDone={dismissCalculator}
-      />
-    </KeyboardAvoidingView>
+              {categoryMode && (
+                <ChoicesSection
+                  key={categoryMode}
+                  layout="categories"
+                  options={categoriesQuery(categoryMode)}
+                  label={`${categoryMode === 'EXPENSE' ? 'expense' : 'income'} categories`}
+                >
+                  {(readyCategories) => (
+                    <>
+                      <QuickSelectCategory
+                        categories={readyCategories}
+                        orderedIds={orderedCategoryIds}
+                        selectedId={categoryIds[categoryMode]}
+                        disabled={pending}
+                        onSelect={(id) => setCategoryIds((ids) => ({ ...ids, [categoryMode]: id }))}
+                      />
+                      {!readyCategories.length && (
+                        <Text style={{ color: c.muted }}>
+                          Create an {categoryMode === 'EXPENSE' ? 'expense' : 'income'} category in
+                          Settings before saving.
+                        </Text>
+                      )}
+                    </>
+                  )}
+                </ChoicesSection>
+              )}
+              <View style={{ gap: 12 }}>
+                <Label>Note · optional</Label>
+                <FormInput
+                  accessibilityLabel="Note"
+                  placeholder="Add a note"
+                  value={note}
+                  onChangeText={setNote}
+                  editable={!pending}
+                />
+                <Label>Tags · optional</Label>
+                <FormInput
+                  accessibilityLabel="Tags, separated by commas"
+                  placeholder="Comma-separated tags"
+                  value={tags}
+                  onChangeText={setTags}
+                  editable={!pending}
+                />
+                <QuickAddDate value={date} onChange={setDate} disabled={pending} />
+              </View>
+              {!!error && (
+                <Text selectable accessibilityRole="alert" style={{ color: c.warning }}>
+                  {error}
+                </Text>
+              )}
+              <FormButton
+                label={saveLabel}
+                loading={pending}
+                disabled={!canSave || editing}
+                onPress={() => {
+                  if (!editing) void save();
+                }}
+              />
+            </View>
+          </ScrollView>
+          {keypad}
+        </KeyboardAvoidingView>
+      )}
+    </AmountInput>
   );
 }
