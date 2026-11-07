@@ -84,7 +84,6 @@ Use **GitHub Actions → Build Android APK → Run workflow** on `main` to build
 - `src/lib/`: finance logic, SQLite access, import/export, and tests.
 - `src/theme.ts`: shared theme.
 - `scripts/fixtures/`: backup format fixtures.
-- `docs/product.md`: intended behavior and scope.
 - `docs/adr/`: architectural decisions.
 - `CONTEXT.md`: domain terminology.
 

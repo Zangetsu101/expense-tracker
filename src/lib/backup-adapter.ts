@@ -168,7 +168,9 @@ export const backupDocuments: BackupDocuments = {
       type: 'application/json',
       copyToCacheDirectory: false,
     });
-    return result.canceled ? null : result.assets[0].uri;
+    if (result.canceled) return null;
+    const { uri, name } = result.assets[0];
+    return { uri, name };
   },
   writeText: (uri, text) => FileSystem.writeAsStringAsync(uri, text),
   readText: (uri) => new File(uri).text(),

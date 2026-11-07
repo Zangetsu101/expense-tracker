@@ -1,6 +1,6 @@
 # Expense Tracker Expo
 
-For intended behavior, read `docs/product.md`. Record new cross-platform implementation decisions separately rather than rewriting historical ADRs.
+Use ADRs only for decisions with lasting consequences whose rationale would surprise a future maintainer or be hard to recover later. Routine UI choices, implementation details, and test results belong in code, tests, or temporary notes under `.scratch/`. Preserve historical ADRs.
 
 Read `AGENTS.local.md` if present for machine-specific development setup. Keep host OS, SDK paths, and emulator connection details there rather than in shared instructions.
 
