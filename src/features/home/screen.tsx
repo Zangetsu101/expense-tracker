@@ -62,7 +62,10 @@ function Home() {
   return (
     <QueryErrorResetBoundary>
       {({ reset }) => (
-        <HomeLayout accountId={accountId} accountsReady>
+        <HomeLayout
+          quickAddAccountId={accountId ?? resolveHomeAccount(accounts, undefined)}
+          accountsReady
+        >
           <AccountSelection
             accounts={accounts}
             selectedId={accountId}

@@ -204,6 +204,12 @@ test('app navigation', async (t) => {
       await act(async () => picker().props.onSelect(null));
       assert.equal(picker().props.selectedId, null);
       assert.equal(state.accountQueries.at(-1), null);
+      await press('Add transaction');
+      assert.deepEqual(state.calls.at(-1), [
+        'push',
+        { pathname: '/quick-add', params: { accountId: '2' } },
+      ]);
+      assert.ok(texts().includes('Search all'));
       await act(async () => {
         state.lifecycle('inactive');
         state.lifecycle('active');
