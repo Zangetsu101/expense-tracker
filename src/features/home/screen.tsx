@@ -76,7 +76,6 @@ function Home() {
           <AccountSelection
             accounts={accounts}
             selectedId={accountId}
-            unavailable={false}
             loading={isFetching}
             error={!!error && !isFetching}
             onRetry={() => {

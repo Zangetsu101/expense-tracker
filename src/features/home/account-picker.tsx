@@ -1,5 +1,13 @@
 import { useState } from 'react';
-import { FlatList, Pressable, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import {
+  FlatList,
+  Pressable,
+  Text,
+  TextInput,
+  View,
+  useWindowDimensions,
+  type ViewStyle,
+} from 'react-native';
 import { SymbolView } from 'expo-symbols';
 import { Shimmer, Skeleton } from './loading.tsx';
 import { AppSheet } from '@/components/app-sheet';
@@ -8,12 +16,51 @@ import { theme } from '@/theme';
 
 const c = theme.colors;
 
+const pickerStyle: ViewStyle = {
+  backgroundColor: c.raised,
+  borderRadius: theme.radius.control,
+  minHeight: 56,
+  flexDirection: 'row',
+  alignItems: 'center',
+  borderWidth: 1,
+  borderColor: 'transparent',
+  overflow: 'hidden',
+};
+
+export function HomeAccountPickerSkeleton({ animated = true }: { animated?: boolean }) {
+  return (
+    <View
+      style={pickerStyle}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+    >
+      <View style={{ flex: 1, minHeight: 54, padding: 16, justifyContent: 'center' }}>
+        <Skeleton width={140} height={20} animated={animated} />
+      </View>
+      <View
+        style={{
+          minWidth: 48,
+          minHeight: 54,
+          paddingRight: 8,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <SymbolView
+          name={{ ios: 'chevron.down', android: 'expand_more' }}
+          size={24}
+          tintColor={c.muted}
+        />
+      </View>
+    </View>
+  );
+}
+
 export function HomeAccountPicker({
   accounts,
   selectedId,
   onSelect,
   loading = false,
-  unavailable = false,
   error = false,
   onRetry,
 }: {
@@ -21,7 +68,6 @@ export function HomeAccountPicker({
   selectedId: number | null;
   onSelect: (id: number | null) => void;
   loading?: boolean;
-  unavailable?: boolean;
   error?: boolean;
   onRetry?: () => void;
 }) {
@@ -43,43 +89,26 @@ export function HomeAccountPicker({
   );
   return (
     <>
-      <View
-        style={{
-          backgroundColor: c.raised,
-          borderRadius: theme.radius.control,
-          minHeight: 56,
-          flexDirection: 'row',
-          alignItems: 'center',
-          borderWidth: 1,
-          borderColor: error ? c.warning : 'transparent',
-          overflow: 'hidden',
-        }}
-      >
+      <View style={{ ...pickerStyle, borderColor: error ? c.warning : 'transparent' }}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`Choose account, ${selected?.name ?? 'All accounts'}`}
           accessibilityHint={
             error ? 'Loading failed. Use the retry button or choose another account.' : undefined
           }
-          accessibilityState={{ expanded: open, disabled: unavailable, busy: loading }}
-          disabled={unavailable}
+          accessibilityState={{ expanded: open, busy: loading }}
           onPress={openPicker}
           style={{ flex: 1, minHeight: 54, padding: 16, justifyContent: 'center' }}
         >
-          {unavailable ? (
-            <Skeleton width={140} height={20} animated={loading} />
-          ) : (
-            <Text numberOfLines={2} style={{ color: c.text, fontWeight: '600', fontSize: 17 }}>
-              {selected?.name ?? 'All accounts'}
-              {selected ? ` · ${selected.currencyCode}` : ''}
-            </Text>
-          )}
+          <Text numberOfLines={2} style={{ color: c.text, fontWeight: '600', fontSize: 17 }}>
+            {selected?.name ?? 'All accounts'}
+            {selected ? ` · ${selected.currencyCode}` : ''}
+          </Text>
         </Pressable>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={error ? 'Retry loading selected account' : 'Choose account'}
-          disabled={unavailable}
-          accessibilityState={{ disabled: unavailable, expanded: error ? undefined : open }}
+          accessibilityState={{ expanded: error ? undefined : open }}
           onPress={error ? onRetry : openPicker}
           style={{
             minWidth: 48,
@@ -99,7 +128,7 @@ export function HomeAccountPicker({
             tintColor={error ? c.warning : c.muted}
           />
         </Pressable>
-        {loading && !unavailable && <Shimmer />}
+        {loading && <Shimmer />}
       </View>
       {open && (
         <AppSheet pending={false} onDismiss={() => setOpen(false)}>

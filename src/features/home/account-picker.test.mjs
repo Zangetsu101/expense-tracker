@@ -34,7 +34,7 @@ const hooks = registerHooks({
     return next(url, context);
   },
 });
-const { HomeAccountPicker } = await import('./account-picker.tsx');
+const { HomeAccountPicker, HomeAccountPickerSkeleton } = await import('./account-picker.tsx');
 
 test('failed Account selection keeps choosing and retrying as separate actions', async (t) => {
   const previous = globalThis.IS_REACT_ACT_ENVIRONMENT;
@@ -77,19 +77,20 @@ test('failed Account selection keeps choosing and retrying as separate actions',
   await act(async () => buttons()[1].props.onPress());
   assert.equal(renderer.root.findAllByType('AppSheet').length, 1, 'normal chevron opens selection');
   assert.equal(retries, 1);
+  await act(async () => renderer.update(React.createElement(HomeAccountPickerSkeleton)));
+  assert.equal(
+    renderer.root.findAllByType('Pressable').length,
+    0,
+    'placeholder is not interactive',
+  );
+  assert.equal(renderer.root.findAllByType('AppSheet').length, 0);
+  assert.equal(renderer.root.findByType('Skeleton').props.animated, true);
   await act(async () =>
-    renderer.update(
-      React.createElement(HomeAccountPicker, {
-        ...props,
-        error: false,
-        unavailable: true,
-        loading: false,
-      }),
-    ),
+    renderer.update(React.createElement(HomeAccountPickerSkeleton, { animated: false })),
   );
   assert.equal(
     renderer.root.findByType('Skeleton').props.animated,
     false,
-    'unavailable Account name must stop shimmering after failure',
+    'failed Accounts load uses a static placeholder',
   );
 });

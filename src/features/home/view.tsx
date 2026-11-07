@@ -10,7 +10,7 @@ import {
   transactionTitle,
 } from '@/lib/transaction-format';
 import { Skeleton } from './loading.tsx';
-import { HomeAccountPicker } from './account-picker.tsx';
+import { HomeAccountPicker, HomeAccountPickerSkeleton } from './account-picker.tsx';
 import type { CurrencyBalance } from './balances.ts';
 import type { HomeSnapshot } from './queries.ts';
 import { theme } from '@/theme';
@@ -527,9 +527,11 @@ export function FinancialError({
   );
 }
 
+const accountSelectionStyle = { padding: 20, paddingBottom: 0 };
+
 export function AccountSelection(props: ComponentProps<typeof HomeAccountPicker>) {
   return (
-    <View style={{ padding: 20, paddingBottom: 0 }}>
+    <View style={accountSelectionStyle}>
       <HomeAccountPicker {...props} />
     </View>
   );
@@ -538,13 +540,9 @@ export function AccountSelection(props: ComponentProps<typeof HomeAccountPicker>
 function HomeScreenFallback({ loading, children }: { loading: boolean; children: ReactNode }) {
   return (
     <HomeLayout accountId={null} accountsReady={false}>
-      <AccountSelection
-        accounts={[]}
-        selectedId={null}
-        unavailable
-        loading={loading}
-        onSelect={() => {}}
-      />
+      <View style={accountSelectionStyle}>
+        <HomeAccountPickerSkeleton animated={loading} />
+      </View>
       {children}
     </HomeLayout>
   );
