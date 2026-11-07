@@ -416,19 +416,20 @@ function QuickAddForm() {
           </ChoicesSection>
           {mode === 'PERSON' && (
             <>
-              <FormInput
-                accessibilityLabel="Search people"
-                placeholder="Find or add a person"
-                value={query}
-                onChangeText={setQuery}
-                editable={!pending}
-              />
+              <View style={{ gap: 10 }}>
+                <Label>{`With ${person?.name ?? 'a person'}`}</Label>
+                <FormInput
+                  accessibilityLabel="Search people"
+                  placeholder="Find or add a person"
+                  value={query}
+                  onChangeText={setQuery}
+                  editable={!pending}
+                />
+              </View>
               <ChoicesSection options={peopleQuery()} label="people" layout="people">
                 {(readyPeople) => (
                   <>
                     <View style={{ gap: 10 }}>
-                      <Label>{`With ${person?.name ?? 'a person'}`}</Label>
-
                       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                         {matches.map((item) => {
                           const selected = item.id === personId;

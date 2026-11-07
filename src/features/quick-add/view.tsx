@@ -22,12 +22,20 @@ function SectionLayout({ children, label }: { children: ReactNode; label?: strin
   );
 }
 
-function PillSkeletonRows({ height, borderRadius }: { height: number; borderRadius: number }) {
+function PillSkeletonRows({
+  height,
+  borderRadius,
+  columns,
+}: {
+  height: number;
+  borderRadius: number;
+  columns: 2 | 3 | 4;
+}) {
   return (
     <View style={{ gap: 8 }}>
       {[0, 1].map((row) => (
         <View key={row} style={{ flexDirection: 'row', gap: 8 }}>
-          {[0, 1, 2, 3].map((column) => (
+          {Array.from({ length: columns }, (_, column) => (
             <View key={column} style={{ flex: 1 }}>
               <Skeleton width="100%" height={height} borderRadius={borderRadius} />
             </View>
@@ -56,7 +64,7 @@ function ChoicesSkeleton({
             <Skeleton width="35%" height={16} />
           </View>
           <CategorySearchInput disabled />
-          <PillSkeletonRows height={38} borderRadius={12} />
+          <PillSkeletonRows height={38} borderRadius={12} columns={4} />
         </>
       ) : layout === 'accounts' ? (
         <>
@@ -64,16 +72,10 @@ function ChoicesSkeleton({
             <Text style={{ color: theme.colors.muted, fontSize: 12 }}>{pendingLabel}</Text>
             <Skeleton width="35%" height={12} />
           </View>
-          <PillSkeletonRows height={48} borderRadius={14} />
+          <PillSkeletonRows height={48} borderRadius={14} columns={3} />
         </>
       ) : (
-        <>
-          <Skeleton width="35%" height={16} />
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <Skeleton width="30%" height={48} borderRadius={14} />
-            <Skeleton width="30%" height={48} borderRadius={14} />
-          </View>
-        </>
+        <PillSkeletonRows height={48} borderRadius={14} columns={2} />
       )}
     </SectionLayout>
   );
