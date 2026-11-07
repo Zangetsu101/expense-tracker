@@ -1,4 +1,4 @@
-import { type ReactNode } from 'react';
+import { type ComponentProps, type ReactNode } from 'react';
 import { Link, Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { FlatList, Pressable, Text, View } from 'react-native';
@@ -13,7 +13,6 @@ import { Skeleton } from './loading.tsx';
 import { HomeAccountPicker } from './account-picker.tsx';
 import type { CurrencyBalance } from './balances.ts';
 import type { HomeSnapshot } from './queries.ts';
-import type { Account } from '@/lib/database';
 import { theme } from '@/theme';
 
 const colors = { ...theme.colors, panel: theme.colors.surface };
@@ -34,320 +33,291 @@ function BalanceAmount({ balance, fontSize }: { balance: CurrencyBalance; fontSi
   );
 }
 
-export type HomeViewProps = {
-  accounts: Account[];
-  accountsReady: boolean;
-  accountId: number | null;
-  snapshot: HomeSnapshot;
-  loading: boolean;
-  error: boolean;
-  retry: () => void;
-  selectAccount: (id: number | null) => void;
-  muted?: boolean;
-};
-
-export function HomeView({
-  accounts,
-  accountsReady,
-  accountId,
+export function FinancialView({
   snapshot,
-  loading,
-  error,
-  retry,
-  selectAccount,
   muted = false,
-}: HomeViewProps) {
-  const displayedAccountId = snapshot.accountId;
+}: {
+  snapshot: HomeSnapshot;
+  muted?: boolean;
+}) {
+  const accountId = snapshot.accountId;
   const rows = snapshot.rows;
   const balances = snapshot.balances;
   const summaries = snapshot.summaries;
   const dailySummaries = snapshot.dailySummaries;
   return (
-    <HomeChrome accountId={accountId} accountsReady={accountsReady}>
-      <FlatList
-        contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={{ padding: 20, paddingBottom: 100 }}
-        data={rows}
-        keyExtractor={(row) => String(row.id)}
-        ListHeaderComponent={
-          <View style={{ gap: 20, paddingBottom: 12 }}>
-            <HomeAccountPicker
-              accounts={accounts}
-              selectedId={accountId}
-              loading={loading}
-              unavailable={!accountsReady}
-              error={error}
-              onRetry={retry}
-              onSelect={selectAccount}
-            />
+    <FlatList
+      contentInsetAdjustmentBehavior="automatic"
+      contentContainerStyle={{ padding: 20, paddingBottom: 100 }}
+      data={rows}
+      keyExtractor={(row) => String(row.id)}
+      ListHeaderComponent={
+        <View style={{ gap: 20, paddingBottom: 12 }}>
+          <View
+            pointerEvents={muted ? 'none' : 'auto'}
+            accessibilityElementsHidden={muted}
+            importantForAccessibility={muted ? 'no-hide-descendants' : 'auto'}
+            style={{ gap: 20, opacity: muted ? 0.4 : 1 }}
+          >
             <View
-              pointerEvents={muted ? 'none' : 'auto'}
-              accessibilityElementsHidden={muted}
-              importantForAccessibility={muted ? 'no-hide-descendants' : 'auto'}
-              style={{ gap: 20, opacity: muted ? 0.4 : 1 }}
+              style={{
+                backgroundColor: colors.panel,
+                borderRadius: 16,
+                borderCurve: 'continuous',
+                padding: 18,
+                gap: 12,
+              }}
             >
+              {balances.length > 0 && (
+                <>
+                  <View style={{ gap: 4 }}>
+                    <Text style={{ color: colors.muted }}>Balance</Text>
+                    {balances.length === 1 ? (
+                      <BalanceAmount balance={balances[0]} fontSize={30} />
+                    ) : (
+                      balances.map((b) => (
+                        <View
+                          key={b.currencyCode}
+                          style={{
+                            flexDirection: 'row',
+                            justifyContent: 'space-between',
+                            alignItems: 'baseline',
+                            gap: 12,
+                          }}
+                        >
+                          <Text style={{ color: colors.muted, fontWeight: '700' }}>
+                            {b.currencyCode}
+                          </Text>
+                          <BalanceAmount balance={b} fontSize={20} />
+                        </View>
+                      ))
+                    )}
+                  </View>
+                  <View style={{ height: 1, backgroundColor: colors.line }} />
+                </>
+              )}
+              <Text style={{ color: colors.muted }}>
+                This month · excluding unreported transactions
+              </Text>
+              {summaries.length === 0 ? (
+                <Text style={{ color: colors.text }}>No reportable activity this month</Text>
+              ) : (
+                summaries.map((summary) => (
+                  <View key={summary.currencyCode} style={{ gap: 6 }}>
+                    {summaries.length > 1 && (
+                      <Text style={{ color: colors.muted, fontWeight: '700' }}>
+                        {summary.currencyCode}
+                      </Text>
+                    )}
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        justifyContent: 'space-between',
+                        flexWrap: 'wrap',
+                        gap: 12,
+                      }}
+                    >
+                      <View>
+                        <Text style={{ color: colors.muted }}>Expenses</Text>
+                        <Text
+                          selectable
+                          style={{
+                            color: colors.text,
+                            fontSize: 22,
+                            fontWeight: '700',
+                            fontVariant: ['tabular-nums'],
+                          }}
+                        >
+                          {formatMoney('TRANSFER', summary.expenseMinor, summary.currencyCode)}
+                        </Text>
+                      </View>
+                      <View>
+                        <Text style={{ color: colors.muted }}>Income</Text>
+                        <Text
+                          selectable
+                          style={{
+                            color: colors.accent,
+                            fontSize: 18,
+                            fontVariant: ['tabular-nums'],
+                          }}
+                        >
+                          {formatMoney('TRANSFER', summary.incomeMinor, summary.currencyCode)}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                ))
+              )}
+            </View>
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+              }}
+            >
+              <Text style={{ color: colors.text, fontSize: 22, fontWeight: '700' }}>
+                Recent activity
+              </Text>
+              <Link
+                href={{
+                  pathname: '/transactions',
+                  params: accountId === null ? {} : { accountId: String(accountId) },
+                }}
+                asChild
+              >
+                <Pressable
+                  disabled={muted}
+                  accessibilityState={{ disabled: muted }}
+                  accessibilityRole="button"
+                  style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, padding: 8 })}
+                >
+                  <Text style={{ color: colors.accent }}>
+                    {accountId === null ? 'Search all' : 'Search account'}
+                  </Text>
+                </Pressable>
+              </Link>
+            </View>
+
+            {rows.length === 0 && (
+              <Text style={{ color: colors.muted }}>
+                {accountId === null
+                  ? 'No transactions yet. Add one to get started.'
+                  : 'No transactions in this account. Add one or choose another account.'}
+              </Text>
+            )}
+          </View>
+        </View>
+      }
+      renderItem={({ item, index }) => {
+        const title = transactionTitle(item);
+        const scopedTransfer = item.type === 'TRANSFER' && accountId !== null;
+        const incoming = scopedTransfer && item.transferAccountId === accountId;
+        const detail = scopedTransfer
+          ? incoming
+            ? `Received from ${item.accountName}`
+            : `Sent to ${item.transferAccountName}`
+          : `${item.accountName}${item.transferAccountName ? ` → ${item.transferAccountName}` : ''}`;
+        const displayAmount = scopedTransfer
+          ? `${incoming ? '+' : '−'}${formatMoney('TRANSFER', item.amountMinor, item.currencyCode)}`
+          : formatMoney(item.type, item.amountMinor, item.currencyCode);
+        return (
+          <View
+            pointerEvents={muted ? 'none' : 'auto'}
+            accessibilityElementsHidden={muted}
+            importantForAccessibility={muted ? 'no-hide-descendants' : 'auto'}
+            style={{ opacity: muted ? 0.4 : 1 }}
+          >
+            {(index === 0 || rows[index - 1].date !== item.date) && (
               <View
                 style={{
-                  backgroundColor: colors.panel,
-                  borderRadius: 16,
-                  borderCurve: 'continuous',
-                  padding: 18,
-                  gap: 12,
+                  flexDirection: 'row',
+                  flexWrap: 'wrap',
+                  justifyContent: 'space-between',
+                  alignItems: 'baseline',
+                  gap: 8,
+                  paddingTop: 16,
+                  paddingBottom: 4,
                 }}
               >
-                {balances.length > 0 && (
-                  <>
-                    <View style={{ gap: 4 }}>
-                      <Text style={{ color: colors.muted }}>Balance</Text>
-                      {balances.length === 1 ? (
-                        <BalanceAmount balance={balances[0]} fontSize={30} />
-                      ) : (
-                        balances.map((b) => (
-                          <View
-                            key={b.currencyCode}
-                            style={{
-                              flexDirection: 'row',
-                              justifyContent: 'space-between',
-                              alignItems: 'baseline',
-                              gap: 12,
-                            }}
-                          >
-                            <Text style={{ color: colors.muted, fontWeight: '700' }}>
-                              {b.currencyCode}
-                            </Text>
-                            <BalanceAmount balance={b} fontSize={20} />
-                          </View>
-                        ))
-                      )}
-                    </View>
-                    <View style={{ height: 1, backgroundColor: colors.line }} />
-                  </>
-                )}
-                <Text style={{ color: colors.muted }}>
-                  This month · excluding unreported transactions
+                <Text style={{ color: colors.muted, fontWeight: '700' }}>
+                  {formatActivityDay(item.date)}
                 </Text>
-                {summaries.length === 0 ? (
-                  <Text style={{ color: colors.text }}>No reportable activity this month</Text>
-                ) : (
-                  summaries.map((summary) => (
-                    <View key={summary.currencyCode} style={{ gap: 6 }}>
-                      {summaries.length > 1 && (
-                        <Text style={{ color: colors.muted, fontWeight: '700' }}>
-                          {summary.currencyCode}
-                        </Text>
-                      )}
+                <View style={{ flexShrink: 1, gap: 4 }}>
+                  {dailySummaries
+                    .filter(
+                      (summary) =>
+                        summary.date === item.date &&
+                        (summary.expenseMinor !== 0 || summary.incomeMinor !== 0),
+                    )
+                    .map((summary) => (
                       <View
+                        key={summary.currencyCode}
                         style={{
                           flexDirection: 'row',
-                          justifyContent: 'space-between',
                           flexWrap: 'wrap',
+                          justifyContent: 'flex-end',
                           gap: 12,
                         }}
                       >
-                        <View>
-                          <Text style={{ color: colors.muted }}>Expenses</Text>
+                        {summary.expenseMinor !== 0 && (
                           <Text
                             selectable
                             style={{
-                              color: colors.text,
-                              fontSize: 22,
-                              fontWeight: '700',
+                              color: colors.muted,
+                              fontSize: 12,
                               fontVariant: ['tabular-nums'],
                             }}
                           >
+                            Spent{' '}
                             {formatMoney('TRANSFER', summary.expenseMinor, summary.currencyCode)}
                           </Text>
-                        </View>
-                        <View>
-                          <Text style={{ color: colors.muted }}>Income</Text>
+                        )}
+                        {summary.incomeMinor !== 0 && (
                           <Text
                             selectable
                             style={{
                               color: colors.accent,
-                              fontSize: 18,
+                              fontSize: 12,
                               fontVariant: ['tabular-nums'],
                             }}
                           >
+                            Earned{' '}
                             {formatMoney('TRANSFER', summary.incomeMinor, summary.currencyCode)}
                           </Text>
-                        </View>
+                        )}
                       </View>
-                    </View>
-                  ))
-                )}
+                    ))}
+                </View>
               </View>
-              <View
+            )}
+            <Pressable
+              disabled={muted}
+              accessibilityState={{ disabled: muted }}
+              onPress={() =>
+                router.push({ pathname: '/transaction/[id]', params: { id: String(item.id) } })
+              }
+              accessibilityRole="button"
+              accessibilityLabel={`${title}, ${item.accountName}`}
+              style={({ pressed }) => ({
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 12,
+                paddingVertical: 16,
+                borderBottomWidth: 1,
+                borderBottomColor: colors.line,
+                opacity: pressed ? 0.6 : 1,
+              })}
+            >
+              <View style={{ flex: 1, gap: 4 }}>
+                <Text selectable style={{ color: colors.text, fontSize: 16, fontWeight: '600' }}>
+                  {title}
+                </Text>
+                <Text selectable style={{ color: colors.muted }}>
+                  {detail}
+                  {item.note ? ` · ${item.note}` : ''}
+                </Text>
+              </View>
+              <Text
+                selectable
                 style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 12,
+                  color: item.type === 'INCOME' || incoming ? colors.accent : colors.text,
+                  fontWeight: '700',
+                  fontVariant: ['tabular-nums'],
                 }}
               >
-                <Text style={{ color: colors.text, fontSize: 22, fontWeight: '700' }}>
-                  Recent activity
-                </Text>
-                <Link
-                  href={{
-                    pathname: '/transactions',
-                    params: accountId === null ? {} : { accountId: String(accountId) },
-                  }}
-                  asChild
-                >
-                  <Pressable
-                    disabled={muted}
-                    accessibilityState={{ disabled: muted }}
-                    accessibilityRole="button"
-                    style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, padding: 8 })}
-                  >
-                    <Text style={{ color: colors.accent }}>
-                      {accountId === null ? 'Search all' : 'Search account'}
-                    </Text>
-                  </Pressable>
-                </Link>
-              </View>
-
-              {rows.length === 0 && (
-                <Text style={{ color: colors.muted }}>
-                  {displayedAccountId === null
-                    ? 'No transactions yet. Add one to get started.'
-                    : 'No transactions in this account. Add one or choose another account.'}
-                </Text>
-              )}
-            </View>
+                {displayAmount}
+              </Text>
+            </Pressable>
           </View>
-        }
-        renderItem={({ item, index }) => {
-          const title = transactionTitle(item);
-          const scopedTransfer = item.type === 'TRANSFER' && displayedAccountId !== null;
-          const incoming = scopedTransfer && item.transferAccountId === displayedAccountId;
-          const detail = scopedTransfer
-            ? incoming
-              ? `Received from ${item.accountName}`
-              : `Sent to ${item.transferAccountName}`
-            : `${item.accountName}${item.transferAccountName ? ` → ${item.transferAccountName}` : ''}`;
-          const displayAmount = scopedTransfer
-            ? `${incoming ? '+' : '−'}${formatMoney('TRANSFER', item.amountMinor, item.currencyCode)}`
-            : formatMoney(item.type, item.amountMinor, item.currencyCode);
-          return (
-            <View
-              pointerEvents={muted ? 'none' : 'auto'}
-              accessibilityElementsHidden={muted}
-              importantForAccessibility={muted ? 'no-hide-descendants' : 'auto'}
-              style={{ opacity: muted ? 0.4 : 1 }}
-            >
-              {(index === 0 || rows[index - 1].date !== item.date) && (
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    flexWrap: 'wrap',
-                    justifyContent: 'space-between',
-                    alignItems: 'baseline',
-                    gap: 8,
-                    paddingTop: 16,
-                    paddingBottom: 4,
-                  }}
-                >
-                  <Text style={{ color: colors.muted, fontWeight: '700' }}>
-                    {formatActivityDay(item.date)}
-                  </Text>
-                  <View style={{ flexShrink: 1, gap: 4 }}>
-                    {dailySummaries
-                      .filter(
-                        (summary) =>
-                          summary.date === item.date &&
-                          (summary.expenseMinor !== 0 || summary.incomeMinor !== 0),
-                      )
-                      .map((summary) => (
-                        <View
-                          key={summary.currencyCode}
-                          style={{
-                            flexDirection: 'row',
-                            flexWrap: 'wrap',
-                            justifyContent: 'flex-end',
-                            gap: 12,
-                          }}
-                        >
-                          {summary.expenseMinor !== 0 && (
-                            <Text
-                              selectable
-                              style={{
-                                color: colors.muted,
-                                fontSize: 12,
-                                fontVariant: ['tabular-nums'],
-                              }}
-                            >
-                              Spent{' '}
-                              {formatMoney('TRANSFER', summary.expenseMinor, summary.currencyCode)}
-                            </Text>
-                          )}
-                          {summary.incomeMinor !== 0 && (
-                            <Text
-                              selectable
-                              style={{
-                                color: colors.accent,
-                                fontSize: 12,
-                                fontVariant: ['tabular-nums'],
-                              }}
-                            >
-                              Earned{' '}
-                              {formatMoney('TRANSFER', summary.incomeMinor, summary.currencyCode)}
-                            </Text>
-                          )}
-                        </View>
-                      ))}
-                  </View>
-                </View>
-              )}
-              <Pressable
-                disabled={muted}
-                accessibilityState={{ disabled: muted }}
-                onPress={() =>
-                  router.push({ pathname: '/transaction/[id]', params: { id: String(item.id) } })
-                }
-                accessibilityRole="button"
-                accessibilityLabel={`${title}, ${item.accountName}`}
-                style={({ pressed }) => ({
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: 12,
-                  paddingVertical: 16,
-                  borderBottomWidth: 1,
-                  borderBottomColor: colors.line,
-                  opacity: pressed ? 0.6 : 1,
-                })}
-              >
-                <View style={{ flex: 1, gap: 4 }}>
-                  <Text selectable style={{ color: colors.text, fontSize: 16, fontWeight: '600' }}>
-                    {title}
-                  </Text>
-                  <Text selectable style={{ color: colors.muted }}>
-                    {detail}
-                    {item.note ? ` · ${item.note}` : ''}
-                  </Text>
-                </View>
-                <Text
-                  selectable
-                  style={{
-                    color: item.type === 'INCOME' || incoming ? colors.accent : colors.text,
-                    fontWeight: '700',
-                    fontVariant: ['tabular-nums'],
-                  }}
-                >
-                  {displayAmount}
-                </Text>
-              </Pressable>
-            </View>
-          );
-        }}
-      />
-    </HomeChrome>
+        );
+      }}
+    />
   );
 }
 
-export type HomeControls = Omit<HomeViewProps, 'snapshot' | 'muted'>;
-
-function HomeChrome({
+export function HomeLayout({
   accountId,
   accountsReady,
   children,
@@ -462,83 +432,76 @@ function LoadingRows() {
     </View>
   );
 }
-function HomeFallback({
-  controls,
+function FinancialFallback({
+  accountId,
   summary,
   activity,
 }: {
-  controls: HomeControls;
+  accountId: number | null;
   summary: ReactNode;
   activity?: ReactNode;
 }) {
   return (
-    <HomeChrome accountId={controls.accountId} accountsReady={controls.accountsReady}>
-      <FlatList
-        data={[]}
-        renderItem={() => null}
-        contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={{ padding: 20, paddingBottom: 100 }}
-        ListHeaderComponent={
-          <View style={{ gap: 20, paddingBottom: 12 }}>
-            <HomeAccountPicker
-              accounts={controls.accounts}
-              selectedId={controls.accountId}
-              loading={controls.loading}
-              unavailable={!controls.accountsReady}
-              error={controls.error}
-              onRetry={controls.retry}
-              onSelect={controls.selectAccount}
-            />
-            <View
-              style={{
-                backgroundColor: colors.panel,
-                borderRadius: 16,
-                borderCurve: 'continuous',
-                padding: 18,
-                gap: 12,
-              }}
-            >
-              {summary}
-            </View>
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 12,
-              }}
-            >
-              <Text style={{ color: colors.text, fontSize: 22, fontWeight: '700' }}>
-                Recent activity
-              </Text>
-              <Text style={{ color: colors.accent, padding: 8, opacity: 0.4 }}>
-                {controls.accountId === null ? 'Search all' : 'Search account'}
-              </Text>
-            </View>
-            {activity}
+    <FlatList
+      data={[]}
+      renderItem={() => null}
+      contentInsetAdjustmentBehavior="automatic"
+      contentContainerStyle={{ padding: 20, paddingBottom: 100 }}
+      ListHeaderComponent={
+        <View style={{ gap: 20, paddingBottom: 12 }}>
+          <View
+            style={{
+              backgroundColor: colors.panel,
+              borderRadius: 16,
+              borderCurve: 'continuous',
+              padding: 18,
+              gap: 12,
+            }}
+          >
+            {summary}
           </View>
-        }
-      />
-    </HomeChrome>
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+            }}
+          >
+            <Text style={{ color: colors.text, fontSize: 22, fontWeight: '700' }}>
+              Recent activity
+            </Text>
+            <Text style={{ color: colors.accent, padding: 8, opacity: 0.4 }}>
+              {accountId === null ? 'Search all' : 'Search account'}
+            </Text>
+          </View>
+          {activity}
+        </View>
+      }
+    />
   );
 }
-export function FinancialSkeleton({ controls }: { controls: HomeControls }) {
+export function FinancialSkeleton({ accountId }: { accountId: number | null }) {
   return (
-    <HomeFallback controls={controls} summary={<LoadingSummary />} activity={<LoadingRows />} />
+    <FinancialFallback
+      accountId={accountId}
+      summary={<LoadingSummary />}
+      activity={<LoadingRows />}
+    />
   );
 }
 export function FinancialError({
-  controls,
+  accountId,
   retry,
   message = 'Couldn’t load account activity',
 }: {
-  controls: HomeControls;
+  accountId: number | null;
   retry: () => void;
   message?: string;
 }) {
   return (
-    <HomeFallback
-      controls={controls}
+    <FinancialFallback
+      accountId={accountId}
       summary={
         <View style={{ minHeight: 180, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
           <Text accessibilityRole="alert" style={{ color: colors.muted }}>
@@ -564,22 +527,41 @@ export function FinancialError({
   );
 }
 
-const unavailableAccounts: HomeControls = {
-  accounts: [],
-  accountsReady: false,
-  accountId: null,
-  loading: false,
-  error: false,
-  retry: () => {},
-  selectAccount: () => {},
-};
+export function AccountSelection(props: ComponentProps<typeof HomeAccountPicker>) {
+  return (
+    <View style={{ padding: 20, paddingBottom: 0 }}>
+      <HomeAccountPicker {...props} />
+    </View>
+  );
+}
+
+function HomeScreenFallback({ loading, children }: { loading: boolean; children: ReactNode }) {
+  return (
+    <HomeLayout accountId={null} accountsReady={false}>
+      <AccountSelection
+        accounts={[]}
+        selectedId={null}
+        unavailable
+        loading={loading}
+        onSelect={() => {}}
+      />
+      {children}
+    </HomeLayout>
+  );
+}
 
 export function HomeScreenSkeleton() {
-  return <FinancialSkeleton controls={{ ...unavailableAccounts, loading: true }} />;
+  return (
+    <HomeScreenFallback loading>
+      <FinancialSkeleton accountId={null} />
+    </HomeScreenFallback>
+  );
 }
 
 export function HomeScreenError({ retry }: { retry: () => void }) {
   return (
-    <FinancialError controls={unavailableAccounts} retry={retry} message="Couldn’t load Home" />
+    <HomeScreenFallback loading={false}>
+      <FinancialError accountId={null} retry={retry} message="Couldn’t load Home" />
+    </HomeScreenFallback>
   );
 }

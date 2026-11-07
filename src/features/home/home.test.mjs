@@ -241,6 +241,38 @@ test('Home loading, retained content and cache behavior', async (t) => {
       assert.equal(picker().props.selectedId, 1, 'a new mount starts at the favorite');
     },
   );
+  await t.test(
+    'the same selector stays mounted through financial loading, success, error and retry',
+    async () => {
+      const reads = [];
+      state.read = (key) =>
+        key === 'home'
+          ? new Promise((resolve, reject) => reads.push({ resolve, reject }))
+          : Promise.resolve(fixtures[key]);
+      await act(async () => {
+        resetQueryClient();
+        renderer = create(React.createElement(QueryScreen, { Screen: HomeScreen }));
+      });
+      const selector = renderer.root.findByType('HomeAccountPicker');
+      const assertSameSelector = () =>
+        assert.equal(renderer.root.findByType('HomeAccountPicker'), selector);
+      assert.equal(selector.props.unavailable, false);
+      assert.ok(renderer.root.findAllByType('Skeleton').length > 0);
+      await act(async () => reads[0].resolve(fixtures.home));
+      assertSameSelector();
+      await act(async () => selector.props.onSelect(2));
+      assertSameSelector();
+      await act(async () => reads[1].reject(Error('unavailable')));
+      assert.ok(texts().includes('Couldn’t load account activity'));
+      assertSameSelector();
+      assert.equal(selector.props.selectedId, 2);
+      await act(async () => financialRetry().props.onPress());
+      assertSameSelector();
+      await act(async () => reads[2].resolve(fixtures.home));
+      assertSameSelector();
+      assert.ok(texts().includes('Lunch'));
+    },
+  );
   await t.test('Home cold failure offers retry instead of empty state or skeletons', async () => {
     const Screen = HomeScreen;
     state.read = async () => {

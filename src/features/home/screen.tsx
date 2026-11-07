@@ -1,12 +1,13 @@
 import { Suspense, use, useDeferredValue, useMemo, useState } from 'react';
 import { QueryErrorResetBoundary, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import {
-  HomeView,
+  FinancialView,
+  HomeLayout,
+  AccountSelection,
   FinancialSkeleton,
   FinancialError,
   HomeScreenSkeleton,
   HomeScreenError,
-  type HomeControls,
 } from './view.tsx';
 import { ErrorBoundary } from './error-boundary.tsx';
 import { resolveHomeAccount } from '@/lib/account-selection';
@@ -16,44 +17,28 @@ import { QueryTimeContext } from '@/lib/query-time';
 
 type FinancialRequest = { accountId: number | null; now: Date };
 
-function FinancialContent({
-  request,
-  controls,
-  muted,
-}: {
-  request: FinancialRequest;
-  controls: HomeControls;
-  muted: boolean;
-}) {
+function FinancialContent({ request, muted }: { request: FinancialRequest; muted: boolean }) {
   const { data, error, isFetching } = useSuspenseQuery(
     homeSnapshotQuery(request.accountId, request.now),
   );
   if (error && !isFetching) throw error;
-  return <HomeView {...controls} snapshot={data} muted={muted} />;
+  return <FinancialView snapshot={data} muted={muted} />;
 }
 
 function FinancialSection({
   now,
-  controls: accountControls,
+  accountId,
   reset,
 }: {
   now: Date;
-  controls: HomeControls;
+  accountId: number | null;
   reset: () => void;
 }) {
   const client = useQueryClient();
-  const { accountId } = accountControls;
   const request = useMemo(() => ({ accountId, now }), [accountId, now]);
   const deferred = useDeferredValue(request);
   const stale =
     accountId !== deferred.accountId || epochDay(request.now) !== epochDay(deferred.now);
-  const controls = {
-    ...accountControls,
-    selectAccount: (id: number | null) => {
-      reset();
-      accountControls.selectAccount(id);
-    },
-  };
   return (
     <ErrorBoundary
       resetKey={`${deferred.accountId}:${epochDay(deferred.now)}`}
@@ -64,13 +49,12 @@ function FinancialSection({
           exact: true,
         });
       }}
-      fallback={(retry) => <FinancialError controls={controls} retry={retry} />}
+      fallback={(retry) => <FinancialError accountId={accountId} retry={retry} />}
     >
-      <Suspense fallback={<FinancialSkeleton controls={controls} />}>
+      <Suspense fallback={<FinancialSkeleton accountId={accountId} />}>
         <FinancialContent
           key={`${deferred.accountId}:${epochDay(deferred.now)}`}
           request={deferred}
-          controls={controls}
           muted={stale}
         />
       </Suspense>
@@ -84,20 +68,28 @@ function Home() {
     resolveHomeAccount(accounts, undefined),
   );
   const now = use(QueryTimeContext);
-  const controls: HomeControls = {
-    accounts,
-    accountsReady: true,
-    accountId: resolveHomeAccount(accounts, selectedAccountId),
-    loading: isFetching,
-    error: !!error && !isFetching,
-    retry: () => {
-      void refetch();
-    },
-    selectAccount: setSelectedAccountId,
-  };
+  const accountId = resolveHomeAccount(accounts, selectedAccountId);
   return (
     <QueryErrorResetBoundary>
-      {({ reset }) => <FinancialSection now={now} controls={controls} reset={reset} />}
+      {({ reset }) => (
+        <HomeLayout accountId={accountId} accountsReady>
+          <AccountSelection
+            accounts={accounts}
+            selectedId={accountId}
+            unavailable={false}
+            loading={isFetching}
+            error={!!error && !isFetching}
+            onRetry={() => {
+              void refetch();
+            }}
+            onSelect={(id) => {
+              reset();
+              setSelectedAccountId(id);
+            }}
+          />
+          <FinancialSection accountId={accountId} now={now} reset={reset} />
+        </HomeLayout>
+      )}
     </QueryErrorResetBoundary>
   );
 }
