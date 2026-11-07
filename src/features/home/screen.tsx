@@ -44,18 +44,20 @@ function FinancialSection({
   const deferred = useDeferredValue(request);
   const stale =
     accountId !== deferred.accountId || epochDay(request.now) !== epochDay(deferred.now);
-  // Observe the requested scope while Suspense may still be rendering the previous scope.
-  const status = useQuery({ ...homeSnapshotQuery(accountId, now), enabled: false });
+  const requestedSnapshot = useQuery({ ...homeSnapshotQuery(accountId, now), enabled: false });
   const boundary = useRef<RetainedQueryBoundary<FinancialRequest>>(null);
   const retry = () => {
-    if (status.data) void status.refetch();
-    else boundary.current?.retry();
+    if (accountControls.error) accountControls.retry();
+    if (requestedSnapshot.error) {
+      if (requestedSnapshot.data) void requestedSnapshot.refetch();
+      else boundary.current?.retry();
+    }
   };
   const controls = {
     ...accountControls,
-    loading: accountControls.loading || stale || status.isFetching,
-    error: accountControls.error || (!!status.error && !status.isFetching),
-    retry: accountControls.error ? accountControls.retry : retry,
+    loading: accountControls.loading || stale || requestedSnapshot.isFetching,
+    error: accountControls.error || (!!requestedSnapshot.error && !requestedSnapshot.isFetching),
+    retry,
     selectAccount: (id: number | null) => {
       reset();
       accountControls.selectAccount(id);

@@ -311,6 +311,57 @@ test('Home loading, retained content and cache behavior', async (t) => {
       assert.ok(texts().includes('Lunch'));
     },
   );
+  await t.test(
+    'one picker retry recovers Accounts and a failed replacement snapshot independently',
+    async () => {
+      state.read = async (key) => fixtures[key];
+      await act(async () => {
+        resetQueryClient();
+        renderer = create(React.createElement(QueryScreen, { Screen: HomeScreen }));
+      });
+      const picker = () => renderer.root.findByType('HomeAccountPicker');
+      state.read = async (key, id) => {
+        if (key === 'home' && id === 2) throw Error('Bank unavailable');
+        return fixtures[key];
+      };
+      await act(async () => picker().props.onSelect(2));
+      assert.equal(picker().props.error, true);
+      state.accountsError = true;
+      await act(async () => notifyDataChanged());
+      assert.ok(texts().includes('Lunch'), 'previous snapshot stays visible');
+      delete state.accountsError;
+      state.read = async (key) => (key === 'home' ? { ...fixtures.home, rows: [] } : fixtures[key]);
+      await act(async () => picker().props.onRetry());
+      assert.equal(picker().props.selectedId, 2);
+      assert.equal(picker().props.error, false);
+      assert.equal(renderer.root.findByType('FlatList').props.data.length, 0);
+    },
+  );
+  await t.test(
+    'Accounts retry shows its loading fallback while the new read is pending',
+    async () => {
+      state.accountsError = true;
+      await act(async () => {
+        resetQueryClient();
+        renderer = create(React.createElement(QueryScreen, { Screen: HomeScreen }));
+      });
+      let finishAccounts;
+      state.accountsRead = () =>
+        new Promise((resolve) => {
+          finishAccounts = resolve;
+        });
+      state.read = async (key) => fixtures[key];
+      const retry = renderer.root
+        .findAllByType('Pressable')
+        .find((n) => n.findAllByType('Text').some((t) => t.children.join('') === 'Retry'));
+      await act(async () => retry.props.onPress());
+      assert.equal(renderer.root.findByType('HomeAccountPicker').props.loading, true);
+      assert.ok(renderer.root.findAllByType('Skeleton').length > 0);
+      assert.ok(!texts().includes('Couldn’t load Home'));
+      await act(async () => finishAccounts([]));
+      assert.equal(renderer.root.findByType('HomeAccountPicker').props.selectedId, null);
+    },
+  );
   await t.test('Home reads SQLite offline and waits for the whole financial snapshot', async () => {
     const wasOnline = onlineManager.isOnline();
     onlineManager.setOnline(false);
