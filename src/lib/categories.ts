@@ -12,9 +12,22 @@ export type ManagedCategory = {
   needsReview: number;
 };
 
+export async function listCategoriesByRecentUse(type: CategoryType): Promise<ManagedCategory[]> {
+  return (await database()).getAllAsync<ManagedCategory>(
+    `SELECT c.id, c.name, c.type, c.parentId, p.name AS parentName, c.needsReview
+       FROM categories c LEFT JOIN categories p ON p.id = c.parentId
+       LEFT JOIN transactions t ON t.id = (
+         SELECT id FROM transactions WHERE categoryId = c.id AND type = c.type
+         ORDER BY date DESC, id DESC LIMIT 1
+       ) WHERE c.type = ?
+       ORDER BY t.date DESC, t.id DESC, c.name COLLATE NOCASE, c.id`,
+    [type],
+  );
+}
+
 export async function listManagedCategories(): Promise<ManagedCategory[]> {
-  return (await database())
-    .getAllAsync<ManagedCategory>(`SELECT c.id, c.name, c.type, c.parentId, p.name AS parentName, c.needsReview
+  const db = await database();
+  return db.getAllAsync<ManagedCategory>(`SELECT c.id, c.name, c.type, c.parentId, p.name AS parentName, c.needsReview
     FROM categories c LEFT JOIN categories p ON p.id = c.parentId
     ORDER BY c.type, c.name COLLATE NOCASE, c.id`);
 }

@@ -21,7 +21,7 @@ import {
   type LendingResult,
 } from '@/lib/lending';
 import { dateFromEpochDay, epochDay, listAccounts, type Account } from '@/lib/database';
-import { transferAmountMinor } from '@/lib/transfers';
+import { parsePositiveAmountMinor } from '@/lib/amount';
 import { FormButton, FormInput } from '@/components/form-controls';
 import { QuickAddDate } from '@/components/quick-add-date';
 import { theme } from '@/theme';
@@ -123,7 +123,7 @@ export default function EntryScreen() {
         id,
         personId,
         kind,
-        amountMinor: transferAmountMinor(amount),
+        amountMinor: parsePositiveAmountMinor(amount),
         accountId: writeoff ? undefined : accountId,
         currencyCode: currency,
         date: epochDay(date),

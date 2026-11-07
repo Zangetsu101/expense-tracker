@@ -47,8 +47,13 @@ registerHooks({
     return next(url, context);
   },
 });
-const { createCategory, renameCategory, listManagedCategories, markCategoryReviewed } =
-  await import('./categories.ts');
+const {
+  createCategory,
+  renameCategory,
+  listManagedCategories,
+  listCategoriesByRecentUse,
+  markCategoryReviewed,
+} = await import('./categories.ts');
 
 test('creates typed categories with same-type parents and rejects duplicate names per type', async () => {
   await createCategory({ name: " O'Brien ", type: 'EXPENSE' });
@@ -142,4 +147,17 @@ test('review clears only the selected pending category', async () => {
   );
   await assert.rejects(markCategoryReviewed(1, 'EXPENSE'));
   await assert.rejects(markCategoryReviewed(999, 'EXPENSE'));
+});
+
+test('typed managed Categories retain metadata in recent-first order', async () => {
+  db.exec(`CREATE TABLE transactions(id INTEGER PRIMARY KEY, categoryId INTEGER, type TEXT, date INTEGER);
+    INSERT INTO transactions VALUES(100, 1, 'EXPENSE', 1), (2, 2, 'EXPENSE', 2);`);
+  const rows = await listCategoriesByRecentUse('EXPENSE');
+  assert.deepEqual(
+    rows.slice(0, 2).map((row) => row.id),
+    [2, 1],
+  );
+  assert.ok(rows.every((row) => row.type === 'EXPENSE'));
+  assert.equal(rows.find((row) => row.id === 2).parentId, 1);
+  assert.equal(rows.find((row) => row.id === 2).parentName, rows.find((row) => row.id === 1).name);
 });

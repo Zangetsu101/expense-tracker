@@ -18,7 +18,7 @@ const mocks = {
   '@expo/ui': `export const Host='Host',Switch='Switch',BottomSheet='BottomSheet',Column='Column',Text='NativeText',Button='NativeButton';`,
   '@/components/transaction-receipt': `export const TransactionReceipt='Receipt',TransferReceipt='TransferReceipt';`,
   '@/components/quick-add-date': `export const QuickAddDate='Date';`,
-  '@/lib/transfers': `export const transferAmountMinor=x=>{const n=Math.round(Number(x)*100);if(!Number.isSafeInteger(n)||n<=0)throw Error('Invalid amount');return n}; export const loadTransfer=(...args)=>globalThis.__editTest.loadTransfer(...args); export const saveTransferEdit=(...args)=>globalThis.__editTest.saveTransfer(...args);`,
+  '@/lib/transfers': `export const loadTransfer=(...args)=>globalThis.__editTest.loadTransfer(...args); export const saveTransferEdit=(...args)=>globalThis.__editTest.saveTransfer(...args);`,
   '@/lib/database': `export const epochDay=d=>Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/86400000); export const dateFromEpochDay=n=>{const u=new Date(n*86400000);return new Date(u.getUTCFullYear(),u.getUTCMonth(),u.getUTCDate(),12)}; export const listAccounts=async()=>[{id:1,name:'Cash',currencyCode:'USD'},{id:2,name:'Bank',currencyCode:'USD'},{id:3,name:'Card',currencyCode:'EUR'}];`,
   '@/lib/transaction-edit': `export const loadEditableTransaction=(...args)=>globalThis.__editTest.load(...args); export const saveTransactionEdit=(...args)=>globalThis.__editTest.save(...args);`,
 };

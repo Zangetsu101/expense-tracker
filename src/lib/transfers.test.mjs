@@ -57,17 +57,7 @@ registerHooks({
     return next(url, context);
   },
 });
-const { addTransfer, loadTransfer, saveTransferEdit, transferAmountMinor } =
-  await import('./transfers.ts');
-
-test('amount parser accepts cents without rounding or unsafe integers', () => {
-  assert.equal(transferAmountMinor(' 12.34 '), 1234);
-  assert.equal(transferAmountMinor('0.01'), 1);
-  assert.equal(transferAmountMinor('90071992547409.91'), Number.MAX_SAFE_INTEGER);
-  for (const value of ['', '0', '-1', '1.234', '1e2', 'NaN', '90071992547410']) {
-    assert.throws(() => transferAmountMinor(value), /positive amount/);
-  }
-});
+const { addTransfer, loadTransfer, saveTransferEdit } = await import('./transfers.ts');
 
 test('saves one same-currency transfer with a local date and no category', async () => {
   await addTransfer({ amountMinor: 1234, fromAccountId: 1, toAccountId: 2, note: '  rent  ' });

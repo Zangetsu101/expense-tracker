@@ -1,15 +1,55 @@
 import { theme } from '@/theme';
-import { useState } from 'react';
-import { Pressable, Text, TextInput, View } from 'react-native';
+import { useRef, useState } from 'react';
+import {
+  Pressable,
+  Text,
+  TextInput,
+  View,
+  type PressableProps,
+  type ViewStyle,
+} from 'react-native';
+import Animated, {
+  ReduceMotion,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import type { ManagedCategory } from '@/lib/categories';
 
 const ink = '#f2f4f0';
 const muted = '#aab9b7';
 const panel = '#1d2a30';
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+const movement = { duration: 220, reduceMotion: ReduceMotion.System };
+
+function MovingChip({ style, ...props }: Omit<PressableProps, 'style'> & { style: ViewStyle }) {
+  const previous = useRef<{ x: number; y: number } | undefined>(undefined);
+  const offsetX = useSharedValue(0);
+  const offsetY = useSharedValue(0);
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: offsetX.get() }, { translateY: offsetY.get() }],
+  }));
+  return (
+    <AnimatedPressable
+      {...props}
+      style={[style, animatedStyle]}
+      onLayout={({ nativeEvent: { layout } }) => {
+        // Keep native wrapping authoritative; animate only the visual offset.
+        if (previous.current) {
+          offsetX.set(offsetX.get() + previous.current.x - layout.x);
+          offsetY.set(offsetY.get() + previous.current.y - layout.y);
+          offsetX.set(withTiming(0, movement));
+          offsetY.set(withTiming(0, movement));
+        }
+        previous.current = { x: layout.x, y: layout.y };
+      }}
+    />
+  );
+}
 
 type Props = {
   categories: ManagedCategory[];
-  orderedIds: number[];
+  orderedIds?: number[];
   selectedId?: number;
   onSelect: (id: number) => void;
   disabled?: boolean;
@@ -38,7 +78,7 @@ export function CategorySearchInput({
   );
 }
 
-export function QuickAddCategory({
+export function QuickSelectCategory({
   categories,
   orderedIds,
   selectedId,
@@ -62,7 +102,7 @@ export function QuickAddCategory({
   };
   const activeId = selectedId;
   const active = activeId == null ? undefined : byId.get(activeId);
-  const matches = orderedIds
+  const matches = (orderedIds ?? categories.map((category) => category.id))
     .map((id) => byId.get(id))
     .filter(
       (item): item is ManagedCategory =>
@@ -82,25 +122,28 @@ export function QuickAddCategory({
     rows[row].push(category);
     used += (used ? 8 : 0) + chipWidth;
   }
-  const chip = (category: ManagedCategory) => (
-    <Pressable
-      key={category.id}
-      accessibilityRole="button"
-      accessibilityLabel={path(category)}
-      accessibilityState={{ selected: activeId === category.id, disabled }}
-      disabled={disabled}
-      onPress={() => onSelect(category.id)}
-      style={{
-        paddingHorizontal: 13,
-        paddingVertical: 10,
-        borderRadius: 12,
-        maxWidth: width || undefined,
-        backgroundColor: activeId === category.id ? theme.colors.selected : '#29343a',
-      }}
-    >
-      <Text style={{ color: ink }}>{path(category)}</Text>
-    </Pressable>
-  );
+  const chip = (category: ManagedCategory, animate = false) => {
+    const Chip = animate ? MovingChip : Pressable;
+    return (
+      <Chip
+        key={category.id}
+        accessibilityRole="button"
+        accessibilityLabel={path(category)}
+        accessibilityState={{ selected: activeId === category.id, disabled }}
+        disabled={disabled}
+        onPress={() => onSelect(category.id)}
+        style={{
+          paddingHorizontal: 13,
+          paddingVertical: 10,
+          borderRadius: 12,
+          maxWidth: width || undefined,
+          backgroundColor: activeId === category.id ? theme.colors.selected : '#29343a',
+        }}
+      >
+        <Text style={{ color: ink }}>{path(category)}</Text>
+      </Chip>
+    );
+  };
   return (
     <View style={{ gap: 10 }}>
       <Text selectable accessibilityLiveRegion="polite" style={{ color: ink }}>
@@ -112,7 +155,12 @@ export function QuickAddCategory({
           pointerEvents="none"
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
-          style={{ position: 'absolute', opacity: 0, flexDirection: 'row' }}
+          style={{
+            position: 'absolute',
+            opacity: 0,
+            flexDirection: 'row',
+            alignItems: 'flex-start',
+          }}
         >
           {categories.map((category) => (
             <View
@@ -128,12 +176,17 @@ export function QuickAddCategory({
             </View>
           ))}
         </View>
-        <View style={{ gap: 8 }}>
-          {rows.map((items, index) => (
-            <View key={index} style={{ flexDirection: 'row', gap: 8, overflow: 'hidden' }}>
-              {items.map(chip)}
-            </View>
-          ))}
+        <View
+          collapsable={false}
+          style={{
+            flexDirection: 'row',
+            flexWrap: 'wrap',
+            gap: 8,
+            minHeight: 8,
+            paddingBottom: rows[1].length ? 0 : 8,
+          }}
+        >
+          {rows.flat().map((category) => chip(category, true))}
         </View>
         {matches.length === 0 && (
           <Text style={{ color: muted, padding: 12 }}>No matching categories</Text>

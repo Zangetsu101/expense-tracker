@@ -14,6 +14,7 @@ const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const root = new URL('../../', import.meta.url);
 const mocks = {
+  '@/lib/category-prediction-history': `export const listCategoryEvidence=async()=>[];`,
   'expo-haptics': `export const AndroidHaptics={Keyboard_Tap:'keyboard'},ImpactFeedbackStyle={Light:'light'}; export const performAndroidHapticsAsync=async()=>{},impactAsync=async()=>{};`,
   'react-native-reanimated': `import {useRef} from 'react'; export default {View:'AnimatedView'}; export const Easing={out:x=>x,cubic:x=>x},ReduceMotion={System:'system'}; export const useSharedValue=value=>useRef({value}).current,useAnimatedStyle=fn=>fn(),withTiming=value=>value;`,
   '@/components/loading': `export const Skeleton='Skeleton',Shimmer='Shimmer';`,
@@ -32,12 +33,12 @@ const mocks = {
   'react-native-safe-area-context': `export const useSafeAreaInsets=()=>({bottom:0});`,
   '@/components/form-controls': `export const FormButton='FormButton',FormInput='FormInput',JoinedChoice='JoinedChoice';`,
   '@/components/quick-add-date': `export const QuickAddDate='Date';`,
-  '@/components/quick-add-category': `export const QuickAddCategory='Category',CategorySearchInput='CategorySearchInput';`,
+  '@/components/quick-select-category': `export const QuickSelectCategory='Category',CategorySearchInput='CategorySearchInput';`,
   './read-home.ts': `export const homeData=async(_,id)=>{globalThis.__navTest.accountQueries.push(id);return {rows:[],summaries:[]}};`,
   '@/lib/database': `export const epochDay=d=>Math.floor(d.getTime()/86400000); export const listAccounts=async()=>{if(globalThis.__navTest.accountsError)throw Error('Accounts unavailable');return globalThis.__navTest.accounts??[];}; export const listCategories=async()=>[]; export const setFavoriteAccount=async()=>{};`,
   '@/lib/reports': `export const accountBalances=async()=>[];`,
-  '@/lib/categories': `export const listManagedCategories=async()=>[];`,
-  '@/lib/transfers': `export const addTransfer=async()=>{}; export const transferAmountMinor=()=>{throw Error('Invalid amount')};`,
+  '@/lib/categories': `export const listManagedCategories=async()=>[]; export const listCategoriesByRecentUse=async()=>[];`,
+  '@/lib/transfers': `export const addTransfer=async()=>{}; `,
   '@/lib/lending': `export const listPeople=async()=>[]; export const listLendingTotals=async()=>[]; export const createPerson=async()=>{}; export const saveLendingEntry=async()=>{};`,
   '@/lib/quick-add-tags': `export const addQuickTransaction=async()=>{};`,
 };

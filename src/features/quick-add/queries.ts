@@ -1,9 +1,17 @@
 import { queryOptions, type QueryClient } from '@tanstack/react-query';
-import { listAccounts, listCategories } from '@/lib/database';
-import { listManagedCategories, type CategoryType } from '@/lib/categories';
+import { listAccounts } from '@/lib/database';
+import { listCategoriesByRecentUse, type CategoryType } from '@/lib/categories';
 import { listPeople, listLendingTotals, type Person } from '@/lib/lending';
+import { listCategoryEvidence } from '@/lib/category-prediction-history';
 
 const quickAddKey = ['quick-add'] as const;
+
+export function categoryEvidenceQuery(type: 'EXPENSE' | 'INCOME', currency: string) {
+  return queryOptions({
+    queryKey: [...quickAddKey, 'category-evidence', type, currency],
+    queryFn: () => listCategoryEvidence(type, currency),
+  });
+}
 
 export function accountsQuery() {
   return queryOptions({ queryKey: [...quickAddKey, 'accounts'], queryFn: listAccounts });
@@ -12,10 +20,7 @@ export function accountsQuery() {
 export function categoriesQuery(type: CategoryType) {
   return queryOptions({
     queryKey: [...quickAddKey, 'categories', type],
-    queryFn: async () => {
-      const [ordered, managed] = await Promise.all([listCategories(type), listManagedCategories()]);
-      return { ordered, managed: managed.filter((category) => category.type === type) };
-    },
+    queryFn: () => listCategoriesByRecentUse(type),
   });
 }
 
