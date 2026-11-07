@@ -10,7 +10,7 @@ const root = new URL('../../../', import.meta.url);
 const mocks = {
   'react-native': `export const View='View',Text='Text',Pressable='Pressable',TextInput='TextInput',FlatList='FlatList'; export const useWindowDimensions=()=>({width:400,height:800});`,
   'expo-symbols': `export const SymbolView='SymbolView';`,
-  './loading.tsx': `export const Skeleton='Skeleton',Shimmer='Shimmer';`,
+  '@/components/loading': `export const Skeleton='Skeleton',Shimmer='Shimmer';`,
   '@/components/app-sheet': `export const AppSheet='AppSheet';`,
 };
 const hooks = registerHooks({

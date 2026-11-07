@@ -9,7 +9,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { SymbolView } from 'expo-symbols';
-import { Shimmer, Skeleton } from './loading.tsx';
+import { Shimmer, Skeleton } from '@/components/loading';
 import { AppSheet } from '@/components/app-sheet';
 import type { Account } from '@/lib/database';
 import { theme } from '@/theme';

@@ -16,7 +16,7 @@ const root = new URL('../../', import.meta.url);
 const mocks = {
   'expo-haptics': `export const AndroidHaptics={Keyboard_Tap:'keyboard'},ImpactFeedbackStyle={Light:'light'}; export const performAndroidHapticsAsync=async()=>{},impactAsync=async()=>{};`,
   'react-native-reanimated': `import {useRef} from 'react'; export default {View:'AnimatedView'}; export const Easing={out:x=>x,cubic:x=>x},ReduceMotion={System:'system'}; export const useSharedValue=value=>useRef({value}).current,useAnimatedStyle=fn=>fn(),withTiming=value=>value;`,
-  './loading.tsx': `export const Skeleton='Skeleton';`,
+  '@/components/loading': `export const Skeleton='Skeleton',Shimmer='Shimmer';`,
   './account-picker.tsx': `export const HomeAccountPicker='HomeAccountPicker',HomeAccountPickerSkeleton='HomeAccountPickerSkeleton';`,
   '@/components/running-release': `export const RunningRelease='RunningRelease';`,
   '@/lib/backup': `export const exportBackup=async()=>globalThis.__navTest.backup?.()??'content://backup'; export const restoreBackup=async()=>false;`,
@@ -32,7 +32,7 @@ const mocks = {
   'react-native-safe-area-context': `export const useSafeAreaInsets=()=>({bottom:0});`,
   '@/components/form-controls': `export const FormButton='FormButton',FormInput='FormInput',JoinedChoice='JoinedChoice';`,
   '@/components/quick-add-date': `export const QuickAddDate='Date';`,
-  '@/components/quick-add-category': `export const QuickAddCategory='Category';`,
+  '@/components/quick-add-category': `export const QuickAddCategory='Category',CategorySearchInput='CategorySearchInput';`,
   './read-home.ts': `export const homeData=async(_,id)=>{globalThis.__navTest.accountQueries.push(id);return {rows:[],summaries:[]}};`,
   '@/lib/database': `export const epochDay=d=>Math.floor(d.getTime()/86400000); export const listAccounts=async()=>{if(globalThis.__navTest.accountsError)throw Error('Accounts unavailable');return globalThis.__navTest.accounts??[];}; export const listCategories=async()=>[]; export const setFavoriteAccount=async()=>{};`,
   '@/lib/reports': `export const accountBalances=async()=>[];`,
@@ -204,6 +204,12 @@ test('app navigation', async (t) => {
       await act(async () => picker().props.onSelect(null));
       assert.equal(picker().props.selectedId, null);
       assert.equal(state.accountQueries.at(-1), null);
+      await press('Add transaction');
+      assert.deepEqual(state.calls.at(-1), [
+        'push',
+        { pathname: '/quick-add', params: { accountId: '2' } },
+      ]);
+      assert.ok(texts().includes('Search all'));
       await act(async () => {
         state.lifecycle('inactive');
         state.lifecycle('active');
@@ -266,6 +272,27 @@ test('app navigation', async (t) => {
       } finally {
         delete state.backup;
       }
+    },
+  );
+  await t.test(
+    'Quick add choices refresh after a committed SQLite change without resetting selection',
+    async () => {
+      state.accounts = [{ id: 1, name: 'Cash', currencyCode: 'USD', isFavorite: 1 }];
+      await mount(QuickAdd);
+      const choices = () => renderer.root.findAll((n) => n.type?.name === 'AccountChoices')[0];
+      await act(async () => choices().props.onSelect(1));
+      assert.equal(choices().props.selectedId, 1);
+      state.accounts = [
+        { id: 1, name: 'Renamed', currencyCode: 'USD' },
+        { id: 2, name: 'Bank', currencyCode: 'USD', isFavorite: 1 },
+      ];
+      const { notifyDataChanged } = await import('./data-changes.ts');
+      await act(async () => notifyDataChanged());
+      assert.deepEqual(
+        choices().props.accounts.map((account) => account.name),
+        ['Renamed', 'Bank'],
+      );
+      assert.equal(choices().props.selectedId, 1);
     },
   );
   await t.test(

@@ -9,7 +9,7 @@ import {
   formatMoney,
   transactionTitle,
 } from '@/lib/transaction-format';
-import { Skeleton } from './loading.tsx';
+import { Skeleton } from '@/components/loading';
 import { HomeAccountPicker, HomeAccountPickerSkeleton } from './account-picker.tsx';
 import type { CurrencyBalance } from './balances.ts';
 import type { HomeSnapshot } from './queries.ts';
@@ -318,11 +318,11 @@ export function FinancialView({
 }
 
 export function HomeLayout({
-  accountId,
+  quickAddAccountId,
   accountsReady,
   children,
 }: {
-  accountId: number | null;
+  quickAddAccountId: number | null;
   accountsReady: boolean;
   children: ReactNode;
 }) {
@@ -357,7 +357,7 @@ export function HomeLayout({
         onPress={() =>
           router.push({
             pathname: '/quick-add',
-            params: accountId === null ? {} : { accountId: String(accountId) },
+            params: quickAddAccountId === null ? {} : { accountId: String(quickAddAccountId) },
           })
         }
         disabled={!accountsReady}
@@ -539,7 +539,7 @@ export function AccountSelection(props: ComponentProps<typeof HomeAccountPicker>
 
 function HomeScreenFallback({ loading, children }: { loading: boolean; children: ReactNode }) {
   return (
-    <HomeLayout accountId={null} accountsReady={false}>
+    <HomeLayout quickAddAccountId={null} accountsReady={false}>
       <View style={accountSelectionStyle}>
         <HomeAccountPickerSkeleton animated={loading} />
       </View>

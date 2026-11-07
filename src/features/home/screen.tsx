@@ -9,7 +9,7 @@ import {
   HomeScreenSkeleton,
   HomeScreenError,
 } from './view.tsx';
-import { ErrorBoundary } from './error-boundary.tsx';
+import { ErrorBoundary } from '@/components/query-error-boundary';
 import { resolveHomeAccount } from '@/lib/account-selection';
 import { epochDay } from '@/lib/database';
 import { homeAccountsQuery, homeSnapshotQuery } from './queries.ts';
@@ -62,7 +62,10 @@ function Home() {
   return (
     <QueryErrorResetBoundary>
       {({ reset }) => (
-        <HomeLayout accountId={accountId} accountsReady>
+        <HomeLayout
+          quickAddAccountId={accountId ?? resolveHomeAccount(accounts, undefined)}
+          accountsReady
+        >
           <AccountSelection
             accounts={accounts}
             selectedId={accountId}

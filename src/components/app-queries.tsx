@@ -4,6 +4,7 @@ import { focusManager, QueryClientProvider, useQueryClient } from '@tanstack/rea
 import { createQueryClient } from '@/lib/query-client';
 import { QueryTimeContext } from '@/lib/query-time';
 import { invalidateHome } from '@/features/home';
+import { invalidateQuickAdd } from '@/features/quick-add';
 import { subscribeDataChanges } from '@/lib/data-changes';
 
 export function AppQueryLifecycle({ children }: { children: ReactNode }) {
@@ -22,6 +23,7 @@ export function AppQueryLifecycle({ children }: { children: ReactNode }) {
     const unsubscribe = subscribeDataChanges(() => {
       setNow(new Date());
       void invalidateHome(client);
+      void invalidateQuickAdd(client);
     });
     return () => {
       lifecycle.remove();
