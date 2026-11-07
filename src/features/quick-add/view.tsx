@@ -10,6 +10,7 @@ import { ErrorBoundary } from '@/components/query-error-boundary';
 import { Skeleton, Shimmer } from '@/components/loading';
 import { FormButton } from '@/components/form-controls';
 import { theme } from '@/theme';
+import { CategorySearchInput } from '@/components/quick-add-category';
 
 type ChoicesLayout = 'accounts' | 'categories' | 'people';
 
@@ -24,10 +25,13 @@ function SectionLayout({ children, label }: { children: ReactNode; label?: strin
 function ChoicesSkeleton({ label, layout }: { label: string; layout: ChoicesLayout }) {
   return (
     <SectionLayout label={`Loading ${label}`}>
-      <Skeleton width="35%" height={16} />
       {layout === 'categories' ? (
         <>
-          <Skeleton width="100%" height={48} borderRadius={12} />
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Text style={{ color: theme.colors.text }}>Selected:</Text>
+            <Skeleton width="35%" height={16} />
+          </View>
+          <CategorySearchInput disabled />
           <View style={{ gap: 8 }}>
             {[0, 1].map((row) => (
               <View key={row} style={{ flexDirection: 'row', gap: 8 }}>
@@ -41,10 +45,13 @@ function ChoicesSkeleton({ label, layout }: { label: string; layout: ChoicesLayo
           </View>
         </>
       ) : (
-        <View style={{ flexDirection: 'row', gap: 8 }}>
-          <Skeleton width="30%" height={48} borderRadius={14} />
-          <Skeleton width="30%" height={48} borderRadius={14} />
-        </View>
+        <>
+          <Skeleton width="35%" height={16} />
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <Skeleton width="30%" height={48} borderRadius={14} />
+            <Skeleton width="30%" height={48} borderRadius={14} />
+          </View>
+        </>
       )}
     </SectionLayout>
   );

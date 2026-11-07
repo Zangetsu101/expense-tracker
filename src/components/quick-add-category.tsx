@@ -15,6 +15,29 @@ type Props = {
   disabled?: boolean;
 };
 
+export function CategorySearchInput({
+  value = '',
+  onChangeText,
+  disabled = false,
+}: {
+  value?: string;
+  onChangeText?: (value: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <TextInput
+      accessibilityLabel="Search categories"
+      accessibilityState={{ disabled }}
+      editable={!disabled}
+      placeholder="Search categories or parent"
+      placeholderTextColor={muted}
+      value={value}
+      onChangeText={onChangeText}
+      style={{ backgroundColor: panel, color: ink, padding: 12, borderRadius: 12 }}
+    />
+  );
+}
+
 export function QuickAddCategory({
   categories,
   orderedIds,
@@ -83,15 +106,7 @@ export function QuickAddCategory({
       <Text selectable accessibilityLiveRegion="polite" style={{ color: ink }}>
         Selected: {active ? path(active) : 'None'}
       </Text>
-      <TextInput
-        accessibilityLabel="Search categories"
-        editable={!disabled}
-        placeholder="Search categories or parent"
-        placeholderTextColor={muted}
-        value={query}
-        onChangeText={setQuery}
-        style={{ backgroundColor: panel, color: ink, padding: 12, borderRadius: 12 }}
-      />
+      <CategorySearchInput value={query} onChangeText={setQuery} disabled={disabled} />
       <View onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
         <View
           pointerEvents="none"
