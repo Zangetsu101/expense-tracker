@@ -434,7 +434,10 @@ test('Home loading, retained content and cache behavior', async (t) => {
       assert.equal(renderer.root.findByType('HomeAccountPicker').props.error, false);
       state.read = async (key) => (key === 'home' ? { ...fixtures.home, rows: [] } : fixtures[key]);
       await act(async () => queryClient.refetchQueries({ queryKey: ['home', 'snapshot'] }));
-      assert.equal(renderer.root.findByType('FlatList').props.data.length, 0);
+      assert.ok(!texts().includes('Lunch'));
+      assert.ok(
+        texts().includes('No transactions in this account. Add one or choose another account.'),
+      );
     },
   );
   await t.test(
