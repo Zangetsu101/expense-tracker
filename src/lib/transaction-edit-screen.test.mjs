@@ -12,9 +12,9 @@ const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const root = new URL('../../', import.meta.url);
 const mocks = {
-  'react-native': `export const View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator'; export const Alert={alert:(...args)=>globalThis.__editTest.alert=args}; export const BackHandler={addEventListener:(_,fn)=>{globalThis.__editTest.back=fn;return {remove(){}}}};`,
+  'react-native': `export const KeyboardAvoidingView='KeyboardAvoidingView',View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator'; export const Alert={alert:(...args)=>globalThis.__editTest.alert=args}; export const BackHandler={addEventListener:(_,fn)=>{globalThis.__editTest.back=fn;return {remove(){}}}};`,
   'expo-router': `export const useLocalSearchParams=()=>({id:'1'}); export const Stack={Screen:(props)=>{globalThis.__editTest.header=props.options;return null}};`,
-  'expo-router/react-navigation': `export const useNavigation=()=>({dispatch:action=>globalThis.__editTest.dispatched=action}); export const usePreventRemove=(enabled,callback)=>{Object.assign(globalThis.__editTest,{prevent:enabled,navigate:callback})};`,
+  'expo-router/react-navigation': `export const useHeaderHeight=()=>88; export const useNavigation=()=>({dispatch:action=>globalThis.__editTest.dispatched=action}); export const usePreventRemove=(enabled,callback)=>{Object.assign(globalThis.__editTest,{prevent:enabled,navigate:callback})};`,
   '@expo/ui': `export const Host='Host',Switch='Switch',BottomSheet='BottomSheet',Column='Column',Text='NativeText',Button='NativeButton';`,
   '@/components/transaction-receipt': `export const TransactionReceipt='Receipt',TransferReceipt='TransferReceipt';`,
   '@/components/quick-add-date': `export const QuickAddDate='Date';`,
@@ -148,6 +148,25 @@ test('Transaction edit screen', async (t) => {
     delete globalThis.__editTest;
     if (previousActEnvironment === undefined) delete globalThis.IS_REACT_ACT_ENVIRONMENT;
     else globalThis.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+  });
+  await t.test('edit header leaves space after Cancel and form avoids the keyboard', async () => {
+    await mount();
+    assert.ok(state.header.headerLeft().props.style.marginRight >= 16);
+    const avoidance = nodes('KeyboardAvoidingView')[0];
+    assert.ok(avoidance);
+    assert.equal(avoidance.props.behavior, 'height');
+    assert.equal(avoidance.props.keyboardVerticalOffset, 88);
+    assert.equal(avoidance.props.style.flex, 1);
+    const scroll = avoidance.findByType('ScrollView');
+    assert.equal(scroll.props.style.flex, 1);
+    assert.equal(scroll.props.keyboardShouldPersistTaps, 'handled');
+    assert.ok(
+      scroll
+        .findAllByType('Pressable')
+        .some((node) =>
+          node.findAllByType('Text').some((text) => text.children.join('') === 'Save changes'),
+        ),
+    );
   });
   await t.test(
     'hardware back sees current dirty draft and Keep editing allows another confirmation',
