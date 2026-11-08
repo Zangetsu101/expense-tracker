@@ -19,6 +19,7 @@ const mocks = {
   'expo-router': `export const Stack={Screen:()=>null}; export const Link=({children})=>children; export const router={push(){}};`,
   'expo-status-bar': `export const StatusBar=()=>null;`,
   'expo-symbols': `export const SymbolView='SymbolView';`,
+  '@/components/motion': `import React from 'react'; export const RollingNumber=({value,style})=>React.createElement('Text',{style},value); export const EnterView=({children})=>children; export const useNewItems=()=>()=>false;`,
   '@/components/loading': `export const Skeleton='Skeleton'; export const Shimmer='Shimmer';`,
   './account-picker.tsx': `export const HomeAccountPicker='HomeAccountPicker',HomeAccountPickerSkeleton='HomeAccountPickerSkeleton';`,
   '@/lib/database': `export const epochDay=d=>Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/86400000); export const listAccounts=async()=>{if(globalThis.__homeScreenTest.accountsRead)return globalThis.__homeScreenTest.accountsRead();if(globalThis.__homeScreenTest.accountsError)throw Error('accounts unavailable');return globalThis.__homeScreenTest.accountItems??[{id:1,name:'Cash',currencyCode:'USD',isFavorite:1},{id:2,name:'Bank',currencyCode:'USD',isFavorite:0},{id:3,name:'Savings',currencyCode:'USD',isFavorite:0},{id:4,name:'Card',currencyCode:'USD',isFavorite:0}];};`,
