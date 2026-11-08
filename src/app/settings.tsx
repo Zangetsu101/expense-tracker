@@ -1,4 +1,5 @@
-import { SettingsDataActions, SettingsGroup } from '@/components/settings-data-actions';
+import { SettingsDataActions } from '@/components/settings-data-actions';
+import { SettingsGroup } from '@/components/settings-controls';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useState } from 'react';
 import { RunningRelease } from '@/components/running-release';

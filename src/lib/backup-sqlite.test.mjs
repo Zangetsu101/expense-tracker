@@ -354,3 +354,35 @@ test('failed SQLite replacement rolls back every table including settings and im
     sql.exec('DROP TRIGGER fail_backup');
   }
 });
+
+test('snapshot reads every table in one transaction and restore preserves device-local scheduling', async () => {
+  const schedule = JSON.stringify({ interval: 'weekly', directoryUri: 'content://private-folder' });
+  await adapter.runAsync(
+    "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('scheduledBackups', ?)",
+    [schedule],
+  );
+  const getAll = adapter.getAllAsync;
+  const getFirst = adapter.getFirstAsync;
+  adapter.getAllAsync = async (...args) => {
+    assert.equal(sql.isTransaction, true, 'snapshot read must share the database transaction');
+    return getAll(...args);
+  };
+  adapter.getFirstAsync = async (...args) => {
+    assert.equal(sql.isTransaction, true, 'settings read must share the database transaction');
+    return getFirst(...args);
+  };
+  let snapshot;
+  try {
+    snapshot = await backupStore.snapshot();
+  } finally {
+    adapter.getAllAsync = getAll;
+    adapter.getFirstAsync = getFirst;
+  }
+  assert.ok(!encodeBackup(snapshot).includes('private-folder'));
+  await backupStore.replace(snapshot);
+  assert.equal(
+    (await adapter.getFirstAsync("SELECT value FROM app_settings WHERE key = 'scheduledBackups'"))
+      .value,
+    schedule,
+  );
+});
