@@ -75,15 +75,9 @@ export function UpdatesRow() {
   const { fontScale } = useWindowDimensions();
   const { status: updateStatus, progress, error, check, restart } = useAppUpdates();
   const [checkedThisVisit, setCheckedThisVisit] = useState(false);
-  const [hovered, setHovered] = useState(false);
-  const [focused, setFocused] = useState(false);
-  const [longPressed, setLongPressed] = useState(false);
   useFocusEffect(
     useCallback(() => {
       setCheckedThisVisit(false);
-      setHovered(false);
-      setFocused(false);
-      setLongPressed(false);
     }, []),
   );
   const status =
@@ -124,13 +118,8 @@ export function UpdatesRow() {
   return (
     <View>
       <Pressable
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        onLongPress={() => setLongPressed(true)}
-        onPressOut={() => setLongPressed(false)}
         accessibilityRole="button"
-        accessibilityLabel="Updates"
-        accessibilityValue={{ text: description }}
+        accessibilityLabel={description}
         accessibilityState={{ disabled: busy, busy }}
         disabled={busy}
         onPress={() => {
@@ -164,10 +153,13 @@ export function UpdatesRow() {
           opacity: pressed ? 0.6 : 1,
         })}
       >
-        <Text style={{ flex: 1, color: theme.colors.text, fontSize: theme.type.body }}>
-          Updates
+        <Text
+          accessibilityLiveRegion="polite"
+          style={{ flex: 1, color: theme.colors.text, fontSize: theme.type.body }}
+        >
+          {description}
         </Text>
-        <View onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)}>
+        <View>
           {status === 'downloading' && progress !== undefined ? (
             <UpdateDownloadProgress progress={progress} size={24 * fontScale} />
           ) : busy ? (
@@ -182,45 +174,6 @@ export function UpdatesRow() {
           )}
         </View>
       </Pressable>
-      {(hovered || focused || longPressed) && (
-        <View
-          pointerEvents="none"
-          style={{
-            position: 'absolute',
-            bottom: '100%',
-            right: theme.spacing.lg,
-            maxWidth: '90%',
-            marginBottom: theme.spacing.sm,
-            zIndex: 1,
-            borderWidth: 1,
-            borderColor: theme.colors.line,
-            padding: theme.spacing.sm,
-            borderRadius: theme.radius.elbow,
-            backgroundColor: theme.colors.raised,
-          }}
-        >
-          <Text
-            accessibilityLiveRegion="polite"
-            style={{ color: theme.colors.text, fontSize: theme.type.caption }}
-          >
-            {description}
-          </Text>
-          <View
-            style={{
-              position: 'absolute',
-              bottom: -5,
-              right: 12 * fontScale - 5,
-              width: 10,
-              height: 10,
-              backgroundColor: theme.colors.raised,
-              borderRightWidth: 1,
-              borderBottomWidth: 1,
-              borderColor: theme.colors.line,
-              transform: [{ rotate: '45deg' }],
-            }}
-          />
-        </View>
-      )}
     </View>
   );
 }
