@@ -22,6 +22,8 @@ callbacks. Render real React Native controls and list rows.
   interactions.
 - With RNTL 14, await `render`, `rerender`, and `unmount` too. Normal interactions
   do not need an explicit `act` wrapper. Cleanup happens automatically.
+  Use `act` when delivering an external callback or resolving a controlled promise
+  that updates rendered state.
 - Assert visible results, semantic accessibility states, and public callbacks.
   Avoid component counts, internal props, exact colors, and snapshots of whole trees.
 - Use `queryBy*` for absence; use `findBy*` when results arrive asynchronously.
@@ -36,7 +38,8 @@ callbacks. Render real React Native controls and list rows.
 
 Animation timing, native gestures, and visual layout need device checks.
 
-For a worked example, see `src/features/home/account-picker.test.tsx`.
+For worked examples, see `src/features/home/account-picker.test.tsx` and
+`src/components/settings-data-actions.test.tsx`.
 
 ## Package compatibility
 
