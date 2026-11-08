@@ -60,7 +60,8 @@
     "lint:fix": "pnpm lint --fix",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
-    "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm test:backup"
+    "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm test:backup",
+    "android:apk:emulator": "bash scripts/build-emulator-apk.sh"
   },
   "lint-staged": {
     "*.{js,cjs,mjs,jsx,ts,tsx}": [

@@ -38,6 +38,7 @@
       "expo-sqlite",
       "expo-sharing",
       "./plugins/with-android-release-signing.cjs",
+      "./plugins/with-gradle-mirror.cjs",
       "expo-background-task"
     ],
     "experiments": {

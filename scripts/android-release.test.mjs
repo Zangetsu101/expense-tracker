@@ -93,3 +93,10 @@ test('APK command rejects relative paths, missing keystores, and directories', (
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test('production APK command rejects the emulator target before building or signing', () => {
+  const result = runBuild({ EXPENSE_TRACKER_BUILD_TARGET: 'emulator' });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /android:apk:emulator/);
+  assert.equal(result.stdout, '');
+});
