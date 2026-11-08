@@ -4,12 +4,13 @@ import { theme } from '@/theme';
 import { TransactionReceipt, TransferReceipt } from '@/components/transaction-receipt';
 import { TransferForm, useAccounts, type TransferDraft } from '@/components/transfer-form';
 import { Stack, useLocalSearchParams } from 'expo-router';
-import { useNavigation, usePreventRemove } from 'expo-router/react-navigation';
+import { useHeaderHeight, useNavigation, usePreventRemove } from 'expo-router/react-navigation';
 import { Host, Switch } from '@expo/ui';
 import {
   ActivityIndicator,
   Alert,
   BackHandler,
+  KeyboardAvoidingView,
   Pressable,
   ScrollView,
   Text,
@@ -42,6 +43,7 @@ export default function TransactionScreen() {
   const [revision, setRevision] = useState(0);
   const [dirty, setDirty] = useState(false);
   const navigation = useNavigation();
+  const headerHeight = useHeaderHeight();
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const onSavingChange = useCallback((value: boolean) => {
@@ -157,7 +159,12 @@ export default function TransactionScreen() {
     setEditing(false);
   };
   return (
-    <View style={{ flex: 1 }}>
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      enabled={editing}
+      behavior={process.env.EXPO_OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={headerHeight}
+    >
       <Stack.Screen
         options={{
           title,
@@ -171,7 +178,7 @@ export default function TransactionScreen() {
                   disabled={saving}
                   accessibilityState={{ disabled: saving }}
                   onPress={() => confirmDiscard(exitEditing)}
-                  style={{ paddingVertical: 12 }}
+                  style={{ paddingVertical: 12, marginRight: theme.spacing.lg }}
                 >
                   <Text style={{ color: theme.colors.accent }}>Cancel</Text>
                 </Pressable>
@@ -247,7 +254,7 @@ export default function TransactionScreen() {
           )}
         </View>
       )}
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -336,7 +343,7 @@ function EditTransactionScreen({
     <ScrollView
       contentInsetAdjustmentBehavior="automatic"
       keyboardShouldPersistTaps="handled"
-      style={{ backgroundColor: theme.colors.background }}
+      style={{ flex: 1, backgroundColor: theme.colors.background }}
       contentContainerStyle={{ padding: 20, paddingBottom: 40, gap: 20 }}
     >
       <>
