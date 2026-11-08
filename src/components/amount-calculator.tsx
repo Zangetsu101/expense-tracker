@@ -106,7 +106,10 @@ export function AmountCalculator({
       importantForAccessibility={open ? 'auto' : 'no-hide-descendants'}
     >
       <View
-        onLayout={({ nativeEvent }) => setContentHeight(nativeEvent.layout.height)}
+        onLayout={({ nativeEvent }) => {
+          // Native pixel rounding can alternate fractional measurements during animation.
+          setContentHeight(Math.round(nativeEvent.layout.height));
+        }}
         style={{ position: 'absolute', top: 0, width: '100%', backgroundColor: c.surface }}
       >
         <View

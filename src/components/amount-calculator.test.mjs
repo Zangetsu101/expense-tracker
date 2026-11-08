@@ -33,7 +33,8 @@ const hooks = registerHooks({
         export const Easing = { out: x => x, cubic: x => x }, ReduceMotion = { System: 'system' };
         export const useSharedValue = value => useRef({ value }).current;
         export const useAnimatedStyle = fn => fn();
-        export const withTiming = value => value;`,
+        export const timingTargets = [];
+        export const withTiming = value => { timingTargets.push(value); return value; };`,
       'calculator-mock:expo-haptics': `export const AndroidHaptics = { Keyboard_Tap: 'keyboard' }, ImpactFeedbackStyle = { Light: 'light' };
         export const performAndroidHapticsAsync = () => Promise.reject(new Error('Unavailable'));
         export const impactAsync = () => Promise.reject(new Error('Unavailable'));`,
@@ -51,6 +52,7 @@ const hooks = registerHooks({
   },
 });
 const { AmountCalculator } = await import('./amount-calculator.tsx');
+const { timingTargets } = await import('react-native-reanimated');
 
 test('keypad remains usable without haptics and hides closed controls', async (t) => {
   const previous = globalThis.IS_REACT_ACT_ENVIRONMENT;
@@ -106,4 +108,20 @@ test('keypad remains usable without haptics and hides closed controls', async (t
   assert.equal(panel.props.importantForAccessibility, 'no-hide-descendants');
   await render(true);
   assert.equal(renderer.root.findByType('AnimatedView').props.accessibilityElementsHidden, false);
+
+  const measure = async (height) => {
+    const content = renderer.root.findAllByType('View').find((node) => node.props.onLayout);
+    await act(async () => content.props.onLayout({ nativeEvent: { layout: { height } } }));
+  };
+  await measure(332.952392578125);
+  for (let cycle = 0; cycle < 5; cycle++) {
+    await render(false);
+    await render(true);
+    const started = timingTargets.length;
+    await measure(333.33331298828125);
+    await measure(332.952392578125);
+    assert.equal(timingTargets.length, started, 'pixel rounding must not restart opening');
+  }
+  await measure(360);
+  assert.equal(timingTargets.at(-1), 360, 'real content size changes still resize the panel');
 });
