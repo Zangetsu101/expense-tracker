@@ -10,6 +10,7 @@ import {
   transactionTitle,
 } from '@/lib/transaction-format';
 import { Skeleton } from '@/components/loading';
+import { EnterView, RollingNumber, useNewItems } from '@/components/motion';
 import { HomeAccountPicker, HomeAccountPickerSkeleton } from './account-picker.tsx';
 import type { CurrencyBalance } from './balances.ts';
 import type { HomeSnapshot } from './queries.ts';
@@ -19,17 +20,15 @@ const colors = { ...theme.colors, panel: theme.colors.surface };
 
 function BalanceAmount({ balance, fontSize }: { balance: CurrencyBalance; fontSize: number }) {
   return (
-    <Text
-      selectable
+    <RollingNumber
+      value={formatBalance(balance.balanceMinor, balance.currencyCode)}
       style={{
         color: balance.balanceMinor < 0 ? colors.warning : colors.text,
         fontSize,
         fontWeight: '700',
         fontVariant: ['tabular-nums'],
       }}
-    >
-      {formatBalance(balance.balanceMinor, balance.currencyCode)}
-    </Text>
+    />
   );
 }
 
@@ -45,6 +44,10 @@ export function FinancialView({
   const balances = snapshot.balances;
   const summaries = snapshot.summaries;
   const dailySummaries = snapshot.dailySummaries;
+  const isNew = useNewItems(
+    rows.map((row) => row.id),
+    accountId,
+  );
   return (
     <FlatList
       contentInsetAdjustmentBehavior="automatic"
@@ -203,114 +206,116 @@ export function FinancialView({
           ? `${incoming ? '+' : '−'}${formatMoney('TRANSFER', item.amountMinor, item.currencyCode)}`
           : formatMoney(item.type, item.amountMinor, item.currencyCode);
         return (
-          <View
-            pointerEvents={muted ? 'none' : 'auto'}
-            accessibilityElementsHidden={muted}
-            importantForAccessibility={muted ? 'no-hide-descendants' : 'auto'}
-            style={{ opacity: muted ? 0.4 : 1 }}
-          >
-            {(index === 0 || rows[index - 1].date !== item.date) && (
-              <View
-                style={{
-                  flexDirection: 'row',
-                  flexWrap: 'wrap',
-                  justifyContent: 'space-between',
-                  alignItems: 'baseline',
-                  gap: 8,
-                  paddingTop: 16,
-                  paddingBottom: 4,
-                }}
-              >
-                <Text style={{ color: colors.muted, fontWeight: '700' }}>
-                  {formatActivityDay(item.date)}
-                </Text>
-                <View style={{ flexShrink: 1, gap: 4 }}>
-                  {dailySummaries
-                    .filter(
-                      (summary) =>
-                        summary.date === item.date &&
-                        (summary.expenseMinor !== 0 || summary.incomeMinor !== 0),
-                    )
-                    .map((summary) => (
-                      <View
-                        key={summary.currencyCode}
-                        style={{
-                          flexDirection: 'row',
-                          flexWrap: 'wrap',
-                          justifyContent: 'flex-end',
-                          gap: 12,
-                        }}
-                      >
-                        {summary.expenseMinor !== 0 && (
-                          <Text
-                            selectable
-                            style={{
-                              color: colors.muted,
-                              fontSize: 12,
-                              fontVariant: ['tabular-nums'],
-                            }}
-                          >
-                            Spent{' '}
-                            {formatMoney('TRANSFER', summary.expenseMinor, summary.currencyCode)}
-                          </Text>
-                        )}
-                        {summary.incomeMinor !== 0 && (
-                          <Text
-                            selectable
-                            style={{
-                              color: colors.accent,
-                              fontSize: 12,
-                              fontVariant: ['tabular-nums'],
-                            }}
-                          >
-                            Earned{' '}
-                            {formatMoney('TRANSFER', summary.incomeMinor, summary.currencyCode)}
-                          </Text>
-                        )}
-                      </View>
-                    ))}
-                </View>
-              </View>
-            )}
-            <Pressable
-              disabled={muted}
-              accessibilityState={{ disabled: muted }}
-              onPress={() =>
-                router.push({ pathname: '/transaction/[id]', params: { id: String(item.id) } })
-              }
-              accessibilityRole="button"
-              accessibilityLabel={`${title}, ${item.accountName}`}
-              style={({ pressed }) => ({
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 12,
-                paddingVertical: 16,
-                borderBottomWidth: 1,
-                borderBottomColor: colors.line,
-                opacity: pressed ? 0.6 : 1,
-              })}
+          <EnterView animate={isNew(item.id)}>
+            <View
+              pointerEvents={muted ? 'none' : 'auto'}
+              accessibilityElementsHidden={muted}
+              importantForAccessibility={muted ? 'no-hide-descendants' : 'auto'}
+              style={{ opacity: muted ? 0.4 : 1 }}
             >
-              <View style={{ flex: 1, gap: 4 }}>
-                <Text selectable style={{ color: colors.text, fontSize: 16, fontWeight: '600' }}>
-                  {title}
-                </Text>
-                <Text selectable style={{ color: colors.muted }}>
-                  {detail}
-                  {item.note ? ` · ${item.note}` : ''}
-                </Text>
-              </View>
-              <Text
-                selectable
-                style={{
-                  color: item.type === 'INCOME' || incoming ? colors.accent : colors.text,
-                  fontWeight: '700',
-                  fontVariant: ['tabular-nums'],
-                }}
+              {(index === 0 || rows[index - 1].date !== item.date) && (
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    flexWrap: 'wrap',
+                    justifyContent: 'space-between',
+                    alignItems: 'baseline',
+                    gap: 8,
+                    paddingTop: 16,
+                    paddingBottom: 4,
+                  }}
+                >
+                  <Text style={{ color: colors.muted, fontWeight: '700' }}>
+                    {formatActivityDay(item.date)}
+                  </Text>
+                  <View style={{ flexShrink: 1, gap: 4 }}>
+                    {dailySummaries
+                      .filter(
+                        (summary) =>
+                          summary.date === item.date &&
+                          (summary.expenseMinor !== 0 || summary.incomeMinor !== 0),
+                      )
+                      .map((summary) => (
+                        <View
+                          key={summary.currencyCode}
+                          style={{
+                            flexDirection: 'row',
+                            flexWrap: 'wrap',
+                            justifyContent: 'flex-end',
+                            gap: 12,
+                          }}
+                        >
+                          {summary.expenseMinor !== 0 && (
+                            <Text
+                              selectable
+                              style={{
+                                color: colors.muted,
+                                fontSize: 12,
+                                fontVariant: ['tabular-nums'],
+                              }}
+                            >
+                              Spent{' '}
+                              {formatMoney('TRANSFER', summary.expenseMinor, summary.currencyCode)}
+                            </Text>
+                          )}
+                          {summary.incomeMinor !== 0 && (
+                            <Text
+                              selectable
+                              style={{
+                                color: colors.accent,
+                                fontSize: 12,
+                                fontVariant: ['tabular-nums'],
+                              }}
+                            >
+                              Earned{' '}
+                              {formatMoney('TRANSFER', summary.incomeMinor, summary.currencyCode)}
+                            </Text>
+                          )}
+                        </View>
+                      ))}
+                  </View>
+                </View>
+              )}
+              <Pressable
+                disabled={muted}
+                accessibilityState={{ disabled: muted }}
+                onPress={() =>
+                  router.push({ pathname: '/transaction/[id]', params: { id: String(item.id) } })
+                }
+                accessibilityRole="button"
+                accessibilityLabel={`${title}, ${item.accountName}`}
+                style={({ pressed }) => ({
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 12,
+                  paddingVertical: 16,
+                  borderBottomWidth: 1,
+                  borderBottomColor: colors.line,
+                  opacity: pressed ? 0.6 : 1,
+                })}
               >
-                {displayAmount}
-              </Text>
-            </Pressable>
-          </View>
+                <View style={{ flex: 1, gap: 4 }}>
+                  <Text selectable style={{ color: colors.text, fontSize: 16, fontWeight: '600' }}>
+                    {title}
+                  </Text>
+                  <Text selectable style={{ color: colors.muted }}>
+                    {detail}
+                    {item.note ? ` · ${item.note}` : ''}
+                  </Text>
+                </View>
+                <Text
+                  selectable
+                  style={{
+                    color: item.type === 'INCOME' || incoming ? colors.accent : colors.text,
+                    fontWeight: '700',
+                    fontVariant: ['tabular-nums'],
+                  }}
+                >
+                  {displayAmount}
+                </Text>
+              </Pressable>
+            </View>
+          </EnterView>
         );
       }}
     />
