@@ -19,9 +19,7 @@ callbacks. Render real React Native controls and list rows.
   for inputs. Use specific accessible names or scoped queries to distinguish
   controls with similar text.
 - Create a fresh `userEvent.setup()` instance for each interactive test and await
-  interactions. A local setup helper may return it alongside the render result.
-  Keep shared Jest configuration in a setup file; the interaction instance belongs
-  to the individual test.
+  interactions.
 - With RNTL 14, await `render`, `rerender`, and `unmount` too. Normal interactions
   do not need an explicit `act` wrapper. Cleanup happens automatically.
 - Assert visible results, semantic accessibility states, and public callbacks.
