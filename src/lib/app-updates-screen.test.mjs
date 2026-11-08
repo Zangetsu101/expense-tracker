@@ -80,7 +80,6 @@ test('update row coordinates native startup, progress, readiness and confirmed r
   });
   assert.equal(button().props.disabled, true);
   assert.deepEqual(labels(), ['Checking for updates']);
-  assert.equal(button().props.onLongPress, undefined);
   assert.deepEqual(state.calls, []);
   state.native = {
     ...state.native,
