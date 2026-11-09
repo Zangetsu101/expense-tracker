@@ -63,7 +63,7 @@ pnpm android:apk:emulator
 
 The build command runs the repository checks, prebuilds the emulator configuration, and assembles a release variant for x86_64 with debug signing. Native configuration switches through `EXPENSE_TRACKER_BUILD_TARGET=emulator`; leave this variable unset for production builds. The production APK command rejects emulator mode.
 
-To test Google Drive backups and the background worker, follow [Google Drive backups](google-drive-backups.md#test-on-the-emulator). The emulator APK needs its own Android OAuth client.
+Google Drive backups on the emulator need their own Android OAuth client. See [Google Drive backups](google-drive-backups.md#set-up-google-cloud).
 
 ## Build an APK locally
 
