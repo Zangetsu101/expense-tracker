@@ -10,11 +10,16 @@ const c = theme.colors;
 
 export function AmountInput({
   currency,
+  initialAmount = '',
+  initiallyOpen = true,
   disabled: pending = false,
   onChange,
   children,
 }: {
   currency?: string;
+  /** A valid amount that is shown before the user changes it. */
+  initialAmount?: string;
+  initiallyOpen?: boolean;
   disabled?: boolean;
   onChange: (amountMinor: number | undefined) => void;
   children: (slots: {
@@ -24,9 +29,9 @@ export function AmountInput({
     editing: boolean;
   }) => ReactNode;
 }) {
-  const [amount, setAmount] = useState('');
-  const [calculatorOpen, setCalculatorOpen] = useState(true);
-  const [validAmount, setValidAmount] = useState(false);
+  const [amount, setAmount] = useState(initialAmount);
+  const [calculatorOpen, setCalculatorOpen] = useState(initiallyOpen);
+  const [validAmount, setValidAmount] = useState(!!initialAmount);
   const insets = useSafeAreaInsets();
   function dismiss() {
     if (!calculatorOpen) return;

@@ -1,3 +1,4 @@
+def emulatorBuild = System.getenv('EXPENSE_TRACKER_BUILD_TARGET') == 'emulator'
 def releaseStore = System.getenv('EXPENSE_TRACKER_KEYSTORE')
 def releaseStorePassword = System.getenv('EXPENSE_TRACKER_STORE_PASSWORD')
 def releaseAlias = System.getenv('EXPENSE_TRACKER_KEY_ALIAS')
@@ -14,13 +15,19 @@ android {
     }
     buildTypes {
         release {
-            signingConfig signingConfigs.release
+            signingConfig emulatorBuild ? signingConfigs.debug : signingConfigs.release
         }
     }
 }
 
 def validateReleaseSigning = tasks.register('validateExpenseTrackerReleaseSigning') {
     doLast {
+        if (emulatorBuild) {
+            if (!android.defaultConfig.applicationId.endsWith('.emulator')) {
+                throw new GradleException('Emulator signing requires an isolated .emulator application ID.')
+            }
+            return
+        }
         if (!releaseStore || !new File(releaseStore).isAbsolute() || !new File(releaseStore).isFile()
             || !releaseStorePassword || !releaseAlias || !releaseKeyPassword) {
             throw new GradleException('Release signing requires an absolute EXPENSE_TRACKER_KEYSTORE path and EXPENSE_TRACKER_STORE_PASSWORD, EXPENSE_TRACKER_KEY_ALIAS, EXPENSE_TRACKER_KEY_PASSWORD. See docs/android-release.md.')

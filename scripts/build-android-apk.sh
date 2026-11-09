@@ -2,6 +2,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+if [[ "${EXPENSE_TRACKER_BUILD_TARGET:-}" == emulator ]]; then
+  printf 'Use pnpm android:apk:emulator for emulator builds.\n' >&2
+  exit 1
+fi
+
 for name in EXPENSE_TRACKER_KEYSTORE EXPENSE_TRACKER_STORE_PASSWORD EXPENSE_TRACKER_KEY_ALIAS EXPENSE_TRACKER_KEY_PASSWORD; do
   if [[ -z "${!name:-}" ]]; then
     printf 'Missing %s. See docs/android-release.md.\n' "$name" >&2

@@ -1,3 +1,4 @@
+import { ScheduledBackupLifecycle } from '@/components/scheduled-backup-lifecycle';
 import { AppQueriesProvider } from '@/components/app-queries';
 import { AppUpdatesProvider } from '@/components/app-updates';
 import { Stack, ThemeProvider, DarkTheme } from 'expo-router';
@@ -9,6 +10,7 @@ export default function Layout() {
     <AppQueriesProvider>
       <ThemeProvider value={DarkTheme}>
         <AppUpdatesProvider>
+          <ScheduledBackupLifecycle />
           <Stack>
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
             <Stack.Screen

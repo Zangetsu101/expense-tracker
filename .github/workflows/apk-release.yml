@@ -2,17 +2,22 @@ name: Build Android APK
 
 on:
   workflow_dispatch:
+    inputs:
+      emulator:
+        description: Build an x86_64 emulator test APK (always used outside main)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: apk-release
+  group: apk-release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   build:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && !inputs.emulator
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -101,3 +106,46 @@ jobs:
           gh release create "$RELEASE_TAG" dist/*.apk dist/*.sha256 \
             --target "$GITHUB_SHA" --title "Expense Tracker ${RELEASE_TAG#v}" \
             --draft --prerelease --notes-file "$RUNNER_TEMP/release-notes.md"
+
+  emulator:
+    if: github.ref != 'refs/heads/main' || inputs.emulator
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      EXPENSE_TRACKER_BUILD_TARGET: emulator
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: pnpm/action-setup@v6.1.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '22'
+          cache: pnpm
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-36 build-tools;36.0.0
+          log-accepted-android-sdk-licenses: false
+      - name: Configure Gradle memory and failure handling
+        run: |
+          mkdir -p "$HOME/.gradle"
+          cat >> "$HOME/.gradle/gradle.properties" <<'EOF_GRADLE'
+          org.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=1g -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8
+          org.gradle.workers.max=2
+          org.gradle.daemon=false
+          EOF_GRADLE
+      - run: pnpm install --frozen-lockfile
+      - name: Stamp the verified running release commit
+        run: node scripts/stamp-release.mjs
+      - name: Build isolated x86_64 APK with bundled JavaScript
+        run: pnpm android:apk:emulator
+      - name: Upload emulator APK
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: expense-tracker-x86_64-emulator-${{ github.sha }}
+          path: dist/*-x86_64-emulator.apk
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0

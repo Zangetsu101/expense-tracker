@@ -33,12 +33,37 @@ One-time setup: add these repository secrets in [Actions secrets](https://github
 Reuse the existing signing key so installed apps can upgrade without uninstalling. Do not commit signing credentials. No Expo token is required for the APK build.
 
 1. For each new APK release, bump `expo.version` and `expo.android.versionCode` in `app.json`, align `package.json`'s version, and merge those changes to `main`. The version code must exceed the installed release's code.
-2. Open **GitHub Actions → Build Android APK → Run workflow** and select `main`. Other branches are skipped.
+2. Open **GitHub Actions → Build Android APK → Run workflow** and select `main`. Leave **emulator** unchecked for a release. Other branches produce an emulator test artifact.
 3. The workflow runs checks, stamps the commit into the embedded bundle, prebuilds, builds a signed ARM64 APK, verifies its signature, and creates a **draft prerelease** with the APK and SHA-256 checksum. Existing versions/tags are rejected rather than overwritten.
 4. Open the draft under **GitHub Releases** while signed in with repository write access. A draft is unpublished; download its APK, back up app data, install over the existing app, and verify behavior and the signing certificate.
 5. Edit the draft's notes to include known limitations, then click **Publish release** when testing passes. The release remains marked as a prerelease.
 
 A failed build creates no release. If publication fails after creating a draft, inspect/delete that draft before retrying; the workflow refuses to overwrite it.
+
+## Build an APK for the Android emulator
+
+Manually run **Build Android APK** on a feature branch to build an x86_64 test APK. On `main`, check **emulator** to select this target. This job uploads a workflow artifact instead of creating a release and does not need release-signing secrets.
+
+For example, build the auto-backup PR before merging it:
+
+```sh
+gh workflow run apk-release.yml --ref scheduled-backups-ndjson-wal
+```
+
+Download the `expense-tracker-x86_64-emulator-<commit>` artifact from the workflow run. It contains `expense-tracker-<version>-x86_64-emulator.apk`. Artifacts are kept for 14 days.
+
+The APK uses the `.emulator` application ID suffix, an emulator-specific link scheme, and the Android debug signing key. It has an embedded JavaScript bundle and OTA updates are disabled, so it runs the selected commit without Metro. It can coexist with the production app and has its own database and backup settings.
+
+To build the same target locally:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm android:apk:emulator
+```
+
+The build command runs the repository checks, prebuilds the emulator configuration, and assembles a release variant for x86_64 with debug signing. Native configuration switches through `EXPENSE_TRACKER_BUILD_TARGET=emulator`; leave this variable unset for production builds. The production APK command rejects emulator mode.
+
+For background-worker testing, select a test folder in this app and enable the schedule. Put the app in the background and force its registered Android job as described in [Expo's task inspection guide](https://docs.expo.dev/versions/v57.0.0/sdk/background-task/#inspecting-background-tasks). Use an overdue backup: forcing the Android job does not bypass the app's daily/weekly due check. Confirm that it writes a valid backup and updates the success timestamp. Test process restart and retained folder permission separately.
 
 ## Build an APK locally
 
@@ -60,7 +85,7 @@ pnpm install --frozen-lockfile
 )
 ```
 
-The command runs checks, prebuild, and the signed ARM64 release build. It produces `dist/expense-tracker-<version>-arm64.apk` and its `.sha256` file. Native sources are generated: edit `app.json`, the signing plugin, or the signing Gradle script instead of `android/`.
+The command runs checks, prebuild, and the signed ARM64 release build. It produces `dist/expense-tracker-<version>-arm64.apk` and its `.sha256` file. Both APK targets use Huawei Cloud’s Gradle 9.3.1 mirror, pinned to Gradle’s official SHA-256 checksum by `plugins/with-gradle-mirror.cjs`. When upgrading Expo’s generated Gradle version, update the mirror and checksum together. Native sources are generated: edit `app.json`, the signing plugin, or the signing Gradle script instead of `android/`.
 
 Verify the release certificate and install without clearing app data:
 

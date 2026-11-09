@@ -1,5 +1,6 @@
+import { AmountInput } from '@/components/amount-input';
 import { FormButton, FormInput } from '@/components/form-controls';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { theme } from '@/theme';
 import { TransactionReceipt, TransferReceipt } from '@/components/transaction-receipt';
 import { TransferForm, useAccounts, type TransferDraft } from '@/components/transfer-form';
@@ -24,6 +25,8 @@ import {
 } from '@/lib/transaction-edit';
 import { formatEpochDay, formatTransactionAmount } from '@/lib/transaction-format';
 import { formatLineItemAmount, parseLineItemAmount } from '@/lib/line-item-amount';
+import { deleteTransaction } from '@/lib/transaction-delete';
+import type { LendingResult } from '@/lib/lending';
 import { loadTransfer, saveTransferEdit, type EditableTransfer } from '@/lib/transfers';
 import { dateFromEpochDay, epochDay } from '@/lib/database';
 
@@ -45,6 +48,7 @@ export default function TransactionScreen() {
   const navigation = useNavigation();
   const headerHeight = useHeaderHeight();
   const [saving, setSaving] = useState(false);
+  const [deleting, startDeleting] = useTransition();
   const savingRef = useRef(false);
   const onSavingChange = useCallback((value: boolean) => {
     savingRef.current = value;
@@ -61,7 +65,7 @@ export default function TransactionScreen() {
   const pendingNavigation = useRef<(() => void) | null>(null);
   const confirmDiscard = useCallback(
     (discard: () => void) => {
-      if (savingRef.current || confirming.current) return;
+      if (savingRef.current || deleting || confirming.current) return;
       if (!dirty) {
         setDirty(false);
         discard();
@@ -97,14 +101,59 @@ export default function TransactionScreen() {
         },
       );
     },
-    [dirty],
+    [dirty, deleting],
   );
-  usePreventRemove(editing && (dirty || saving), ({ data }) => {
+  usePreventRemove(editing && (dirty || saving || deleting), ({ data }) => {
     confirmDiscard(() => {
       pendingNavigation.current = () => navigation.dispatch(data.action);
       setEditing(false);
     });
   });
+  function runDelete(confirmOverpayment: boolean) {
+    startDeleting(async () => {
+      let result: LendingResult;
+      try {
+        result = await deleteTransaction(Number(id), { confirmOverpayment });
+      } catch (cause) {
+        Alert.alert('Could not delete', String(cause));
+        return;
+      }
+      if (result.status === 'confirmation_required') {
+        Alert.alert(
+          'Overpayment warning',
+          result.warnings
+            .map(
+              (w) =>
+                `${w.currencyCode} · ${w.direction === 'LENT' ? 'They owe you' : 'You owe them'}: overpaid credit ${formatLineItemAmount(w.overpaidMinor)}`,
+            )
+            .join('\n') +
+            '\nDelete anyway? Excess remains visible as credit, not an opposite obligation.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Delete', style: 'destructive', onPress: () => runDelete(true) },
+          ],
+        );
+        return;
+      }
+      // React does not keep updates after an await in the transition. Wrap them again.
+      startDeleting(() => {
+        pendingNavigation.current = () => navigation.goBack();
+        setDirty(false);
+        setEditing(false);
+      });
+    });
+  }
+  function confirmDelete() {
+    if (savingRef.current || deleting) return;
+    Alert.alert(
+      'Delete transaction?',
+      'It will be removed from Account balances and reports. You cannot undo this.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => runDelete(false) },
+      ],
+    );
+  }
   useEffect(() => {
     if (!editing && pendingNavigation.current) {
       const resume = pendingNavigation.current;
@@ -200,17 +249,21 @@ export default function TransactionScreen() {
         transaction.type === 'TRANSFER' ? (
           <EditTransferScreen
             transfer={transaction}
+            deleting={deleting}
             onDirtyChange={setDirty}
             onSavingChange={onSavingChange}
             onCancel={() => confirmDiscard(exitEditing)}
+            onDelete={confirmDelete}
             onSaved={refresh}
           />
         ) : (
           <EditTransactionScreen
             transaction={transaction}
+            deleting={deleting}
             onDirtyChange={setDirty}
             onSavingChange={onSavingChange}
             onCancel={() => confirmDiscard(exitEditing)}
+            onDelete={confirmDelete}
             onSaved={refresh}
           />
         )
@@ -260,17 +313,24 @@ export default function TransactionScreen() {
 
 function EditTransactionScreen({
   transaction,
+  deleting,
   onDirtyChange,
   onSavingChange,
   onCancel,
+  onDelete,
   onSaved,
 }: {
   transaction: EditableTransaction;
+  deleting: boolean;
   onDirtyChange: (dirty: boolean) => void;
   onSavingChange: (saving: boolean) => void;
   onCancel: () => void;
+  onDelete: () => void;
   onSaved: () => Promise<void>;
 }) {
+  const initialAmount = formatLineItemAmount(transaction.amountMinor);
+  const amountLocked = !!transaction.lendingKind;
+  const [amountMinor, setAmountMinor] = useState<number | undefined>(transaction.amountMinor);
   const [note, setNote] = useState(transaction.note ?? '');
   const initialTags = transaction.tags.map((tag) => tag.name).join(', ');
   const initialItems = useMemo(
@@ -295,12 +355,14 @@ function EditTransactionScreen({
   useEffect(() => {
     onDirtyChange(
       !committed &&
-        (note !== (transaction.note ?? '') ||
+        (amountMinor !== transaction.amountMinor ||
+          note !== (transaction.note ?? '') ||
           tags !== initialTags ||
           excluded !== (transaction.excludeFromReport !== 0) ||
           JSON.stringify(items) !== JSON.stringify(initialItems)),
     );
   }, [
+    amountMinor,
     note,
     tags,
     excluded,
@@ -317,13 +379,15 @@ function EditTransactionScreen({
     onSavingChange(true);
     setError(undefined);
     try {
+      if (amountMinor === undefined)
+        throw new Error('Enter a positive amount with at most two decimal places.');
       const lineItems: LineItem[] = items.map((item) => {
         const amountMinor = parseLineItemAmount(item.amount);
         const quantity = item.quantity.trim() === '' ? null : Number(item.quantity.trim());
         return { id: item.id, name: item.name, amountMinor, quantity };
       });
       if (!committed) {
-        await saveTransactionEdit(transaction, note, excluded, tags, lineItems);
+        await saveTransactionEdit(transaction, note, excluded, tags, lineItems, amountMinor);
         setCommitted(true);
       }
       await onSaved();
@@ -334,185 +398,233 @@ function EditTransactionScreen({
       onSavingChange(false);
     }
   };
+  const locked = saving || committed || deleting;
   const labelStyle = {
     color: theme.colors.text,
     fontSize: theme.type.body,
     fontWeight: '600' as const,
   };
   return (
-    <ScrollView
-      contentInsetAdjustmentBehavior="automatic"
-      keyboardShouldPersistTaps="handled"
-      style={{ flex: 1, backgroundColor: theme.colors.background }}
-      contentContainerStyle={{ padding: 20, paddingBottom: 40, gap: 20 }}
+    <AmountInput
+      currency={transaction.currencyCode}
+      initialAmount={initialAmount}
+      initiallyOpen={false}
+      disabled={locked}
+      onChange={setAmountMinor}
     >
-      <>
-        <View
-          style={{
-            gap: 8,
-            padding: 16,
-            borderRadius: theme.radius.group,
-            backgroundColor: theme.colors.surface,
-          }}
-        >
-          <Text
-            selectable
-            style={{
-              color: theme.colors.text,
-              fontSize: 24,
-              fontWeight: '600',
-              fontVariant: ['tabular-nums'],
-            }}
+      {({ input, keypad, dismiss: dismissCalculator, editing: calculating }) => (
+        <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
+          <ScrollView
+            contentInsetAdjustmentBehavior="automatic"
+            keyboardShouldPersistTaps="handled"
+            onScrollBeginDrag={dismissCalculator}
+            style={{ flex: 1, backgroundColor: theme.colors.background }}
+            contentContainerStyle={{ padding: 20, paddingBottom: 40, gap: 20 }}
           >
-            {formatTransactionAmount(
-              transaction.type,
-              transaction.amountMinor,
-              transaction.currencyCode,
-            )}
-          </Text>
-          <Text selectable style={{ color: theme.colors.text }}>
-            {transaction.categoryName ?? transaction.type} · {transaction.accountName}
-          </Text>
-          <Text selectable style={{ color: theme.colors.muted }}>
-            {formatEpochDay(transaction.date)} · Financial details are read-only
-          </Text>
+            <>
+              <View
+                style={{
+                  gap: 8,
+                  padding: 16,
+                  borderRadius: theme.radius.group,
+                  backgroundColor: theme.colors.surface,
+                }}
+              >
+                {amountLocked ? (
+                  <Text
+                    selectable
+                    style={{
+                      color: theme.colors.text,
+                      fontSize: 24,
+                      fontWeight: '600',
+                      fontVariant: ['tabular-nums'],
+                    }}
+                  >
+                    {formatTransactionAmount(
+                      transaction.type,
+                      transaction.amountMinor,
+                      transaction.currencyCode,
+                    )}
+                  </Text>
+                ) : (
+                  input
+                )}
+                <Text selectable style={{ color: theme.colors.text }}>
+                  {transaction.categoryName ?? transaction.type} · {transaction.accountName}
+                </Text>
+                <Text selectable style={{ color: theme.colors.muted }}>
+                  {formatEpochDay(transaction.date)} ·{' '}
+                  {amountLocked
+                    ? 'Change the amount of a lending entry from Lending'
+                    : 'Category, Account and date are read-only'}
+                </Text>
+              </View>
+              <View style={{ gap: 20 }} onTouchStart={dismissCalculator}>
+                <View style={{ gap: 8 }}>
+                  <Text style={labelStyle}>Note</Text>
+                  <FormInput
+                    accessibilityLabel="Note"
+                    multiline
+                    value={note}
+                    onChangeText={setNote}
+                    editable={!locked}
+                    placeholder="Optional note"
+                    style={{ minHeight: 100, textAlignVertical: 'top' }}
+                  />
+                </View>
+                <View style={{ gap: 8 }}>
+                  <Text style={labelStyle}>Tags</Text>
+                  <FormInput
+                    accessibilityLabel="Tags"
+                    value={tags}
+                    onChangeText={setTags}
+                    editable={!locked}
+                    placeholder="Comma-separated tags"
+                    autoCapitalize="words"
+                  />
+                </View>
+                <View style={{ gap: 8 }}>
+                  <Text style={labelStyle}>
+                    Line items{' '}
+                    <Text style={{ color: theme.colors.muted, fontWeight: '400' }}>(optional)</Text>
+                  </Text>
+                  <Text selectable style={{ color: theme.colors.muted, lineHeight: 20 }}>
+                    Line items do not change the Transaction amount and do not need to add up to it.
+                    Amounts can be positive, negative or zero.
+                  </Text>
+                  {items.map((item, index) => (
+                    <View
+                      key={item.id ?? `new-${index}`}
+                      style={{
+                        gap: 10,
+                        padding: 12,
+                        backgroundColor: theme.colors.surface,
+                        borderRadius: theme.radius.group,
+                      }}
+                    >
+                      <Text style={{ color: theme.colors.muted }}>Line item {index + 1}</Text>
+                      <FormInput
+                        accessibilityLabel={`Line item ${index + 1} name`}
+                        placeholder="Name"
+                        value={item.name}
+                        editable={!locked}
+                        onChangeText={(name) =>
+                          setItems((current) =>
+                            current.map((entry, i) => (i === index ? { ...entry, name } : entry)),
+                          )
+                        }
+                      />
+                      <FormInput
+                        accessibilityLabel={`Line item ${index + 1} amount`}
+                        placeholder="Amount (major units)"
+                        value={item.amount}
+                        editable={!locked}
+                        keyboardType="numbers-and-punctuation"
+                        onChangeText={(amount) =>
+                          setItems((current) =>
+                            current.map((entry, i) => (i === index ? { ...entry, amount } : entry)),
+                          )
+                        }
+                      />
+                      <FormInput
+                        accessibilityLabel={`Line item ${index + 1} quantity`}
+                        placeholder="Quantity (optional)"
+                        value={item.quantity}
+                        editable={!locked}
+                        keyboardType="decimal-pad"
+                        onChangeText={(quantity) =>
+                          setItems((current) =>
+                            current.map((entry, i) =>
+                              i === index ? { ...entry, quantity } : entry,
+                            ),
+                          )
+                        }
+                      />
+                      <FormButton
+                        label="Remove line item"
+                        accessibilityLabel={`Remove line item ${index + 1}`}
+                        variant="danger"
+                        disabled={locked}
+                        onPress={() => setItems((current) => current.filter((_, i) => i !== index))}
+                      />
+                    </View>
+                  ))}
+                  <FormButton
+                    label="Add line item"
+                    variant="secondary"
+                    disabled={locked}
+                    onPress={() =>
+                      setItems((current) => [...current, { name: '', amount: '', quantity: '' }])
+                    }
+                  />
+                </View>
+                <Host colorScheme="dark" style={{ width: '100%', height: 56 }}>
+                  <Switch
+                    label="Exclude from reports"
+                    value={excluded}
+                    onValueChange={setExcluded}
+                    disabled={locked || !!transaction.reportExclusionLocked}
+                  />
+                </Host>
+                {!!transaction.reportExclusionLocked && (
+                  <Text style={{ color: theme.colors.muted }}>
+                    Principal movements are always excluded from reports.
+                  </Text>
+                )}
+                {error && (
+                  <Text
+                    accessibilityRole="alert"
+                    selectable
+                    style={{ color: theme.colors.warning }}
+                  >
+                    {error}
+                  </Text>
+                )}
+                <FormButton
+                  label={saving ? 'Saving…' : committed ? 'Retry receipt' : 'Save changes'}
+                  loading={saving}
+                  disabled={deleting || calculating || amountMinor === undefined}
+                  onPress={() => {
+                    if (!calculating) void save();
+                  }}
+                />
+                <FormButton
+                  label="Cancel"
+                  variant="secondary"
+                  disabled={saving || deleting}
+                  onPress={onCancel}
+                />
+                <FormButton
+                  label={deleting ? 'Deleting…' : 'Delete transaction'}
+                  variant="danger"
+                  disabled={locked}
+                  onPress={onDelete}
+                />
+              </View>
+            </>
+          </ScrollView>
+          {!amountLocked && keypad}
         </View>
-        <View style={{ gap: 8 }}>
-          <Text style={labelStyle}>Note</Text>
-          <FormInput
-            accessibilityLabel="Note"
-            multiline
-            value={note}
-            onChangeText={setNote}
-            editable={!saving && !committed}
-            placeholder="Optional note"
-            style={{ minHeight: 100, textAlignVertical: 'top' }}
-          />
-        </View>
-        <View style={{ gap: 8 }}>
-          <Text style={labelStyle}>Tags</Text>
-          <FormInput
-            accessibilityLabel="Tags"
-            value={tags}
-            onChangeText={setTags}
-            editable={!saving && !committed}
-            placeholder="Comma-separated tags"
-            autoCapitalize="words"
-          />
-        </View>
-        <View style={{ gap: 8 }}>
-          <Text style={labelStyle}>
-            Line items{' '}
-            <Text style={{ color: theme.colors.muted, fontWeight: '400' }}>(optional)</Text>
-          </Text>
-          <Text selectable style={{ color: theme.colors.muted, lineHeight: 20 }}>
-            Transaction amount stays unchanged. Line items do not need to add up to it. Amounts can
-            be positive, negative or zero.
-          </Text>
-          {items.map((item, index) => (
-            <View
-              key={item.id ?? `new-${index}`}
-              style={{
-                gap: 10,
-                padding: 12,
-                backgroundColor: theme.colors.surface,
-                borderRadius: theme.radius.group,
-              }}
-            >
-              <Text style={{ color: theme.colors.muted }}>Line item {index + 1}</Text>
-              <FormInput
-                accessibilityLabel={`Line item ${index + 1} name`}
-                placeholder="Name"
-                value={item.name}
-                editable={!saving && !committed}
-                onChangeText={(name) =>
-                  setItems((current) =>
-                    current.map((entry, i) => (i === index ? { ...entry, name } : entry)),
-                  )
-                }
-              />
-              <FormInput
-                accessibilityLabel={`Line item ${index + 1} amount`}
-                placeholder="Amount (major units)"
-                value={item.amount}
-                editable={!saving && !committed}
-                keyboardType="numbers-and-punctuation"
-                onChangeText={(amount) =>
-                  setItems((current) =>
-                    current.map((entry, i) => (i === index ? { ...entry, amount } : entry)),
-                  )
-                }
-              />
-              <FormInput
-                accessibilityLabel={`Line item ${index + 1} quantity`}
-                placeholder="Quantity (optional)"
-                value={item.quantity}
-                editable={!saving && !committed}
-                keyboardType="decimal-pad"
-                onChangeText={(quantity) =>
-                  setItems((current) =>
-                    current.map((entry, i) => (i === index ? { ...entry, quantity } : entry)),
-                  )
-                }
-              />
-              <FormButton
-                label="Remove line item"
-                accessibilityLabel={`Remove line item ${index + 1}`}
-                variant="danger"
-                disabled={saving || committed}
-                onPress={() => setItems((current) => current.filter((_, i) => i !== index))}
-              />
-            </View>
-          ))}
-          <FormButton
-            label="Add line item"
-            variant="secondary"
-            disabled={saving || committed}
-            onPress={() =>
-              setItems((current) => [...current, { name: '', amount: '', quantity: '' }])
-            }
-          />
-        </View>
-        <Host colorScheme="dark" style={{ width: '100%', height: 56 }}>
-          <Switch
-            label="Exclude from reports"
-            value={excluded}
-            onValueChange={setExcluded}
-            disabled={saving || committed || !!transaction.reportExclusionLocked}
-          />
-        </Host>
-        {!!transaction.reportExclusionLocked && (
-          <Text style={{ color: theme.colors.muted }}>
-            Principal movements are always excluded from reports.
-          </Text>
-        )}
-        {error && (
-          <Text accessibilityRole="alert" selectable style={{ color: theme.colors.warning }}>
-            {error}
-          </Text>
-        )}
-        <FormButton
-          label={saving ? 'Saving…' : committed ? 'Retry receipt' : 'Save changes'}
-          loading={saving}
-          onPress={() => void save()}
-        />
-        <FormButton label="Cancel" variant="secondary" disabled={saving} onPress={onCancel} />
-      </>
-    </ScrollView>
+      )}
+    </AmountInput>
   );
 }
 
 function EditTransferScreen({
   transfer,
+  deleting,
   onDirtyChange,
   onSavingChange,
   onCancel,
+  onDelete,
   onSaved,
 }: {
   transfer: EditableTransfer;
+  deleting: boolean;
   onDirtyChange: (dirty: boolean) => void;
   onSavingChange: (saving: boolean) => void;
   onCancel: () => void;
+  onDelete: () => void;
   onSaved: () => Promise<void>;
 }) {
   const { accounts, loading, error } = useAccounts();
@@ -553,11 +665,12 @@ function EditTransferScreen({
       loadError={error}
       initial={initial}
       editDate
-      fieldsLocked={committed}
+      fieldsLocked={committed || deleting}
       submitLabel={committed ? 'Retry receipt' : 'Save changes'}
       onSubmit={submit}
       onDirtyChange={dirtyChange}
       onCancel={onCancel}
+      onDelete={onDelete}
     />
   );
 }

@@ -15,6 +15,6 @@ export const theme = {
   },
   spacing: { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, indent: 24 },
   radius: { group: 10, control: 12, elbow: 6 },
-  type: { body: 16, caption: 12, heading: 18 },
+  type: { body: 16, detail: 14, caption: 12, heading: 18 },
   controlHeight: 48,
 } as const;

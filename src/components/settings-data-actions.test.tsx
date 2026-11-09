@@ -1,15 +1,38 @@
 import { act, render, screen, userEvent } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import { usePreventRemove } from 'expo-router/react-navigation';
-import { exportBackup, restoreBackup } from '@/lib/backup';
 import { exportTransactionsCsv } from '@/lib/export-csv';
 import { importMoneyLoverFile } from '@/lib/import-csv';
 import { SettingsDataActions } from './settings-data-actions';
 
 jest.mock('expo-router', () => ({ Stack: { Screen: () => null } }));
 jest.mock('expo-router/react-navigation', () => ({ usePreventRemove: jest.fn() }));
-jest.mock('@/lib/backup-adapter', () => ({ backupStore: {}, backupDocuments: {} }));
-jest.mock('@/lib/backup', () => ({ exportBackup: jest.fn(), restoreBackup: jest.fn() }));
+jest.mock('@/components/backup-settings', () => {
+  const { Pressable, View } = jest.requireActual<typeof import('react-native')>('react-native');
+  return {
+    BackupSettings: ({
+      disabled,
+      onBusyChange,
+    }: {
+      disabled: boolean;
+      onBusyChange: (busy: boolean) => void;
+    }) => (
+      <View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Start backup"
+          disabled={disabled}
+          onPress={() => onBusyChange(true)}
+        />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Finish backup"
+          onPress={() => onBusyChange(false)}
+        />
+      </View>
+    ),
+  };
+});
 jest.mock('@/lib/export-csv', () => ({ exportTransactionsCsv: jest.fn() }));
 jest.mock('@/lib/import-csv', () => ({ importMoneyLoverFile: jest.fn() }));
 
@@ -27,82 +50,25 @@ async function chooseAlert(label: string) {
   await act(async () => button!.onPress!());
 }
 
-test.each([
-  ['Cancel', false, 'Restore from file cancelled.'],
-  ['Replace data', true, 'Backup restored. Current data has been replaced.'],
-] as const)(
-  'restore confirmation forwards %s for the validated filename',
-  async (choice, accepted, message) => {
-    const user = userEvent.setup();
-    const decision = jest.fn();
-    jest.mocked(restoreBackup).mockImplementation(async (_store, _documents, confirm) => {
-      const answer = await confirm('saved.json');
-      decision(answer);
-      return answer;
-    });
-    await render(<SettingsDataActions />);
-    await user.press(screen.getByRole('button', { name: 'Restore from file' }));
-
-    expect(alert).toHaveBeenCalledWith(
-      'Replace all current data?',
-      expect.stringContaining('Selected: saved.json'),
-      expect.arrayContaining([
-        expect.objectContaining({ text: 'Cancel', style: 'cancel' }),
-        expect.objectContaining({ text: 'Replace data', style: 'destructive' }),
-      ]),
-      { cancelable: false },
-    );
-    expect(screen.getByRole('button', { name: 'Restore from file' })).toBeBusy();
-    expect(decision).not.toHaveBeenCalled();
-    await chooseAlert(choice);
-
-    expect(decision).toHaveBeenCalledWith(accepted);
-    expect(await screen.findByText(message)).toBeOnTheScreen();
-    expect(screen.getByRole('button', { name: 'Restore from file' })).toBeEnabled();
-  },
-);
-
-test('restore failure stays visible and Retry clears the error after completion', async () => {
-  const user = userEvent.setup();
-  jest
-    .mocked(restoreBackup)
-    .mockRejectedValueOnce(new Error('Invalid backup'))
-    .mockResolvedValueOnce(true);
-  await render(<SettingsDataActions />);
-  await user.press(screen.getByRole('button', { name: 'Restore from file' }));
-
-  expect(await screen.findByRole('alert')).toHaveTextContent(
-    'Restore from file failed. Invalid backup',
-  );
-  expect(alert).not.toHaveBeenCalled();
-  await user.press(screen.getByRole('button', { name: 'Retry' }));
-
-  expect(
-    await screen.findByText('Backup restored. Current data has been replaced.'),
-  ).toBeOnTheScreen();
-  expect(restoreBackup).toHaveBeenCalledTimes(2);
-  expect(screen.queryByRole('alert')).not.toBeOnTheScreen();
-  expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeOnTheScreen();
-});
-
 test('pending work blocks duplicate actions and leaving, and reports success only after completion', async () => {
   const user = userEvent.setup();
   const onBusyChange = jest.fn();
   const completion = Promise.withResolvers<string | null>();
-  jest.mocked(exportBackup).mockReturnValue(completion.promise);
+  jest.mocked(exportTransactionsCsv).mockReturnValue(completion.promise);
   await render(<SettingsDataActions onBusyChange={onBusyChange} />);
   expect(onBusyChange).toHaveBeenLastCalledWith(false);
-  await user.press(screen.getByRole('button', { name: 'Create backup' }));
-
-  expect(screen.getByRole('button', { name: 'Create backup' })).toBeBusy();
-  for (const button of screen.getAllByRole('button')) expect(button).toBeDisabled();
-  expect(screen.getByText('Create backup in progress…')).toBeOnTheScreen();
-  expect(screen.queryByText('Backup saved.')).not.toBeOnTheScreen();
-  expect(onBusyChange).toHaveBeenLastCalledWith(true);
-  await user.press(screen.getByRole('button', { name: 'Create backup' }));
   await user.press(screen.getByRole('button', { name: 'Export transactions CSV' }));
-  expect(exportBackup).toHaveBeenCalledTimes(1);
-  expect(exportTransactionsCsv).not.toHaveBeenCalled();
+
+  expect(screen.getByRole('button', { name: 'Export transactions CSV' })).toBeBusy();
+  for (const name of ['Export transactions CSV', 'Import from MoneyLover', 'Start backup'])
+    expect(screen.getByRole('button', { name })).toBeDisabled();
+  expect(screen.getByText('Export transactions CSV in progress…')).toBeOnTheScreen();
+  expect(screen.queryByText('Transactions CSV exported.')).not.toBeOnTheScreen();
+  expect(onBusyChange).toHaveBeenLastCalledWith(true);
+  await user.press(screen.getByRole('button', { name: 'Export transactions CSV' }));
+  await user.press(screen.getByRole('button', { name: 'Import from MoneyLover' }));
+  expect(exportTransactionsCsv).toHaveBeenCalledTimes(1);
+  expect(importMoneyLoverFile).not.toHaveBeenCalled();
 
   const navigation = jest.mocked(usePreventRemove).mock.calls.at(-1)!;
   expect(navigation[0]).toBe(true);
@@ -112,24 +78,21 @@ test('pending work blocks duplicate actions and leaving, and reports success onl
     expect.stringContaining('before leaving'),
   );
 
-  await act(async () => completion.resolve('content://backup'));
-  expect(await screen.findByText('Backup saved.')).toBeOnTheScreen();
+  await act(async () => completion.resolve('content://csv'));
+  expect(await screen.findByText('Transactions CSV exported.')).toBeOnTheScreen();
   expect(onBusyChange).toHaveBeenLastCalledWith(false);
   expect(jest.mocked(usePreventRemove).mock.calls.at(-1)?.[0]).toBe(false);
-  for (const button of screen.getAllByRole('button')) expect(button).toBeEnabled();
+  for (const name of ['Export transactions CSV', 'Import from MoneyLover', 'Start backup'])
+    expect(screen.getByRole('button', { name })).toBeEnabled();
 });
 
 test.each([
-  ['Create backup', 'Backup saved.'],
   ['Export transactions CSV', 'Transactions CSV exported.'],
   ['Import from MoneyLover', '0 transactions imported.'],
-  ['Restore from file', 'Backup restored. Current data has been replaced.'],
 ])('cancelling %s never reports success', async (label, success) => {
   const user = userEvent.setup();
-  jest.mocked(exportBackup).mockResolvedValue(null);
   jest.mocked(exportTransactionsCsv).mockResolvedValue(null);
   jest.mocked(importMoneyLoverFile).mockResolvedValue(null);
-  jest.mocked(restoreBackup).mockResolvedValue(false);
   await render(<SettingsDataActions />);
   await user.press(screen.getByRole('button', { name: label }));
 
@@ -197,21 +160,30 @@ test('CSV export failure can be retried without restarting a different operation
 
   expect(await screen.findByText('Transactions CSV exported.')).toBeOnTheScreen();
   expect(exportTransactionsCsv).toHaveBeenCalledTimes(2);
-  expect(exportBackup).not.toHaveBeenCalled();
+  expect(importMoneyLoverFile).not.toHaveBeenCalled();
   expect(screen.queryByRole('alert')).not.toBeOnTheScreen();
 });
 
-test('CSV export remains pending until the file operation completes', async () => {
+test('Retry stays blocked during a backup and resumes when the backup finishes', async () => {
   const user = userEvent.setup();
-  const completion = Promise.withResolvers<string | null>();
-  jest.mocked(exportTransactionsCsv).mockReturnValue(completion.promise);
+  jest
+    .mocked(exportTransactionsCsv)
+    .mockRejectedValueOnce(new Error('Write failed'))
+    .mockResolvedValueOnce('content://csv');
   await render(<SettingsDataActions />);
   await user.press(screen.getByRole('button', { name: 'Export transactions CSV' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'Export transactions CSV failed. Write failed',
+  );
 
-  expect(screen.getByRole('button', { name: 'Export transactions CSV' })).toBeBusy();
-  expect(screen.queryByText('Transactions CSV exported.')).not.toBeOnTheScreen();
-  await act(async () => completion.resolve('content://csv'));
+  await user.press(screen.getByRole('button', { name: 'Start backup' }));
+  expect(screen.getByRole('button', { name: 'Retry' })).toBeDisabled();
+  await user.press(screen.getByRole('button', { name: 'Retry' }));
+  expect(exportTransactionsCsv).toHaveBeenCalledTimes(1);
 
+  await user.press(screen.getByRole('button', { name: 'Finish backup' }));
+  expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled();
+  await user.press(screen.getByRole('button', { name: 'Retry' }));
   expect(await screen.findByText('Transactions CSV exported.')).toBeOnTheScreen();
-  expect(screen.getByRole('button', { name: 'Export transactions CSV' })).toBeEnabled();
+  expect(exportTransactionsCsv).toHaveBeenCalledTimes(2);
 });
