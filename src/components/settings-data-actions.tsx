@@ -1,29 +1,28 @@
+import { BackupSettings } from '@/components/backup-settings';
+import { SettingsGroup, SettingsRow } from '@/components/settings-controls';
 import { FormButton } from '@/components/form-controls';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Stack } from 'expo-router';
 import { usePreventRemove } from 'expo-router/react-navigation';
-import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native';
-import { exportBackup, restoreBackup } from '@/lib/backup';
-import { backupDocuments, backupStore } from '@/lib/backup-adapter';
+import { ActivityIndicator, Alert, Text, View } from 'react-native';
 import { exportTransactionsCsv } from '@/lib/export-csv';
 import { importMoneyLoverFile } from '@/lib/import-csv';
 import { theme } from '@/theme';
 
-const { colors, spacing, radius } = theme;
-type Operation = 'backup' | 'restore' | 'export' | 'import';
+const { colors, spacing } = theme;
+type Operation = 'export' | 'import';
 type Status = {
   operation: Operation;
   kind: 'pending' | 'success' | 'cancelled' | 'error';
   message: string;
 };
 const labels: Record<Operation, string> = {
-  backup: 'Create backup',
-  restore: 'Restore from file',
   export: 'Export transactions CSV',
   import: 'Import from MoneyLover',
 };
 
 export function SettingsDataActions({ onBusyChange }: { onBusyChange?: (busy: boolean) => void }) {
+  const [backupBusy, setBackupBusy] = useState(false);
   const [status, setStatus] = useState<Status>();
   const locked = useRef(false);
   const active = useRef(true);
@@ -33,7 +32,7 @@ export function SettingsDataActions({ onBusyChange }: { onBusyChange?: (busy: bo
       active.current = false;
     };
   }, []);
-  const busy = status?.kind === 'pending';
+  const busy = status?.kind === 'pending' || backupBusy;
   useEffect(() => {
     onBusyChange?.(busy);
   }, [busy, onBusyChange]);
@@ -48,11 +47,11 @@ export function SettingsDataActions({ onBusyChange }: { onBusyChange?: (busy: bo
     if (active.current) setStatus(next);
   }
   async function run(operation: Operation) {
-    if (locked.current || !active.current) return;
+    if (locked.current || backupBusy || !active.current) return;
     locked.current = true;
     update({ operation, kind: 'pending', message: `${labels[operation]} in progress…` });
     let cancelled = false;
-    const confirm = (title: string, message: string, confirmLabel: string, destructive = false) =>
+    const confirm = (title: string, message: string, confirmLabel: string) =>
       new Promise<boolean>((resolve) => {
         Alert.alert(
           title,
@@ -61,7 +60,7 @@ export function SettingsDataActions({ onBusyChange }: { onBusyChange?: (busy: bo
             { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
             {
               text: confirmLabel,
-              style: destructive ? 'destructive' : 'default',
+              style: 'default',
               onPress: () => resolve(active.current),
             },
           ],
@@ -70,21 +69,7 @@ export function SettingsDataActions({ onBusyChange }: { onBusyChange?: (busy: bo
       });
     try {
       let message: string;
-      if (operation === 'restore') {
-        update({ operation, kind: 'pending', message: 'Choose a backup file…' });
-        cancelled = !(await restoreBackup(backupStore, backupDocuments, async (name) => {
-          update({ operation, kind: 'pending', message: 'Waiting for restore confirmation…' });
-          const accepted = await confirm(
-            'Replace all current data?',
-            `Selected: ${name}\n\nYour current accounts, transactions and other data will be replaced by this backup. This cannot be undone. Create a backup first if you want to keep your current data.`,
-            'Replace data',
-            true,
-          );
-          if (accepted) update({ operation, kind: 'pending', message: 'Restoring backup…' });
-          return accepted;
-        }));
-        message = 'Backup restored. Current data has been replaced.';
-      } else if (operation === 'import') {
+      if (operation === 'import') {
         const count = await importMoneyLoverFile(async (names) => {
           const accepted = await confirm(
             'Mixed categories',
@@ -97,12 +82,9 @@ export function SettingsDataActions({ onBusyChange }: { onBusyChange?: (busy: bo
         cancelled = cancelled || count === null;
         message = `${count ?? 0} transaction${count === 1 ? '' : 's'} imported.`;
       } else {
-        const uri =
-          operation === 'backup'
-            ? await exportBackup(backupStore, backupDocuments)
-            : await exportTransactionsCsv();
+        const uri = await exportTransactionsCsv();
         cancelled = uri === null;
-        message = operation === 'backup' ? 'Backup saved.' : 'Transactions CSV exported.';
+        message = 'Transactions CSV exported.';
       }
       update({
         operation,
@@ -125,25 +107,14 @@ export function SettingsDataActions({ onBusyChange }: { onBusyChange?: (busy: bo
     const current = status?.operation === operation ? status : undefined;
     return (
       <View style={{ borderTopWidth: first ? 0 : 1, borderColor: colors.line }}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={labels[operation]}
-          accessibilityState={{ disabled: busy, busy: current?.kind === 'pending' }}
+        <SettingsRow
+          first
+          label={labels[operation]}
+          description={description}
           disabled={busy}
+          loading={current?.kind === 'pending'}
           onPress={() => void run(operation)}
-          style={({ pressed }) => ({
-            minHeight: theme.controlHeight,
-            paddingHorizontal: spacing.lg,
-            paddingVertical: spacing.md,
-            gap: spacing.xs,
-            opacity: busy ? 0.45 : pressed ? 0.6 : 1,
-          })}
-        >
-          <Text style={{ color: colors.text, fontSize: theme.type.body }}>{labels[operation]}</Text>
-          <Text style={{ color: colors.muted, fontSize: theme.type.caption, lineHeight: 18 }}>
-            {description}
-          </Text>
-        </Pressable>
+        />
         {current && (
           <View
             accessibilityLiveRegion="polite"
@@ -162,7 +133,12 @@ export function SettingsDataActions({ onBusyChange }: { onBusyChange?: (busy: bo
               {current.message}
             </Text>
             {current.kind === 'error' && (
-              <FormButton label="Retry" variant="secondary" onPress={() => void run(operation)} />
+              <FormButton
+                label="Retry"
+                variant="secondary"
+                disabled={busy}
+                onPress={() => void run(operation)}
+              />
             )}
             {busy && (
               <Text style={{ color: colors.muted, fontSize: theme.type.caption }}>
@@ -177,47 +153,11 @@ export function SettingsDataActions({ onBusyChange }: { onBusyChange?: (busy: bo
   return (
     <>
       <Stack.Screen options={{ gestureEnabled: !busy }} />
-      <SettingsGroup title="Backup & restore">
-        {action('backup', 'Save a complete copy of your data', true)}
-        {action('restore', 'Replace current data with a backup')}
-      </SettingsGroup>
+      <BackupSettings disabled={busy} onBusyChange={setBackupBusy} />
       <SettingsGroup title="Import & export">
         {action('export', 'For spreadsheets; not a full backup', true)}
         {action('import', 'Bring in your transaction history')}
       </SettingsGroup>
     </>
-  );
-}
-
-export function SettingsGroup({
-  title,
-  children,
-  clipContent = true,
-}: {
-  title: string;
-  children: ReactNode;
-  clipContent?: boolean;
-}) {
-  return (
-    <View style={{ gap: spacing.sm }}>
-      <Text
-        accessibilityRole="header"
-        style={{ color: colors.muted, fontSize: theme.type.body, fontWeight: '700' }}
-      >
-        {title}
-      </Text>
-      <View
-        style={{
-          backgroundColor: colors.surface,
-          borderRadius: radius.group,
-          borderCurve: 'continuous',
-          borderWidth: 1,
-          borderColor: colors.line,
-          overflow: clipContent ? 'hidden' : 'visible',
-        }}
-      >
-        {children}
-      </View>
-    </View>
   );
 }

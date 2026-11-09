@@ -310,15 +310,24 @@ export interface BackupDocuments {
   readText(uri: string): Promise<string>;
 }
 
+let pendingBackupOperation: Promise<unknown> = Promise.resolve();
+export function serializeBackupOperation<T>(job: () => Promise<T>): Promise<T> {
+  const result = pendingBackupOperation.then(job);
+  pendingBackupOperation = result.catch(() => {});
+  return result;
+}
+
 export async function exportBackup(
   store: BackupStore,
   documents: BackupDocuments,
   name = 'expense-backup.json',
 ): Promise<string | null> {
-  const json = encodeBackup(await store.snapshot());
-  const uri = await documents.createJsonDocument(name);
-  if (uri !== null) await documents.writeText(uri, json);
-  return uri;
+  return serializeBackupOperation(async () => {
+    const json = encodeBackup(await store.snapshot());
+    const uri = await documents.createJsonDocument(name);
+    if (uri !== null) await documents.writeText(uri, json);
+    return uri;
+  });
 }
 
 export async function restoreBackup(
@@ -326,10 +335,12 @@ export async function restoreBackup(
   documents: BackupDocuments,
   confirm: (name: string) => Promise<boolean>,
 ): Promise<boolean> {
-  const document = await documents.pickJsonDocument();
-  if (document === null) return false;
-  const data = decodeBackup(await documents.readText(document.uri));
-  if (!(await confirm(document.name))) return false;
-  await store.replace(data);
-  return true;
+  return serializeBackupOperation(async () => {
+    const document = await documents.pickJsonDocument();
+    if (document === null) return false;
+    const data = decodeBackup(await documents.readText(document.uri));
+    if (!(await confirm(document.name))) return false;
+    await store.replace(data);
+    return true;
+  });
 }

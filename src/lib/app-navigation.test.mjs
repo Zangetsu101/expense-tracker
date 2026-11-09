@@ -14,6 +14,9 @@ const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const root = new URL('../../', import.meta.url);
 const mocks = {
+  '@expo/ui': `import React from 'react';export const Host='Host',Column='Column',Text='Text';export const Button=({label,onPress,children})=>React.createElement('Pressable',{accessibilityLabel:label,onPress},children);export const BottomSheet=({isPresented,children})=>isPresented?React.createElement('BottomSheet',null,children):null;`,
+  '@/lib/scheduled-backup-adapter': `export const scheduledBackups={status:async()=>({interval:'off',directoryUri:null,lastSuccess:null,lastError:null,files:[]})};export const chooseScheduledBackupFolder=async()=>null;`,
+  '@/lib/backup-background-task': `export const reconcileBackupTask=async()=>null,subscribeBackupSchedule=()=>()=>{},configureBackupSchedule=async()=>{},runScheduledBackup=async()=>{};`,
   '@/lib/category-prediction-history': `export const listCategoryEvidence=async()=>[];`,
   'expo-haptics': `export const AndroidHaptics={Keyboard_Tap:'keyboard'},ImpactFeedbackStyle={Light:'light'}; export const performAndroidHapticsAsync=async()=>{},impactAsync=async()=>{};`,
   'react-native-reanimated': `import {useRef} from 'react'; export default {View:'AnimatedView'}; export const Easing={out:x=>x,cubic:x=>x},ReduceMotion={System:'system'}; const builder={delay:()=>builder,duration:()=>builder,easing:()=>builder,withInitialValues:()=>builder,reduceMotion:()=>builder}; export const FadeInUp=builder; export const useSharedValue=value=>{const v=useRef({value}).current;v.get??=()=>v.value;v.set??=x=>{v.value=x};return v},useAnimatedStyle=fn=>fn(),withTiming=value=>value;`,
@@ -25,7 +28,7 @@ const mocks = {
   '@/lib/export-csv': `export const exportTransactionsCsv=async()=>null;`,
   '@/lib/import-csv': `export const importMoneyLoverFile=async()=>null;`,
   '@/components/app-updates': `export const UpdatesRow='UpdatesRow';`,
-  'react-native': `import React from 'react'; export const BackHandler={addEventListener:()=>({remove(){}})}; export const Keyboard={dismiss() {}}; export const KeyboardAvoidingView='KeyboardAvoidingView',View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator'; export const FlatList=p=>React.createElement('FlatList',null,p.ListHeaderComponent,p.ListFooterComponent); export const Alert={alert(){}}; export const AppState={currentState:'active',addEventListener:(_,fn)=>{globalThis.__navTest.lifecycle=fn;return {remove(){}}}};`,
+  'react-native': `import React from 'react';export const useWindowDimensions=()=>({width:390,height:844});export const Platform={OS:'android'}; export const BackHandler={addEventListener:()=>({remove(){}})}; export const Keyboard={dismiss() {}}; export const KeyboardAvoidingView='KeyboardAvoidingView',View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator'; export const FlatList=p=>React.createElement('FlatList',null,p.ListHeaderComponent,p.ListFooterComponent); export const Alert={alert(){}}; export const AppState={currentState:'active',addEventListener:(_,fn)=>{globalThis.__navTest.lifecycle=fn;return {remove(){}}}};`,
   'expo-router': `import {useEffect} from 'react'; const s=globalThis.__navTest; export const useFocusEffect=fn=>useEffect(fn,[fn]); export const useLocalSearchParams=()=>({}); export const router={push:h=>s.calls.push(['push',h]),replace:h=>s.calls.push(['replace',h]),back:()=>s.calls.push(['back'])}; export const Link=({children})=>children; export const Stack={Screen:p=>{s.header={...s.header,...p.options};return null}};`,
   'expo-router/react-navigation': `export const useHeaderHeight=()=>88; export const useNavigation=()=>({dispatch(){}}); export const usePreventRemove=()=>{};`,
   'expo-status-bar': `export const StatusBar=()=>null;`,
@@ -247,7 +250,8 @@ test('app navigation', async (t) => {
       assert.ok(pressable(label));
     assert.ok(!texts().includes('Import, export and backup'));
     await press('Create backup');
-    assert.ok(texts().includes('Backup saved.'));
+    await press('Choose a location…');
+    assert.ok(texts().includes('Extra copy saved elsewhere.'));
     await press('Review transfer candidates');
     assert.deepEqual(state.calls, [['push', '/review-queue']]);
   });
@@ -262,6 +266,7 @@ test('app navigation', async (t) => {
       try {
         await mount(Settings);
         await press('Create backup');
+        await press('Choose a location…');
         assert.equal(pressable('Lending & borrowing').props.disabled, true);
         assert.equal(pressable('Review transfer candidates').props.disabled, true);
         const blocked = renderer.root

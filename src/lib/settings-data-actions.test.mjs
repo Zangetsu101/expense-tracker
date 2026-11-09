@@ -12,19 +12,25 @@ const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const root = new URL('../../', import.meta.url);
 const mocks = {
+  '@/components/loading': `export const Skeleton='Skeleton';`,
+  '@/components/backup-settings': `export const BackupSettings=(props)=>{globalThis.__dataTools.backupControls=props;return null;};`,
   'react-native': `export const View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator';export const Alert={alert:(...args)=>globalThis.__dataTools.alerts.push(args)};`,
   'expo-router': `export const Stack={Screen:()=>null};`,
   'expo-router/react-navigation': `export function usePreventRemove(busy,callback){globalThis.__dataTools.navigation={busy,callback}}`,
   'react-native-safe-area-context': `export const useSafeAreaInsets=()=>({bottom:0});`,
-  '@/lib/backup-adapter': `export const backupStore={},backupDocuments={};`,
-  '@/lib/backup': `export const exportBackup=(...args)=>{const s=globalThis.__dataTools;s.calls.push(['backup',...args]);return s.backup()};export const restoreBackup=(...args)=>{const s=globalThis.__dataTools;s.calls.push(['restore',...args]);return s.restore(args[2])};`,
   '@/lib/export-csv': `export const exportTransactionsCsv=()=>{const s=globalThis.__dataTools;s.calls.push(['export']);return s.export()};`,
   '@/lib/import-csv': `export const importMoneyLoverFile=(confirm)=>{const s=globalThis.__dataTools;s.calls.push(['import']);return s.import(confirm)};`,
 };
 const hooks = registerHooks({
   resolve(specifier, context, next) {
-    if (specifier === '@/components/form-controls')
-      return { url: new URL('src/components/form-controls.tsx', root).href, shortCircuit: true };
+    if (
+      specifier === '@/components/form-controls' ||
+      specifier === '@/components/settings-controls'
+    )
+      return {
+        url: new URL(specifier.replace('@/', 'src/') + '.tsx', root).href,
+        shortCircuit: true,
+      };
     if (specifier in mocks) return { url: `tools-mock:${specifier}`, shortCircuit: true };
     if (specifier === '@/theme')
       return { url: new URL('src/theme.ts', root).href, shortCircuit: true };
@@ -78,9 +84,7 @@ const choose = (label) =>
 async function mount() {
   state.alerts = [];
   state.calls = [];
-  state.backup = async () => 'content://backup';
   state.export = async () => 'content://csv';
-  state.restore = async (confirm) => confirm('saved.json');
   state.import = async () => 7;
   await act(async () => {
     renderer = create(React.createElement(Screen));
@@ -96,60 +100,26 @@ test('Settings data actions', async (t) => {
     if (previousActEnvironment === undefined) delete globalThis.IS_REACT_ACT_ENVIRONMENT;
     else globalThis.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
   });
-  await t.test(
-    'restore confirms the validated filename and Cancel does not replace data',
-    async () => {
-      await mount();
-      await press('Restore from file');
-      assert.equal(state.calls.length, 1);
-      assert.equal(state.navigation.busy, true);
-      assert.match(state.alerts.at(-1)[1], /saved.json/);
-      await choose('Cancel');
-      assert.equal(state.calls.length, 1);
-      assert.match(text(), /Restore from file cancelled/);
-      await press('Restore from file');
-      await choose('Replace data');
-      assert.equal(state.calls[0][0], 'restore');
-      assert.match(text(), /Current data has been replaced/);
-    },
-  );
-  await t.test(
-    'decode failure stays visible, retry works, pending blocks duplicates and leaving',
-    async () => {
-      await mount();
-      state.restore = async () => {
-        throw new Error('Invalid backup');
-      };
-      await press('Restore from file');
-      assert.equal(state.alerts.length, 0);
-      assert.match(text(), /failed\. Invalid backup/);
-      let finish;
-      state.restore = () =>
-        new Promise((resolve) => {
-          finish = resolve;
-        });
-      await press('Retry');
-      assert.equal(state.calls.length, 2);
-      assert.equal(button('Create backup').props.disabled, true);
-      await press('Restore from file');
-      assert.equal(state.calls.length, 2);
-      await act(async () => state.navigation.callback());
-      assert.equal(state.alerts.at(-1)[0], 'Operation in progress');
-      await act(async () => finish(true));
-      assert.equal(state.navigation.busy, false);
-      assert.match(text(), /Backup restored/);
-    },
-  );
-  await t.test('picker cancellation is never success for all four operations', async () => {
+  await t.test('manual retry cannot start while a backup operation is busy', async () => {
     await mount();
-    state.backup = state.export = state.import = async () => null;
-    state.restore = async () => false;
-    for (const label of [
-      'Create backup',
-      'Export transactions CSV',
-      'Import from MoneyLover',
-      'Restore from file',
-    ]) {
+    state.export = async () => {
+      throw new Error('write failed');
+    };
+    await press('Export transactions CSV');
+    const calls = state.calls.length;
+    await act(async () => state.backupControls.onBusyChange(true));
+    assert.equal(button('Retry').props.disabled, true);
+    await press('Retry');
+    assert.equal(state.calls.length, calls);
+    await act(async () => state.backupControls.onBusyChange(false));
+    state.export = async () => 'uri';
+    await press('Retry');
+    assert.match(text(), /Transactions CSV exported/);
+  });
+  await t.test('picker cancellation is never success for import or export', async () => {
+    await mount();
+    state.export = state.import = async () => null;
+    for (const label of ['Export transactions CSV', 'Import from MoneyLover']) {
       await press(label);
       assert.match(text(), new RegExp(`${label} cancelled`));
       assert.doesNotMatch(text(), /created\.|exported\.|imported\.|has been replaced/);
@@ -185,8 +155,6 @@ test('Settings data actions', async (t) => {
         await press('Import from MoneyLover');
         assert.ok(text().includes(`${count} transaction${count === 1 ? '' : 's'} imported.`));
       }
-      await press('Create backup');
-      assert.match(text(), /Backup saved/);
       await press('Export transactions CSV');
       assert.match(text(), /Transactions CSV exported/);
       state.export = async () => {
