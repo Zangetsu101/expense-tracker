@@ -79,8 +79,9 @@ function setup(email: string | null = 'you@example.com') {
   let snapshots = 0;
   const replaced: unknown[] = [];
   const signIn = jest.fn(async () => {
-    if (email) google.useAccount(email);
-    return email;
+    if (!email) return null;
+    google.useAccount(email);
+    return { email, photo: `https://photos.example/${email}` };
   });
   const deps = {
     load: jest.fn(async () => structuredClone(state)),
@@ -128,6 +129,7 @@ describe('first connect', () => {
     expect(result.kind).toBe('connected');
     expect(s.state()).toMatchObject({
       account: 'you@example.com',
+      photo: 'https://photos.example/you@example.com',
       interval: 'daily',
       awaitingChoice: false,
       lastError: null,
@@ -203,6 +205,26 @@ describe('first connect', () => {
     expect(kept).toMatchObject({ interval: 'daily', awaitingChoice: false, lastError: null });
     expect(kept.files).toHaveLength(7);
     expect(s.google.files.has(oldest)).toBe(false);
+  });
+
+  test('a file restore while backups wait for a choice keeps the restored data', async () => {
+    const s = await connected();
+    await s.backups.disconnect();
+    await s.backups.connect();
+    s.setLive(backupJson(5));
+    s.advance(day);
+    const kept = await s.backups.fileRestored();
+    expect(kept).toMatchObject({ interval: 'daily', awaitingChoice: false, lastSuccess: s.now() });
+    expect(kept.files).toHaveLength(2);
+    expect(s.google.files.get(kept.files[1].id)?.transactions).toBe(5);
+  });
+
+  test('a file restore with a running schedule waits for the next due backup', async () => {
+    const s = await connected();
+    const before = s.state();
+    s.advance(day / 2);
+    expect(await s.backups.fileRestored()).toEqual(before);
+    expect(s.snapshots()).toBe(1);
   });
 });
 
@@ -357,8 +379,15 @@ describe('failures', () => {
     };
     s.advance(day);
     const cleanupFailure = await s.backups.runDue();
-    expect(cleanupFailure.lastError?.message).toMatch(/^Backup saved, but/);
+    expect(cleanupFailure).toMatchObject({ lastError: null, removalError: 'offline' });
     expect(cleanupFailure.files).toHaveLength(8);
+
+    s.google.drive.remove = async (id) => {
+      s.google.files.delete(id);
+    };
+    s.advance(day);
+    expect(await s.backups.runDue()).toMatchObject({ removalError: null });
+    expect(s.state().files).toHaveLength(7);
   });
 
   test('a failed metadata save never removes recovery points, and the queue recovers', async () => {

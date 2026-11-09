@@ -1,13 +1,13 @@
 import { BottomSheet, Button, Column, Host, Text as NativeText } from '@expo/ui';
 import { useEffect, useEffectEvent, useRef, useState } from 'react';
-import { Alert, Platform, Text, View, useWindowDimensions } from 'react-native';
+import { Alert, Image, Platform, Text, View, useWindowDimensions } from 'react-native';
 import { FormButton } from '@/components/form-controls';
 import { Skeleton } from '@/components/loading';
 import { SettingsGroup, SettingsRow } from '@/components/settings-controls';
 import { restoreBackup, shareBackup } from '@/lib/backup';
 import { backupDocuments, backupStore } from '@/lib/backup-adapter';
 import {
-  changeBackups,
+  withBackupChangeNotice,
   reconcileBackupTask,
   runScheduledBackup,
   subscribeBackupSchedule,
@@ -20,6 +20,13 @@ import { theme } from '@/theme';
 type Operation =
   'connect' | 'backup' | 'share' | 'restore' | 'list' | 'keep' | 'schedule' | 'disconnect';
 type Sheet = 'schedule' | 'account' | 'restore' | 'found';
+const sheetTitles: Record<Sheet, string> = {
+  schedule: 'Backup schedule',
+  account: 'Google Drive',
+  found: 'Backups found in Google Drive',
+  restore: 'Restore a backup',
+};
+const restoredMessage = 'Backup restored. Current data has been replaced.';
 const progressMessages: Record<Operation, string> = {
   connect: 'Connecting to Google Drive…',
   backup: 'Backing up to Google Drive…',
@@ -36,6 +43,36 @@ const intervals: { value: BackupInterval; label: string }[] = [
   { value: 'weekly', label: 'Weekly' },
 ];
 const caption = { color: theme.colors.muted, fontSize: theme.type.caption, lineHeight: 18 };
+const avatarSize = 40;
+
+function AccountAvatar({ email, photo }: { email: string; photo: string | null }) {
+  const circle = { width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2 };
+  if (photo)
+    return (
+      <Image
+        accessible
+        accessibilityRole="image"
+        accessibilityLabel="Profile photo"
+        source={{ uri: photo }}
+        style={circle}
+      />
+    );
+  return (
+    <View
+      importantForAccessibility="no-hide-descendants"
+      style={{
+        ...circle,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: theme.colors.accent,
+      }}
+    >
+      <Text style={{ color: theme.colors.text, fontSize: theme.type.body, fontWeight: '600' }}>
+        {email.charAt(0).toUpperCase()}
+      </Text>
+    </View>
+  );
+}
 
 function BackupChoice({
   label,
@@ -171,7 +208,7 @@ export function BackupSettings({
 
   function connect() {
     void run('connect', async () => {
-      const result = await changeBackups(() => driveBackups.connect());
+      const result = await withBackupChangeNotice(() => driveBackups.connect());
       if (result.kind === 'backupsFound') {
         setBackups([...result.backups].sort((a, b) => b.createdAt - a.createdAt));
         show('found');
@@ -191,8 +228,9 @@ export function BackupSettings({
       const restored = await restoreBackup(backupStore, backupDocuments, (name) =>
         confirmReplace(name, active),
       );
-      if (restored && active.current)
-        setFeedback('Backup restored. Current data has been replaced.');
+      if (!restored) return;
+      if (connected) await withBackupChangeNotice(() => driveBackups.fileRestored());
+      if (active.current) setFeedback(restoredMessage);
     });
   }
   function openDriveBackups(next: Sheet) {
@@ -203,28 +241,27 @@ export function BackupSettings({
   }
   function restoreDrive(backup: DriveBackupListing) {
     void run('restore', async () => {
-      const restored = await changeBackups(() =>
+      const restored = await withBackupChangeNotice(() =>
         driveBackups.restore(backup, () =>
           confirmReplace(`Google Drive backup from ${backupTime(backup.createdAt)}`, active),
         ),
       );
-      if (restored && active.current)
-        setFeedback('Backup restored. Current data has been replaced.');
+      if (restored && active.current) setFeedback(restoredMessage);
     });
   }
   function keepLocalData() {
     void run('keep', async () => {
-      await changeBackups(() => driveBackups.keepLocalData());
+      await withBackupChangeNotice(() => driveBackups.keepLocalData());
     });
   }
   function changeInterval(interval: BackupInterval) {
     void run('schedule', async () => {
-      await changeBackups(() => driveBackups.setInterval(interval));
+      await withBackupChangeNotice(() => driveBackups.setInterval(interval));
     });
   }
   function disconnect() {
     void run('disconnect', async () => {
-      await changeBackups(() => driveBackups.disconnect());
+      await withBackupChangeNotice(() => driveBackups.disconnect());
     });
   }
 
@@ -293,19 +330,22 @@ export function BackupSettings({
               <FormButton label="Retry" variant="secondary" onPress={() => void refresh()} />
             ) : connected ? (
               <>
-                <View style={{ gap: theme.spacing.xs }}>
-                  <Text style={{ color: theme.colors.text, fontSize: theme.type.body }}>
-                    {state.account}
-                  </Text>
-                  <Text
-                    accessibilityRole={status?.warning ? 'alert' : undefined}
-                    style={{
-                      ...caption,
-                      color: status?.warning ? theme.colors.warning : theme.colors.muted,
-                    }}
-                  >
-                    {status?.text}
-                  </Text>
+                <View style={{ flexDirection: 'row', gap: theme.spacing.md }}>
+                  <AccountAvatar email={state.account ?? ''} photo={state.photo} />
+                  <View style={{ flex: 1, gap: theme.spacing.xs }}>
+                    <Text style={{ color: theme.colors.text, fontSize: theme.type.body }}>
+                      {state.account}
+                    </Text>
+                    <Text
+                      accessibilityRole={status?.warning ? 'alert' : undefined}
+                      style={{
+                        ...caption,
+                        color: status?.warning ? theme.colors.warning : theme.colors.muted,
+                      }}
+                    >
+                      {status?.text}
+                    </Text>
+                  </View>
                 </View>
                 <FormButton
                   label={status ? actionLabels[status.action] : 'Back up now'}
@@ -394,13 +434,7 @@ export function BackupSettings({
               }}
               style={{ padding: theme.spacing.lg }}
             >
-              {sheet === 'schedule'
-                ? 'Backup schedule'
-                : sheet === 'account'
-                  ? 'Google Drive'
-                  : sheet === 'found'
-                    ? 'Backups found in Google Drive'
-                    : 'Restore a backup'}
+              {sheet ? sheetTitles[sheet] : undefined}
             </NativeText>
             {sheet === 'schedule' &&
               intervals.map((item) => (

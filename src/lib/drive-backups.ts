@@ -7,6 +7,8 @@ export type DriveBackupListing = DriveBackupFile & { size: number; transactions:
 
 export type DriveBackupState = {
   account: string | null;
+  /** The URL of the Google account photo. */
+  photo: string | null;
   folderId: string | null;
   interval: BackupInterval;
   connectedAt: number | null;
@@ -14,20 +16,26 @@ export type DriveBackupState = {
   lastError: { kind: BackupFailureKind; message: string } | null;
   /** Drive had backups at first connect; nothing runs until the user chooses. */
   awaitingChoice: boolean;
-  attempt?: number;
+  /** The last backup succeeded, but older backups could not be removed. */
+  removalError: string | null;
   files: DriveBackupFile[];
 };
 
 export const disconnectedState: DriveBackupState = {
   account: null,
+  photo: null,
   folderId: null,
   interval: 'off',
   connectedAt: null,
   lastSuccess: null,
   lastError: null,
   awaitingChoice: false,
+  removalError: null,
   files: [],
 };
+
+export const accessRemovedMessage =
+  'Google Drive access was removed. Reconnect to keep backing up.';
 
 export class DriveError extends Error {
   constructor(
@@ -54,8 +62,8 @@ export interface DriveFolder {
 export interface DriveBackupDependencies {
   load(): Promise<DriveBackupState>;
   save(state: DriveBackupState): Promise<void>;
-  /** Interactive sign-in. Returns the account email, or null when the user cancels. */
-  signIn(): Promise<string | null>;
+  /** Interactive sign-in. Returns null when the user cancels. */
+  signIn(): Promise<{ email: string; photo: string | null } | null>;
   signOut(): Promise<void>;
   drive: DriveFolder;
   snapshot(): Promise<{ json: string; transactions: number }>;
@@ -103,7 +111,6 @@ export function createDriveBackups(deps: DriveBackupDependencies) {
     )
       return state;
 
-    const attempt = (state.attempt ?? 0) + 1;
     let folderId = state.folderId;
     let uploaded: DriveBackupFile | undefined;
     try {
@@ -121,7 +128,7 @@ export function createDriveBackups(deps: DriveBackupDependencies) {
         throw new Error('Backup verification failed.');
     } catch (error) {
       if (uploaded) await drive.remove(uploaded.id).catch(() => {});
-      const failed = { ...state, folderId, attempt, lastError: failureOf(error) };
+      const failed = { ...state, folderId, lastError: failureOf(error) };
       await deps.save(failed);
       return failed;
     }
@@ -129,9 +136,9 @@ export function createDriveBackups(deps: DriveBackupDependencies) {
     let next: DriveBackupState = {
       ...state,
       folderId,
-      attempt,
       lastSuccess: now,
       lastError: null,
+      removalError: null,
       files: [...state.files, uploaded],
     };
     await deps.save(next);
@@ -141,14 +148,7 @@ export function createDriveBackups(deps: DriveBackupDependencies) {
         await drive.remove(file.id);
         next = { ...next, files: next.files.filter((item) => item.id !== file.id) };
       } catch (error) {
-        const { kind, message } = failureOf(error);
-        next = {
-          ...next,
-          lastError: {
-            kind,
-            message: `Backup saved, but an older backup could not be removed. ${message}`,
-          },
-        };
+        next = { ...next, removalError: failureOf(error).message };
       }
     }
     if (excess.length) await deps.save(next);
@@ -172,6 +172,14 @@ export function createDriveBackups(deps: DriveBackupDependencies) {
     };
   }
 
+  /** The user keeps this phone's data: adopt the Drive backups, then back up at once. */
+  async function keep(state: DriveBackupState) {
+    if (!state.folderId) throw new Error('Connect Google Drive first.');
+    const adopted = adopt(state, await drive.list(state.folderId), null);
+    await deps.save(adopted);
+    return run(adopted, true);
+  }
+
   return {
     status: () => serializeBackupOperation(() => deps.load()),
     runDue: (force = false) => serializeBackupOperation(async () => run(await deps.load(), force)),
@@ -179,10 +187,11 @@ export function createDriveBackups(deps: DriveBackupDependencies) {
     connect: () =>
       serializeBackupOperation(async (): Promise<ConnectResult> => {
         const previous = await deps.load();
-        const account = await deps.signIn();
-        if (account === null) return { kind: 'cancelled' };
+        const user = await deps.signIn();
+        if (user === null) return { kind: 'cancelled' };
+        const account = user.email;
         if (account === previous.account && previous.folderId && !previous.awaitingChoice) {
-          const resumed = { ...previous, lastError: null };
+          const resumed = { ...previous, photo: user.photo, lastError: null };
           await deps.save(resumed);
           return { kind: 'connected', state: await run(resumed, false) };
         }
@@ -190,8 +199,8 @@ export function createDriveBackups(deps: DriveBackupDependencies) {
         const backups = await drive.list(folderId);
         const fresh: DriveBackupState = {
           ...disconnectedState,
-          attempt: previous.attempt,
           account,
+          photo: user.photo,
           folderId,
           connectedAt: deps.now(),
           awaitingChoice: backups.length > 0,
@@ -202,13 +211,13 @@ export function createDriveBackups(deps: DriveBackupDependencies) {
         return { kind: 'connected', state: await run(fresh, true) };
       }),
 
-    keepLocalData: () =>
+    keepLocalData: () => serializeBackupOperation(async () => keep(await deps.load())),
+
+    /** A restore from a file while backups wait for a choice counts as keeping this phone's data. */
+    fileRestored: () =>
       serializeBackupOperation(async () => {
         const state = await deps.load();
-        if (!state.folderId) throw new Error('Connect Google Drive first.');
-        const adopted = adopt(state, await drive.list(state.folderId), null);
-        await deps.save(adopted);
-        return run(adopted, true);
+        return state.awaitingChoice ? keep(state) : state;
       }),
 
     listBackups: () =>

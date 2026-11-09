@@ -48,7 +48,7 @@ const hooks = registerHooks({
 // Loading the configured entry must register the task without mounting a route.
 const { main } = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
 await import(main.startsWith('.') ? new URL(`../../${main}`, import.meta.url) : main);
-const { reconcileBackupTask, changeBackups, runScheduledBackup, subscribeBackupSchedule } =
+const { reconcileBackupTask, withBackupChangeNotice, runScheduledBackup, subscribeBackupSchedule } =
   await import('./backup-background-task.ts');
 
 test('background registration follows saved preference and retries native failures', async () => {
@@ -85,7 +85,7 @@ test('restriction is visible while foreground backups remain usable', async () =
   assert.deepEqual(state.calls.at(-1), ['run', true]);
   assert.equal(notifications, 1);
   await assert.rejects(
-    changeBackups(async () => {
+    withBackupChangeNotice(async () => {
       throw new Error('sign-in failed');
     }),
     /sign-in failed/,

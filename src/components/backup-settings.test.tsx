@@ -42,7 +42,7 @@ jest.mock('@expo/ui', () => {
 jest.mock('@/lib/backup', () => ({ shareBackup: jest.fn(), restoreBackup: jest.fn() }));
 jest.mock('@/lib/backup-adapter', () => ({ backupStore: {}, backupDocuments: {} }));
 jest.mock('@/lib/backup-background-task', () => ({
-  changeBackups: (operation: () => Promise<unknown>) => operation(),
+  withBackupChangeNotice: (operation: () => Promise<unknown>) => operation(),
   reconcileBackupTask: jest.fn(),
   runScheduledBackup: jest.fn(),
   subscribeBackupSchedule: jest.fn(),
@@ -52,6 +52,7 @@ jest.mock('@/lib/drive-backup-adapter', () => ({
     status: jest.fn(),
     connect: jest.fn(),
     keepLocalData: jest.fn(),
+    fileRestored: jest.fn(),
     listBackups: jest.fn(),
     restore: jest.fn(),
     setInterval: jest.fn(),
@@ -63,6 +64,7 @@ const day = 24 * 60 * 60 * 1000;
 const connected: DriveBackupState = {
   ...disconnectedState,
   account: 'you@example.com',
+  photo: 'https://photos.example/you.png',
   folderId: 'folder',
   interval: 'daily',
   connectedAt: Date.now() - day,
@@ -76,6 +78,7 @@ const listing = (id: string, daysAgo: number, transactions: number): DriveBackup
   transactions,
 });
 
+const platform = Platform.OS;
 let stored: DriveBackupState;
 let alert: jest.SpyInstance<ReturnType<typeof Alert.alert>, Parameters<typeof Alert.alert>>;
 beforeEach(() => {
@@ -87,7 +90,10 @@ beforeEach(() => {
   jest.mocked(subscribeBackupSchedule).mockReturnValue(() => {});
   alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
 });
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => {
+  jest.restoreAllMocks();
+  Platform.OS = platform;
+});
 
 async function mount(state: DriveBackupState = stored, props: { disabled?: boolean } = {}) {
   stored = structuredClone(state);
@@ -229,9 +235,38 @@ describe('backups found at first connect', () => {
     expect(sheet.getAllByText(/ · 2,3\d\d transactions$/)).toHaveLength(2);
     expect(sheet.getByRole('button', { name: 'Choose a file…' })).toBeOnTheScreen();
   });
+
+  test('restoring a file counts as the choice and turns on the schedule', async () => {
+    const user = await connectToFound();
+    await user.press(button('Choose another backup…'));
+    jest.mocked(restoreBackup).mockResolvedValue(true);
+    jest.mocked(driveBackups.fileRestored).mockImplementation(async () => {
+      stored = connected;
+      return connected;
+    });
+    await user.press(button('Choose a file…'));
+    expect(driveBackups.fileRestored).toHaveBeenCalled();
+    expect(await screen.findByRole('button', { name: 'Schedule' })).toHaveAccessibilityValue({
+      text: 'Daily',
+    });
+    expect(screen.getByText('Backup restored. Current data has been replaced.')).toBeOnTheScreen();
+  });
 });
 
 describe('connected', () => {
+  test('the card shows the Google account photo, or its first letter', async () => {
+    await mount(connected);
+    expect(await screen.findByRole('image', { name: 'Profile photo' })).toHaveProp('source', {
+      uri: 'https://photos.example/you.png',
+    });
+    await screen.unmount();
+
+    await mount({ ...connected, photo: null });
+    // The letter is decorative, so screen readers skip it.
+    expect(await screen.findByText('Y', { includeHiddenElements: true })).toBeOnTheScreen();
+    expect(screen.queryByRole('image', { name: 'Profile photo' })).not.toBeOnTheScreen();
+  });
+
   test('Back up now runs a backup and locks every control while it runs', async () => {
     const { onBusyChange } = await mount(connected);
     const user = userEvent.setup();
@@ -356,13 +391,7 @@ describe('failures', () => {
     });
     await screen.unmount();
 
-    await mount({
-      ...connected,
-      lastError: {
-        kind: 'other',
-        message: 'Backup saved, but an older backup could not be removed.',
-      },
-    });
+    await mount({ ...connected, removalError: 'offline' });
     expect(
       await screen.findByText('Backup saved. Older backups couldn’t be removed.'),
     ).toBeOnTheScreen();

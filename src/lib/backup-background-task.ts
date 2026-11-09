@@ -18,7 +18,7 @@ function notify() {
 }
 
 /** Runs a backup operation, then tells the subscribers that the backup state can be different. */
-export async function changeBackups<T>(operation: () => Promise<T>): Promise<T> {
+export async function withBackupChangeNotice<T>(operation: () => Promise<T>): Promise<T> {
   try {
     return await operation();
   } finally {
@@ -27,7 +27,7 @@ export async function changeBackups<T>(operation: () => Promise<T>): Promise<T> 
 }
 
 export function runScheduledBackup(force = false) {
-  return changeBackups(() => driveBackups.runDue(force));
+  return withBackupChangeNotice(() => driveBackups.runDue(force));
 }
 
 // TaskManager must see the definition when it starts JS without mounting the UI.

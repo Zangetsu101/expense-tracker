@@ -3,6 +3,7 @@ import { encodeBackup } from '@/lib/backup';
 import { backupStore } from '@/lib/backup-adapter';
 import { database } from '@/lib/database';
 import {
+  accessRemovedMessage,
   createDriveBackups,
   disconnectedState,
   DriveError,
@@ -12,7 +13,8 @@ import { createGoogleDrive } from '@/lib/google-drive';
 
 const settingsKey = 'driveBackups';
 const driveScope = 'https://www.googleapis.com/auth/drive.file';
-const accessRemoved = 'Google Drive access was removed. Reconnect to keep backing up.';
+/** Google Play services reports CommonStatusCodes.NETWORK_ERROR when the phone is offline. */
+const playServicesNetworkError = '7';
 
 let configured = false;
 /** The background task starts JavaScript without the UI, so each entry point configures. */
@@ -29,16 +31,17 @@ function codeOf(error: unknown) {
 }
 function signInFailure(error: unknown): DriveError {
   const message = error instanceof Error ? error.message : String(error);
-  // Google Play services reports CommonStatusCodes.NETWORK_ERROR (7) when the phone is offline.
-  if (codeOf(error) === '7' || /network/i.test(message)) return new DriveError('network', message);
-  return new DriveError('auth', accessRemoved);
+  if (codeOf(error) === playServicesNetworkError || /network/i.test(message))
+    return new DriveError('network', message);
+  return new DriveError('auth', accessRemovedMessage);
 }
 
 async function accessToken() {
   const signIn = google();
   try {
     const silent = await signIn.signInSilently();
-    if (silent.type === 'noSavedCredentialFound') throw new DriveError('auth', accessRemoved);
+    if (silent.type === 'noSavedCredentialFound')
+      throw new DriveError('auth', accessRemovedMessage);
     if (!silent.data.scopes.includes(driveScope))
       throw new DriveError('auth', 'Allow Expense Tracker to use Google Drive, then reconnect.');
     return (await signIn.getTokens()).accessToken;
@@ -54,7 +57,8 @@ export const driveBackups = createDriveBackups({
     ).getFirstAsync<{ value: string }>('SELECT value FROM app_settings WHERE key = ?', [
       settingsKey,
     ]);
-    return row ? (JSON.parse(row.value) as DriveBackupState) : { ...disconnectedState };
+    // A row from an older version has no newer fields, so those fields get the defaults.
+    return { ...disconnectedState, ...(row && (JSON.parse(row.value) as DriveBackupState)) };
   },
   async save(state) {
     await (
@@ -74,7 +78,7 @@ export const driveBackups = createDriveBackups({
       if (result.type === 'cancelled') return null;
       if (!result.data.scopes.includes(driveScope))
         throw new Error('Allow Expense Tracker to use Google Drive to turn on backups.');
-      return result.data.user.email;
+      return { email: result.data.user.email, photo: result.data.user.photo };
     } catch (error) {
       if (codeOf(error) === statusCodes.SIGN_IN_CANCELLED) return null;
       throw error;

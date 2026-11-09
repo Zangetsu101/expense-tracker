@@ -54,17 +54,20 @@ test.each([
     'retry',
   ],
   [
-    { kind: 'network', message: 'Backup saved, but an older backup could not be removed. offline' },
-    'Backup saved. Older backups couldn’t be removed.',
-    'backup',
-  ],
-  [
     { kind: 'other', message: 'Backup verification failed.' },
     'Backup couldn’t be saved. Backup verification failed.',
     'retry',
   ],
 ] as const)('%j shows a warning', (lastError, text, action) => {
   expect(backupStatus({ ...connected, lastError }, now)).toEqual({ text, warning: true, action });
+});
+
+test('a backup that could not remove older backups is a warning', () => {
+  expect(backupStatus({ ...connected, removalError: 'offline' }, now)).toEqual({
+    text: 'Backup saved. Older backups couldn’t be removed.',
+    warning: true,
+    action: 'backup',
+  });
 });
 
 test('backups found at connect ask the user to review them', () => {

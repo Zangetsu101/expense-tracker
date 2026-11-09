@@ -1,4 +1,4 @@
-import { needsAttention, type DriveBackupState } from '@/lib/drive-backups';
+import { accessRemovedMessage, needsAttention, type DriveBackupState } from '@/lib/drive-backups';
 
 export function backupTime(timestamp: number | null, now = new Date()): string {
   if (timestamp === null) return 'Never';
@@ -31,18 +31,14 @@ export function backupStatus(state: DriveBackupState, now = new Date()): BackupS
       action: 'review',
     };
   if (error?.kind === 'auth')
-    return {
-      text: 'Google Drive access was removed. Reconnect to keep backing up.',
-      warning: true,
-      action: 'reconnect',
-    };
+    return { text: accessRemovedMessage, warning: true, action: 'reconnect' };
   if (error?.kind === 'quota')
     return {
       text: 'Your Google Drive is full. Free up space, then retry.',
       warning: true,
       action: 'retry',
     };
-  if (error?.message.startsWith('Backup saved, but'))
+  if (state.removalError !== null)
     return {
       text: 'Backup saved. Older backups couldn’t be removed.',
       warning: true,

@@ -19,6 +19,7 @@ const healthy: DriveBackupState = {
   connectedAt: Date.now() - 10 * day,
   lastSuccess: Date.now(),
 };
+const platform = Platform.OS;
 let stored: DriveBackupState;
 let changed: () => void;
 let appState: (state: AppStateStatus) => void;
@@ -35,7 +36,10 @@ beforeEach(() => {
     return { remove: jest.fn() };
   });
 });
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => {
+  jest.restoreAllMocks();
+  Platform.OS = platform;
+});
 
 test('no banner while backups are healthy or only waiting for internet', async () => {
   stored = { ...healthy, lastError: { kind: 'network', message: 'offline' } };
