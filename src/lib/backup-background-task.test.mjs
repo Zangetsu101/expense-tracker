@@ -5,6 +5,7 @@ import { test } from 'node:test';
 
 const state = {
   interval: 'off',
+  account: 'you@example.com',
   registered: false,
   available: true,
   platform: 'android',
@@ -23,8 +24,8 @@ const mocks = {
     export const defineTask=(name,fn)=>{s.name=name;s.task=fn};
     export const isTaskRegisteredAsync=async()=>s.registered;
     export const isAvailableAsync=async()=>s.available;`,
-  '@/lib/scheduled-backup-adapter': `const s=globalThis.__backupTaskTest;
-    export const scheduledBackups={status:async()=>s,runDue:async(force)=>{s.calls.push(['run',force]);if(s.runFailure)throw Error('database failure');return s},configure:async(interval)=>{s.interval=interval;return s}};`,
+  '@/lib/drive-backup-adapter': `const s=globalThis.__backupTaskTest;
+    export const driveBackups={status:async()=>s,runDue:async(force)=>{s.calls.push(['run',force]);if(s.runFailure)throw Error('database failure');return s}};`,
 };
 const hooks = registerHooks({
   resolve(specifier, context, next) {
@@ -47,18 +48,14 @@ const hooks = registerHooks({
 // Loading the configured entry must register the task without mounting a route.
 const { main } = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
 await import(main.startsWith('.') ? new URL(`../../${main}`, import.meta.url) : main);
-const {
-  reconcileBackupTask,
-  configureBackupSchedule,
-  runScheduledBackup,
-  subscribeBackupSchedule,
-} = await import('./backup-background-task.ts');
+const { reconcileBackupTask, changeBackups, runScheduledBackup, subscribeBackupSchedule } =
+  await import('./backup-background-task.ts');
 
 test('background registration follows saved preference and retries native failures', async () => {
   assert.equal(typeof state.task, 'function', 'headless task defined on module load');
   assert.equal(await reconcileBackupTask(), null);
   assert.equal(state.calls.length, 0);
-  await configureBackupSchedule('daily');
+  state.interval = 'daily';
   state.registrationFailure = true;
   assert.match(await reconcileBackupTask(), /Background scheduling failed/);
   state.registrationFailure = false;
@@ -67,13 +64,19 @@ test('background registration follows saved preference and retries native failur
   state.calls = [];
   await reconcileBackupTask();
   assert.equal(state.calls.length, 0, 'does not register repeatedly');
-  await configureBackupSchedule('off');
+  state.interval = 'off';
   await reconcileBackupTask();
   assert.deepEqual(state.calls.at(-1), ['unregister', state.name]);
+  state.interval = 'daily';
+  await reconcileBackupTask();
+  state.account = null;
+  await reconcileBackupTask();
+  assert.deepEqual(state.calls.at(-1), ['unregister', state.name], 'Disconnect stops the task');
+  state.account = 'you@example.com';
 });
 
 test('restriction is visible while foreground backups remain usable', async () => {
-  await configureBackupSchedule('weekly');
+  state.interval = 'weekly';
   state.available = false;
   assert.match(await reconcileBackupTask(), /Overdue backups will run when you open/);
   let notifications = 0;
@@ -81,14 +84,21 @@ test('restriction is visible while foreground backups remain usable', async () =
   await runScheduledBackup(true);
   assert.deepEqual(state.calls.at(-1), ['run', true]);
   assert.equal(notifications, 1);
+  await assert.rejects(
+    changeBackups(async () => {
+      throw new Error('sign-in failed');
+    }),
+    /sign-in failed/,
+  );
+  assert.equal(notifications, 2, 'failed operations also notify');
   unsubscribe();
   await runScheduledBackup();
-  assert.equal(notifications, 1);
+  assert.equal(notifications, 2);
 });
 
 test('headless task reports success, write failures, database failures and task errors', async () => {
   assert.equal(await state.task({}), 1);
-  state.lastError = 'Permission revoked';
+  state.lastError = { kind: 'auth', message: 'Access removed' };
   assert.equal(await state.task({}), 2);
   state.lastError = null;
   state.runFailure = true;

@@ -63,7 +63,7 @@ pnpm android:apk:emulator
 
 The build command runs the repository checks, prebuilds the emulator configuration, and assembles a release variant for x86_64 with debug signing. Native configuration switches through `EXPENSE_TRACKER_BUILD_TARGET=emulator`; leave this variable unset for production builds. The production APK command rejects emulator mode.
 
-For background-worker testing, select a test folder in this app and enable the schedule. Put the app in the background and force its registered Android job as described in [Expo's task inspection guide](https://docs.expo.dev/versions/v57.0.0/sdk/background-task/#inspecting-background-tasks). Use an overdue backup: forcing the Android job does not bypass the app's daily/weekly due check. Confirm that it writes a valid backup and updates the success timestamp. Test process restart and retained folder permission separately.
+To test Google Drive backups and the background worker, follow [Google Drive backups](google-drive-backups.md#test-on-the-emulator). The emulator APK needs its own Android OAuth client.
 
 ## Build an APK locally
 

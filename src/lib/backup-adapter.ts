@@ -2,6 +2,7 @@ import { notifyDataChanged } from './data-changes.ts';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { File } from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import { database } from '@/lib/database';
 import type { BackupData, BackupDocuments, BackupStore } from '@/lib/backup';
 
@@ -159,14 +160,12 @@ export const backupStore: BackupStore = {
 type SQLiteValue = string | number | null;
 
 export const backupDocuments: BackupDocuments = {
-  async createJsonDocument(name) {
-    const permission = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
-    if (!permission.granted) return null;
-    return FileSystem.StorageAccessFramework.createFileAsync(
-      permission.directoryUri,
-      name,
-      'application/json',
-    );
+  async shareJson(name, text) {
+    if (!(await Sharing.isAvailableAsync()))
+      throw new Error('Sharing is unavailable on this device.');
+    const uri = `${FileSystem.cacheDirectory}${name}`;
+    await FileSystem.writeAsStringAsync(uri, text);
+    await Sharing.shareAsync(uri, { mimeType: 'application/json', dialogTitle: 'Save backup' });
   },
   async pickJsonDocument() {
     const result = await DocumentPicker.getDocumentAsync({
@@ -177,6 +176,5 @@ export const backupDocuments: BackupDocuments = {
     const { uri, name } = result.assets[0];
     return { uri, name };
   },
-  writeText: (uri, text) => FileSystem.writeAsStringAsync(uri, text),
   readText: (uri) => new File(uri).text(),
 };

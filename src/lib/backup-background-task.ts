@@ -1,8 +1,7 @@
 import { Platform } from 'react-native';
 import * as BackgroundTask from 'expo-background-task';
 import * as TaskManager from 'expo-task-manager';
-import { scheduledBackups } from '@/lib/scheduled-backup-adapter';
-import type { BackupInterval } from '@/lib/scheduled-backups';
+import { driveBackups } from '@/lib/drive-backup-adapter';
 
 const taskName = 'expense-tracker-scheduled-backup';
 const listeners = new Set<() => void>();
@@ -18,12 +17,17 @@ function notify() {
   for (const listener of listeners) listener();
 }
 
-export async function runScheduledBackup(force = false) {
+/** Runs a backup operation, then tells the subscribers that the backup state can be different. */
+export async function changeBackups<T>(operation: () => Promise<T>): Promise<T> {
   try {
-    return await scheduledBackups.runDue(force);
+    return await operation();
   } finally {
     notify();
   }
+}
+
+export function runScheduledBackup(force = false) {
+  return changeBackups(() => driveBackups.runDue(force));
 }
 
 // TaskManager must see the definition when it starts JS without mounting the UI.
@@ -44,9 +48,9 @@ export function reconcileBackupTask(): Promise<string | null> {
   const next = registration.then(async () => {
     if (Platform.OS !== 'android') return null;
     try {
-      const state = await scheduledBackups.status();
+      const state = await driveBackups.status();
       const registered = await TaskManager.isTaskRegisteredAsync(taskName);
-      if (state.interval === 'off') {
+      if (state.interval === 'off' || !state.account) {
         if (registered) await BackgroundTask.unregisterTaskAsync(taskName);
         return null;
       }
@@ -63,12 +67,4 @@ export function reconcileBackupTask(): Promise<string | null> {
   });
   registration = next;
   return next;
-}
-
-export async function configureBackupSchedule(interval: BackupInterval, directoryUri?: string) {
-  try {
-    return await scheduledBackups.configure(interval, directoryUri);
-  } finally {
-    notify();
-  }
 }
