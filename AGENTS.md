@@ -10,6 +10,10 @@ Read `AGENTS.local.md` if present for machine-specific development setup. Keep h
 
 Single-context repo: read the root glossary and relevant ADRs. See `docs/agents/domain.md`.
 
+### Testing
+
+For test changes and reviews, read `docs/testing.md`.
+
 ### Scratch folder
 
 `.scratch/` holds local notes, specs and temporary scripts. Git ignores it, but `rg` searches it.

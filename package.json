@@ -38,12 +38,17 @@
     "react-native-worklets": "0.10.1"
   },
   "devDependencies": {
+    "@testing-library/react-native": "^14.1.0",
+    "@types/jest": "29.5.14",
     "@types/react": "~19.2.2",
     "eslint": "^9.39.5",
     "eslint-config-expo": "~57.0.2",
+    "jest": "~29.7.0",
+    "jest-expo": "~57.0.6",
     "lint-staged": "17.6.0",
     "prettier": "3.9.10",
     "react-test-renderer": "19.2.3",
+    "test-renderer": "1.2.0",
     "typescript": "~6.0.3"
   },
   "scripts": {
@@ -53,7 +58,7 @@
     "android:apk": "bash scripts/build-android-apk.sh",
     "ios": "pnpm start --ios",
     "web": "expo start --web",
-    "test": "node --test src/lib/*.test.mjs src/components/*.test.mjs src/features/*/*.test.mjs scripts/*.test.mjs",
+    "test": "pnpm test:node && pnpm test:ui",
     "test:backup": "node scripts/check-backup-format.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
@@ -61,6 +66,8 @@
     "format": "prettier . --write",
     "format:check": "prettier . --check",
     "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm test:backup",
+    "test:node": "node --test src/lib/*.test.mjs src/components/*.test.mjs src/features/*/*.test.mjs scripts/*.test.mjs",
+    "test:ui": "jest --runInBand",
     "android:apk:emulator": "bash scripts/build-emulator-apk.sh"
   },
   "lint-staged": {
