@@ -126,7 +126,6 @@ export function createDriveBackups(deps: DriveBackupDependencies) {
         throw new Error('Backup verification failed.');
     } catch (error) {
       if (uploaded) await drive.remove(uploaded.id).catch(() => {});
-      // A failed backup replaces the older warning about removal.
       const failed = { ...state, folderId, lastError: failureOf(error), removalError: null };
       await deps.save(failed);
       return failed;

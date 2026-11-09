@@ -72,6 +72,13 @@ test('a backup that could not remove older backups is a warning', () => {
   });
 });
 
+test('an overdue backup hides the older warning about removal', () => {
+  const removalError = { kind: 'network' as const, message: 'offline' };
+  expect(
+    backupStatus({ ...connected, removalError, lastSuccess: now.getTime() - 3 * day }, now),
+  ).toMatchObject({ text: expect.stringMatching(/^No backup since /), action: 'retry' });
+});
+
 test('backups found at connect ask the user to review them', () => {
   expect(backupStatus({ ...connected, awaitingChoice: true }, now)).toMatchObject({
     warning: false,

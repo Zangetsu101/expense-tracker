@@ -42,12 +42,6 @@ export function backupStatus(state: DriveBackupState, now = new Date()): BackupS
       warning: true,
       action: 'retry',
     };
-  if (state.removalError !== null)
-    return {
-      text: 'Backup saved. Older backups couldn’t be removed.',
-      warning: true,
-      action: 'backup',
-    };
   if (needsAttention(state, now.getTime())) {
     const detail =
       error?.kind === 'network'
@@ -59,6 +53,12 @@ export function backupStatus(state: DriveBackupState, now = new Date()): BackupS
       action: 'retry',
     };
   }
+  if (state.removalError !== null)
+    return {
+      text: 'Backup saved. Older backups couldn’t be removed.',
+      warning: true,
+      action: 'backup',
+    };
   if (error?.kind === 'network')
     return {
       text: `Last backup: ${last ?? 'Never'} · waiting for internet`,

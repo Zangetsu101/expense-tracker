@@ -12,7 +12,7 @@ import { createGoogleDrive } from '@/lib/google-drive';
 
 const settingsKey = 'driveBackups';
 const driveScope = 'https://www.googleapis.com/auth/drive.file';
-const noCredential = 'Google sign-in has no saved account for Expense Tracker.';
+const noCredentialMessage = 'Google sign-in has no saved account for Expense Tracker.';
 /** Google Play services reports CommonStatusCodes.NETWORK_ERROR when the phone is offline. */
 const playServicesNetworkError = '7';
 
@@ -40,7 +40,7 @@ async function accessToken() {
   const signIn = google();
   try {
     const silent = await signIn.signInSilently();
-    if (silent.type === 'noSavedCredentialFound') throw new DriveError('auth', noCredential);
+    if (silent.type === 'noSavedCredentialFound') throw new DriveError('auth', noCredentialMessage);
     if (!silent.data.scopes.includes(driveScope))
       throw new DriveError('auth', 'Allow Expense Tracker to use Google Drive, then reconnect.');
     return (await signIn.getTokens()).accessToken;
