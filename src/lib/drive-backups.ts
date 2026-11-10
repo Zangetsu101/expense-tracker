@@ -98,9 +98,12 @@ export function createDriveBackups(deps: DriveBackupDependencies) {
   async function run(state: DriveBackupState, force: boolean): Promise<DriveBackupState> {
     const now = deps.now();
     if (!state.account || !state.folderId || state.awaitingChoice) return state;
+    // An automatic try after removed access makes Google show its consent screen each time the
+    // app opens. Only the user starts a backup until they reconnect.
     if (
       !force &&
       (state.interval === 'off' ||
+        state.lastError?.kind === 'auth' ||
         (state.lastSuccess !== null &&
           now >= state.lastSuccess &&
           now - state.lastSuccess < intervalMs(state.interval)))

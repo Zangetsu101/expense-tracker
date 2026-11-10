@@ -266,6 +266,18 @@ describe('reconnect and account changes', () => {
 });
 
 describe('scheduled backups', () => {
+  test('after removed access, only the user can start a backup', async () => {
+    const s = await connected();
+    await s.deps.save({ ...s.state(), lastError: { kind: 'auth', message: 'Access removed' } });
+    s.advance(3 * day);
+    expect((await s.backups.runDue()).lastError?.kind).toBe('auth');
+    expect(s.snapshots()).toBe(1);
+
+    const retried = await s.backups.runDue(true);
+    expect(retried.lastError).toBeNull();
+    expect(s.snapshots()).toBe(2);
+  });
+
   test('daily and weekly checks wait until due', async () => {
     const s = await connected();
     s.advance(day - 1);
@@ -348,7 +360,8 @@ describe('failures', () => {
       lastError: { kind, message: error.message },
     });
     s.google.drive.upload = upload;
-    const recovered = await s.backups.runDue();
+    // After removed access, only a backup that the user starts can try again.
+    const recovered = await s.backups.runDue(kind === 'auth');
     expect(recovered.lastError).toBeNull();
     expect(recovered.files).toHaveLength(2);
   });
