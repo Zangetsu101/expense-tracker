@@ -13,7 +13,7 @@ const tx = {
 globalThis.__displayRateDb = { ...tx, withExclusiveTransactionAsync: async (fn) => fn(tx) };
 registerHooks({
   resolve(specifier, context, next) {
-    if (specifier === '@/lib/database') return { url: 'test:database', shortCircuit: true };
+    if (specifier === './database.ts') return { url: 'test:database', shortCircuit: true };
     return next(specifier, context);
   },
   load(url, context, next) {

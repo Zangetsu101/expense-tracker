@@ -1,4 +1,4 @@
-import { database } from '@/lib/database';
+import { database } from './database.ts';
 import { validDisplayRate, type DisplayRate } from './display-rate.ts';
 
 type Settings = { favoriteAccountId: number | null; displayRate: DisplayRate | null };

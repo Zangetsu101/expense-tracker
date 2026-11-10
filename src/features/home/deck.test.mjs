@@ -44,7 +44,7 @@ test('one Account gets a single Pace card for that Account', () => {
   );
 });
 
-test('no accounts keeps the All accounts card', () => {
+test('no Accounts keeps the All accounts card', () => {
   assert.deepEqual(
     deckCards([]).map((card) => [card.accountId, card.face]),
     [[null, 'pace']],
