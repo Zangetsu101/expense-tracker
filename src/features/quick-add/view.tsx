@@ -1,13 +1,12 @@
-import { Suspense, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 import {
-  QueryErrorResetBoundary,
   useSuspenseQuery,
   type UseSuspenseQueryOptions,
   type QueryKey,
 } from '@tanstack/react-query';
 import { Text, View } from 'react-native';
-import { ErrorBoundary } from '@/components/query-error-boundary';
-import { Skeleton, Shimmer } from '@/components/loading';
+import { QueryBoundary } from '@/components/query-error-boundary';
+import { Skeleton } from '@/components/loading';
 import { FormButton } from '@/components/form-controls';
 import { theme } from '@/theme';
 import { CategorySearchInput } from '@/components/quick-select-category';
@@ -105,15 +104,6 @@ function ReadyChoices<T, K extends QueryKey>({
   return (
     <SectionLayout>
       {children(data)}
-      {isFetching && (
-        <View
-          accessibilityLabel={`Refreshing ${label}`}
-          style={{ position: 'absolute', inset: 0 }}
-          pointerEvents="none"
-        >
-          <Shimmer />
-        </View>
-      )}
       {!!error && !isFetching && <ChoicesError label={label} retry={() => void refetch()} />}
     </SectionLayout>
   );
@@ -133,25 +123,17 @@ export function ChoicesSection<T, K extends QueryKey>({
   children: (data: T) => ReactNode;
 }) {
   return (
-    <QueryErrorResetBoundary>
-      {({ reset }) => (
-        <ErrorBoundary
-          onReset={reset}
-          fallback={(retry) => (
-            <SectionLayout>
-              <ChoicesError label={label} retry={retry} />
-            </SectionLayout>
-          )}
-        >
-          <Suspense
-            fallback={<ChoicesSkeleton label={label} layout={layout} pendingLabel={pendingLabel} />}
-          >
-            <ReadyChoices options={options} label={label}>
-              {children}
-            </ReadyChoices>
-          </Suspense>
-        </ErrorBoundary>
+    <QueryBoundary
+      pending={<ChoicesSkeleton label={label} layout={layout} pendingLabel={pendingLabel} />}
+      error={(retry) => (
+        <SectionLayout>
+          <ChoicesError label={label} retry={retry} />
+        </SectionLayout>
       )}
-    </QueryErrorResetBoundary>
+    >
+      <ReadyChoices options={options} label={label}>
+        {children}
+      </ReadyChoices>
+    </QueryBoundary>
   );
 }

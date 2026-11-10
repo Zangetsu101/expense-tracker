@@ -14,7 +14,6 @@ const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const root = new URL('../../../', import.meta.url);
 const mocks = {
-  '@/features/quick-add': `export const invalidateQuickAdd=async()=>{};`,
   'react-native': `import React from 'react'; export const View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator',KeyboardAvoidingView='KeyboardAvoidingView'; export const FlatList=p=>React.createElement('FlatList',p,p.ListHeaderComponent,p.data.map((item,index)=>React.createElement(React.Fragment,{key:item.id},p.renderItem({item,index})))); export const AppState={currentState:'active',addEventListener:(_,fn)=>{globalThis.__homeScreenTest.lifecycle=fn;return {remove(){}}}}; export const Platform={OS:'android'}; export const useWindowDimensions=()=>({width:400,height:800});`,
   'expo-router': `export const Stack={Screen:()=>null}; export const Link=({children})=>children; export const router={push(){}};`,
   'expo-status-bar': `export const StatusBar=()=>null;`,
@@ -185,7 +184,6 @@ test('Home loading, retained content and cache behavior', async (t) => {
           : Promise.resolve(fixtures[key]);
       await act(async () => picker().props.onSelect(2));
       assert.equal(picker().props.selectedId, 2, 'selection changes before data');
-      assert.equal(picker().props.loading, false);
       assert.equal(entry().props.disabled, true, 'old Transactions cannot be opened');
       assert.ok(
         texts().some((s) => s === 'Sent to Bank'),
@@ -200,7 +198,6 @@ test('Home loading, retained content and cache behavior', async (t) => {
       );
       await act(async () => requests[0].reject(new Error('read failed')));
       assert.equal(picker().props.error, false);
-      assert.equal(picker().props.loading, false);
       assert.equal(picker().props.selectedId, 2);
       assert.equal(entry(), undefined);
       assert.ok(texts().includes('Couldn’t load account activity'));
@@ -682,7 +679,6 @@ test('Home loading, retained content and cache behavior', async (t) => {
     await act(async () => notifyDataChanged());
     assert.ok(pending.length > 0, 'committed writes refresh Home');
     assert.deepEqual(texts(), before, 'loaded content must not disappear during a refresh');
-    assert.equal(renderer.root.findByType('HomeAccountPicker').props.loading, false);
     assert.ok(
       renderer.root
         .findAllByType('Pressable')

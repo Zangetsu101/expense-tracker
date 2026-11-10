@@ -46,7 +46,3 @@ export function includeCreatedPerson(client: QueryClient, person: Person) {
       },
   );
 }
-
-export function invalidateQuickAdd(client: QueryClient) {
-  return client.invalidateQueries({ queryKey: quickAddKey });
-}

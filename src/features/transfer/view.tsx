@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { BottomSheet, Button, Column, Host, Text as NativeText } from '@expo/ui';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { listAccounts, type Account } from '@/lib/database';
+import type { Account } from '@/lib/database';
 import { parsePositiveAmountMinor } from '@/lib/amount';
 import { QuickAddDate } from '@/components/quick-add-date';
 import { theme } from '@/theme';
 import { FormButton, FormInput } from '@/components/form-controls';
+import { Skeleton } from '@/components/loading';
 
 type Side = 'source' | 'destination';
 export type TransferDraft = {
@@ -15,10 +16,7 @@ export type TransferDraft = {
   note: string;
   date: Date;
 };
-type Props = {
-  accounts: Account[];
-  loading?: boolean;
-  loadError?: string;
+export type TransferFormProps = {
   initial?: { fromId?: number; toId?: number; amount?: string; note?: string; date?: Date };
   editDate?: boolean;
   submitLabel: string;
@@ -29,25 +27,19 @@ type Props = {
   onCancel?: () => void;
   onDelete?: () => void;
 };
+type Props = TransferFormProps & {
+  accounts: Account[];
+  fetching?: boolean;
+  refreshFailed?: boolean;
+  onRetry?: () => void;
+};
 const { text: ink, muted, surface, accent } = theme.colors;
-
-export function useAccounts() {
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string>();
-  useEffect(() => {
-    listAccounts()
-      .then(setAccounts)
-      .catch((cause) => setError(String(cause)))
-      .finally(() => setLoading(false));
-  }, []);
-  return { accounts, loading, error };
-}
 
 export function TransferForm({
   accounts,
-  loading = false,
-  loadError,
+  fetching = false,
+  refreshFailed = false,
+  onRetry,
   initial = {},
   editDate = false,
   submitLabel,
@@ -58,7 +50,7 @@ export function TransferForm({
   onCancel,
   onDelete,
 }: Props) {
-  const [fromId, setFromId] = useState(initial.fromId);
+  const [fromId, setFromId] = useState(() => initial.fromId ?? accounts[0]?.id);
   const [toId, setToId] = useState(initial.toId);
   const [amount, setAmount] = useState(initial.amount ?? '');
   const [note, setNote] = useState(initial.note ?? '');
@@ -66,11 +58,6 @@ export function TransferForm({
   const [picker, setPicker] = useState<Side | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string>();
-  useEffect(() => {
-    // Accounts arrive asynchronously; select the first only if none is selected.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (fromId === undefined && accounts[0]) setFromId(accounts[0].id);
-  }, [accounts, fromId]);
   const dirty =
     fromId !== initial.fromId ||
     toId !== initial.toId ||
@@ -143,7 +130,7 @@ export function TransferForm({
         accessibilityRole="button"
         accessibilityLabel={`${label} account: ${account ? `${account.name}, ${account.currencyCode}` : 'Not selected'}`}
         accessibilityHint="Opens account chooser"
-        disabled={loading || locked}
+        disabled={locked}
         onPress={() => setPicker(side)}
         style={{
           flex: 1,
@@ -187,10 +174,8 @@ export function TransferForm({
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ padding: 20, paddingBottom: 40, gap: 20 }}
       >
-        {loadError && (
-          <Text selectable accessibilityRole="alert" style={{ color: theme.colors.warning }}>
-            {loadError}
-          </Text>
+        {refreshFailed && onRetry && (
+          <TransferFormAlert message="Could not refresh accounts." retry={onRetry} />
         )}
         {!!intro && <Text style={{ color: muted }}>{intro}</Text>}
         <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
@@ -219,12 +204,12 @@ export function TransferForm({
           </Pressable>
           {accountSelector('destination')}
         </View>
-        {!loading && accounts.length === 0 && (
+        {accounts.length === 0 && (
           <Text style={{ color: muted }}>
             Add two accounts in the same currency to make a transfer.
           </Text>
         )}
-        {!loading && !!source && eligible.length === 0 && (
+        {!!source && eligible.length === 0 && (
           <Text style={{ color: muted }}>
             No other {source.currencyCode} account. Choose a different source.
           </Text>
@@ -284,7 +269,7 @@ export function TransferForm({
         <FormButton
           label={submitLabel}
           loading={pending}
-          disabled={loading || !canSwap || !validAmount}
+          disabled={fetching || !canSwap || !validAmount}
           onPress={() => void save()}
         />
         {onCancel && (
@@ -322,5 +307,88 @@ export function TransferForm({
         </BottomSheet>
       </Host>
     </View>
+  );
+}
+
+function TransferFormAlert({ message, retry }: { message: string; retry: () => void }) {
+  return (
+    <View style={{ gap: 12 }}>
+      <Text selectable accessibilityRole="alert" style={{ color: theme.colors.warning }}>
+        {message}
+      </Text>
+      <FormButton label="Retry" variant="secondary" onPress={retry} />
+    </View>
+  );
+}
+
+function TransferFormFallback({ intro, children }: { intro?: string; children: ReactNode }) {
+  return (
+    <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
+      <ScrollView
+        contentInsetAdjustmentBehavior="automatic"
+        contentContainerStyle={{ padding: 20, paddingBottom: 40, gap: 20 }}
+      >
+        {!!intro && <Text style={{ color: muted }}>{intro}</Text>}
+        {children}
+      </ScrollView>
+    </View>
+  );
+}
+
+function SelectorSkeleton({ label }: { label: string }) {
+  return (
+    <View
+      style={{
+        flex: 1,
+        minHeight: 88,
+        backgroundColor: surface,
+        borderRadius: 16,
+        padding: 10,
+        gap: 8,
+        borderWidth: 1,
+        borderColor: theme.colors.line,
+      }}
+    >
+      <Text style={{ color: muted, fontSize: 13 }}>{label}</Text>
+      <Skeleton width="80%" height={18} />
+      <Skeleton width="40%" />
+    </View>
+  );
+}
+
+export function TransferFormSkeleton({ intro }: { intro?: string }) {
+  return (
+    <TransferFormFallback intro={intro}>
+      <View
+        accessibilityRole="progressbar"
+        accessibilityLabel="Loading accounts"
+        style={{ gap: 20 }}
+      >
+        <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+          <SelectorSkeleton label="From" />
+          <Skeleton width={48} height={48} borderRadius={24} />
+          <SelectorSkeleton label="To" />
+        </View>
+        <View style={{ backgroundColor: surface, borderRadius: 18, padding: 20, gap: 12 }}>
+          <Text style={{ color: muted }}>Amount to move</Text>
+          <Skeleton width="50%" height={40} />
+        </View>
+        <Skeleton width="100%" height={theme.controlHeight} borderRadius={theme.radius.control} />
+        <View style={{ backgroundColor: surface, borderRadius: 16, padding: 18, gap: 10 }}>
+          <Text style={{ color: muted }}>Review transfer</Text>
+          <Skeleton width="45%" height={24} />
+          <Skeleton width="60%" />
+        </View>
+        <Skeleton width="100%" height={theme.controlHeight} borderRadius={theme.radius.control} />
+      </View>
+    </TransferFormFallback>
+  );
+}
+
+export function TransferFormError({ intro, retry }: { intro?: string; retry: () => void }) {
+  return (
+    <TransferFormFallback intro={intro}>
+      <TransferFormAlert message="Could not load accounts." retry={retry} />
+    </TransferFormFallback>
   );
 }

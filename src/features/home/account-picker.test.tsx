@@ -133,19 +133,6 @@ test('retrying a failed load and choosing another Account are separate actions',
   expect(onRetry).toHaveBeenCalledTimes(1);
 });
 
-test('loading exposes busy state while Account selection remains available', async () => {
-  const user = userEvent.setup();
-  await render(
-    <HomeAccountPicker accounts={accounts} selectedId={2} onSelect={jest.fn()} loading />,
-  );
-  const chooser = screen.getByRole('button', { name: 'Choose account, Bank' });
-  expect(chooser).toBeBusy();
-  expect(chooser).toBeEnabled();
-
-  await user.press(chooser);
-  expect(screen.getByLabelText('Find an account')).toBeOnTheScreen();
-});
-
 test.each([true, false])(
   'the placeholder exposes no actions when animated is %s',
   async (animated) => {

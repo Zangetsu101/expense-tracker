@@ -9,7 +9,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { SymbolView } from 'expo-symbols';
-import { Shimmer, Skeleton } from '@/components/loading';
+import { Skeleton } from '@/components/loading';
 import { AppSheet } from '@/components/app-sheet';
 import type { Account } from '@/lib/database';
 import { theme } from '@/theme';
@@ -61,14 +61,12 @@ export function HomeAccountPicker({
   accounts,
   selectedId,
   onSelect,
-  loading = false,
   error = false,
   onRetry,
 }: {
   accounts: Account[];
   selectedId: number | null;
   onSelect: (id: number | null) => void;
-  loading?: boolean;
   error?: boolean;
   onRetry?: () => void;
 }) {
@@ -97,7 +95,7 @@ export function HomeAccountPicker({
           accessibilityHint={
             error ? 'Loading failed. Use the retry button or choose another account.' : undefined
           }
-          accessibilityState={{ expanded: open, busy: loading }}
+          accessibilityState={{ expanded: open }}
           onPress={openPicker}
           style={labelSlotStyle}
         >
@@ -123,7 +121,6 @@ export function HomeAccountPicker({
             tintColor={error ? c.warning : c.muted}
           />
         </Pressable>
-        {loading && <Shimmer />}
       </View>
       {open && (
         <AppSheet pending={false} onDismiss={() => setOpen(false)}>

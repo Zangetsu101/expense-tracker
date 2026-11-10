@@ -41,6 +41,7 @@ export async function rejectCandidate(id: number) {
     [id],
   );
   if (result.changes !== 1) throw new Error('Candidate is no longer available. Refresh the queue.');
+  notifyDataChanged();
 }
 
 export async function confirmCandidate(id: number) {

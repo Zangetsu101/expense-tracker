@@ -1,4 +1,4 @@
-import { queryOptions, type QueryClient } from '@tanstack/react-query';
+import { queryOptions } from '@tanstack/react-query';
 import { epochDay, listAccounts } from '@/lib/database';
 import { homeData } from './read-home.ts';
 import { accountBalances } from '@/lib/reports';
@@ -28,7 +28,3 @@ export type HomeSnapshot = Awaited<ReturnType<typeof homeData>> & {
   balances: ReturnType<typeof homeBalances>;
   accountId: number | null;
 };
-
-export function invalidateHome(client: QueryClient) {
-  return client.invalidateQueries({ queryKey: homeQueryKey });
-}

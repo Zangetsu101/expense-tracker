@@ -1,4 +1,4 @@
-import { Suspense, use, useDeferredValue, useMemo, useState } from 'react';
+import { use, useDeferredValue, useMemo, useState } from 'react';
 import { QueryErrorResetBoundary, useSuspenseQuery } from '@tanstack/react-query';
 import {
   FinancialView,
@@ -9,7 +9,7 @@ import {
   HomeScreenSkeleton,
   HomeScreenError,
 } from './view.tsx';
-import { ErrorBoundary } from '@/components/query-error-boundary';
+import { QueryBoundary } from '@/components/query-error-boundary';
 import { resolveHomeAccount } from '@/lib/account-selection';
 import { epochDay } from '@/lib/database';
 import { homeAccountsQuery, homeSnapshotQuery } from './queries.ts';
@@ -36,19 +36,18 @@ function FinancialSection({
   const stale =
     accountId !== deferred.accountId || epochDay(request.now) !== epochDay(deferred.now);
   return (
-    <ErrorBoundary
+    <QueryBoundary
       resetKey={`${deferred.accountId}:${epochDay(deferred.now)}`}
-      onReset={reset}
-      fallback={(retry) => <FinancialError accountId={accountId} retry={retry} />}
+      reset={reset}
+      pending={<FinancialSkeleton accountId={accountId} />}
+      error={(retry) => <FinancialError accountId={accountId} retry={retry} />}
     >
-      <Suspense fallback={<FinancialSkeleton accountId={accountId} />}>
-        <FinancialContent
-          key={`${deferred.accountId}:${epochDay(deferred.now)}`}
-          request={deferred}
-          muted={stale}
-        />
-      </Suspense>
-    </ErrorBoundary>
+      <FinancialContent
+        key={`${deferred.accountId}:${epochDay(deferred.now)}`}
+        request={deferred}
+        muted={stale}
+      />
+    </QueryBoundary>
   );
 }
 
@@ -69,7 +68,6 @@ function Home() {
           <AccountSelection
             accounts={accounts}
             selectedId={accountId}
-            loading={isFetching}
             error={!!error && !isFetching}
             onRetry={() => {
               void refetch();
@@ -88,14 +86,11 @@ function Home() {
 
 export default function HomeScreen() {
   return (
-    <QueryErrorResetBoundary>
-      {({ reset }) => (
-        <ErrorBoundary onReset={reset} fallback={(retry) => <HomeScreenError retry={retry} />}>
-          <Suspense fallback={<HomeScreenSkeleton />}>
-            <Home />
-          </Suspense>
-        </ErrorBoundary>
-      )}
-    </QueryErrorResetBoundary>
+    <QueryBoundary
+      pending={<HomeScreenSkeleton />}
+      error={(retry) => <HomeScreenError retry={retry} />}
+    >
+      <Home />
+    </QueryBoundary>
   );
 }
