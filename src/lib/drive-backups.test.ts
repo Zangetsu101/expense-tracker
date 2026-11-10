@@ -128,8 +128,7 @@ describe('first connect', () => {
     const result = await s.backups.connect();
     expect(result.kind).toBe('connected');
     expect(s.state()).toMatchObject({
-      account: 'you@example.com',
-      photoUrl: 'https://photos.example/you@example.com',
+      account: { email: 'you@example.com', photoUrl: 'https://photos.example/you@example.com' },
       interval: 'daily',
       awaitingChoice: false,
       lastError: null,
@@ -249,7 +248,7 @@ describe('reconnect and account changes', () => {
     s.signInAs('other@example.com');
     const other = await s.backups.connect();
     expect(other.kind).toBe('connected');
-    expect(s.state().account).toBe('other@example.com');
+    expect(s.state().account?.email).toBe('other@example.com');
     expect(s.state().files).toHaveLength(1);
     expect(s.state().folderId).not.toBe(s.google.folders.get('you@example.com'));
 
@@ -457,7 +456,7 @@ describe('failures', () => {
 describe('needsAttention', () => {
   const base: DriveBackupState = {
     ...disconnectedState,
-    account: 'you@example.com',
+    account: { email: 'you@example.com', photoUrl: null },
     folderId: 'folder',
     interval: 'daily',
     connectedAt: 0,

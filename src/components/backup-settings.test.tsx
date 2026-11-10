@@ -63,8 +63,7 @@ jest.mock('@/lib/drive-backup-adapter', () => ({
 const day = 24 * 60 * 60 * 1000;
 const connected: DriveBackupState = {
   ...disconnectedState,
-  account: 'you@example.com',
-  photoUrl: 'https://photos.example/you.png',
+  account: { email: 'you@example.com', photoUrl: 'https://photos.example/you.png' },
   folderId: 'folder',
   interval: 'daily',
   connectedAt: Date.now() - day,
@@ -261,7 +260,7 @@ describe('connected', () => {
   });
 
   test('without a photo, the card shows the first letter of the email', async () => {
-    await mount({ ...connected, photoUrl: null });
+    await mount({ ...connected, account: { email: 'you@example.com', photoUrl: null } });
     // The letter is decorative, so screen readers skip it.
     expect(await screen.findByText('Y', { includeHiddenElements: true })).toBeOnTheScreen();
     expect(screen.queryByRole('image', { name: 'Profile photo' })).not.toBeOnTheScreen();

@@ -13,7 +13,7 @@ jest.mock('@/lib/drive-backup-adapter', () => ({ driveBackups: { status: jest.fn
 const day = 24 * 60 * 60 * 1000;
 const healthy: DriveBackupState = {
   ...disconnectedState,
-  account: 'you@example.com',
+  account: { email: 'you@example.com', photoUrl: null },
   folderId: 'folder',
   interval: 'daily',
   connectedAt: Date.now() - 10 * day,

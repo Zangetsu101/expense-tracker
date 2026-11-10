@@ -5,7 +5,7 @@ import { test } from 'node:test';
 
 const state = {
   interval: 'off',
-  account: 'you@example.com',
+  account: { email: 'you@example.com', photoUrl: null },
   registered: false,
   available: true,
   platform: 'android',
@@ -72,7 +72,7 @@ test('background registration follows saved preference and retries native failur
   state.account = null;
   await reconcileBackupTask();
   assert.deepEqual(state.calls.at(-1), ['unregister', state.name], 'Disconnect stops the task');
-  state.account = 'you@example.com';
+  state.account = { email: 'you@example.com', photoUrl: null };
 });
 
 test('restriction is visible while foreground backups remain usable', async () => {

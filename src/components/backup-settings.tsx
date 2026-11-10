@@ -271,6 +271,7 @@ export function BackupSettings({
   }
 
   const busy = disabled || operation !== undefined;
+  const account = state?.account;
   const connected = !!state?.account;
   const loading = supported && !state && !loadError;
   const status = state && connected ? backupStatus(state) : undefined;
@@ -333,13 +334,13 @@ export function BackupSettings({
               <Skeleton width={200} height={14} animated={false} />
             ) : loadError ? (
               <FormButton label="Retry" variant="secondary" onPress={() => void refresh()} />
-            ) : connected ? (
+            ) : account ? (
               <>
                 <View style={{ flexDirection: 'row', gap: theme.spacing.md }}>
-                  <AccountAvatar email={state.account ?? ''} photoUrl={state.photoUrl} />
+                  <AccountAvatar {...account} />
                   <View style={{ flex: 1, gap: theme.spacing.xs }}>
                     <Text style={{ color: theme.colors.text, fontSize: theme.type.body }}>
-                      {state.account}
+                      {account.email}
                     </Text>
                     <Text
                       accessibilityRole={status?.warning ? 'alert' : undefined}
@@ -417,7 +418,7 @@ export function BackupSettings({
         {connected && (
           <SettingsRow
             label="Google account"
-            value={state.account ?? undefined}
+            value={account?.email}
             disabled={busy}
             onPress={() => setSheet('account')}
           />

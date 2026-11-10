@@ -8,8 +8,7 @@ export type BackupFailure = { kind: BackupFailureKind; message: string };
 export type GoogleAccount = { email: string; photoUrl: string | null };
 
 export type DriveBackupState = {
-  account: string | null;
-  photoUrl: string | null;
+  account: GoogleAccount | null;
   folderId: string | null;
   interval: BackupInterval;
   connectedAt: number | null;
@@ -24,7 +23,6 @@ export type DriveBackupState = {
 
 export const disconnectedState: DriveBackupState = {
   account: null,
-  photoUrl: null,
   folderId: null,
   interval: 'off',
   connectedAt: null,
@@ -187,9 +185,12 @@ export function createDriveBackups(deps: DriveBackupDependencies) {
         const previous = await deps.load();
         const user = await deps.signIn();
         if (user === null) return { kind: 'cancelled' };
-        const account = user.email;
-        if (account === previous.account && previous.folderId && !previous.awaitingChoice) {
-          const resumed = { ...previous, photoUrl: user.photoUrl, lastError: null };
+        if (
+          user.email === previous.account?.email &&
+          previous.folderId &&
+          !previous.awaitingChoice
+        ) {
+          const resumed = { ...previous, account: user, lastError: null };
           await deps.save(resumed);
           return { kind: 'connected', state: await run(resumed, false) };
         }
@@ -197,8 +198,7 @@ export function createDriveBackups(deps: DriveBackupDependencies) {
         const backups = await drive.list(folderId);
         const fresh: DriveBackupState = {
           ...disconnectedState,
-          account,
-          photoUrl: user.photoUrl,
+          account: user,
           folderId,
           connectedAt: deps.now(),
           awaitingChoice: backups.length > 0,

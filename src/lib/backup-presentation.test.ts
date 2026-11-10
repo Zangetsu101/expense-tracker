@@ -5,7 +5,7 @@ const now = new Date(2026, 10, 8, 10, 0);
 const day = 24 * 60 * 60 * 1000;
 const connected: DriveBackupState = {
   ...disconnectedState,
-  account: 'you@example.com',
+  account: { email: 'you@example.com', photoUrl: null },
   folderId: 'folder',
   interval: 'daily',
   connectedAt: now.getTime() - 10 * day,
