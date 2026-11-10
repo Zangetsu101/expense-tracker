@@ -1,196 +1,174 @@
-import { type ComponentProps, type ReactNode } from 'react';
-import { Link, Stack, router } from 'expo-router';
+import { type ReactNode } from 'react';
+import { Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { FlatList, Pressable, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
+import Animated, { FadeInDown, FadeOutUp } from 'react-native-reanimated';
 import { SymbolView } from 'expo-symbols';
-import {
-  formatActivityDay,
-  formatBalance,
-  formatMoney,
-  transactionTitle,
-} from '@/lib/transaction-format';
+import { formatActivityDay, formatMoney, transactionTitle } from '@/lib/transaction-format';
 import { Skeleton } from '@/components/loading';
-import { HomeAccountPicker, HomeAccountPickerSkeleton } from './account-picker.tsx';
-import type { CurrencyBalance } from './balances.ts';
-import type { HomeSnapshot } from './queries.ts';
+import type { HomeList } from './queries.ts';
+import { RetryButton } from './cards.tsx';
 import { theme } from '@/theme';
 
-const colors = { ...theme.colors, panel: theme.colors.surface };
+const colors = theme.colors;
 
-function BalanceAmount({ balance, fontSize }: { balance: CurrencyBalance; fontSize: number }) {
+export function HomeLayout({
+  title,
+  quickAddAccountId,
+  accountsReady,
+  children,
+}: {
+  title?: ReactNode;
+  quickAddAccountId: number | null;
+  accountsReady: boolean;
+  children: ReactNode;
+}) {
   return (
-    <Text
-      selectable
-      style={{
-        color: balance.balanceMinor < 0 ? colors.warning : colors.text,
-        fontSize,
-        fontWeight: '700',
-        fontVariant: ['tabular-nums'],
-      }}
-    >
-      {formatBalance(balance.balanceMinor, balance.currencyCode)}
-    </Text>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <Stack.Screen
+        options={{
+          ...(title ? { headerTitle: () => title } : {}),
+          headerRight: () => (
+            <Pressable
+              onPress={() => router.push('/settings')}
+              accessibilityRole="button"
+              accessibilityLabel="Settings"
+              style={{
+                minWidth: 48,
+                minHeight: 48,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <SymbolView
+                name={{ ios: 'gearshape', android: 'settings' }}
+                size={26}
+                tintColor={colors.text}
+              />
+            </Pressable>
+          ),
+        }}
+      />
+      <StatusBar style="light" />
+      {children}
+      <Pressable
+        onPress={() =>
+          router.push({
+            pathname: '/quick-add',
+            params: quickAddAccountId === null ? {} : { accountId: String(quickAddAccountId) },
+          })
+        }
+        disabled={!accountsReady}
+        accessibilityState={{ disabled: !accountsReady }}
+        accessibilityRole="button"
+        accessibilityLabel="Add transaction"
+        style={({ pressed }) => ({
+          position: 'absolute',
+          right: 20,
+          bottom: 16,
+          width: 60,
+          height: 60,
+          borderRadius: 30,
+          backgroundColor: colors.accent,
+          alignItems: 'center',
+          justifyContent: 'center',
+          opacity: pressed ? 0.75 : 1,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+        })}
+      >
+        <SymbolView
+          name={{ ios: 'plus', android: 'add' }}
+          size={30}
+          tintColor={colors.background}
+        />
+      </Pressable>
+    </View>
   );
 }
 
-export function FinancialView({
-  snapshot,
-  muted = false,
-}: {
-  snapshot: HomeSnapshot;
-  muted?: boolean;
-}) {
-  const accountId = snapshot.accountId;
-  const rows = snapshot.rows;
-  const balances = snapshot.balances;
-  const summaries = snapshot.summaries;
-  const dailySummaries = snapshot.dailySummaries;
+/** Shows only after a refresh of the cached deck failed. It slides in under the title and out again. */
+export function RefreshNotice({ failed, onRetry }: { failed: boolean; onRetry: () => void }) {
+  if (!failed) return null;
   return (
-    <FlatList
-      contentInsetAdjustmentBehavior="automatic"
-      contentContainerStyle={{ padding: 20, paddingBottom: 100 }}
-      data={rows}
-      keyExtractor={(row) => String(row.id)}
-      ListHeaderComponent={
-        <View style={{ gap: 20, paddingBottom: 12 }}>
-          <View
-            pointerEvents={muted ? 'none' : 'auto'}
-            accessibilityElementsHidden={muted}
-            importantForAccessibility={muted ? 'no-hide-descendants' : 'auto'}
-            style={{ gap: 20, opacity: muted ? 0.4 : 1 }}
-          >
-            <View
-              style={{
-                backgroundColor: colors.panel,
-                borderRadius: 16,
-                borderCurve: 'continuous',
-                padding: 18,
-                gap: 12,
-              }}
-            >
-              {balances.length > 0 && (
-                <>
-                  <View style={{ gap: 4 }}>
-                    <Text style={{ color: colors.muted }}>Balance</Text>
-                    {balances.length === 1 ? (
-                      <BalanceAmount balance={balances[0]} fontSize={30} />
-                    ) : (
-                      balances.map((b) => (
-                        <View
-                          key={b.currencyCode}
-                          style={{
-                            flexDirection: 'row',
-                            justifyContent: 'space-between',
-                            alignItems: 'baseline',
-                            gap: 12,
-                          }}
-                        >
-                          <Text style={{ color: colors.muted, fontWeight: '700' }}>
-                            {b.currencyCode}
-                          </Text>
-                          <BalanceAmount balance={b} fontSize={20} />
-                        </View>
-                      ))
-                    )}
-                  </View>
-                  <View style={{ height: 1, backgroundColor: colors.line }} />
-                </>
-              )}
-              <Text style={{ color: colors.muted }}>
-                This month · excluding unreported transactions
-              </Text>
-              {summaries.length === 0 ? (
-                <Text style={{ color: colors.text }}>No reportable activity this month</Text>
-              ) : (
-                summaries.map((summary) => (
-                  <View key={summary.currencyCode} style={{ gap: 6 }}>
-                    {summaries.length > 1 && (
-                      <Text style={{ color: colors.muted, fontWeight: '700' }}>
-                        {summary.currencyCode}
-                      </Text>
-                    )}
-                    <View
-                      style={{
-                        flexDirection: 'row',
-                        justifyContent: 'space-between',
-                        flexWrap: 'wrap',
-                        gap: 12,
-                      }}
-                    >
-                      <View>
-                        <Text style={{ color: colors.muted }}>Expenses</Text>
-                        <Text
-                          selectable
-                          style={{
-                            color: colors.text,
-                            fontSize: 22,
-                            fontWeight: '700',
-                            fontVariant: ['tabular-nums'],
-                          }}
-                        >
-                          {formatMoney('TRANSFER', summary.expenseMinor, summary.currencyCode)}
-                        </Text>
-                      </View>
-                      <View>
-                        <Text style={{ color: colors.muted }}>Income</Text>
-                        <Text
-                          selectable
-                          style={{
-                            color: colors.accent,
-                            fontSize: 18,
-                            fontVariant: ['tabular-nums'],
-                          }}
-                        >
-                          {formatMoney('TRANSFER', summary.incomeMinor, summary.currencyCode)}
-                        </Text>
-                      </View>
-                    </View>
-                  </View>
-                ))
-              )}
-            </View>
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 12,
-              }}
-            >
-              <Text style={{ color: colors.text, fontSize: 22, fontWeight: '700' }}>
-                Recent activity
-              </Text>
-              <Link
-                href={{
-                  pathname: '/transactions',
-                  params: accountId === null ? {} : { accountId: String(accountId) },
-                }}
-                asChild
-              >
-                <Pressable
-                  disabled={muted}
-                  accessibilityState={{ disabled: muted }}
-                  accessibilityRole="button"
-                  style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, padding: 8 })}
-                >
-                  <Text style={{ color: colors.accent }}>
-                    {accountId === null ? 'Search all' : 'Search account'}
-                  </Text>
-                </Pressable>
-              </Link>
-            </View>
+    <Animated.View
+      entering={FadeInDown}
+      exiting={FadeOutUp}
+      style={{
+        marginHorizontal: 20,
+        marginBottom: 10,
+        paddingLeft: 14,
+        paddingRight: 6,
+        borderRadius: 12,
+        backgroundColor: 'rgba(244,201,152,0.12)',
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+      }}
+    >
+      <Text accessibilityRole="alert" style={{ color: colors.warning, flex: 1 }}>
+        Couldn’t refresh accounts
+      </Text>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Retry refresh"
+        onPress={onRetry}
+        style={{ minHeight: 48, paddingHorizontal: 12, justifyContent: 'center' }}
+      >
+        <Text style={{ color: colors.accent, fontWeight: '700' }}>Retry</Text>
+      </Pressable>
+    </Animated.View>
+  );
+}
 
-            {rows.length === 0 && (
-              <Text style={{ color: colors.muted }}>
-                {accountId === null
-                  ? 'No transactions yet. Add one to get started.'
-                  : 'No transactions in this account. Add one or choose another account.'}
-              </Text>
-            )}
-          </View>
-        </View>
+/** Opens search for the account in view. It changes at once when the deck moves. */
+export function SearchField({ accountId, name }: { accountId: number | null; name: string }) {
+  return (
+    <Pressable
+      accessibilityRole="search"
+      accessibilityLabel={`Search ${name}`}
+      onPress={() =>
+        router.push({
+          pathname: '/transactions',
+          params: accountId === null ? {} : { accountId: String(accountId) },
+        })
       }
-      renderItem={({ item, index }) => {
+      style={{
+        minHeight: 48,
+        borderRadius: 24,
+        backgroundColor: colors.surface,
+        paddingHorizontal: 16,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+      }}
+    >
+      <SymbolView
+        name={{ ios: 'magnifyingglass', android: 'search' }}
+        size={20}
+        tintColor={colors.muted}
+      />
+      <Text style={{ color: colors.muted, fontSize: 15 }}>Search {name}</Text>
+    </Pressable>
+  );
+}
+
+export function ActivityList({ list, muted = false }: { list: HomeList; muted?: boolean }) {
+  const { accountId, rows, dailySummaries } = list;
+  return (
+    <View
+      pointerEvents={muted ? 'none' : 'auto'}
+      accessibilityElementsHidden={muted}
+      importantForAccessibility={muted ? 'no-hide-descendants' : 'auto'}
+      style={{ opacity: muted ? 0.4 : 1 }}
+    >
+      {rows.length === 0 && (
+        <Text style={{ color: colors.muted, paddingVertical: 16 }}>
+          {accountId === null
+            ? 'No transactions yet. Add one to get started.'
+            : 'No transactions in this account yet.'}
+        </Text>
+      )}
+      {rows.map((item, index) => {
         const title = transactionTitle(item);
         const scopedTransfer = item.type === 'TRANSFER' && accountId !== null;
         const incoming = scopedTransfer && item.transferAccountId === accountId;
@@ -203,12 +181,7 @@ export function FinancialView({
           ? `${incoming ? '+' : '−'}${formatMoney('TRANSFER', item.amountMinor, item.currencyCode)}`
           : formatMoney(item.type, item.amountMinor, item.currencyCode);
         return (
-          <View
-            pointerEvents={muted ? 'none' : 'auto'}
-            accessibilityElementsHidden={muted}
-            importantForAccessibility={muted ? 'no-hide-descendants' : 'auto'}
-            style={{ opacity: muted ? 0.4 : 1 }}
-          >
+          <View key={item.id}>
             {(index === 0 || rows[index - 1].date !== item.date) && (
               <View
                 style={{
@@ -312,104 +285,18 @@ export function FinancialView({
             </Pressable>
           </View>
         );
-      }}
-    />
+      })}
+    </View>
   );
 }
 
-export function HomeLayout({
-  quickAddAccountId,
-  accountsReady,
-  children,
-}: {
-  quickAddAccountId: number | null;
-  accountsReady: boolean;
-  children: ReactNode;
-}) {
+export function ActivitySkeleton() {
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <Stack.Screen
-        options={{
-          headerRight: () => (
-            <Pressable
-              onPress={() => router.push('/settings')}
-              accessibilityRole="button"
-              accessibilityLabel="Settings"
-              style={{
-                minWidth: 48,
-                minHeight: 48,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <SymbolView
-                name={{ ios: 'gearshape', android: 'settings' }}
-                size={26}
-                tintColor={colors.text}
-              />
-            </Pressable>
-          ),
-        }}
-      />
-      <StatusBar style="light" />
-      {children}
-      <Pressable
-        onPress={() =>
-          router.push({
-            pathname: '/quick-add',
-            params: quickAddAccountId === null ? {} : { accountId: String(quickAddAccountId) },
-          })
-        }
-        disabled={!accountsReady}
-        accessibilityState={{ disabled: !accountsReady }}
-        accessibilityRole="button"
-        accessibilityLabel="Add transaction"
-        style={({ pressed }) => ({
-          position: 'absolute',
-          right: 20,
-          bottom: 16,
-          width: 60,
-          height: 60,
-          borderRadius: 30,
-          backgroundColor: colors.accent,
-          alignItems: 'center',
-          justifyContent: 'center',
-          opacity: pressed ? 0.75 : 1,
-          boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-        })}
-      >
-        <SymbolView
-          name={{ ios: 'plus', android: 'add' }}
-          size={30}
-          tintColor={colors.background}
-        />
-      </Pressable>
-    </View>
-  );
-}
-function LoadingSummary() {
-  return (
-    <View accessibilityRole="progressbar" accessibilityLabel="Loading Home" style={{ gap: 12 }}>
-      <Text style={{ color: colors.muted }}>Balance</Text>
-      <Skeleton width="60%" height={36} />
-      <View style={{ height: 1, backgroundColor: colors.line }} />
-      <Text style={{ color: colors.muted }}>This month · excluding unreported transactions</Text>
-      <View style={{ flexDirection: 'row', gap: 28 }}>
-        <View style={{ flex: 1, gap: 8 }}>
-          <Text style={{ color: colors.muted }}>Expenses</Text>
-          <Skeleton width="90%" height={26} />
-        </View>
-        <View style={{ flex: 1, gap: 8 }}>
-          <Text style={{ color: colors.muted }}>Income</Text>
-          <Skeleton width="75%" height={22} />
-        </View>
-      </View>
-    </View>
-  );
-}
-function LoadingRows() {
-  return (
-    <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+    <View
+      accessibilityRole="progressbar"
+      accessibilityLabel="Loading activity"
+      style={{ paddingTop: 12 }}
+    >
       {[0, 1, 2, 3].map((key) => (
         <View
           key={key}
@@ -432,134 +319,14 @@ function LoadingRows() {
     </View>
   );
 }
-function FinancialFallback({
-  accountId,
-  summary,
-  activity,
-}: {
-  accountId: number | null;
-  summary: ReactNode;
-  activity?: ReactNode;
-}) {
-  return (
-    <FlatList
-      data={[]}
-      renderItem={() => null}
-      contentInsetAdjustmentBehavior="automatic"
-      contentContainerStyle={{ padding: 20, paddingBottom: 100 }}
-      ListHeaderComponent={
-        <View style={{ gap: 20, paddingBottom: 12 }}>
-          <View
-            style={{
-              backgroundColor: colors.panel,
-              borderRadius: 16,
-              borderCurve: 'continuous',
-              padding: 18,
-              gap: 12,
-            }}
-          >
-            {summary}
-          </View>
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 12,
-            }}
-          >
-            <Text style={{ color: colors.text, fontSize: 22, fontWeight: '700' }}>
-              Recent activity
-            </Text>
-            <Text style={{ color: colors.accent, padding: 8, opacity: 0.4 }}>
-              {accountId === null ? 'Search all' : 'Search account'}
-            </Text>
-          </View>
-          {activity}
-        </View>
-      }
-    />
-  );
-}
-export function FinancialSkeleton({ accountId }: { accountId: number | null }) {
-  return (
-    <FinancialFallback
-      accountId={accountId}
-      summary={<LoadingSummary />}
-      activity={<LoadingRows />}
-    />
-  );
-}
-export function FinancialError({
-  accountId,
-  retry,
-  message = 'Couldn’t load account activity',
-}: {
-  accountId: number | null;
-  retry: () => void;
-  message?: string;
-}) {
-  return (
-    <FinancialFallback
-      accountId={accountId}
-      summary={
-        <View style={{ minHeight: 180, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
-          <Text accessibilityRole="alert" style={{ color: colors.muted }}>
-            {message}
-          </Text>
-          <Pressable
-            accessibilityRole="button"
-            onPress={retry}
-            style={{
-              minHeight: 48,
-              paddingHorizontal: 20,
-              justifyContent: 'center',
-              borderWidth: 1,
-              borderColor: colors.warning,
-              borderRadius: 12,
-            }}
-          >
-            <Text style={{ color: colors.warning }}>Retry</Text>
-          </Pressable>
-        </View>
-      }
-    />
-  );
-}
 
-const accountSelectionStyle = { padding: 20, paddingBottom: 0 };
-
-export function AccountSelection(props: ComponentProps<typeof HomeAccountPicker>) {
+export function ActivityError({ retry }: { retry: () => void }) {
   return (
-    <View style={accountSelectionStyle}>
-      <HomeAccountPicker {...props} />
+    <View style={{ minHeight: 160, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+      <Text accessibilityRole="alert" style={{ color: colors.muted }}>
+        Couldn’t load account activity
+      </Text>
+      <RetryButton onPress={retry} />
     </View>
-  );
-}
-
-function HomeScreenFallback({ loading, children }: { loading: boolean; children: ReactNode }) {
-  return (
-    <HomeLayout quickAddAccountId={null} accountsReady={false}>
-      <View style={accountSelectionStyle}>
-        <HomeAccountPickerSkeleton animated={loading} />
-      </View>
-      {children}
-    </HomeLayout>
-  );
-}
-
-export function HomeScreenSkeleton() {
-  return (
-    <HomeScreenFallback loading>
-      <FinancialSkeleton accountId={null} />
-    </HomeScreenFallback>
-  );
-}
-
-export function HomeScreenError({ retry }: { retry: () => void }) {
-  return (
-    <HomeScreenFallback loading={false}>
-      <FinancialError accountId={null} retry={retry} message="Couldn’t load Home" />
-    </HomeScreenFallback>
   );
 }
