@@ -61,6 +61,21 @@ export function formatActivityDay(day: number, now = new Date()): string {
   return formatEpochDay(day);
 }
 
+/** The short symbol of a Currency, such as ৳ or $. An unknown code gives the code and a space. */
+export function currencySymbol(currency: string): string {
+  if (currency === 'BDT') return '৳';
+  try {
+    return (
+      new Intl.NumberFormat('en', { style: 'currency', currency, currencyDisplay: 'narrowSymbol' })
+        .formatToParts(0)
+        .find((part) => part.type === 'currency')?.value ?? `${currency} `
+    );
+  } catch (error) {
+    if (!(error instanceof RangeError)) throw error;
+    return `${currency} `;
+  }
+}
+
 /** Like formatTransactionAmount, but Taka uses its symbol with Bangladeshi grouping. */
 export function formatMoney(
   type: 'EXPENSE' | 'INCOME' | 'TRANSFER',
@@ -69,7 +84,7 @@ export function formatMoney(
 ): string {
   if (currency !== 'BDT') return formatTransactionAmount(type, minor, currency);
   const sign = type === 'EXPENSE' ? '−' : type === 'INCOME' ? '+' : '';
-  return `${sign}৳${new Intl.NumberFormat('en-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(minor / 100)}`;
+  return `${sign}${currencySymbol(currency)}${new Intl.NumberFormat('en-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(minor / 100)}`;
 }
 
 export function formatBalance(minor: number, currency: string): string {

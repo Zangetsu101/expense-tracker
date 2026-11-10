@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import { Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { SymbolView } from 'expo-symbols';
 import { AppSheet } from '@/components/app-sheet';
 import { formatBalance } from '@/lib/transaction-format';
@@ -8,7 +7,7 @@ import type { DeckCard } from './deck.ts';
 
 const c = theme.colors;
 
-/** The Home title. It names the account in view and opens the account list. */
+/** The Home title. It names the Account in view and opens the Account list. */
 export function HomeTitle({ name, onPress }: { name: string; onPress: () => void }) {
   return (
     <Pressable
@@ -56,14 +55,7 @@ export function AccountSheet({
   onAddAccount: () => void;
   onDismiss: () => void;
 }) {
-  const [query, setQuery] = useState('');
   const { width, height } = useWindowDimensions();
-  const search = query.trim().toLocaleLowerCase();
-  const rows = cards.filter((card) =>
-    `${card.account?.name ?? 'All accounts'} ${card.account?.currencyCode ?? ''}`
-      .toLocaleLowerCase()
-      .includes(search),
-  );
   return (
     <AppSheet pending={false} onDismiss={onDismiss}>
       <View
@@ -93,19 +85,11 @@ export function AccountSheet({
             <Text style={{ color: c.accent }}>Done</Text>
           </Pressable>
         </View>
-        <TextInput
-          accessibilityLabel="Find an account"
-          placeholder="Find an account"
-          placeholderTextColor={c.muted}
-          value={query}
-          onChangeText={setQuery}
-          style={{ backgroundColor: c.background, color: c.text, borderRadius: 12, padding: 12 }}
-        />
         <ScrollView
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={{ paddingBottom: 24 }}
         >
-          {rows.map((card) => {
+          {cards.map((card) => {
             const name = card.account?.name ?? 'All accounts';
             const selected = card.accountId === selectedId;
             return (

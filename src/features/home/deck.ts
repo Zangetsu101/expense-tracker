@@ -8,16 +8,14 @@ export type DeckAccount = {
   lastUsedDay: number | null;
 };
 
-export type DeckCard = {
-  /** The account scope that the card sets for Home. Null is All accounts. */
-  accountId: number | null;
-  account: DeckAccount | null;
-  face: 'pace' | 'trend';
-};
+/** A card sets the Account scope of Home. A null scope is All accounts. */
+export type DeckCard =
+  | { face: 'pace'; accountId: number | null; account: DeckAccount | null }
+  | { face: 'trend'; accountId: number; account: DeckAccount };
 
 /**
- * All accounts first, then the favorite, then the most recently used accounts, then the rest by name.
- * With one account, its card takes the Pace face because no Transfers can distort it.
+ * All accounts first, then the favorite, then the most recently used Accounts, then the rest by name.
+ * With one Account, its card takes the Pace face because no Transfers can distort it.
  */
 export function deckCards(accounts: DeckAccount[]): DeckCard[] {
   if (accounts.length === 1)
@@ -33,6 +31,14 @@ export function deckCards(accounts: DeckAccount[]): DeckCard[] {
     { accountId: null, account: null, face: 'pace' },
     ...ordered.map((account) => ({ accountId: account.id, account, face: 'trend' as const })),
   ];
+}
+
+/** The position of the card for an Account. A missing Account, such as a deleted one, gives the first card. */
+export function cardIndex(cards: DeckCard[], accountId: number | null): number {
+  return Math.max(
+    0,
+    cards.findIndex((card) => card.accountId === accountId),
+  );
 }
 
 export type PageDot = { index: number; active: boolean; size: 'full' | 'medium' | 'small' };

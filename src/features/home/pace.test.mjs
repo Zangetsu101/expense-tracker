@@ -1,6 +1,25 @@
 import assert from 'node:assert/strict';
+import { registerHooks } from 'node:module';
 import { test } from 'node:test';
-import { paceSummary, convertTo } from './pace.ts';
+
+const hooks = registerHooks({
+  resolve(specifier, context, next) {
+    if (specifier === '@/lib/database') return { url: 'pace-test:database', shortCircuit: true };
+    if (specifier.startsWith('@/lib/'))
+      return {
+        url: new URL(`../../lib/${specifier.slice(6)}.ts`, import.meta.url).href,
+        shortCircuit: true,
+      };
+    return next(specifier, context);
+  },
+  load(url, context, next) {
+    if (url === 'pace-test:database')
+      return { format: 'module', source: 'export const database = () => {};', shortCircuit: true };
+    return next(url, context);
+  },
+});
+const { paceSummary, convertTo } = await import('./pace.ts');
+hooks.deregister();
 
 const rate = { base: 'USD', quote: 'BDT', rate: 120 };
 const balances = [
@@ -63,6 +82,18 @@ test('without a Display Rate, the card shows each Currency and Pace counts the m
   assert.equal(summary.rate, null);
   assert.deepEqual(summary.pace, pace[0]);
   assert.equal(summary.paceOnly, 'BDT');
+});
+
+test('an invalid Display Rate does not combine the totals', () => {
+  for (const bad of [
+    { ...rate, rate: 0 },
+    { ...rate, rate: Infinity },
+    { ...rate, quote: 'USD' },
+  ]) {
+    const summary = paceSummary({ balances, pace, rate: bad, mainCurrency: 'BDT' });
+    assert.equal(summary.total, null);
+    assert.equal(summary.paceOnly, 'BDT');
+  }
 });
 
 test('a rate for another pair does not combine the totals', () => {

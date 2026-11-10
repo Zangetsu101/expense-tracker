@@ -10,7 +10,7 @@ import {
   useSuspenseQuery,
 } from '@tanstack/react-query';
 import { ErrorBoundary } from '@/components/query-error-boundary';
-import { epochDay } from '@/lib/database';
+import { defaultCurrencyCode, epochDay } from '@/lib/database';
 import { QueryTimeContext } from '@/lib/query-time';
 import { AccountSheet, HomeTitle } from './account-sheet.tsx';
 import {
@@ -21,7 +21,7 @@ import {
   type CardContext,
   type DeckItem,
 } from './cards.tsx';
-import { deckCards } from './deck.ts';
+import { cardIndex, deckCards } from './deck.ts';
 import { PeriodSheet } from './period-sheet.tsx';
 import { homePeriod, periodKey, type PeriodSetting } from './period.ts';
 import { cachePeriodSetting, homeDeckQuery, homeListQuery } from './queries.ts';
@@ -53,11 +53,10 @@ function ActivityContent({
 }
 
 function Home({ reset }: { reset: () => void }) {
-  // A new local date keeps the old content until the reads for that date finish.
   const now = useDeferredValue(use(QueryTimeContext));
   const client = useQueryClient();
   const { width } = useWindowDimensions();
-  const { data: deck, error, isFetching, refetch } = useSuspenseQuery(homeDeckQuery(now));
+  const { data: deck, error, refetch } = useSuspenseQuery(homeDeckQuery(now));
   const cards = deckCards(deck.accounts);
   const [selected, setSelected] = useState(() => cards[0].accountId);
   const [setting, setSetting] = useState(() => deck.period);
@@ -68,11 +67,7 @@ function Home({ reset }: { reset: () => void }) {
     onSuccess: (_, saved) => cachePeriodSetting(client, now, saved),
   });
 
-  // A deleted account falls back to the first card.
-  const index = Math.max(
-    0,
-    cards.findIndex((card) => card.accountId === selected),
-  );
+  const index = cardIndex(cards, selected);
   const scope = cards[index].accountId;
   const shownScope = useDeferredValue(scope);
   const shownSetting = useDeferredValue(setting);
@@ -95,7 +90,7 @@ function Home({ reset }: { reset: () => void }) {
   const context: CardContext = {
     accounts: deck.accounts,
     displayRate: deck.displayRate,
-    mainCurrency: favorite?.currencyCode ?? 'BDT',
+    mainCurrency: favorite?.currencyCode ?? defaultCurrencyCode,
     now,
     period,
     shownSetting,
@@ -114,9 +109,12 @@ function Home({ reset }: { reset: () => void }) {
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={{ paddingBottom: 100 }}
       >
-        <RefreshNotice failed={!!error && !isFetching} onRetry={() => void refetch()} />
+        <RefreshNotice failed={!!error} onRetry={() => void refetch()} />
         <Animated.View layout={LinearTransition} style={{ gap: 8 }}>
+          {/* A new order mounts a new deck that opens on the same Account. */}
           <Deck
+            key={cards.map((card) => card.accountId).join()}
+            index={index}
             cards={cards}
             context={context}
             listRef={deckRef}
@@ -161,7 +159,7 @@ function Home({ reset }: { reset: () => void }) {
             setSheet(null);
             selectScope(accountId);
             deckRef.current?.scrollToIndex({
-              index: cards.findIndex((card) => card.accountId === accountId),
+              index: cardIndex(cards, accountId),
               animated: true,
             });
           }}

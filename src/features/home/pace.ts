@@ -1,4 +1,4 @@
-import type { DisplayRate } from '@/lib/display-rate';
+import { validDisplayRate, type DisplayRate } from '@/lib/display-rate';
 import type { CurrencyBalance } from './balances.ts';
 
 /** Spending in one Currency: in the period, in the previous period up to the same point, and in all of the previous period. */
@@ -59,7 +59,7 @@ export function paceSummary({
       a.currencyCode.localeCompare(b.currencyCode),
   );
   const many = new Set([...balances, ...pace].map((row) => row.currencyCode)).size > 1;
-  const usableRate = many ? rate : null;
+  const usableRate = many && rate && validDisplayRate(rate) ? rate : null;
   const convert = (pick: (row: PaceRow) => number) =>
     convertTo(
       pace.map((row) => ({ currencyCode: row.currencyCode, amountMinor: pick(row) })),

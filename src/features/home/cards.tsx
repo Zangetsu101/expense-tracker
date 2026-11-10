@@ -4,7 +4,7 @@ import { useSuspenseQuery } from '@tanstack/react-query';
 import { SymbolView } from 'expo-symbols';
 import { ErrorBoundary } from '@/components/query-error-boundary';
 import { Skeleton } from '@/components/loading';
-import { formatActivityDay, formatBalance } from '@/lib/transaction-format';
+import { currencySymbol, formatActivityDay, formatBalance } from '@/lib/transaction-format';
 import type { DisplayRate } from '@/lib/display-rate';
 import { theme } from '@/theme';
 import { homeBalances } from './balances.ts';
@@ -33,7 +33,7 @@ const hues = [
 /** A short amount for chart labels: ৳2.4L, $1.2k. */
 export function compactMoney(minor: number, currency: string) {
   const value = Math.abs(minor) / 100;
-  const symbol = currency === 'BDT' ? '৳' : currency === 'USD' ? '$' : `${currency} `;
+  const symbol = currencySymbol(currency);
   const text =
     currency === 'BDT' && value >= 1e5
       ? `${(value / 1e5).toFixed(1)}L`
@@ -129,8 +129,8 @@ export function HomeCard({
           )}
         </Pressable>
       </View>
-      {scrub !== null ? (
-        <Amount minor={scrub} currency={account!.currencyCode} />
+      {card.face === 'trend' && scrub !== null ? (
+        <Amount minor={scrub} currency={card.account.currencyCode} />
       ) : account ? (
         <Amount minor={account.balanceMinor} currency={account.currencyCode} />
       ) : (
@@ -227,7 +227,7 @@ function CardBody({
           {card.face === 'trend' ? (
             <TrendBody
               key={periodKey(shownSetting)}
-              account={card.account!}
+              account={card.account}
               context={context}
               onScrub={onScrub}
             />
@@ -445,12 +445,15 @@ function AddAccountCard({ onPress }: { onPress: () => void }) {
 export type DeckItem = { kind: 'card'; card: DeckCard } | { kind: 'add' };
 
 export function Deck({
+  index,
   cards,
   context,
   listRef,
   onScopeChange,
   onAddAccount,
 }: {
+  /** The card that the deck opens on. */
+  index: number;
   cards: DeckCard[];
   context: CardContext;
   listRef: Ref<FlatList<DeckItem>>;
@@ -472,7 +475,8 @@ export function Deck({
       snapToInterval={interval}
       decelerationRate="fast"
       contentContainerStyle={{ paddingHorizontal: 20, gap: cardGap }}
-      getItemLayout={(_, index) => ({ length: interval, offset: interval * index, index })}
+      initialScrollIndex={index}
+      getItemLayout={(_, item) => ({ length: interval, offset: interval * item, index: item })}
       onMomentumScrollEnd={(event) => {
         const index = Math.min(
           cards.length - 1,

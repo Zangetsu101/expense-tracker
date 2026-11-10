@@ -81,6 +81,12 @@ test('a saved setting is read safely and falls back to this month', () => {
     range: 'year',
     monthStart: 1,
   });
+  const monthStart = (day) =>
+    parsePeriodSetting(`{"range":"month","monthStart":${day}}`).monthStart;
+  assert.equal(monthStart(0), 1, 'below the first day');
+  assert.equal(monthStart(1), 1);
+  assert.equal(monthStart(28), 28);
+  assert.equal(monthStart(29), 1, 'above the last day that every month has');
 });
 
 test('the period key changes with the range and the month start', () => {

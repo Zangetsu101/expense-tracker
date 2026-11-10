@@ -36,7 +36,7 @@ const mocks = {
   '@/components/quick-add-date': `export const QuickAddDate='Date';`,
   '@/components/quick-select-category': `export const QuickSelectCategory='Category',CategorySearchInput='CategorySearchInput';`,
   './read-home.ts': `const s=globalThis.__navTest; export const homeData=async id=>{s.accountQueries.push(id);return {rows:[],dailySummaries:[]}}; export const homeDeckData=async()=>{if(s.accountsError)throw Error('Accounts unavailable');return {accounts:(s.accounts??[]).map(a=>({balanceMinor:0,lastUsedDay:null,...a})),displayRate:null,period:{range:'month',monthStart:1}}}; export const homeTrend=async()=>[0,0]; export const homePace=async()=>[]; export const savePeriodSetting=async()=>{};`,
-  '@/lib/database': `export const epochDay=d=>Math.floor(d.getTime()/86400000); export const listAccounts=async()=>{if(globalThis.__navTest.accountsError)throw Error('Accounts unavailable');return globalThis.__navTest.accounts??[];}; export const listCategories=async()=>[]; export const setFavoriteAccount=async()=>{};`,
+  '@/lib/database': `export const database=async()=>{},defaultCurrencyCode='BDT'; export const epochDay=d=>Math.floor(d.getTime()/86400000); export const listAccounts=async()=>{if(globalThis.__navTest.accountsError)throw Error('Accounts unavailable');return globalThis.__navTest.accounts??[];}; export const listCategories=async()=>[]; export const setFavoriteAccount=async()=>{};`,
   '@/lib/reports': `export const accountBalances=async()=>[];`,
   '@/lib/categories': `export const listManagedCategories=async()=>[]; export const listCategoriesByRecentUse=async()=>[];`,
   '@/lib/transfers': `export const addTransfer=async()=>{}; `,

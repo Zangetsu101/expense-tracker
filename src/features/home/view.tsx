@@ -120,7 +120,7 @@ export function RefreshNotice({ failed, onRetry }: { failed: boolean; onRetry: (
   );
 }
 
-/** Opens search for the account in view. It changes at once when the deck moves. */
+/** Opens search for the Account in view. It changes at once when the deck moves. */
 export function SearchField({ accountId, name }: { accountId: number | null; name: string }) {
   return (
     <Pressable

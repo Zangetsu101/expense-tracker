@@ -93,8 +93,6 @@ test('the account list follows the deck order and ends with Add account', async 
   assert.deepEqual(picked, [null, 3]);
   await act(async () => press('Add account'));
   assert.equal(added, 1);
-  await act(async () => renderer.root.findByType('TextInput').props.onChangeText('kash'));
-  assert.deepEqual(labels(renderer), ['Done', 'bKash', 'Add account']);
 });
 
 test('with one account the list has no All accounts row', async () => {

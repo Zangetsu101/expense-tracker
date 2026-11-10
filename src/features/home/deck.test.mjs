@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { deckCards, pageDots } from './deck.ts';
+import { cardIndex, deckCards, pageDots } from './deck.ts';
 
 const account = (id, name, lastUsedDay = null, isFavorite = 0) => ({
   id,
@@ -61,6 +61,16 @@ test('page dots hide for one card and show every card up to seven', () => {
       [false, 'full'],
     ],
   );
+  assert.deepEqual(
+    pageDots(7, 0).map((dot) => dot.size),
+    Array(7).fill('full'),
+    'seven cards fit without smaller dots',
+  );
+  assert.deepEqual(
+    pageDots(8, 0).map((dot) => dot.size),
+    ['full', 'full', 'full', 'full', 'full', 'medium', 'small'],
+    'an eighth card makes the far edge smaller',
+  );
 });
 
 test('page dots show at most seven and shrink at an edge with more cards past it', () => {
@@ -75,4 +85,11 @@ test('page dots show at most seven and shrink at an edge with more cards past it
     pageDots(13, 6).map((dot) => dot.index),
     [3, 4, 5, 6, 7, 8, 9],
   );
+});
+
+test('cardIndex finds the card of an Account and falls back to the first card', () => {
+  const cards = deckCards([account(1, 'Cash', null, 1), account(2, 'Bank')]);
+  assert.equal(cardIndex(cards, 2), 2);
+  assert.equal(cardIndex(cards, null), 0);
+  assert.equal(cardIndex(cards, 99), 0);
 });

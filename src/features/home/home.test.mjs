@@ -27,7 +27,7 @@ const mocks = {
   'expo-symbols': `export const SymbolView='SymbolView';`,
   '@/components/loading': `export const Skeleton='Skeleton'; export const Shimmer='Shimmer';`,
   '@/components/app-sheet': `export const AppSheet='AppSheet';`,
-  '@/lib/database': `export const epochDay=d=>Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/86400000);`,
+  '@/lib/database': `export const database=async()=>{},defaultCurrencyCode='BDT'; export const epochDay=d=>Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/86400000);`,
   './read-home.ts': `const r=(...a)=>globalThis.__homeScreenTest.read(...a);
     export const homeDeckData=today=>r('deck',today); export const homeTrend=(id,start,today)=>r('trend',id,start,today);
     export const homePace=(id)=>r('pace',id); export const homeData=id=>r('list',id);
@@ -409,6 +409,51 @@ test('Home boundaries', async (t) => {
       await act(async () => button('Retry refresh').props.onPress());
       assert.ok(!has('Couldn’t refresh accounts'));
       assert.ok(cardTexts('Cash').includes('৳2,500.00'));
+    },
+  );
+
+  await t.test('the notice stays while Retry runs and goes after a refresh succeeds', async () => {
+    reads();
+    await mount();
+    reads({
+      deck: () => {
+        throw Error('unavailable');
+      },
+    });
+    await act(async () => notifyDataChanged());
+    const { calls } = pending('deck');
+    await act(async () => button('Retry refresh').props.onPress());
+    assert.ok(has('Couldn’t refresh accounts'), 'the notice stays while Retry runs');
+    await act(async () => calls[0].reject(Error('still unavailable')));
+    assert.ok(has('Couldn’t refresh accounts'));
+    reads();
+    await act(async () => button('Retry refresh').props.onPress());
+    assert.ok(!has('Couldn’t refresh accounts'));
+  });
+
+  await t.test(
+    'the deck stays on the account in view when the order of the cards changes',
+    async () => {
+      reads();
+      await mount();
+      await swipeTo(2);
+      const before = deckList();
+      assert.equal(before.props.data[2].card.account.name, 'Bank');
+      const savingsUsed = { ...account(3, 'Savings'), lastUsedDay: 20000 };
+      reads({ deck: () => deck([account(1, 'Cash', 1), account(2, 'Bank'), savingsUsed]) });
+      await act(async () => notifyDataChanged());
+      assert.equal(title().props.accessibilityLabel, 'Bank, choose account');
+      assert.notEqual(deckList(), before, 'a new order mounts a new deck');
+      assert.equal(deckList().props.data[3].card.account.name, 'Bank');
+      assert.equal(deckList().props.initialScrollIndex, 3, 'the new deck opens on Bank');
+      reads({ deck: () => deck([account(1, 'Cash', 1), savingsUsed]) });
+      await act(async () => notifyDataChanged());
+      assert.equal(
+        title().props.accessibilityLabel,
+        'All accounts, choose account',
+        'a deleted account falls back to the first card',
+      );
+      assert.equal(deckList().props.initialScrollIndex, 0);
     },
   );
 

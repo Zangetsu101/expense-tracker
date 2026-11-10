@@ -13,6 +13,9 @@ export type TransactionRow = {
   note: string | null;
 };
 
+/** The Currency of the Cash Account that a new install creates. */
+export const defaultCurrencyCode = 'BDT';
+
 let connection: Promise<SQLite.SQLiteDatabase> | undefined;
 export function database() {
   connection ??= SQLite.openDatabaseAsync('expense-poc.db')
@@ -32,7 +35,8 @@ export function database() {
       CREATE INDEX IF NOT EXISTS lending_entries_person ON lending_entries(personId);
       CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);`);
       await db.runAsync(
-        "INSERT INTO accounts (name, currencyCode, isFavorite) SELECT 'Cash', 'BDT', 1 WHERE NOT EXISTS (SELECT 1 FROM accounts)",
+        "INSERT INTO accounts (name, currencyCode, isFavorite) SELECT 'Cash', ?, 1 WHERE NOT EXISTS (SELECT 1 FROM accounts)",
+        [defaultCurrencyCode],
       );
       await db.runAsync(
         "INSERT INTO categories (name, type) SELECT 'Other', 'EXPENSE' WHERE NOT EXISTS (SELECT 1 FROM categories WHERE type = 'EXPENSE')",
