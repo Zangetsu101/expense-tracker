@@ -2,21 +2,15 @@ import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 import { test } from 'node:test';
 
+// Resolve the `@/lib/` path alias that the app bundler provides.
 const hooks = registerHooks({
-  resolve(specifier, context, next) {
-    if (specifier === '@/lib/database') return { url: 'pace-test:database', shortCircuit: true };
-    if (specifier.startsWith('@/lib/'))
-      return {
-        url: new URL(`../../lib/${specifier.slice(6)}.ts`, import.meta.url).href,
-        shortCircuit: true,
-      };
-    return next(specifier, context);
-  },
-  load(url, context, next) {
-    if (url === 'pace-test:database')
-      return { format: 'module', source: 'export const database = () => {};', shortCircuit: true };
-    return next(url, context);
-  },
+  resolve: (specifier, context, next) =>
+    specifier.startsWith('@/lib/')
+      ? {
+          url: new URL(`../../lib/${specifier.slice(6)}.ts`, import.meta.url).href,
+          shortCircuit: true,
+        }
+      : next(specifier, context),
 });
 const { paceSummary, convertTo } = await import('./pace.ts');
 hooks.deregister();

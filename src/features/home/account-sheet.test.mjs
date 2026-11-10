@@ -95,7 +95,7 @@ test('the account list follows the deck order and ends with Add account', async 
   assert.equal(added, 1);
 });
 
-test('with one account the list has no All accounts row', async () => {
+test('with one Account the list has no All accounts row', async () => {
   const renderer = await render(
     React.createElement(AccountSheet, {
       cards: [{ accountId: 7, account: account(7, 'Cash', 1), face: 'pace' }],
@@ -108,7 +108,7 @@ test('with one account the list has no All accounts row', async () => {
   assert.deepEqual(labels(renderer), ['Done', 'Cash', 'Add account']);
 });
 
-test('the title names the account in view and opens the list', async () => {
+test('the title names the Account in view and opens the list', async () => {
   let opened = 0;
   const renderer = await render(
     React.createElement(HomeTitle, { name: 'Bank', onPress: () => opened++ }),

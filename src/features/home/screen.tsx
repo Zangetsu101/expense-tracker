@@ -10,7 +10,8 @@ import {
   useSuspenseQuery,
 } from '@tanstack/react-query';
 import { ErrorBoundary } from '@/components/query-error-boundary';
-import { defaultCurrencyCode, epochDay } from '@/lib/database';
+import { defaultCurrencyCode } from '@/lib/currency';
+import { epochDay } from '@/lib/database';
 import { QueryTimeContext } from '@/lib/query-time';
 import { AccountSheet, HomeTitle } from './account-sheet.tsx';
 import {
@@ -68,6 +69,7 @@ function Home({ reset }: { reset: () => void }) {
   });
 
   const index = cardIndex(cards, selected);
+  const deckOrderKey = cards.map((card) => card.accountId).join();
   const scope = cards[index].accountId;
   const shownScope = useDeferredValue(scope);
   const shownSetting = useDeferredValue(setting);
@@ -111,10 +113,9 @@ function Home({ reset }: { reset: () => void }) {
       >
         <RefreshNotice failed={!!error} onRetry={() => void refetch()} />
         <Animated.View layout={LinearTransition} style={{ gap: 8 }}>
-          {/* A new order mounts a new deck that opens on the same Account. */}
           <Deck
-            key={cards.map((card) => card.accountId).join()}
-            index={index}
+            key={deckOrderKey}
+            initialIndex={index}
             cards={cards}
             context={context}
             listRef={deckRef}

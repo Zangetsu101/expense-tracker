@@ -4,7 +4,8 @@ import { useSuspenseQuery } from '@tanstack/react-query';
 import { SymbolView } from 'expo-symbols';
 import { ErrorBoundary } from '@/components/query-error-boundary';
 import { Skeleton } from '@/components/loading';
-import { currencySymbol, formatActivityDay, formatBalance } from '@/lib/transaction-format';
+import { currencySymbol } from '@/lib/currency';
+import { formatActivityDay, formatBalance } from '@/lib/transaction-format';
 import type { DisplayRate } from '@/lib/display-rate';
 import { theme } from '@/theme';
 import { homeBalances } from './balances.ts';
@@ -445,15 +446,14 @@ function AddAccountCard({ onPress }: { onPress: () => void }) {
 export type DeckItem = { kind: 'card'; card: DeckCard } | { kind: 'add' };
 
 export function Deck({
-  index,
+  initialIndex,
   cards,
   context,
   listRef,
   onScopeChange,
   onAddAccount,
 }: {
-  /** The card that the deck opens on. */
-  index: number;
+  initialIndex: number;
   cards: DeckCard[];
   context: CardContext;
   listRef: Ref<FlatList<DeckItem>>;
@@ -475,14 +475,14 @@ export function Deck({
       snapToInterval={interval}
       decelerationRate="fast"
       contentContainerStyle={{ paddingHorizontal: 20, gap: cardGap }}
-      initialScrollIndex={index}
-      getItemLayout={(_, item) => ({ length: interval, offset: interval * item, index: item })}
+      initialScrollIndex={initialIndex}
+      getItemLayout={(_, index) => ({ length: interval, offset: interval * index, index })}
       onMomentumScrollEnd={(event) => {
-        const index = Math.min(
+        const settled = Math.min(
           cards.length - 1,
           Math.round(event.nativeEvent.contentOffset.x / interval),
         );
-        onScopeChange(cards[index].accountId);
+        onScopeChange(cards[settled].accountId);
       }}
       renderItem={({ item, index }) =>
         item.kind === 'add' ? (

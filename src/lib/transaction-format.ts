@@ -1,3 +1,5 @@
+import { currencySymbol } from './currency.ts';
+
 export function formatTransactionAmount(
   type: 'EXPENSE' | 'INCOME' | 'TRANSFER',
   amountMinor: number,
@@ -59,21 +61,6 @@ export function formatActivityDay(day: number, now = new Date()): string {
   if (day === today) return 'Today';
   if (day === today - 1) return 'Yesterday';
   return formatEpochDay(day);
-}
-
-/** The short symbol of a Currency, such as ৳ or $. An unknown code gives the code and a space. */
-export function currencySymbol(currency: string): string {
-  if (currency === 'BDT') return '৳';
-  try {
-    return (
-      new Intl.NumberFormat('en', { style: 'currency', currency, currencyDisplay: 'narrowSymbol' })
-        .formatToParts(0)
-        .find((part) => part.type === 'currency')?.value ?? `${currency} `
-    );
-  } catch (error) {
-    if (!(error instanceof RangeError)) throw error;
-    return `${currency} `;
-  }
 }
 
 /** Like formatTransactionAmount, but Taka uses its symbol with Bangladeshi grouping. */

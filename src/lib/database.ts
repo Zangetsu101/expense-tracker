@@ -1,3 +1,4 @@
+import { defaultCurrencyCode } from './currency.ts';
 import { notifyDataChanged } from './data-changes.ts';
 import * as SQLite from 'expo-sqlite';
 
@@ -12,9 +13,6 @@ export type TransactionRow = {
   categoryName: string | null;
   note: string | null;
 };
-
-/** The Currency of the Cash Account that a new install creates. */
-export const defaultCurrencyCode = 'BDT';
 
 let connection: Promise<SQLite.SQLiteDatabase> | undefined;
 export function database() {

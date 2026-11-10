@@ -5,7 +5,6 @@ import {
   formatBalance,
   formatEpochDay,
   formatMoney,
-  currencySymbol,
   formatTransactionAmount,
   transactionTitle,
 } from './transaction-format.ts';
@@ -60,12 +59,6 @@ test('activity dates use local calendar days across month and year boundaries', 
   assert.equal(formatActivityDay(today - 1, now), 'Yesterday');
   assert.equal(formatActivityDay(today - 2, now), '2025-12-30');
   assert.equal(formatActivityDay(today + 1, now), '2026-01-02');
-});
-
-test('currencySymbol gives the short symbol and falls back to the code', () => {
-  assert.equal(currencySymbol('BDT'), '৳');
-  assert.equal(currencySymbol('USD'), '$');
-  assert.equal(currencySymbol('XYZ1'), 'XYZ1 ');
 });
 
 test('formatMoney writes Taka with the symbol and grouping', () => {

@@ -85,10 +85,7 @@ export function AccountSheet({
             <Text style={{ color: c.accent }}>Done</Text>
           </Pressable>
         </View>
-        <ScrollView
-          keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{ paddingBottom: 24 }}
-        >
+        <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
           {cards.map((card) => {
             const name = card.account?.name ?? 'All accounts';
             const selected = card.accountId === selectedId;

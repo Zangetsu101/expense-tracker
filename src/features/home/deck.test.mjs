@@ -36,7 +36,7 @@ test('the deck starts with All accounts, then the favorite, then recent use, the
   assert.equal(cards[1].account.name, 'Cash');
 });
 
-test('one account gets a single Pace card for that account', () => {
+test('one Account gets a single Pace card for that Account', () => {
   const cards = deckCards([account(7, 'Cash', null, 1)]);
   assert.deepEqual(
     cards.map((card) => [card.accountId, card.face, card.account?.name]),

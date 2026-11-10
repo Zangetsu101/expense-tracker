@@ -34,8 +34,8 @@ registerHooks({
     return next(url, context);
   },
 });
-const { combinedMinor, combinedCategorySpending, saveDisplayRate, getDisplayRate } =
-  await import('./display-rate.ts');
+const { combinedMinor, combinedCategorySpending } = await import('./display-rate.ts');
+const { saveDisplayRate, getDisplayRate } = await import('./display-rate-store.ts');
 
 const rate = { base: 'USD', quote: 'BDT', rate: 100 };
 test('combined totals require an exact pair and explicit rate', () => {

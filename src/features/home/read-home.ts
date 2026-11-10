@@ -1,5 +1,6 @@
 import { database } from '@/lib/database';
-import { getDisplayRate, type DisplayRate } from '@/lib/display-rate';
+import type { DisplayRate } from '@/lib/display-rate';
+import { getDisplayRate } from '@/lib/display-rate-store';
 import type { DeckAccount } from './deck.ts';
 import type { PaceRow } from './pace.ts';
 import { parsePeriodSetting, type HomePeriod, type PeriodSetting } from './period.ts';
