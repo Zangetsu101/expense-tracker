@@ -391,7 +391,7 @@ describe('failures', () => {
     });
     await screen.unmount();
 
-    await mount({ ...connected, removalError: 'offline' });
+    await mount({ ...connected, removalError: { kind: 'network', message: 'offline' } });
     expect(
       await screen.findByText('Backup saved. Older backups couldn’t be removed.'),
     ).toBeOnTheScreen();

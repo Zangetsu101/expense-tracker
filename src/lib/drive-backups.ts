@@ -4,6 +4,7 @@ export type BackupInterval = 'off' | 'daily' | 'weekly';
 export type BackupFailureKind = 'network' | 'auth' | 'quota' | 'other';
 export type DriveBackupFile = { id: string; createdAt: number };
 export type DriveBackupListing = DriveBackupFile & { size: number; transactions: number | null };
+export type BackupFailure = { kind: BackupFailureKind; message: string };
 
 export type DriveBackupState = {
   account: string | null;
@@ -13,11 +14,11 @@ export type DriveBackupState = {
   interval: BackupInterval;
   connectedAt: number | null;
   lastSuccess: number | null;
-  lastError: { kind: BackupFailureKind; message: string } | null;
+  lastError: BackupFailure | null;
   /** Drive had backups at first connect; nothing runs until the user chooses. */
   awaitingChoice: boolean;
   /** The last backup succeeded, but older backups could not be removed. */
-  removalError: string | null;
+  removalError: BackupFailure | null;
   files: DriveBackupFile[];
 };
 
@@ -80,7 +81,7 @@ const day = 24 * 60 * 60 * 1000;
 const retention = 7;
 const intervalMs = (interval: BackupInterval) => (interval === 'weekly' ? 7 * day : day);
 
-function failureOf(error: unknown): { kind: BackupFailureKind; message: string } {
+function failureOf(error: unknown): BackupFailure {
   const message = error instanceof Error ? error.message : String(error);
   if (error instanceof DriveError && error.kind !== 'notFound')
     return { kind: error.kind, message };
@@ -128,7 +129,7 @@ export function createDriveBackups(deps: DriveBackupDependencies) {
         throw new Error('Backup verification failed.');
     } catch (error) {
       if (uploaded) await drive.remove(uploaded.id).catch(() => {});
-      const failed = { ...state, folderId, lastError: failureOf(error) };
+      const failed = { ...state, folderId, lastError: failureOf(error), removalError: null };
       await deps.save(failed);
       return failed;
     }
@@ -148,7 +149,7 @@ export function createDriveBackups(deps: DriveBackupDependencies) {
         await drive.remove(file.id);
         next = { ...next, files: next.files.filter((item) => item.id !== file.id) };
       } catch (error) {
-        next = { ...next, removalError: failureOf(error).message };
+        next = { ...next, removalError: failureOf(error) };
       }
     }
     if (excess.length) await deps.save(next);

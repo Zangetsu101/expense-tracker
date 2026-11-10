@@ -379,7 +379,10 @@ describe('failures', () => {
     };
     s.advance(day);
     const cleanupFailure = await s.backups.runDue();
-    expect(cleanupFailure).toMatchObject({ lastError: null, removalError: 'offline' });
+    expect(cleanupFailure).toMatchObject({
+      lastError: null,
+      removalError: { kind: 'network', message: 'offline' },
+    });
     expect(cleanupFailure.files).toHaveLength(8);
 
     s.google.drive.remove = async (id) => {
@@ -388,6 +391,19 @@ describe('failures', () => {
     s.advance(day);
     expect(await s.backups.runDue()).toMatchObject({ removalError: null });
     expect(s.state().files).toHaveLength(7);
+  });
+
+  test('a failed backup replaces the warning about older backups', async () => {
+    const s = await connected();
+    await s.deps.save({ ...s.state(), removalError: { kind: 'network', message: 'offline' } });
+    s.google.drive.upload = async () => {
+      throw new DriveError('network', 'offline');
+    };
+    s.advance(day);
+    expect(await s.backups.runDue()).toMatchObject({
+      lastError: { kind: 'network' },
+      removalError: null,
+    });
   });
 
   test('a failed metadata save never removes recovery points, and the queue recovers', async () => {

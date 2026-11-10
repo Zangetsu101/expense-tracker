@@ -63,7 +63,9 @@ test.each([
 });
 
 test('a backup that could not remove older backups is a warning', () => {
-  expect(backupStatus({ ...connected, removalError: 'offline' }, now)).toEqual({
+  expect(
+    backupStatus({ ...connected, removalError: { kind: 'network', message: 'offline' } }, now),
+  ).toEqual({
     text: 'Backup saved. Older backups couldn’t be removed.',
     warning: true,
     action: 'backup',
