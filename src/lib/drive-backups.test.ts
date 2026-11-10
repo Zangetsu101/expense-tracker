@@ -81,7 +81,7 @@ function setup(email: string | null = 'you@example.com') {
   const signIn = jest.fn(async () => {
     if (!email) return null;
     google.useAccount(email);
-    return { email, photo: `https://photos.example/${email}` };
+    return { email, photoUrl: `https://photos.example/${email}` };
   });
   const deps = {
     load: jest.fn(async () => structuredClone(state)),
@@ -129,7 +129,7 @@ describe('first connect', () => {
     expect(result.kind).toBe('connected');
     expect(s.state()).toMatchObject({
       account: 'you@example.com',
-      photo: 'https://photos.example/you@example.com',
+      photoUrl: 'https://photos.example/you@example.com',
       interval: 'daily',
       awaitingChoice: false,
       lastError: null,
@@ -213,7 +213,7 @@ describe('first connect', () => {
     await s.backups.connect();
     s.setLive(backupJson(5));
     s.advance(day);
-    const kept = await s.backups.fileRestored();
+    const kept = await s.backups.adoptAfterFileRestore();
     expect(kept).toMatchObject({ interval: 'daily', awaitingChoice: false, lastSuccess: s.now() });
     expect(kept.files).toHaveLength(2);
     expect(s.google.files.get(kept.files[1].id)?.transactions).toBe(5);
@@ -223,7 +223,7 @@ describe('first connect', () => {
     const s = await connected();
     const before = s.state();
     s.advance(day / 2);
-    expect(await s.backups.fileRestored()).toEqual(before);
+    expect(await s.backups.adoptAfterFileRestore()).toEqual(before);
     expect(s.snapshots()).toBe(1);
   });
 });

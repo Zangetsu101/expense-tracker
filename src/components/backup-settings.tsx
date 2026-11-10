@@ -14,7 +14,12 @@ import {
 } from '@/lib/backup-background-task';
 import { actionLabels, backupStatus, backupTime } from '@/lib/backup-presentation';
 import { driveBackups } from '@/lib/drive-backup-adapter';
-import type { BackupInterval, DriveBackupListing, DriveBackupState } from '@/lib/drive-backups';
+import type {
+  BackupInterval,
+  DriveBackupListing,
+  DriveBackupState,
+  GoogleAccount,
+} from '@/lib/drive-backups';
 import { theme } from '@/theme';
 
 type Operation =
@@ -45,15 +50,15 @@ const intervals: { value: BackupInterval; label: string }[] = [
 const caption = { color: theme.colors.muted, fontSize: theme.type.caption, lineHeight: 18 };
 const avatarSize = 40;
 
-function AccountAvatar({ email, photo }: { email: string; photo: string | null }) {
+function AccountAvatar({ email, photoUrl }: GoogleAccount) {
   const circle = { width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2 };
-  if (photo)
+  if (photoUrl)
     return (
       <Image
         accessible
         accessibilityRole="image"
         accessibilityLabel="Profile photo"
-        source={{ uri: photo }}
+        source={{ uri: photoUrl }}
         style={circle}
       />
     );
@@ -229,7 +234,7 @@ export function BackupSettings({
         confirmReplace(name, active),
       );
       if (!restored) return;
-      if (connected) await withBackupChangeNotice(() => driveBackups.fileRestored());
+      if (connected) await withBackupChangeNotice(() => driveBackups.adoptAfterFileRestore());
       if (active.current) setFeedback(restoredMessage);
     });
   }
@@ -331,7 +336,7 @@ export function BackupSettings({
             ) : connected ? (
               <>
                 <View style={{ flexDirection: 'row', gap: theme.spacing.md }}>
-                  <AccountAvatar email={state.account ?? ''} photo={state.photo} />
+                  <AccountAvatar email={state.account ?? ''} photoUrl={state.photoUrl} />
                   <View style={{ flex: 1, gap: theme.spacing.xs }}>
                     <Text style={{ color: theme.colors.text, fontSize: theme.type.body }}>
                       {state.account}

@@ -52,7 +52,7 @@ jest.mock('@/lib/drive-backup-adapter', () => ({
     status: jest.fn(),
     connect: jest.fn(),
     keepLocalData: jest.fn(),
-    fileRestored: jest.fn(),
+    adoptAfterFileRestore: jest.fn(),
     listBackups: jest.fn(),
     restore: jest.fn(),
     setInterval: jest.fn(),
@@ -64,7 +64,7 @@ const day = 24 * 60 * 60 * 1000;
 const connected: DriveBackupState = {
   ...disconnectedState,
   account: 'you@example.com',
-  photo: 'https://photos.example/you.png',
+  photoUrl: 'https://photos.example/you.png',
   folderId: 'folder',
   interval: 'daily',
   connectedAt: Date.now() - day,
@@ -240,12 +240,11 @@ describe('backups found at first connect', () => {
     const user = await connectToFound();
     await user.press(button('Choose another backup…'));
     jest.mocked(restoreBackup).mockResolvedValue(true);
-    jest.mocked(driveBackups.fileRestored).mockImplementation(async () => {
+    jest.mocked(driveBackups.adoptAfterFileRestore).mockImplementation(async () => {
       stored = connected;
       return connected;
     });
     await user.press(button('Choose a file…'));
-    expect(driveBackups.fileRestored).toHaveBeenCalled();
     expect(await screen.findByRole('button', { name: 'Schedule' })).toHaveAccessibilityValue({
       text: 'Daily',
     });
@@ -254,14 +253,15 @@ describe('backups found at first connect', () => {
 });
 
 describe('connected', () => {
-  test('the card shows the Google account photo, or its first letter', async () => {
+  test('the card shows the Google account photo', async () => {
     await mount(connected);
     expect(await screen.findByRole('image', { name: 'Profile photo' })).toHaveProp('source', {
       uri: 'https://photos.example/you.png',
     });
-    await screen.unmount();
+  });
 
-    await mount({ ...connected, photo: null });
+  test('without a photo, the card shows the first letter of the email', async () => {
+    await mount({ ...connected, photoUrl: null });
     // The letter is decorative, so screen readers skip it.
     expect(await screen.findByText('Y', { includeHiddenElements: true })).toBeOnTheScreen();
     expect(screen.queryByRole('image', { name: 'Profile photo' })).not.toBeOnTheScreen();

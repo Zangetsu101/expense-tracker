@@ -5,11 +5,11 @@ export type BackupFailureKind = 'network' | 'auth' | 'quota' | 'other';
 export type DriveBackupFile = { id: string; createdAt: number };
 export type DriveBackupListing = DriveBackupFile & { size: number; transactions: number | null };
 export type BackupFailure = { kind: BackupFailureKind; message: string };
+export type GoogleAccount = { email: string; photoUrl: string | null };
 
 export type DriveBackupState = {
   account: string | null;
-  /** The URL of the Google account photo. */
-  photo: string | null;
+  photoUrl: string | null;
   folderId: string | null;
   interval: BackupInterval;
   connectedAt: number | null;
@@ -24,7 +24,7 @@ export type DriveBackupState = {
 
 export const disconnectedState: DriveBackupState = {
   account: null,
-  photo: null,
+  photoUrl: null,
   folderId: null,
   interval: 'off',
   connectedAt: null,
@@ -34,9 +34,6 @@ export const disconnectedState: DriveBackupState = {
   removalError: null,
   files: [],
 };
-
-export const accessRemovedMessage =
-  'Google Drive access was removed. Reconnect to keep backing up.';
 
 export class DriveError extends Error {
   constructor(
@@ -64,7 +61,7 @@ export interface DriveBackupDependencies {
   load(): Promise<DriveBackupState>;
   save(state: DriveBackupState): Promise<void>;
   /** Interactive sign-in. Returns null when the user cancels. */
-  signIn(): Promise<{ email: string; photo: string | null } | null>;
+  signIn(): Promise<GoogleAccount | null>;
   signOut(): Promise<void>;
   drive: DriveFolder;
   snapshot(): Promise<{ json: string; transactions: number }>;
@@ -129,6 +126,7 @@ export function createDriveBackups(deps: DriveBackupDependencies) {
         throw new Error('Backup verification failed.');
     } catch (error) {
       if (uploaded) await drive.remove(uploaded.id).catch(() => {});
+      // A failed backup replaces the older warning about removal.
       const failed = { ...state, folderId, lastError: failureOf(error), removalError: null };
       await deps.save(failed);
       return failed;
@@ -173,8 +171,8 @@ export function createDriveBackups(deps: DriveBackupDependencies) {
     };
   }
 
-  /** The user keeps this phone's data: adopt the Drive backups, then back up at once. */
-  async function keep(state: DriveBackupState) {
+  /** Adopt the Drive backups, then back up this phone's data at once. */
+  async function keepPhoneData(state: DriveBackupState) {
     if (!state.folderId) throw new Error('Connect Google Drive first.');
     const adopted = adopt(state, await drive.list(state.folderId), null);
     await deps.save(adopted);
@@ -192,7 +190,7 @@ export function createDriveBackups(deps: DriveBackupDependencies) {
         if (user === null) return { kind: 'cancelled' };
         const account = user.email;
         if (account === previous.account && previous.folderId && !previous.awaitingChoice) {
-          const resumed = { ...previous, photo: user.photo, lastError: null };
+          const resumed = { ...previous, photoUrl: user.photoUrl, lastError: null };
           await deps.save(resumed);
           return { kind: 'connected', state: await run(resumed, false) };
         }
@@ -201,7 +199,7 @@ export function createDriveBackups(deps: DriveBackupDependencies) {
         const fresh: DriveBackupState = {
           ...disconnectedState,
           account,
-          photo: user.photo,
+          photoUrl: user.photoUrl,
           folderId,
           connectedAt: deps.now(),
           awaitingChoice: backups.length > 0,
@@ -212,13 +210,13 @@ export function createDriveBackups(deps: DriveBackupDependencies) {
         return { kind: 'connected', state: await run(fresh, true) };
       }),
 
-    keepLocalData: () => serializeBackupOperation(async () => keep(await deps.load())),
+    keepLocalData: () => serializeBackupOperation(async () => keepPhoneData(await deps.load())),
 
     /** A restore from a file while backups wait for a choice counts as keeping this phone's data. */
-    fileRestored: () =>
+    adoptAfterFileRestore: () =>
       serializeBackupOperation(async () => {
         const state = await deps.load();
-        return state.awaitingChoice ? keep(state) : state;
+        return state.awaitingChoice ? keepPhoneData(state) : state;
       }),
 
     listBackups: () =>
