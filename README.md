@@ -60,7 +60,8 @@ pnpm check
 Use `pnpm lint:fix` to apply ESLint fixes and `pnpm format` to format files. Prettier
 uses single quotes and a 100-character print width, and skips generated files,
 vendored skills, and Git-ignored files. GitHub Actions runs `pnpm check` on pull
-requests and pushes to `main`; APK and OTA release workflows run it before publishing too.
+requests and pushes to `main`. The OTA workflow runs it before it publishes. The APK release job
+requires a successful `check` job for its commit.
 
 Enable the repository's Git hooks once per clone:
 

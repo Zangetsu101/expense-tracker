@@ -18,7 +18,6 @@ if [[ "$EXPENSE_TRACKER_KEYSTORE" != /* || ! -f "$EXPENSE_TRACKER_KEYSTORE" ]]; 
   exit 1
 fi
 
-pnpm check
 pnpm android:prebuild
 (cd android && ./gradlew :app:assembleRelease -PreactNativeArchitectures=arm64-v8a --console=plain)
 
