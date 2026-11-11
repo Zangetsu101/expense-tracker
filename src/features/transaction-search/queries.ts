@@ -1,20 +1,7 @@
-import { infiniteQueryOptions, queryOptions } from '@tanstack/react-query';
-import { listManagedCategories } from '@/lib/categories';
-import { listAccounts } from '@/lib/database';
+import { infiniteQueryOptions } from '@tanstack/react-query';
 import { PAGE_SIZE, searchTransactions, type SearchFilters } from '@/lib/transaction-search';
 
 const searchKey = ['transaction-search'] as const;
-
-async function readFilterOptions() {
-  const [accounts, categories] = await Promise.all([listAccounts(), listManagedCategories()]);
-  return { accounts, categories };
-}
-
-export type FilterOptions = Awaited<ReturnType<typeof readFilterOptions>>;
-
-export function searchFilterOptionsQuery() {
-  return queryOptions({ queryKey: [...searchKey, 'filter-options'], queryFn: readFilterOptions });
-}
 
 export function searchResultsQuery(filters: SearchFilters) {
   return infiniteQueryOptions({

@@ -12,7 +12,8 @@ import {
 import { QueryBoundary } from '@/components/query-error-boundary';
 import { resolveHomeAccount } from '@/lib/account-selection';
 import { epochDay } from '@/lib/database';
-import { homeAccountsQuery, homeSnapshotQuery } from './queries.ts';
+import { homeSnapshotQuery } from './queries.ts';
+import { accountsQuery } from '@/lib/account-queries';
 import { QueryTimeContext } from '@/lib/query-time';
 
 type FinancialRequest = { accountId: number | null; now: Date };
@@ -52,7 +53,7 @@ function FinancialSection({
 }
 
 function Home() {
-  const { data: accounts, isFetching, error, refetch } = useSuspenseQuery(homeAccountsQuery());
+  const { data: accounts, isFetching, error, refetch } = useSuspenseQuery(accountsQuery());
   const [selectedAccountId, setSelectedAccountId] = useState(() =>
     resolveHomeAccount(accounts, undefined),
   );

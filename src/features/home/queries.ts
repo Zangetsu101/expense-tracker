@@ -1,14 +1,10 @@
 import { queryOptions } from '@tanstack/react-query';
-import { epochDay, listAccounts } from '@/lib/database';
+import { epochDay } from '@/lib/database';
 import { homeData } from './read-home.ts';
 import { accountBalances } from '@/lib/reports';
 import { homeBalances } from './balances.ts';
 
 const homeQueryKey = ['home'] as const;
-
-export function homeAccountsQuery() {
-  return queryOptions({ queryKey: [...homeQueryKey, 'accounts'], queryFn: listAccounts });
-}
 
 export function homeSnapshotQuery(accountId: number | null, now: Date) {
   const today = epochDay(now);

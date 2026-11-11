@@ -27,7 +27,6 @@ import {
   formatTransactionAmount,
   transactionTitle,
 } from '@/lib/transaction-format';
-import type { FilterOptions } from './queries.ts';
 
 const ink = '#edf1f4';
 const muted = '#a2acb5';
@@ -172,7 +171,7 @@ export function ActiveFilterChips({
   onClear,
 }: {
   filters: SearchFilters;
-  options?: FilterOptions;
+  options?: { accounts: Account[]; categories: ManagedCategory[] };
   onClear: (clear: Partial<SearchFilters>) => void;
 }) {
   const active: { label: string; clear: Partial<SearchFilters> }[] = [];

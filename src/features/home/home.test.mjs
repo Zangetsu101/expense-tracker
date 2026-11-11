@@ -618,7 +618,7 @@ test('Home loading, retained content and cache behavior', async (t) => {
         isFavorite: a.id === 2 ? 1 : 0,
       }));
       state.accountsError = true;
-      await queryClient.invalidateQueries({ queryKey: ['home'], refetchType: 'none' });
+      await queryClient.invalidateQueries({ refetchType: 'none' });
       await act(async () => {
         state.lifecycle('background');
         state.lifecycle('active');
@@ -647,7 +647,7 @@ test('Home loading, retained content and cache behavior', async (t) => {
         isFavorite: a.id === 2 ? 1 : 0,
       }));
       state.accountsError = true;
-      await queryClient.invalidateQueries({ queryKey: ['home'], refetchType: 'none' });
+      await queryClient.invalidateQueries({ refetchType: 'none' });
       await act(async () => {
         state.lifecycle('background');
         state.lifecycle('active');

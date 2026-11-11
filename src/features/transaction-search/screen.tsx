@@ -3,13 +3,15 @@ import {
   QueryErrorResetBoundary,
   useQuery,
   useSuspenseInfiniteQuery,
-  useSuspenseQuery,
+  useSuspenseQueries,
 } from '@tanstack/react-query';
 import { useLocalSearchParams } from 'expo-router';
 import { QueryBoundary } from '@/components/query-error-boundary';
 import { parseAccountId } from '@/lib/account-selection';
 import type { SearchFilters } from '@/lib/transaction-search';
-import { searchFilterOptionsQuery, searchResultsQuery } from './queries.ts';
+import { managedCategoriesQuery } from '@/features/categories';
+import { accountsQuery } from '@/lib/account-queries';
+import { searchResultsQuery } from './queries.ts';
 import {
   AccountChoices,
   ActiveFilterChips,
@@ -73,18 +75,20 @@ function FilterOptionsSection(props: {
   categoryQuery: string;
   onCategoryQuery: (query: string) => void;
 }) {
-  const { data } = useSuspenseQuery(searchFilterOptionsQuery());
+  const [accounts, categories] = useSuspenseQueries({
+    queries: [accountsQuery(), managedCategoriesQuery()],
+  });
   return (
     <>
       <CategoryChoices
-        categories={data.categories}
+        categories={categories.data}
         draft={props.draft}
         changeDraft={props.changeDraft}
         query={props.categoryQuery}
         onQuery={props.onCategoryQuery}
       />
       <AccountChoices
-        accounts={data.accounts}
+        accounts={accounts.data}
         draft={props.draft}
         changeDraft={props.changeDraft}
       />
@@ -102,7 +106,9 @@ function TransactionSearch({ reset }: { reset: () => void }) {
   const [open, setOpen] = useState(false);
   const [categoryQuery, setCategoryQuery] = useState('');
   // The chips show "Selected" until the options are ready. They need no fallback.
-  const { data: options } = useQuery(searchFilterOptionsQuery());
+  const { data: accounts } = useQuery(accountsQuery());
+  const { data: categories } = useQuery(managedCategoriesQuery());
+  const options = accounts && categories ? { accounts, categories } : undefined;
   const deferred = useDeferredValue(filters);
   const filterKey = JSON.stringify(filters);
   const deferredKey = JSON.stringify(deferred);

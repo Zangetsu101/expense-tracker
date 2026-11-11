@@ -2,7 +2,7 @@ import { useSuspenseQuery } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { QueryBoundary } from '@/components/query-error-boundary';
 import { addTransfer } from '@/lib/transfers';
-import { transferAccountsQuery } from './queries.ts';
+import { accountsQuery } from '@/lib/account-queries';
 import {
   TransferForm,
   TransferFormError,
@@ -11,7 +11,7 @@ import {
 } from './view.tsx';
 
 function ReadyTransferForm(props: TransferFormProps) {
-  const { data, error, isFetching, refetch } = useSuspenseQuery(transferAccountsQuery());
+  const { data, error, isFetching, refetch } = useSuspenseQuery(accountsQuery());
   return (
     <TransferForm
       {...props}
