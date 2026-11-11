@@ -24,7 +24,9 @@ pnpm android:prebuild
 
 version=$(node -p "JSON.parse(require('node:fs').readFileSync('app.json', 'utf8')).expo.version")
 mkdir -p dist
-artifact="dist/expense-tracker-${version}-arm64.apk"
+apk="expense-tracker-${version}-arm64.apk"
+artifact="dist/$apk"
 cp android/app/build/outputs/apk/release/app-release.apk "$artifact"
-sha256sum "$artifact" > "$artifact.sha256"
+# Write only the file name, so that sha256sum -c works next to the downloaded files.
+(cd dist && sha256sum "$apk" > "$apk.sha256")
 printf '\nAPK: %s\nChecksum: %s.sha256\n' "$artifact" "$artifact"

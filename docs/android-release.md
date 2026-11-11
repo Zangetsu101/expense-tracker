@@ -52,6 +52,12 @@ gh workflow run apk-release.yml --ref <branch> -f signed_test=true
 
 The job builds the same signed ARM64 APK as a release. It does not check or create a tag or a release. Download the `expense-tracker-arm64-signed-test-<commit>` artifact from the workflow run. It contains the APK and its `.sha256` file. Artifacts are kept for 14 days.
 
+To check the APK, run this command in the folder that contains the downloaded files:
+
+```sh
+sha256sum -c expense-tracker-*-arm64.apk.sha256
+```
+
 The APK uses the release signing key, so it installs over the production app and keeps its data. It uses the version in `app.json` and receives OTA updates for that version. A later release with the same version installs over it.
 
 ## Build an APK for the Android emulator
@@ -99,7 +105,7 @@ pnpm install --frozen-lockfile
 )
 ```
 
-The command runs checks, prebuild, and the signed ARM64 release build. It produces `dist/expense-tracker-<version>-arm64.apk` and its `.sha256` file. Both APK targets use Huawei Cloud’s Gradle 9.3.1 mirror, pinned to Gradle’s official SHA-256 checksum by `plugins/with-gradle-mirror.cjs`. When upgrading Expo’s generated Gradle version, update the mirror and checksum together. Native sources are generated: edit `app.json`, the signing plugin, or the signing Gradle script instead of `android/`.
+The command runs checks, prebuild, and the signed ARM64 release build. It produces `dist/expense-tracker-<version>-arm64.apk` and its `.sha256` file. The `.sha256` file contains only the file name, so `sha256sum -c` works in the folder that contains both files. Both APK targets use Huawei Cloud’s Gradle 9.3.1 mirror, pinned to Gradle’s official SHA-256 checksum by `plugins/with-gradle-mirror.cjs`. When upgrading Expo’s generated Gradle version, update the mirror and checksum together. Native sources are generated: edit `app.json`, the signing plugin, or the signing Gradle script instead of `android/`.
 
 Verify the release certificate and install without clearing app data:
 
