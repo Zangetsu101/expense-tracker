@@ -108,7 +108,6 @@ function TransactionSearch({ reset }: { reset: () => void }) {
   // The chips show "Selected" until the options are ready. They need no fallback.
   const { data: accounts } = useQuery(accountsQuery());
   const { data: categories } = useQuery(managedCategoriesQuery());
-  const options = accounts && categories ? { accounts, categories } : undefined;
   const deferred = useDeferredValue(filters);
   const filterKey = JSON.stringify(filters);
   const deferredKey = JSON.stringify(deferred);
@@ -128,7 +127,14 @@ function TransactionSearch({ reset }: { reset: () => void }) {
           setCategoryQuery('');
           setOpen(true);
         }}
-        chips={<ActiveFilterChips filters={filters} options={options} onClear={clearFilter} />}
+        chips={
+          <ActiveFilterChips
+            filters={filters}
+            accounts={accounts}
+            categories={categories}
+            onClear={clearFilter}
+          />
+        }
       />
       <QueryBoundary
         reset={reset}

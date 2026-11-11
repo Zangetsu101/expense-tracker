@@ -164,14 +164,16 @@ function pathOf(categories: ManagedCategory[], category: ManagedCategory) {
   return names.join(' › ');
 }
 
-/** Without `options`, the category and account chips show "Selected". */
+/** A category or account chip shows "Selected" until its list is ready. */
 export function ActiveFilterChips({
   filters,
-  options,
+  accounts,
+  categories,
   onClear,
 }: {
   filters: SearchFilters;
-  options?: { accounts: Account[]; categories: ManagedCategory[] };
+  accounts?: Account[];
+  categories?: ManagedCategory[];
   onClear: (clear: Partial<SearchFilters>) => void;
 }) {
   const active: { label: string; clear: Partial<SearchFilters> }[] = [];
@@ -181,15 +183,15 @@ export function ActiveFilterChips({
       clear: { datePreset: 'ANY', startDate: '', endDate: '' },
     });
   if (filters.categoryId != null) {
-    const category = options?.categories.find((item) => item.id === filters.categoryId);
+    const category = categories?.find((item) => item.id === filters.categoryId);
     active.push({
-      label: `Category: ${category ? pathOf(options!.categories, category) : 'Selected'}`,
+      label: `Category: ${category ? pathOf(categories!, category) : 'Selected'}`,
       clear: { categoryId: null },
     });
   }
   if (filters.accountId !== null)
     active.push({
-      label: `Account: ${options?.accounts.find((a) => a.id === filters.accountId)?.name ?? 'Selected'}`,
+      label: `Account: ${accounts?.find((a) => a.id === filters.accountId)?.name ?? 'Selected'}`,
       clear: { accountId: null },
     });
   if (filters.type !== 'ALL')
