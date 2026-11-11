@@ -1,0 +1,31 @@
+name: Set up the Android build
+description: Install pnpm, Node.js, Java, and the Android SDK, configure Gradle, and install the dependencies.
+
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v6.1.1
+    - uses: actions/setup-node@v7.1.0
+      with:
+        node-version: '22'
+        cache: pnpm
+    - uses: actions/setup-java@v6.2.0
+      with:
+        distribution: temurin
+        java-version: '21'
+    - uses: android-actions/setup-android@v4.0.4
+      with:
+        packages: platform-tools platforms;android-36 build-tools;36.0.0
+        log-accepted-android-sdk-licenses: false
+    - name: Configure Gradle memory and failure handling
+      shell: bash
+      run: |
+        mkdir -p "$HOME/.gradle"
+        cat >> "$HOME/.gradle/gradle.properties" <<'EOF_GRADLE'
+        org.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=1g -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8
+        org.gradle.workers.max=2
+        org.gradle.daemon=false
+        EOF_GRADLE
+    - name: Install dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile
