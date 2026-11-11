@@ -6,11 +6,17 @@ import {
   createDriveBackups,
   disconnectedState,
   DriveError,
+  type ConnectedBackupState,
   type DriveBackupState,
 } from '@/lib/drive-backups';
 import { createGoogleDrive } from '@/lib/google-drive';
 
 const settingsKey = 'driveBackups';
+type UnmarkedState = Omit<ConnectedBackupState, 'status' | 'account'> & {
+  status?: undefined;
+  account: ConnectedBackupState['account'] | null;
+  awaitingChoice?: boolean;
+};
 const driveScope = 'https://www.googleapis.com/auth/drive.file';
 const noCredentialMessage = 'Google sign-in has no saved account for Expense Tracker.';
 /** Google Play services reports CommonStatusCodes.NETWORK_ERROR when the phone is offline. */
@@ -56,8 +62,15 @@ export const driveBackups = createDriveBackups({
     ).getFirstAsync<{ value: string }>('SELECT value FROM app_settings WHERE key = ?', [
       settingsKey,
     ]);
-    // A row from an older version has no newer fields, so those fields get the defaults.
-    return { ...disconnectedState, ...(row && (JSON.parse(row.value) as DriveBackupState)) };
+    if (!row) return disconnectedState;
+    const stored = JSON.parse(row.value) as DriveBackupState | UnmarkedState;
+    if (stored.status) return stored;
+    // A test build of 0.2.0 saved the state without a status. Convert it to the new form.
+    // Remove this conversion and UnmarkedState in 0.2.1. Only test phones have these rows.
+    const { account, awaitingChoice, folderId, connectedAt, ...rest } = stored;
+    if (!account) return disconnectedState;
+    if (awaitingChoice) return { status: 'awaitingChoice', account, folderId, connectedAt };
+    return { ...rest, status: 'connected', account, folderId, connectedAt };
   },
   async save(state) {
     await (

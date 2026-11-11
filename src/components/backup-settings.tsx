@@ -234,7 +234,7 @@ export function BackupSettings({
         confirmReplace(name, active),
       );
       if (!restored) return;
-      if (connected) await withBackupChangeNotice(() => driveBackups.adoptAfterFileRestore());
+      if (signedIn) await withBackupChangeNotice(() => driveBackups.adoptAfterFileRestore());
       if (active.current) setFeedback(restoredMessage);
     });
   }
@@ -271,10 +271,11 @@ export function BackupSettings({
   }
 
   const busy = disabled || operation !== undefined;
-  const account = state?.account;
-  const connected = !!state?.account;
+  const signedIn = state !== undefined && state.status !== 'disconnected';
+  const connected = state?.status === 'connected';
+  const account = signedIn ? state.account : undefined;
   const loading = supported && !state && !loadError;
-  const status = state && connected ? backupStatus(state) : undefined;
+  const status = signedIn ? backupStatus(state) : undefined;
   const restoreFailed = failure?.operation === 'restore';
   const cardAction = status
     ? {
@@ -291,7 +292,7 @@ export function BackupSettings({
   else if (failure) footer = failure.message;
 
   let scheduleNote: string | undefined;
-  if (connected && !state.awaitingChoice && !status?.warning) {
+  if (connected && !status?.warning) {
     if (state.interval === 'off')
       scheduleNote = 'Automatic backups off. Turn on a schedule to back up without tapping.';
     else if (foregroundOnly) scheduleNote = 'Automatic backups run when you open the app.';
@@ -387,7 +388,7 @@ export function BackupSettings({
             )}
           </View>
         )}
-        {connected && !state.awaitingChoice && (
+        {connected && (
           <SettingsRow
             first
             label="Schedule"
@@ -397,7 +398,7 @@ export function BackupSettings({
           />
         )}
         <SettingsRow
-          first={!(connected && !state.awaitingChoice)}
+          first={!connected}
           label="Share a backup file"
           description="Send a copy to any app, such as Drive or email"
           loading={operation === 'share'}
@@ -413,9 +414,9 @@ export function BackupSettings({
           warning={restoreFailed}
           loading={operation === 'list'}
           disabled={busy}
-          onPress={() => (connected ? openDriveBackups('restore') : restoreFile())}
+          onPress={() => (signedIn ? openDriveBackups('restore') : restoreFile())}
         />
-        {connected && (
+        {signedIn && (
           <SettingsRow
             label="Google account"
             value={account?.email}
@@ -448,7 +449,7 @@ export function BackupSettings({
                   key={item.value}
                   width={width}
                   label={item.label}
-                  selected={state?.interval === item.value}
+                  selected={connected && state.interval === item.value}
                   onPress={() => changeInterval(item.value)}
                 />
               ))}

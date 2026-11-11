@@ -11,11 +11,13 @@ Back up app data and test on a device before releasing. Installed apps need an A
 
 ## Publish an OTA update
 
-One-time CI requirement: an Expo access token with project access, stored as the repository secret [`EXPO_TOKEN`](https://github.com/Zangetsu101/expense-tracker/settings/secrets/actions). The workflows must be on `main`.
+One-time CI requirement: an Expo access token with project access, stored as the repository secret [`EXPO_TOKEN`](https://github.com/Zangetsu101/expense-tracker/settings/secrets/actions). The workflow file `.github/workflows/ci.yml` must be on `main`.
 
-1. Merge the tested changes into `main`. Every push to `main` runs checks and publishes an Android OTA update to the `production` channel and environment, recording the commit SHA.
-2. Confirm **GitHub Actions → Publish Android OTA** succeeds. You can also use **Run workflow** on `main` with a description to publish manually.
+1. Merge the tested changes into `main`. Each push to `main` starts the **CI** workflow. Its `check` job runs `pnpm check`. When the checks pass, its `publish` job publishes an Android OTA update to the `production` channel and environment and records the commit SHA. If the checks fail, the job does not publish.
+2. Confirm that both jobs of **GitHub Actions → CI** succeed. To publish manually, use **Run workflow** on `main` and type a description. The manual run also runs the checks first.
 3. Verify on the installed release app: open **Settings → Updates** to check for and download the update. When it is ready, tap **Updates** again and confirm **Restart to update** to apply it. Finish any unsaved entries before restarting. Tap the version/release line in Settings to confirm the running commit matches the published commit.
+
+A newer push to `main` cancels the checks of an older push that are still in progress. The newer push then publishes the changes of both. A new push never cancels a publish that is in progress. Publishes run one at a time. Pull requests run only the `check` job.
 
 See [Expo's debugging guide](https://docs.expo.dev/eas-update/debug/) if an update does not arrive.
 

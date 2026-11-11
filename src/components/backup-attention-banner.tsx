@@ -19,7 +19,11 @@ export function BackupAttentionBanner() {
         .status()
         .then((state) => {
           if (active)
-            setMessage(needsAttention(state, Date.now()) ? backupStatus(state).text : null);
+            setMessage(
+              state.status === 'connected' && needsAttention(state, Date.now())
+                ? backupStatus(state).text
+                : null,
+            );
         })
         .catch(() => {});
     }
