@@ -11,6 +11,7 @@ import { driveBackups } from '@/lib/drive-backup-adapter';
 import {
   disconnectedState,
   type DriveBackupListing,
+  type ConnectedBackupState,
   type DriveBackupState,
 } from '@/lib/drive-backups';
 import { BackupSettings } from './backup-settings';
@@ -61,14 +62,16 @@ jest.mock('@/lib/drive-backup-adapter', () => ({
 }));
 
 const day = 24 * 60 * 60 * 1000;
-const connected: DriveBackupState = {
-  ...disconnectedState,
+const connected: ConnectedBackupState = {
+  status: 'connected',
   account: { email: 'you@example.com', photoUrl: 'https://photos.example/you.png' },
   folderId: 'folder',
   interval: 'daily',
   connectedAt: Date.now() - day,
   lastSuccess: Date.now(),
   files: [{ id: 'a', createdAt: Date.now() }],
+  lastError: null,
+  removalError: null,
 };
 const listing = (id: string, daysAgo: number, transactions: number): DriveBackupListing => ({
   id,
@@ -164,7 +167,12 @@ describe('backups found at first connect', () => {
   async function connectToFound() {
     await mount();
     const user = userEvent.setup();
-    const waiting = { ...connected, interval: 'off' as const, awaitingChoice: true, files: [] };
+    const waiting = {
+      status: 'awaitingChoice' as const,
+      account: connected.account,
+      folderId: connected.folderId,
+      connectedAt: connected.connectedAt,
+    };
     jest.mocked(driveBackups.connect).mockImplementation(async () => {
       stored = waiting;
       return { kind: 'backupsFound', state: waiting, backups: found };

@@ -364,6 +364,7 @@ test('failed SQLite replacement rolls back every table including settings and im
 
 test('snapshot reads every table in one transaction and restore preserves device-local scheduling', async () => {
   const schedule = JSON.stringify({
+    status: 'connected',
     interval: 'weekly',
     account: { email: 'private@example.com', photoUrl: null },
   });
