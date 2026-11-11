@@ -1,3 +1,4 @@
+import { BackupAttentionBanner } from '@/components/backup-attention-banner';
 import { type ComponentProps, type ReactNode } from 'react';
 import { Link, Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -357,6 +358,7 @@ export function HomeLayout({
         }}
       />
       <StatusBar style="light" />
+      <BackupAttentionBanner />
       {children}
       <Pressable
         onPress={() =>

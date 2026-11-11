@@ -2,7 +2,7 @@
   "expo": {
     "name": "Expense Tracker",
     "slug": "expense-tracker-expo",
-    "version": "0.1.2",
+    "version": "0.2.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "expensetrackerexpo",
@@ -12,7 +12,7 @@
     },
     "android": {
       "package": "com.zangetsu101.expensetracker",
-      "versionCode": 3,
+      "versionCode": 4,
       "adaptiveIcon": {
         "backgroundColor": "#101820",
         "foregroundImage": "./assets/images/adaptive-icon.png",

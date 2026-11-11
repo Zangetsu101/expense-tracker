@@ -15,20 +15,21 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const root = new URL('../../', import.meta.url);
 const mocks = {
   '@expo/ui': `import React from 'react';export const Host='Host',Column='Column',Text='Text';export const Button=({label,onPress,children})=>React.createElement('Pressable',{accessibilityLabel:label,onPress},children);export const BottomSheet=({isPresented,children})=>isPresented?React.createElement('BottomSheet',null,children):null;`,
-  '@/lib/scheduled-backup-adapter': `export const scheduledBackups={status:async()=>({interval:'off',directoryUri:null,lastSuccess:null,lastError:null,files:[]})};export const chooseScheduledBackupFolder=async()=>null;`,
-  '@/lib/backup-background-task': `export const reconcileBackupTask=async()=>null,subscribeBackupSchedule=()=>()=>{},configureBackupSchedule=async()=>{},runScheduledBackup=async()=>{};`,
+  '@/lib/drive-backup-adapter': `export const driveBackups={status:async()=>({status:'disconnected'})};`,
+  '@/lib/backup-background-task': `export const reconcileBackupTask=async()=>null,subscribeBackupSchedule=()=>()=>{},withBackupChangeNotice=(operation)=>operation(),runScheduledBackup=async()=>{};`,
   '@/lib/category-prediction-history': `export const listCategoryEvidence=async()=>[];`,
   'expo-haptics': `export const AndroidHaptics={Keyboard_Tap:'keyboard'},ImpactFeedbackStyle={Light:'light'}; export const performAndroidHapticsAsync=async()=>{},impactAsync=async()=>{};`,
   'react-native-reanimated': `import {useRef} from 'react'; export default {View:'AnimatedView'}; export const Easing={out:x=>x,cubic:x=>x},ReduceMotion={System:'system'}; const builder={delay:()=>builder,duration:()=>builder,easing:()=>builder,withInitialValues:()=>builder,reduceMotion:()=>builder}; export const FadeInUp=builder; export const useSharedValue=value=>{const v=useRef({value}).current;v.get??=()=>v.value;v.set??=x=>{v.value=x};return v},useAnimatedStyle=fn=>fn(),withTiming=value=>value;`,
   '@/components/loading': `export const Skeleton='Skeleton',Shimmer='Shimmer';`,
+  '@/components/backup-attention-banner': `export const BackupAttentionBanner=()=>null;`,
   './account-picker.tsx': `export const HomeAccountPicker='HomeAccountPicker',HomeAccountPickerSkeleton='HomeAccountPickerSkeleton';`,
   '@/components/running-release': `export const RunningRelease='RunningRelease';`,
-  '@/lib/backup': `export const exportBackup=async()=>globalThis.__navTest.backup?.()??'content://backup'; export const restoreBackup=async()=>false;`,
+  '@/lib/backup': `export const shareBackup=async()=>{globalThis.__navTest.calls.push(['share']);await globalThis.__navTest.backup?.()}; export const restoreBackup=async()=>false,decodeBackup=JSON.parse,serializeBackupOperation=(job)=>job();`,
   '@/lib/backup-adapter': `export const backupStore={},backupDocuments={};`,
   '@/lib/export-csv': `export const exportTransactionsCsv=async()=>null;`,
   '@/lib/import-csv': `export const importMoneyLoverFile=async()=>null;`,
   '@/components/app-updates': `export const UpdatesRow='UpdatesRow';`,
-  'react-native': `import React from 'react';export const useWindowDimensions=()=>({width:390,height:844});export const Platform={OS:'android'}; export const BackHandler={addEventListener:()=>({remove(){}})}; export const Keyboard={dismiss() {}}; export const KeyboardAvoidingView='KeyboardAvoidingView',View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator'; export const FlatList=p=>React.createElement('FlatList',null,p.ListHeaderComponent,p.ListFooterComponent); export const Alert={alert(){}}; export const AppState={currentState:'active',addEventListener:(_,fn)=>{globalThis.__navTest.lifecycle=fn;return {remove(){}}}};`,
+  'react-native': `import React from 'react';export const useWindowDimensions=()=>({width:390,height:844});export const Platform={OS:'android'}; export const BackHandler={addEventListener:()=>({remove(){}})}; export const Keyboard={dismiss() {}}; export const KeyboardAvoidingView='KeyboardAvoidingView',View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',Image='Image',TextInput='TextInput',ActivityIndicator='ActivityIndicator'; export const FlatList=p=>React.createElement('FlatList',null,p.ListHeaderComponent,p.ListFooterComponent); export const Alert={alert(){}}; export const AppState={currentState:'active',addEventListener:(_,fn)=>{globalThis.__navTest.lifecycle=fn;return {remove(){}}}};`,
   'expo-router': `import {useEffect} from 'react'; const s=globalThis.__navTest; export const useFocusEffect=fn=>useEffect(fn,[fn]); export const useLocalSearchParams=()=>({}); export const router={push:h=>s.calls.push(['push',h]),replace:h=>s.calls.push(['replace',h]),back:()=>s.calls.push(['back'])}; export const Link=({children})=>children; export const Stack={Screen:p=>{s.header={...s.header,...p.options};return null}};`,
   'expo-router/react-navigation': `export const useHeaderHeight=()=>88; export const useNavigation=()=>({dispatch(){}}); export const usePreventRemove=()=>{};`,
   'expo-status-bar': `export const StatusBar=()=>null;`,
@@ -242,18 +243,16 @@ test('app navigation', async (t) => {
     await mount(Settings);
     assert.equal(renderer.root.findAllByType('RunningRelease').length, 1);
     for (const label of [
-      'Create backup',
-      'Restore from file',
+      'Share a backup file',
+      'Restore',
       'Export transactions CSV',
       'Import from MoneyLover',
     ])
       assert.ok(pressable(label));
     assert.ok(!texts().includes('Import, export and backup'));
-    await press('Create backup');
-    await press('Choose a location…');
-    assert.ok(texts().includes('Extra copy saved elsewhere.'));
+    await press('Share a backup file');
     await press('Review transfer candidates');
-    assert.deepEqual(state.calls, [['push', '/review-queue']]);
+    assert.deepEqual(state.calls, [['share'], ['push', '/review-queue']]);
   });
   await t.test(
     'Settings blocks other controls during data operations and restores them after completion',
@@ -265,15 +264,14 @@ test('app navigation', async (t) => {
         });
       try {
         await mount(Settings);
-        await press('Create backup');
-        await press('Choose a location…');
+        await press('Share a backup file');
         assert.equal(pressable('Lending & borrowing').props.disabled, true);
         assert.equal(pressable('Review transfer candidates').props.disabled, true);
         const blocked = renderer.root
           .findAllByType('View')
           .find((n) => n.props.pointerEvents === 'none');
         assert.equal(blocked.props.importantForAccessibility, 'no-hide-descendants');
-        await act(async () => finish('content://backup'));
+        await act(async () => finish());
         assert.equal(pressable('Lending & borrowing').props.disabled, false);
       } finally {
         delete state.backup;
