@@ -84,9 +84,15 @@ test('different or wrong values fail', () => {
 test('a version that the file does not contain in its usual form fails', () => {
   const { appJson: app, packageJson: pkg } = files('0.2.3', 7);
   const compactApp = app.replace('"version": "0.2.3"', '"version":"0.2.3"');
-  assert.throws(() => bumpRelease({ appJson: compactApp, packageJson: pkg, part: 'patch' }));
+  assert.throws(
+    () => bumpRelease({ appJson: compactApp, packageJson: pkg, part: 'patch' }),
+    /app\.json must contain the "version" line exactly one time/,
+  );
   const twoVersions = pkg.replace('"name": "app"', '"name": "app",\n  "x": { "version": "0.2.3" }');
-  assert.throws(() => bumpRelease({ appJson: app, packageJson: twoVersions, part: 'patch' }));
+  assert.throws(
+    () => bumpRelease({ appJson: app, packageJson: twoVersions, part: 'patch' }),
+    /package\.json must contain the "version" line exactly one time/,
+  );
 });
 
 function checkout(t, version = '0.2.3', versionCode = 7) {

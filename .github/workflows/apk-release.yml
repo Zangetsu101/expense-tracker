@@ -90,6 +90,17 @@ jobs:
           unset ANDROID_KEYSTORE_BASE64
           pnpm android:apk
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs dist/*.apk
+      - name: Upload signed test APK
+        if: ${{ inputs.signed_test }}
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: expense-tracker-arm64-signed-test-${{ github.sha }}
+          path: |
+            dist/*.apk
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
       # A signed test run writes the same notes to the step summary as a dry run.
       - name: Write the release notes
         env:
@@ -102,17 +113,6 @@ jobs:
             echo '## Release notes of the draft release' >> "$GITHUB_STEP_SUMMARY"
           fi
           cat "$RUNNER_TEMP/release-notes.md" >> "$GITHUB_STEP_SUMMARY"
-      - name: Upload signed test APK
-        if: ${{ inputs.signed_test }}
-        uses: actions/upload-artifact@v7.0.2
-        with:
-          name: expense-tracker-arm64-signed-test-${{ github.sha }}
-          path: |
-            dist/*.apk
-            dist/*.sha256
-          if-no-files-found: error
-          retention-days: 14
-          compression-level: 0
       - name: Create draft GitHub prerelease
         if: ${{ !inputs.signed_test }}
         run: |

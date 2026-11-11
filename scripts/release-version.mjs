@@ -41,10 +41,10 @@ function nextVersion(version, part) {
 }
 
 // Replaces the one place where the text has the value. The rest of the text stays the same.
-function replaceOnce(name, text, pattern, replacement) {
+function replaceOnce(name, key, text, pattern, replacement) {
   const matches = text.match(new RegExp(pattern.source, 'g')) ?? [];
   if (matches.length !== 1) {
-    throw new Error(`${name} must contain ${pattern.source} exactly one time.`);
+    throw new Error(`${name} must contain the "${key}" line exactly one time.`);
   }
   return text.replace(pattern, replacement);
 }
@@ -70,11 +70,12 @@ export function bumpRelease({ appJson, packageJson, part }) {
   const bumped = {
     appJson: replaceOnce(
       'app.json',
-      replaceOnce('app.json', appJson, versionPattern, versionText),
+      'versionCode',
+      replaceOnce('app.json', 'version', appJson, versionPattern, versionText),
       new RegExp(`"versionCode": ${from.versionCode}(?!\\d)`),
       `"versionCode": ${to.versionCode}`,
     ),
-    packageJson: replaceOnce('package.json', packageJson, versionPattern, versionText),
+    packageJson: replaceOnce('package.json', 'version', packageJson, versionPattern, versionText),
   };
 
   // Make sure that the text changes did not change a different key.
