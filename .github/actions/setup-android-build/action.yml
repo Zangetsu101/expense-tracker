@@ -1,5 +1,5 @@
 name: Set up the Android build
-description: Install pnpm, Node.js, Java, and the Android SDK, configure Gradle, and install the dependencies.
+description: Install pnpm, Node.js, Java, and the Android SDK, restore the Gradle cache, configure Gradle, and install the dependencies.
 
 runs:
   using: composite
@@ -13,6 +13,21 @@ runs:
       with:
         distribution: temurin
         java-version: '21'
+    # Prebuild generates android/ later in the job, so the key cannot hash the Gradle files.
+    # These files decide the generated Gradle files and the dependencies.
+    # A successful job saves the cache when no entry has the same key. Each branch saves its own entries.
+    # A run reads the entries of its branch and of main. Restore keys give a partial match after a key change.
+    # The cache holds only downloaded dependencies and Gradle files. The keystore stays in RUNNER_TEMP.
+    - uses: actions/cache@v6.1.0
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: gradle-${{ runner.os }}-${{ runner.arch }}-v1-${{ hashFiles('pnpm-lock.yaml', 'app.json', 'plugins/**', 'scripts/android-release.gradle') }}
+        restore-keys: |
+          gradle-${{ runner.os }}-${{ runner.arch }}-v1-
+    # The runner image has these packages, but cold builds without this step were slower in the measurements of PR #17.
+    # Measure again before you remove it.
     - uses: android-actions/setup-android@v4.0.4
       with:
         packages: platform-tools platforms;android-36 build-tools;36.0.0
