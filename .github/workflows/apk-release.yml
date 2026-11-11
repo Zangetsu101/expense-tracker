@@ -40,7 +40,9 @@ concurrency:
 jobs:
   build:
     # Only a manual run builds a signed APK. A PR run never reads the signing secrets.
-    if: github.event_name == 'workflow_dispatch' && (inputs.signed_test || (github.ref == 'refs/heads/main' && !inputs.emulator))
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      (inputs.signed_test || (github.ref == 'refs/heads/main' && !inputs.emulator))
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -134,7 +136,10 @@ jobs:
             --draft --prerelease --notes-file "$RUNNER_TEMP/release-notes.md"
 
   emulator:
-    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && !inputs.signed_test && (github.ref != 'refs/heads/main' || inputs.emulator))
+    if: >-
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'workflow_dispatch' && !inputs.signed_test &&
+      (github.ref != 'refs/heads/main' || inputs.emulator))
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
