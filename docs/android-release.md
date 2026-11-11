@@ -34,11 +34,11 @@ One-time setup: add these repository secrets in [Actions secrets](https://github
 
 Reuse the existing signing key so installed apps can upgrade without uninstalling. Do not commit signing credentials. No Expo token is required for the APK build.
 
-1. For each new APK release, bump `expo.version` and `expo.android.versionCode` in `app.json`, align `package.json`'s version, and merge those changes to `main`. The version code must exceed the installed release's code.
+1. For each new APK release, run `pnpm release:bump <major|minor|patch>`. The command sets the next version in `app.json` and `package.json` and adds 1 to `expo.android.versionCode`. It stops and changes nothing if the two versions are different. Commit the two files and merge the change to `main`. The command does not make a commit or a tag.
 2. Open **GitHub Actions → Build Android APK → Run workflow** and select `main`. Leave **emulator** unchecked for a release. Other branches produce an emulator test artifact.
-3. The workflow stops if the commit has no successful `check` job. GitHub Actions runs this job on each push to `main`, so wait for it to pass first. Then the workflow stamps the commit into the embedded bundle, prebuilds, builds a signed ARM64 APK, verifies its signature, and creates a **draft prerelease** with the APK and SHA-256 checksum. Existing versions/tags are rejected rather than overwritten.
+3. The workflow stops if the commit has no successful `check` job. GitHub Actions runs this job on each push to `main`, so wait for it to pass first. Then the workflow stamps the commit into the embedded bundle, prebuilds, builds a signed ARM64 APK, verifies its signature, and creates a **draft prerelease** with the APK and SHA-256 checksum. The workflow writes the notes of the draft. The notes show the runtime version of the APK and list the changes on `main` since the last `vX.Y.Z` tag that the commit contains. A merged PR shows as its title. The step summary of the run shows the same notes. Existing versions/tags are rejected rather than overwritten.
 4. Open the draft under **GitHub Releases** while signed in with repository write access. A draft is unpublished; download its APK, back up app data, install over the existing app, and verify behavior and the signing certificate.
-5. Edit the draft's notes to include known limitations, then click **Publish release** when testing passes. The release remains marked as a prerelease.
+5. Read the notes of the draft. Add known limitations if there are some, then click **Publish release** when testing passes. The release remains marked as a prerelease.
 
 A failed build creates no release. If publication fails after creating a draft, inspect/delete that draft before retrying; the workflow refuses to overwrite it.
 
@@ -50,7 +50,7 @@ To test a branch on a real phone before a release, run **Build Android APK** wit
 gh workflow run apk-release.yml --ref <branch> -f signed_test=true
 ```
 
-The job builds the same signed ARM64 APK as a release. It does not check or create a tag or a release. It does not run the repository checks or require a successful `check` job. Download the `expense-tracker-arm64-signed-test-<commit>` artifact from the workflow run. It contains the APK and its `.sha256` file. Artifacts are kept for 14 days.
+The job builds the same signed ARM64 APK as a release. It does not check or create a tag or a release. The step summary shows the release notes that a release from this commit would get, with the runtime version of the APK. It does not run the repository checks or require a successful `check` job. Download the `expense-tracker-arm64-signed-test-<commit>` artifact from the workflow run. It contains the APK and its `.sha256` file. Artifacts are kept for 14 days.
 
 To check the APK, run this command in the folder that contains the downloaded files:
 
@@ -117,6 +117,8 @@ apk="dist/expense-tracker-${version}-arm64.apk"
 adb install -r "$apk"
 ```
 
+Before the build, set the version with `pnpm release:bump <major|minor|patch>` and commit the change.
+
 After device testing, tag the exact build commit and push the tag:
 
 ```sh
@@ -124,4 +126,10 @@ git tag -a "v$version" -m "Expense Tracker $version"
 git push origin "v$version"
 ```
 
-Create a GitHub prerelease for that tag and attach the APK and checksum. Include known limitations and note that the APK supports ARM64 Android devices only.
+Create a GitHub prerelease for that tag and attach the APK and checksum. To write the notes, run this command in the build checkout. The checkout must have the full history and the tags:
+
+```sh
+node scripts/release-notes.mjs "$apk" > release-notes.md
+```
+
+Add known limitations to the notes.
