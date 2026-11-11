@@ -4,11 +4,17 @@ import {
   disconnectedState,
   DriveError,
   needsAttention,
+  type ConnectedBackupState,
   type DriveBackupState,
   type DriveFolder,
 } from './drive-backups';
 
 const day = 24 * 60 * 60 * 1000;
+
+function expectConnected(state: DriveBackupState): ConnectedBackupState {
+  if (state.status !== 'connected') throw new Error('Expected a connected state.');
+  return state;
+}
 const backupJson = (transactions = 0) =>
   JSON.stringify({
     schemaVersion: 1,
@@ -100,12 +106,16 @@ function setup(email: string | null = 'you@example.com') {
     },
     now: () => now,
   };
+  const backups = createDriveBackups(deps);
   return {
-    backups: createDriveBackups(deps),
+    backups,
+    /** Runs a backup and expects the account to stay connected. */
+    runDue: async (force?: boolean) => expectConnected(await backups.runDue(force)),
     deps,
     google,
     replaced,
-    state: () => state,
+    state: () => expectConnected(state),
+    stored: () => state,
     snapshots: () => snapshots,
     advance: (amount: number) => (now += amount),
     now: () => now,
@@ -130,7 +140,7 @@ describe('first connect', () => {
     expect(s.state()).toMatchObject({
       account: { email: 'you@example.com', photoUrl: 'https://photos.example/you@example.com' },
       interval: 'daily',
-      awaitingChoice: false,
+      status: 'connected',
       lastError: null,
       lastSuccess: s.now(),
     });
@@ -141,7 +151,7 @@ describe('first connect', () => {
   test('cancelling the account chooser changes nothing', async () => {
     const s = setup(null);
     expect(await s.backups.connect()).toEqual({ kind: 'cancelled' });
-    expect(s.state()).toEqual(disconnectedState);
+    expect(s.stored()).toEqual(disconnectedState);
     expect(s.snapshots()).toBe(0);
   });
 
@@ -157,13 +167,18 @@ describe('first connect', () => {
     const result = await s.backups.connect();
     expect(result.kind).toBe('backupsFound');
     expect(result.kind === 'backupsFound' && result.backups).toHaveLength(2);
-    expect(s.state()).toMatchObject({ interval: 'off', awaitingChoice: true, files: [] });
+    const waiting = s.stored();
+    expect(waiting).toMatchObject({
+      status: 'awaitingChoice',
+      account: { email: 'you@example.com' },
+    });
 
     s.advance(30 * day);
-    expect((await s.backups.runDue()).files).toEqual([]);
-    expect((await s.backups.runDue(true)).files).toEqual([]);
+    expect(await s.backups.runDue()).toEqual(waiting);
+    expect(await s.backups.runDue(true)).toEqual(waiting);
+    await expect(s.backups.setInterval('daily')).rejects.toThrow('Choose what to do');
     expect(s.google.files.size).toBe(2);
-    expect(needsAttention(s.state(), s.now())).toBe(false);
+    expect(needsAttention(waiting, s.now())).toBe(false);
   });
 
   test('restoring a found backup adopts the Drive backups and turns on Daily', async () => {
@@ -176,12 +191,11 @@ describe('first connect', () => {
     const declined = await s.backups.restore(newest, async () => false);
     expect(declined).toBe(false);
     expect(s.replaced).toEqual([]);
-    expect(s.state().awaitingChoice).toBe(true);
+    expect(s.stored().status).toBe('awaitingChoice');
 
     expect(await s.backups.restore(newest, async () => true)).toBe(true);
     expect(s.replaced).toEqual([decodeBackup(backupJson(2))]);
     expect(s.state()).toMatchObject({
-      awaitingChoice: false,
       interval: 'daily',
       lastSuccess: newest.createdAt,
       files: [{ id: newest.id, createdAt: newest.createdAt }],
@@ -201,7 +215,7 @@ describe('first connect', () => {
     await s.backups.connect();
     s.advance(day);
     const kept = await s.backups.keepLocalData();
-    expect(kept).toMatchObject({ interval: 'daily', awaitingChoice: false, lastError: null });
+    expect(kept).toMatchObject({ status: 'connected', interval: 'daily', lastError: null });
     expect(kept.files).toHaveLength(7);
     expect(s.google.files.has(oldest)).toBe(false);
   });
@@ -212,8 +226,8 @@ describe('first connect', () => {
     await s.backups.connect();
     s.setLive(backupJson(5));
     s.advance(day);
-    const kept = await s.backups.adoptAfterFileRestore();
-    expect(kept).toMatchObject({ interval: 'daily', awaitingChoice: false, lastSuccess: s.now() });
+    const kept = expectConnected(await s.backups.adoptAfterFileRestore());
+    expect(kept).toMatchObject({ interval: 'daily', lastSuccess: s.now() });
     expect(kept.files).toHaveLength(2);
     expect(s.google.files.get(kept.files[1].id)?.transactions).toBe(5);
   });
@@ -270,10 +284,10 @@ describe('scheduled backups', () => {
     const s = await connected();
     await s.deps.save({ ...s.state(), lastError: { kind: 'auth', message: 'Access removed' } });
     s.advance(3 * day);
-    expect((await s.backups.runDue()).lastError?.kind).toBe('auth');
+    expect((await s.runDue()).lastError?.kind).toBe('auth');
     expect(s.snapshots()).toBe(1);
 
-    const retried = await s.backups.runDue(true);
+    const retried = await s.runDue(true);
     expect(retried.lastError).toBeNull();
     expect(s.snapshots()).toBe(2);
   });
@@ -301,7 +315,7 @@ describe('scheduled backups', () => {
     s.advance(10 * day);
     await s.backups.runDue();
     expect(s.snapshots()).toBe(1);
-    const manual = await s.backups.runDue(true);
+    const manual = await s.runDue(true);
     expect(manual).toMatchObject({ interval: 'off', lastError: null });
     expect(manual.files).toHaveLength(2);
   });
@@ -316,7 +330,7 @@ describe('scheduled backups', () => {
   test('concurrent foreground and background checks produce one backup', async () => {
     const s = await connected();
     s.advance(day);
-    const results = await Promise.all(Array.from({ length: 5 }, () => s.backups.runDue()));
+    const results = await Promise.all(Array.from({ length: 5 }, () => s.runDue()));
     expect(s.snapshots()).toBe(2);
     expect(results.every((state) => state.files.length === 2)).toBe(true);
   });
@@ -324,7 +338,7 @@ describe('scheduled backups', () => {
   test('a clock moving backwards does not stop backups', async () => {
     const s = await connected();
     s.advance(-day);
-    expect((await s.backups.runDue()).files).toHaveLength(2);
+    expect((await s.runDue()).files).toHaveLength(2);
   });
 
   test('a folder removed in Drive is made again', async () => {
@@ -332,7 +346,7 @@ describe('scheduled backups', () => {
     const removed = s.state().folderId;
     s.google.folders.clear();
     s.advance(day);
-    const next = await s.backups.runDue();
+    const next = await s.runDue();
     expect(next.lastError).toBeNull();
     expect(next.folderId).not.toBe(removed);
     expect(next.folderId).toBe(s.google.folders.get('you@example.com'));
@@ -353,7 +367,7 @@ describe('failures', () => {
       throw error;
     };
     s.advance(day);
-    const failed = await s.backups.runDue();
+    const failed = await s.runDue();
     expect(failed).toMatchObject({
       lastSuccess: previous.lastSuccess,
       files: previous.files,
@@ -361,7 +375,7 @@ describe('failures', () => {
     });
     s.google.drive.upload = upload;
     // After removed access, only a backup that the user starts can try again.
-    const recovered = await s.backups.runDue(kind === 'auth');
+    const recovered = await s.runDue(kind === 'auth');
     expect(recovered.lastError).toBeNull();
     expect(recovered.files).toHaveLength(2);
   });
@@ -370,7 +384,7 @@ describe('failures', () => {
     const s = await connected();
     s.google.drive.download = async () => '{';
     s.advance(day);
-    const failed = await s.backups.runDue();
+    const failed = await s.runDue();
     expect(failed.lastError?.message).toBe('Backup verification failed.');
     expect(s.google.files.size).toBe(1);
   });
@@ -390,7 +404,7 @@ describe('failures', () => {
       throw new DriveError('network', 'offline');
     };
     s.advance(day);
-    const cleanupFailure = await s.backups.runDue();
+    const cleanupFailure = await s.runDue();
     expect(cleanupFailure).toMatchObject({
       lastError: null,
       removalError: { kind: 'network', message: 'offline' },
@@ -401,7 +415,7 @@ describe('failures', () => {
       s.google.files.delete(id);
     };
     s.advance(day);
-    expect(await s.backups.runDue()).toMatchObject({ removalError: null });
+    expect(await s.runDue()).toMatchObject({ removalError: null });
     expect(s.state().files).toHaveLength(7);
   });
 
@@ -412,7 +426,7 @@ describe('failures', () => {
       throw new DriveError('network', 'offline');
     };
     s.advance(day);
-    expect(await s.backups.runDue()).toMatchObject({
+    expect(await s.runDue()).toMatchObject({
       lastError: { kind: 'network' },
       removalError: null,
     });
@@ -430,7 +444,7 @@ describe('failures', () => {
     expect(s.state()).toEqual(previous);
     expect(s.google.deleted).toEqual([]);
     s.deps.save.mockImplementation(save);
-    expect((await s.backups.runDue()).files).toHaveLength(2);
+    expect((await s.runDue()).files).toHaveLength(2);
   });
 
   test('a file restore and a scheduled backup cannot overlap', async () => {
@@ -456,7 +470,7 @@ describe('failures', () => {
       async () => true,
     );
     await entered.promise;
-    const catchUp = s.backups.runDue();
+    const catchUp = s.runDue();
     await Promise.resolve();
     expect(s.google.files.size).toBe(1);
     release.resolve();
@@ -467,13 +481,16 @@ describe('failures', () => {
 });
 
 describe('needsAttention', () => {
-  const base: DriveBackupState = {
-    ...disconnectedState,
+  const base: ConnectedBackupState = {
+    status: 'connected',
     account: { email: 'you@example.com', photoUrl: null },
     folderId: 'folder',
     interval: 'daily',
     connectedAt: 0,
     lastSuccess: 0,
+    lastError: null,
+    removalError: null,
+    files: [],
   };
   test('one network failure is quiet until the schedule misses more than one interval', () => {
     const state = { ...base, lastError: { kind: 'network' as const, message: 'offline' } };
@@ -491,7 +508,13 @@ describe('needsAttention', () => {
   test('no warning while disconnected, Off, or waiting for the user to choose', () => {
     expect(needsAttention(disconnectedState, 100 * day)).toBe(false);
     expect(needsAttention({ ...base, interval: 'off' }, 100 * day)).toBe(false);
-    expect(needsAttention({ ...base, awaitingChoice: true }, 100 * day)).toBe(false);
+    const waiting = {
+      status: 'awaitingChoice' as const,
+      account: base.account,
+      folderId: 'folder',
+      connectedAt: 0,
+    };
+    expect(needsAttention(waiting, 100 * day)).toBe(false);
   });
 
   test('a first backup that never succeeded counts from the connect time', () => {

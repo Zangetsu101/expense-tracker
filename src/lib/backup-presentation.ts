@@ -1,4 +1,4 @@
-import { needsAttention, type DriveBackupState } from '@/lib/drive-backups';
+import { needsAttention, type SignedInBackupState } from '@/lib/drive-backups';
 
 export function backupTime(timestamp: number | null, now = new Date()): string {
   if (timestamp === null) return 'Never';
@@ -21,15 +21,15 @@ export const actionLabels: Record<BackupAction, string> = {
 };
 
 /** What the Drive card and the Home banner say about a connected account. */
-export function backupStatus(state: DriveBackupState, now = new Date()): BackupStatus {
-  const last = state.lastSuccess === null ? null : backupTime(state.lastSuccess, now);
-  const error = state.lastError;
-  if (state.awaitingChoice)
+export function backupStatus(state: SignedInBackupState, now = new Date()): BackupStatus {
+  if (state.status === 'awaitingChoice')
     return {
       text: 'Google Drive has backups from Expense Tracker. Choose what to do with them.',
       warning: false,
       action: 'review',
     };
+  const last = state.lastSuccess === null ? null : backupTime(state.lastSuccess, now);
+  const error = state.lastError;
   if (error?.kind === 'auth')
     return {
       text: 'Google Drive access was removed. Reconnect to keep backing up.',

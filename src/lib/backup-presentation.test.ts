@@ -1,15 +1,18 @@
 import { backupStatus, backupTime } from './backup-presentation';
-import { disconnectedState, type DriveBackupState } from './drive-backups';
+import { type ConnectedBackupState } from './drive-backups';
 
 const now = new Date(2026, 10, 8, 10, 0);
 const day = 24 * 60 * 60 * 1000;
-const connected: DriveBackupState = {
-  ...disconnectedState,
+const connected: ConnectedBackupState = {
+  status: 'connected',
   account: { email: 'you@example.com', photoUrl: null },
   folderId: 'folder',
   interval: 'daily',
   connectedAt: now.getTime() - 10 * day,
   lastSuccess: new Date(2026, 10, 8, 9, 12).getTime(),
+  lastError: null,
+  removalError: null,
+  files: [],
 };
 
 test('backup times identify today, yesterday, and no previous backup', () => {
@@ -80,7 +83,13 @@ test('an overdue backup hides the older warning about removal', () => {
 });
 
 test('backups found at connect ask the user to review them', () => {
-  expect(backupStatus({ ...connected, awaitingChoice: true }, now)).toMatchObject({
+  const waiting = {
+    status: 'awaitingChoice' as const,
+    account: connected.account,
+    folderId: connected.folderId,
+    connectedAt: connected.connectedAt,
+  };
+  expect(backupStatus(waiting, now)).toMatchObject({
     warning: false,
     action: 'review',
   });
