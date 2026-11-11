@@ -35,7 +35,7 @@ TaskManager.defineTask(taskName, async ({ error }) => {
   if (error || Platform.OS !== 'android') return BackgroundTask.BackgroundTaskResult.Failed;
   try {
     const state = await runScheduledBackup();
-    return state.lastError
+    return state.status === 'connected' && state.lastError
       ? BackgroundTask.BackgroundTaskResult.Failed
       : BackgroundTask.BackgroundTaskResult.Success;
   } catch {
@@ -50,7 +50,7 @@ export function reconcileBackupTask(): Promise<string | null> {
     try {
       const state = await driveBackups.status();
       const registered = await TaskManager.isTaskRegisteredAsync(taskName);
-      if (state.interval === 'off' || !state.account) {
+      if (state.status !== 'connected' || state.interval === 'off') {
         if (registered) await BackgroundTask.unregisterTaskAsync(taskName);
         return null;
       }

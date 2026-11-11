@@ -3,7 +3,7 @@ import { router } from 'expo-router';
 import { AppState, Platform, type AppStateStatus } from 'react-native';
 import { subscribeBackupSchedule } from '@/lib/backup-background-task';
 import { driveBackups } from '@/lib/drive-backup-adapter';
-import { disconnectedState, type DriveBackupState } from '@/lib/drive-backups';
+import { type ConnectedBackupState, type DriveBackupState } from '@/lib/drive-backups';
 import { BackupAttentionBanner } from './backup-attention-banner';
 
 jest.mock('expo-router', () => ({ router: { push: jest.fn() } }));
@@ -11,13 +11,16 @@ jest.mock('@/lib/backup-background-task', () => ({ subscribeBackupSchedule: jest
 jest.mock('@/lib/drive-backup-adapter', () => ({ driveBackups: { status: jest.fn() } }));
 
 const day = 24 * 60 * 60 * 1000;
-const healthy: DriveBackupState = {
-  ...disconnectedState,
+const healthy: ConnectedBackupState = {
+  status: 'connected',
   account: { email: 'you@example.com', photoUrl: null },
   folderId: 'folder',
   interval: 'daily',
   connectedAt: Date.now() - 10 * day,
   lastSuccess: Date.now(),
+  lastError: null,
+  removalError: null,
+  files: [],
 };
 const platform = Platform.OS;
 let stored: DriveBackupState;

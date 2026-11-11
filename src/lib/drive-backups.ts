@@ -7,31 +7,36 @@ export type DriveBackupListing = DriveBackupFile & { size: number; transactions:
 export type BackupFailure = { kind: BackupFailureKind; message: string };
 export type GoogleAccount = { email: string; photoUrl: string | null };
 
-export type DriveBackupState = {
-  account: GoogleAccount | null;
-  folderId: string | null;
+export type DisconnectedBackupState = { status: 'disconnected' };
+
+/** Drive had backups at first connect. Nothing runs until the user chooses what to do. */
+export type AwaitingChoiceBackupState = {
+  status: 'awaitingChoice';
+  account: GoogleAccount;
+  folderId: string;
+  connectedAt: number;
+};
+
+export type ConnectedBackupState = {
+  status: 'connected';
+  account: GoogleAccount;
+  folderId: string;
   interval: BackupInterval;
-  connectedAt: number | null;
+  connectedAt: number;
   lastSuccess: number | null;
   lastError: BackupFailure | null;
-  /** Drive had backups at first connect; nothing runs until the user chooses. */
-  awaitingChoice: boolean;
   /** The last backup succeeded, but older backups could not be removed. */
   removalError: BackupFailure | null;
   files: DriveBackupFile[];
 };
 
-export const disconnectedState: DriveBackupState = {
-  account: null,
-  folderId: null,
-  interval: 'off',
-  connectedAt: null,
-  lastSuccess: null,
-  lastError: null,
-  awaitingChoice: false,
-  removalError: null,
-  files: [],
-};
+export type DriveBackupState =
+  DisconnectedBackupState | AwaitingChoiceBackupState | ConnectedBackupState;
+
+/** A state with a Google account, before or after the user chooses. */
+export type SignedInBackupState = AwaitingChoiceBackupState | ConnectedBackupState;
+
+export const disconnectedState: DisconnectedBackupState = { status: 'disconnected' };
 
 export class DriveError extends Error {
   constructor(
@@ -69,8 +74,8 @@ export interface DriveBackupDependencies {
 
 export type ConnectResult =
   | { kind: 'cancelled' }
-  | { kind: 'connected'; state: DriveBackupState }
-  | { kind: 'backupsFound'; state: DriveBackupState; backups: DriveBackupListing[] };
+  | { kind: 'connected'; state: ConnectedBackupState }
+  | { kind: 'backupsFound'; state: AwaitingChoiceBackupState; backups: DriveBackupListing[] };
 
 const day = 24 * 60 * 60 * 1000;
 const retention = 7;
@@ -85,7 +90,7 @@ function failureOf(error: unknown): BackupFailure {
 
 /** A failure the user must act on, or a schedule that has missed more than one interval. */
 export function needsAttention(state: DriveBackupState, now: number): boolean {
-  if (!state.account || state.awaitingChoice) return false;
+  if (state.status !== 'connected') return false;
   if (state.lastError?.kind === 'auth' || state.lastError?.kind === 'quota') return true;
   if (state.interval === 'off') return false;
   const since = state.lastSuccess ?? state.connectedAt;
@@ -95,9 +100,8 @@ export function needsAttention(state: DriveBackupState, now: number): boolean {
 export function createDriveBackups(deps: DriveBackupDependencies) {
   const { drive } = deps;
 
-  async function run(state: DriveBackupState, force: boolean): Promise<DriveBackupState> {
+  async function run(state: ConnectedBackupState, force: boolean): Promise<ConnectedBackupState> {
     const now = deps.now();
-    if (!state.account || !state.folderId || state.awaitingChoice) return state;
     // An automatic try after removed access makes Google show its consent screen each time the
     // app opens. Only the user starts a backup until they reconnect.
     if (
@@ -127,12 +131,17 @@ export function createDriveBackups(deps: DriveBackupDependencies) {
         throw new Error('Backup verification failed.');
     } catch (error) {
       if (uploaded) await drive.remove(uploaded.id).catch(() => {});
-      const failed = { ...state, folderId, lastError: failureOf(error), removalError: null };
+      const failed: ConnectedBackupState = {
+        ...state,
+        folderId,
+        lastError: failureOf(error),
+        removalError: null,
+      };
       await deps.save(failed);
       return failed;
     }
 
-    let next: DriveBackupState = {
+    let next: ConnectedBackupState = {
       ...state,
       folderId,
       lastSuccess: now,
@@ -156,15 +165,17 @@ export function createDriveBackups(deps: DriveBackupDependencies) {
 
   /** Adopt the backups found in Drive so that retention counts them, then turn on the schedule. */
   function adopt(
-    state: DriveBackupState,
+    state: AwaitingChoiceBackupState,
     backups: DriveBackupListing[],
     lastSuccess: number | null,
-  ): DriveBackupState {
+  ): ConnectedBackupState {
     return {
       ...state,
-      awaitingChoice: false,
+      status: 'connected',
       interval: 'daily',
       lastSuccess,
+      lastError: null,
+      removalError: null,
       files: backups
         .map(({ id, createdAt }) => ({ id, createdAt }))
         .sort((a, b) => a.createdAt - b.createdAt),
@@ -172,8 +183,7 @@ export function createDriveBackups(deps: DriveBackupDependencies) {
   }
 
   /** Adopt the Drive backups, then back up this phone's data at once. */
-  async function keepPhoneData(state: DriveBackupState) {
-    if (!state.folderId) throw new Error('Connect Google Drive first.');
+  async function keepPhoneData(state: AwaitingChoiceBackupState) {
     const adopted = adopt(state, await drive.list(state.folderId), null);
     await deps.save(adopted);
     return run(adopted, true);
@@ -181,50 +191,57 @@ export function createDriveBackups(deps: DriveBackupDependencies) {
 
   return {
     status: () => serializeBackupOperation(() => deps.load()),
-    runDue: (force = false) => serializeBackupOperation(async () => run(await deps.load(), force)),
+    runDue: (force = false) =>
+      serializeBackupOperation(async (): Promise<DriveBackupState> => {
+        const state = await deps.load();
+        return state.status === 'connected' ? run(state, force) : state;
+      }),
 
     connect: () =>
       serializeBackupOperation(async (): Promise<ConnectResult> => {
         const previous = await deps.load();
         const user = await deps.signIn();
         if (user === null) return { kind: 'cancelled' };
-        if (
-          user.email === previous.account?.email &&
-          previous.folderId &&
-          !previous.awaitingChoice
-        ) {
+        if (previous.status === 'connected' && user.email === previous.account.email) {
           const resumed = { ...previous, account: user, lastError: null };
           await deps.save(resumed);
           return { kind: 'connected', state: await run(resumed, false) };
         }
         const folderId = await drive.findOrCreateFolder();
         const backups = await drive.list(folderId);
-        const fresh: DriveBackupState = {
-          ...disconnectedState,
+        const waiting: AwaitingChoiceBackupState = {
+          status: 'awaitingChoice',
           account: user,
           folderId,
           connectedAt: deps.now(),
-          awaitingChoice: backups.length > 0,
-          interval: backups.length > 0 ? 'off' : 'daily',
         };
+        if (backups.length > 0) {
+          await deps.save(waiting);
+          return { kind: 'backupsFound', state: waiting, backups };
+        }
+        const fresh = adopt(waiting, [], null);
         await deps.save(fresh);
-        if (backups.length > 0) return { kind: 'backupsFound', state: fresh, backups };
         return { kind: 'connected', state: await run(fresh, true) };
       }),
 
-    keepLocalData: () => serializeBackupOperation(async () => keepPhoneData(await deps.load())),
+    keepLocalData: () =>
+      serializeBackupOperation(async () => {
+        const state = await deps.load();
+        if (state.status === 'disconnected') throw new Error('Connect Google Drive first.');
+        return state.status === 'awaitingChoice' ? keepPhoneData(state) : state;
+      }),
 
     /** A restore from a file while backups wait for a choice counts as keeping this phone's data. */
     adoptAfterFileRestore: () =>
       serializeBackupOperation(async () => {
         const state = await deps.load();
-        return state.awaitingChoice ? keepPhoneData(state) : state;
+        return state.status === 'awaitingChoice' ? keepPhoneData(state) : state;
       }),
 
     listBackups: () =>
       serializeBackupOperation(async () => {
         const state = await deps.load();
-        if (!state.folderId) return [];
+        if (state.status === 'disconnected') return [];
         return (await drive.list(state.folderId)).sort((a, b) => b.createdAt - a.createdAt);
       }),
 
@@ -234,7 +251,7 @@ export function createDriveBackups(deps: DriveBackupDependencies) {
         if (!(await confirm())) return false;
         await deps.replace(data);
         const state = await deps.load();
-        if (state.awaitingChoice && state.folderId)
+        if (state.status === 'awaitingChoice')
           await deps.save(adopt(state, await drive.list(state.folderId), backup.createdAt));
         return true;
       }),
@@ -242,7 +259,9 @@ export function createDriveBackups(deps: DriveBackupDependencies) {
     setInterval: (interval: BackupInterval) =>
       serializeBackupOperation(async () => {
         const state = await deps.load();
-        if (!state.account) throw new Error('Connect Google Drive first.');
+        if (state.status === 'disconnected') throw new Error('Connect Google Drive first.');
+        if (state.status === 'awaitingChoice')
+          throw new Error('Choose what to do with the backups in Google Drive first.');
         const next = { ...state, interval };
         await deps.save(next);
         return run(next, false);
@@ -251,8 +270,8 @@ export function createDriveBackups(deps: DriveBackupDependencies) {
     disconnect: () =>
       serializeBackupOperation(async () => {
         await deps.signOut();
-        await deps.save({ ...disconnectedState });
-        return { ...disconnectedState };
+        await deps.save(disconnectedState);
+        return disconnectedState;
       }),
   };
 }
