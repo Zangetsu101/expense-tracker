@@ -34,7 +34,7 @@ Reuse the existing signing key so installed apps can upgrade without uninstallin
 
 1. For each new APK release, bump `expo.version` and `expo.android.versionCode` in `app.json`, align `package.json`'s version, and merge those changes to `main`. The version code must exceed the installed release's code.
 2. Open **GitHub Actions → Build Android APK → Run workflow** and select `main`. Leave **emulator** unchecked for a release. Other branches produce an emulator test artifact.
-3. The workflow stops if the commit has no successful `check` job. The **Checks** workflow runs this job on each push to `main`, so wait for it to pass first. Then the workflow stamps the commit into the embedded bundle, prebuilds, builds a signed ARM64 APK, verifies its signature, and creates a **draft prerelease** with the APK and SHA-256 checksum. Existing versions/tags are rejected rather than overwritten.
+3. The workflow stops if the commit has no successful `check` job. GitHub Actions runs this job on each push to `main`, so wait for it to pass first. Then the workflow stamps the commit into the embedded bundle, prebuilds, builds a signed ARM64 APK, verifies its signature, and creates a **draft prerelease** with the APK and SHA-256 checksum. Existing versions/tags are rejected rather than overwritten.
 4. Open the draft under **GitHub Releases** while signed in with repository write access. A draft is unpublished; download its APK, back up app data, install over the existing app, and verify behavior and the signing certificate.
 5. Edit the draft's notes to include known limitations, then click **Publish release** when testing passes. The release remains marked as a prerelease.
 
