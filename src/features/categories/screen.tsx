@@ -1,6 +1,6 @@
-import { useSuspenseQuery } from '@tanstack/react-query';
+import { useMutation, useSuspenseQuery } from '@tanstack/react-query';
 import { QueryBoundary } from '@/components/query-error-boundary';
-import { CategoryBrowser } from '@/components/category-browser';
+import { CategoryBrowser, type CategorySave } from '@/components/category-browser';
 import {
   createCategory,
   renameCategory,
@@ -10,17 +10,30 @@ import {
 import { managedCategoriesQuery } from './queries.ts';
 import { CategoriesError, CategoriesLayout, CategoriesSkeleton, RefreshAlert } from './view.tsx';
 
-async function save(input: CreateCategoryInput, editing?: ManagedCategory) {
-  if (editing) await renameCategory(editing.id, input.name);
-  else await createCategory(input);
-}
+type Write = { input: CreateCategoryInput; editing?: ManagedCategory };
 
 function CategoriesContent() {
   const { data, error, isFetching, refetch } = useSuspenseQuery(managedCategoriesQuery());
+  const write = useMutation({
+    mutationFn: async ({ input, editing }: Write) => {
+      if (editing) await renameCategory(editing.id, input.name);
+      else await createCategory(input);
+    },
+  });
+  const save: CategorySave = {
+    pending: write.isPending,
+    error: !write.error
+      ? undefined
+      : write.error instanceof Error
+        ? write.error.message
+        : 'Could not save the category. Try again.',
+    start: (input, editing, saved) => write.mutate({ input, editing }, { onSuccess: saved }),
+    clearError: write.reset,
+  };
   return (
     <>
       {!!error && !isFetching && <RefreshAlert retry={() => void refetch()} />}
-      <CategoryBrowser items={data} onSave={save} disabled={isFetching} />
+      <CategoryBrowser items={data} save={save} disabled={isFetching} />
     </>
   );
 }

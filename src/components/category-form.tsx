@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { theme as t } from '../theme';
 import {
   KeyboardAvoidingView,
@@ -19,12 +19,27 @@ type Props = {
   items: ManagedCategory[];
   initialParentId?: number | null;
   editing?: ManagedCategory;
-  onSave: (input: CreateCategoryInput) => Promise<void>;
+  /** True while the owner saves. The form locks its controls. */
+  pending: boolean;
+  /** The error of the last save of the owner. */
+  saveError?: string;
+  onSave: (input: CreateCategoryInput) => void;
+  /** Runs when the user changes the form or closes it. The owner clears `saveError`. */
+  onClearSaveError: () => void;
   onClose: () => void;
 };
 const c = t.colors;
 
-export function CategoryForm({ items, initialParentId = null, editing, onSave, onClose }: Props) {
+export function CategoryForm({
+  items,
+  initialParentId = null,
+  editing,
+  pending,
+  saveError,
+  onSave,
+  onClearSaveError,
+  onClose,
+}: Props) {
   const insets = useSafeAreaInsets();
   const { height, width } = useWindowDimensions();
   const parent = items.find((item) => item.id === (editing ? editing.parentId : initialParentId));
@@ -33,15 +48,20 @@ export function CategoryForm({ items, initialParentId = null, editing, onSave, o
   const [topLevelKind, setTopLevelKind] = useState<Kind>('EXPENSE');
   const kind = editing?.type ?? parent?.type ?? topLevelKind;
   const parentId = parent?.id ?? null;
-  const [error, setError] = useState('');
-  const path = (item: ManagedCategory) => categoryPath(items, item);
-  const [pending, setPending] = useState(false);
-  const saving = useRef(false);
-  const close = () => {
-    if (!saving.current) onClose();
+  const [invalid, setInvalid] = useState('');
+  const error = invalid || saveError;
+  const setError = (message: string) => {
+    setInvalid(message);
+    onClearSaveError();
   };
-  const save = async () => {
-    if (saving.current) return;
+  const path = (item: ManagedCategory) => categoryPath(items, item);
+  const close = () => {
+    if (pending) return;
+    onClearSaveError();
+    onClose();
+  };
+  const save = () => {
+    if (pending) return;
     const trimmed = name.trim();
     if (!trimmed) {
       setError('Enter a category name.');
@@ -62,17 +82,8 @@ export function CategoryForm({ items, initialParentId = null, editing, onSave, o
       setError('A category with this name and type already exists.');
       return;
     }
-    saving.current = true;
-    setPending(true);
     setError('');
-    try {
-      await onSave({ name: trimmed, type: kind, parentId });
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'Could not save the category. Try again.');
-    } finally {
-      saving.current = false;
-      setPending(false);
-    }
+    onSave({ name: trimmed, type: kind, parentId });
   };
   return (
     <AppSheet pending={pending} onDismiss={close}>
@@ -163,7 +174,7 @@ export function CategoryForm({ items, initialParentId = null, editing, onSave, o
             <FormButton
               label={pending ? 'Saving…' : 'Save'}
               loading={pending}
-              onPress={() => void save()}
+              onPress={save}
               style={{ flex: 1 }}
             />
           </View>
