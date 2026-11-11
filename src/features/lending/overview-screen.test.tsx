@@ -1,4 +1,4 @@
-import { act, screen, userEvent } from '@testing-library/react-native';
+import { act, screen, userEvent, waitFor } from '@testing-library/react-native';
 import { router } from 'expo-router';
 import { notifyDataChanged } from '@/lib/data-changes';
 import {
@@ -118,11 +118,18 @@ test('Save person opens the new person, and a failed save shows the error', asyn
   jest.mocked(createPerson).mockRejectedValueOnce(new Error('Name taken'));
   await user.type(screen.getByLabelText('New person name'), 'Rafi');
   await user.press(screen.getByRole('button', { name: 'Save person' }));
-  expect(screen.getByText('Error: Name taken')).toBeOnTheScreen();
+  expect(await screen.findByText('Error: Name taken')).toBeOnTheScreen();
   expect(screen.getByRole('button', { name: 'Rafi' })).toBeOnTheScreen();
 
-  jest.mocked(createPerson).mockResolvedValue({ id: 5, name: 'Rafi' });
+  jest.mocked(createPerson).mockImplementation(async () => {
+    jest.mocked(listPeople).mockResolvedValue([...people, { id: 5, name: 'Tara' }]);
+    return { id: 5, name: 'Tara' };
+  });
   await user.press(screen.getByRole('button', { name: 'Save person' }));
-  expect(router.push).toHaveBeenCalledWith({ pathname: '/lending/person', params: { id: 5 } });
+  await waitFor(() =>
+    expect(router.push).toHaveBeenCalledWith({ pathname: '/lending/person', params: { id: 5 } }),
+  );
+  expect(screen.queryByText('Error: Name taken')).not.toBeOnTheScreen();
   expect(screen.getByLabelText('New person name')).toHaveDisplayValue('');
+  expect(await screen.findByRole('button', { name: 'Tara' })).toBeOnTheScreen();
 });

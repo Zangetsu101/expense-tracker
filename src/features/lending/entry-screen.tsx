@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
+import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { Alert, ScrollView, Text, View } from 'react-native';
 import {
@@ -14,7 +14,6 @@ import {
   createPerson,
   deleteLendingEntry,
   saveLendingEntry,
-  type LendingInput,
   type LendingKind,
   type LendingResult,
 } from '@/lib/lending';
@@ -54,13 +53,10 @@ function EntryForm({ id, initialPersonId }: { id?: number; initialPersonId?: num
   const [name, setName] = useState('');
   const [date, setDate] = useState(() => (entry ? dateFromEpochDay(entry.date) : new Date()));
   const [picker, setPicker] = useState<'person' | 'account' | 'kind' | null>(null);
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState('');
-  const locked = pending || isFetching;
   const writeoff = kind.startsWith('WRITE_OFF');
   const person = people.find((p) => p.id === personId);
   const account = accounts.find((a) => a.id === accountId);
-  function confirm(result: LendingResult, action: () => void) {
+  function finish(result: LendingResult, action: () => void) {
     if (result.status !== 'confirmation_required') {
       router.back();
       return;
@@ -80,13 +76,10 @@ function EntryForm({ id, initialPersonId }: { id?: number; initialPersonId?: num
       ],
     );
   }
-  async function save(confirmed = false) {
-    if (pending) return;
-    setError('');
-    setPending(true);
-    try {
+  const save = useMutation({
+    mutationFn: async (confirmed: boolean) => {
       if (!personId) throw new Error('Choose a person.');
-      const draft: LendingInput = {
+      return saveLendingEntry({
         id,
         personId,
         kind,
@@ -96,42 +89,33 @@ function EntryForm({ id, initialPersonId }: { id?: number; initialPersonId?: num
         date: epochDay(date),
         note,
         confirmOverpayment: confirmed,
-      };
-      confirm(await saveLendingEntry(draft), () => void save(true));
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setPending(false);
-    }
-  }
-  async function remove(confirmed = false) {
-    if (!id || pending) return;
-    setError('');
-    setPending(true);
-    try {
-      confirm(
-        await deleteLendingEntry(id, { confirmDelete: true, confirmOverpayment: confirmed }),
-        () => void remove(true),
-      );
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setPending(false);
-    }
-  }
-  async function addPerson() {
-    setPending(true);
-    setError('');
-    try {
-      const p = await createPerson(name);
-      includeCreatedPerson(client, id, p);
-      setPersonId(p.id);
+      });
+    },
+    onSuccess: (result) => finish(result, () => save.mutate(true)),
+  });
+  const remove = useMutation({
+    mutationFn: (confirmed: boolean) =>
+      deleteLendingEntry(id!, { confirmDelete: true, confirmOverpayment: confirmed }),
+    onSuccess: (result) => finish(result, () => remove.mutate(true)),
+  });
+  const addPerson = useMutation({
+    mutationFn: (personName: string) => createPerson(personName),
+    onSuccess: (created) => {
+      includeCreatedPerson(client, id, created);
+      setPersonId(created.id);
       setName('');
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setPending(false);
-    }
+    },
+  });
+  const pending = save.isPending || remove.isPending || addPerson.isPending;
+  const locked = pending || isFetching;
+  const error = save.error ?? remove.error ?? addPerson.error;
+  /** Starts a write. The error of the last write goes away. */
+  function start(write: () => void) {
+    if (pending) return;
+    save.reset();
+    remove.reset();
+    addPerson.reset();
+    write();
   }
   return (
     <View style={{ flex: 1 }}>
@@ -142,7 +126,7 @@ function EntryForm({ id, initialPersonId }: { id?: number; initialPersonId?: num
       >
         {!!error && (
           <Text selectable accessibilityRole="alert" style={{ color: c.warning }}>
-            {error}
+            {String(error)}
           </Text>
         )}
         {!people.length && <Text style={{ color: c.muted }}>Save a person first.</Text>}
@@ -170,7 +154,7 @@ function EntryForm({ id, initialPersonId }: { id?: number; initialPersonId?: num
             label="Save new person"
             variant="secondary"
             disabled={!name.trim() || locked}
-            onPress={() => void addPerson()}
+            onPress={() => start(() => addPerson.mutate(name))}
           />
           {writeoff ? (
             <>
@@ -218,7 +202,7 @@ function EntryForm({ id, initialPersonId }: { id?: number; initialPersonId?: num
             label="Save entry"
             loading={pending}
             disabled={locked || !person || (!writeoff && !account) || !amount}
-            onPress={() => void save()}
+            onPress={() => start(() => save.mutate(false))}
           />
           {!!id && (
             <FormButton
@@ -231,7 +215,11 @@ function EntryForm({ id, initialPersonId }: { id?: number; initialPersonId?: num
                   'This removes the entry and its linked Account movement, if any. Balances will be recalculated.',
                   [
                     { text: 'Cancel', style: 'cancel' },
-                    { text: 'Delete', style: 'destructive', onPress: () => void remove() },
+                    {
+                      text: 'Delete',
+                      style: 'destructive',
+                      onPress: () => start(() => remove.mutate(false)),
+                    },
                   ],
                 )
               }
