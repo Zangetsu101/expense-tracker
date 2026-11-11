@@ -5,6 +5,7 @@ import { test } from 'node:test';
 
 const state = {
   interval: 'off',
+  status: 'connected',
   account: { email: 'you@example.com', photoUrl: null },
   registered: false,
   available: true,
@@ -69,10 +70,10 @@ test('background registration follows saved preference and retries native failur
   assert.deepEqual(state.calls.at(-1), ['unregister', state.name]);
   state.interval = 'daily';
   await reconcileBackupTask();
-  state.account = null;
+  state.status = 'disconnected';
   await reconcileBackupTask();
   assert.deepEqual(state.calls.at(-1), ['unregister', state.name], 'Disconnect stops the task');
-  state.account = { email: 'you@example.com', photoUrl: null };
+  state.status = 'connected';
 });
 
 test('restriction is visible while foreground backups remain usable', async () => {
