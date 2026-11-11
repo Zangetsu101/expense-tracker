@@ -67,11 +67,12 @@
     "lint:fix": "pnpm lint --fix",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
-    "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm test:backup",
+    "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm test:backup && pnpm native:fingerprint",
     "test:node": "node --test src/lib/*.test.mjs src/components/*.test.mjs src/features/*/*.test.mjs scripts/*.test.mjs",
     "test:ui": "jest --runInBand",
     "android:apk:emulator": "bash scripts/build-emulator-apk.sh",
-    "release:bump": "node scripts/release-bump.mjs"
+    "release:bump": "node scripts/release-bump.mjs",
+    "native:fingerprint": "node scripts/native-fingerprint.mjs"
   },
   "lint-staged": {
     "*.{js,cjs,mjs,jsx,ts,tsx}": [

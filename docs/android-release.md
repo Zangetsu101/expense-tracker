@@ -5,7 +5,14 @@ Use this runbook to ship either a JavaScript/asset OTA update or a signed APK. G
 ## Choose the release type
 
 - **JavaScript/assets only:** publish an OTA update; keep the app version unchanged.
-- **Native dependencies, SDK, or native configuration:** build a new APK. Bump `expo.version` and `expo.android.versionCode` in `app.json`, and align `package.json`'s version. The app version is the OTA compatibility boundary.
+- **Native dependencies, SDK, or native configuration:** build a new APK. Run `pnpm release:bump <major|minor|patch>` to bump the version (see [Build an APK in GitHub Actions](#build-an-apk-in-github-actions)). The app version is the runtime version, so it is the OTA compatibility boundary.
+
+The native fingerprint guard ([ADR 0008](adr/0008-native-fingerprint-guard-for-ota-updates.md)) enforces this boundary. `native-fingerprint.txt` contains the native fingerprint of the tree. `pnpm check` runs `pnpm native:fingerprint`, which calculates the fingerprint and fails in these cases:
+
+- **The file is stale.** A change of a native package, a config plugin, an image in `app.json` or the Expo config changed the fingerprint. Run `pnpm native:fingerprint --write` and commit `native-fingerprint.txt`. If the check fails and you made no native change, run `pnpm install --frozen-lockfile` first. A version bump does not change the fingerprint.
+- **The version is released.** The tag `v<version>` exists, and the fingerprint is different from the file at that tag. The installed APKs of this version do not have the new native code. Run `pnpm release:bump <major|minor|patch>`, commit `app.json` and `package.json`, and build a new APK after the merge. OTA updates from this change go only to APKs with the new version.
+
+Before the version is released, native changes under that version are allowed. The guard does not see a draft release, because GitHub creates its tag only at publication. So do not merge native changes while a draft release is open. Signed test APKs have no tag, so the guard does not protect them.
 
 Back up app data and test on a device before releasing. Installed apps need an APK with EAS Update configured to receive OTA updates.
 
@@ -13,7 +20,7 @@ Back up app data and test on a device before releasing. Installed apps need an A
 
 One-time CI requirement: an Expo access token with project access, stored as the repository secret [`EXPO_TOKEN`](https://github.com/Zangetsu101/expense-tracker/settings/secrets/actions). The workflow file `.github/workflows/ci.yml` must be on `main`.
 
-1. Merge the tested changes into `main`. Each push to `main` starts the **CI** workflow. Its `check` job runs `pnpm check`. When the checks pass, its `publish` job publishes an Android OTA update to the `production` channel and environment and records the commit SHA. If the checks fail, the job does not publish.
+1. Merge the tested changes into `main`. Each push to `main` starts the **CI** workflow. Its `check` job runs `pnpm check`, which includes the native fingerprint guard. When the checks pass, its `publish` job publishes an Android OTA update to the `production` channel and environment and records the commit SHA. If the checks fail, the job does not publish. If the guard fails on `main`, follow its message (see [Choose the release type](#choose-the-release-type)) in a new PR. No OTA update is published until that PR is merged.
 2. Confirm that both jobs of **GitHub Actions → CI** succeed. To publish manually, use **Run workflow** on `main` and type a description. The manual run also runs the checks first.
 3. Verify on the installed release app: open **Settings → Updates** to check for and download the update. When it is ready, tap **Updates** again and confirm **Restart to update** to apply it. Finish any unsaved entries before restarting. Tap the version/release line in Settings to confirm the running commit matches the published commit.
 
