@@ -153,7 +153,6 @@ test('a created account shows after the data change, without a second read in th
   jest.mocked(accountBalances).mockResolvedValue([balance(cash, 1500), balance(bank, 0)]);
   jest.mocked(createAccount).mockImplementation(async () => {
     jest.mocked(listManagedAccounts).mockResolvedValueOnce([cash, bank]);
-    notifyDataChanged();
   });
   await renderScreen();
   await screen.findByText('Accounts (1)');
@@ -196,7 +195,6 @@ test('a favorite change shows after the data change, and stars stay disabled dur
   const refresh = Promise.withResolvers<ManagedAccount[]>();
   jest.mocked(setFavoriteAccount).mockImplementation(async () => {
     jest.mocked(listManagedAccounts).mockReturnValueOnce(refresh.promise);
-    notifyDataChanged();
   });
   await renderScreen();
 
@@ -282,7 +280,6 @@ test('a failed refresh after a committed create retries the read and not the cre
   jest.mocked(accountBalances).mockResolvedValue([balance(cash, 1500), balance(bank, 0)]);
   jest.mocked(createAccount).mockImplementation(async () => {
     jest.mocked(listManagedAccounts).mockRejectedValueOnce(new Error('Refetch failed'));
-    notifyDataChanged();
   });
   await renderScreen();
   await screen.findByText('Accounts (1)');

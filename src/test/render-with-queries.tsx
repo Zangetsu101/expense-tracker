@@ -16,6 +16,11 @@ afterEach(() => {
  */
 export async function renderWithQueries(ui: ReactElement) {
   const client = createQueryClient();
+  // A finished mutation starts a cache timer that clear() does not stop. Start no timer.
+  client.setDefaultOptions({
+    ...client.getDefaultOptions(),
+    mutations: { ...client.getDefaultOptions().mutations, gcTime: Infinity },
+  });
   clients.push(client);
   const view = await render(
     <QueryClientProvider client={client}>
