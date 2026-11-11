@@ -1,4 +1,4 @@
-import { useSuspenseQuery } from '@tanstack/react-query';
+import { useMutation, useSuspenseQuery } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { QueryBoundary } from '@/components/query-error-boundary';
 import { addTransfer } from '@/lib/transfers';
@@ -7,8 +7,14 @@ import {
   TransferForm,
   TransferFormError,
   TransferFormSkeleton,
+  type TransferDraft,
   type TransferFormProps,
 } from './view.tsx';
+
+/** The text of a failed save, without the "Error:" prefix. */
+export function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
 
 function ReadyTransferForm(props: TransferFormProps) {
   const { data, error, isFetching, refetch } = useSuspenseQuery(accountsQuery());
@@ -36,14 +42,19 @@ export function TransferFormSection(props: TransferFormProps) {
 }
 
 export default function TransferScreen() {
+  const add = useMutation({
+    mutationFn: ({ amountMinor, fromAccountId, toAccountId, note }: TransferDraft) =>
+      addTransfer({ amountMinor, fromAccountId, toAccountId, note }),
+    onSuccess: () => router.back(),
+  });
   return (
     <TransferFormSection
       intro="Move money between your accounts."
       submitLabel="Save transfer"
-      onSubmit={async ({ amountMinor, fromAccountId, toAccountId, note }) => {
-        await addTransfer({ amountMinor, fromAccountId, toAccountId, note });
-        router.back();
-      }}
+      pending={add.isPending}
+      error={add.error ? errorMessage(add.error) : undefined}
+      onSubmit={(draft) => add.mutate(draft)}
+      onClearError={add.reset}
     />
   );
 }

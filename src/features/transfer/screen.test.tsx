@@ -88,7 +88,7 @@ test('choosing a destination enables Save and saves the direction of the transfe
     toAccountId: 2,
     note: '',
   });
-  expect(router.back).toHaveBeenCalledTimes(1);
+  await waitFor(() => expect(router.back).toHaveBeenCalledTimes(1));
 });
 
 test('a failed refresh keeps the draft, shows an alert, and Retry clears it', async () => {
@@ -133,4 +133,34 @@ test('a data change shows new accounts, keeps the draft, and disables Save while
   expect(await screen.findByRole('button', { name: 'To account: Savings, USD' })).toBeOnTheScreen();
   expect(screen.getByLabelText('Transfer amount')).toHaveDisplayValue('5');
   expect(screen.getByRole('button', { name: 'Save transfer' })).toBeEnabled();
+});
+
+test('a pending save locks the form, and a failed save shows the error and keeps the draft', async () => {
+  const user = userEvent.setup();
+  jest.mocked(listAccounts).mockResolvedValue(accounts);
+  const write = Promise.withResolvers<void>();
+  jest.mocked(addTransfer).mockReturnValueOnce(write.promise);
+  await renderScreen();
+
+  await user.type(await screen.findByLabelText('Transfer amount'), '7');
+  await user.press(screen.getByRole('button', { name: 'To account: Not selected' }));
+  await user.press(screen.getByRole('button', { name: 'Bank · USD' }));
+  await user.press(screen.getByRole('button', { name: 'Save transfer' }));
+  await waitFor(() => expect(screen.getByLabelText('Transfer amount')).not.toBeEnabled());
+
+  await act(async () => write.reject(new Error('Disk is full')));
+  expect(await screen.findByText('Disk is full')).toBeOnTheScreen();
+  expect(screen.getByLabelText('Transfer amount')).toHaveDisplayValue('7');
+  expect(router.back).not.toHaveBeenCalled();
+  expect(listAccounts).toHaveBeenCalledTimes(1);
+
+  await user.press(screen.getByRole('button', { name: 'Swap accounts' }));
+  expect(screen.queryByText('Disk is full')).not.toBeOnTheScreen();
+  jest.mocked(addTransfer).mockResolvedValueOnce(undefined);
+  await user.press(screen.getByRole('button', { name: 'Save transfer' }));
+
+  await waitFor(() => expect(router.back).toHaveBeenCalledTimes(1));
+  expect(addTransfer).toHaveBeenLastCalledWith(
+    expect.objectContaining({ fromAccountId: 2, toAccountId: 1 }),
+  );
 });

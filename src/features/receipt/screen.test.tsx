@@ -426,6 +426,29 @@ describe('Transaction edit', () => {
     expect(mockHeader.title).toBe('Receipt');
   });
 
+  test('a save shows Saving until the one read of the new receipt arrives', async () => {
+    const user = userEvent.setup();
+    jest.mocked(saveTransactionEdit).mockResolvedValue(undefined);
+    await renderScreen();
+    await openEditor(user);
+    await user.type(noteInput(), 'lunch');
+    const reload = Promise.withResolvers<EditableTransaction | null>();
+    jest.mocked(loadEditableTransaction).mockReturnValue(reload.promise);
+    await user.press(screen.getByRole('button', { name: 'Save changes' }));
+
+    expect(await screen.findByRole('button', { name: 'Saving…' })).toBeOnTheScreen();
+    expect(mockHeader.title).toBe('Edit transaction');
+    await act(async () => reload.resolve({ ...transaction, note: 'lunch' }));
+
+    expect(await screen.findByText('lunch')).toBeOnTheScreen();
+    expect(mockHeader.title).toBe('Receipt');
+    expect(loadEditableTransaction).toHaveBeenCalledTimes(2);
+
+    await openEditor(user);
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeOnTheScreen();
+    expect(noteInput()).toBeEnabled();
+  });
+
   test('a failed read after a committed save keeps the draft locked, and Retry receipt does not save again', async () => {
     const user = userEvent.setup();
     jest.mocked(saveTransactionEdit).mockResolvedValue(undefined);
@@ -500,7 +523,7 @@ describe('Transaction edit', () => {
     expect(noteInput()).not.toBeEnabled();
     await act(async () => save.reject(new Error('Save failed')));
 
-    expect(screen.getByText('Error: Save failed')).toBeOnTheScreen();
+    expect(await screen.findByText('Error: Save failed')).toBeOnTheScreen();
     expect(noteInput()).toHaveDisplayValue('draft');
     const reload = Promise.withResolvers<EditableTransaction | null>();
     jest.mocked(saveTransactionEdit).mockResolvedValue(undefined);
@@ -588,7 +611,6 @@ describe('Delete', () => {
     const user = userEvent.setup();
     jest.mocked(deleteTransaction).mockImplementation(async () => {
       jest.mocked(loadEditableTransaction).mockResolvedValue(null);
-      notifyDataChanged();
       return { status: 'deleted' };
     });
     await renderScreen();

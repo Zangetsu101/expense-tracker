@@ -22,7 +22,13 @@ export type TransferFormProps = {
   submitLabel: string;
   intro?: string;
   fieldsLocked?: boolean;
-  onSubmit: (draft: TransferDraft) => Promise<void>;
+  /** True while the owner saves. */
+  pending: boolean;
+  /** The error of the last save of the owner. */
+  error?: string;
+  onSubmit: (draft: TransferDraft) => void;
+  /** Runs when the user changes an account. The owner clears `error`. */
+  onClearError?: () => void;
   onDirtyChange?: (dirty: boolean) => void;
   onCancel?: () => void;
   onDelete?: () => void;
@@ -45,7 +51,10 @@ export function TransferForm({
   submitLabel,
   intro,
   fieldsLocked = false,
+  pending,
+  error: saveError,
   onSubmit,
+  onClearError,
   onDirtyChange,
   onCancel,
   onDelete,
@@ -56,8 +65,12 @@ export function TransferForm({
   const [note, setNote] = useState(initial.note ?? '');
   const [date, setDate] = useState(() => initial.date ?? new Date());
   const [picker, setPicker] = useState<Side | null>(null);
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string>();
+  const [invalid, setInvalid] = useState<string>();
+  const error = invalid ?? saveError;
+  const setError = (message: string | undefined) => {
+    setInvalid(message);
+    onClearError?.();
+  };
   const dirty =
     fromId !== initial.fromId ||
     toId !== initial.toId ||
@@ -95,31 +108,26 @@ export function TransferForm({
     setError(undefined);
   }
 
-  async function save() {
+  function save() {
     if (pending) return;
+    let amountMinor: number;
     try {
-      const amountMinor = parsePositiveAmountMinor(amount);
-      if (
-        !source ||
-        !destination ||
-        source.id === destination.id ||
-        source.currencyCode !== destination.currencyCode
-      )
-        throw new Error('Select two different accounts with the same currency.');
-      setPending(true);
-      setError(undefined);
-      await onSubmit({
-        amountMinor,
-        fromAccountId: source.id,
-        toAccountId: destination.id,
-        note,
-        date,
-      });
+      amountMinor = parsePositiveAmountMinor(amount);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setPending(false);
+      return;
     }
+    if (
+      !source ||
+      !destination ||
+      source.id === destination.id ||
+      source.currencyCode !== destination.currencyCode
+    ) {
+      setError('Select two different accounts with the same currency.');
+      return;
+    }
+    setInvalid(undefined);
+    onSubmit({ amountMinor, fromAccountId: source.id, toAccountId: destination.id, note, date });
   }
 
   function accountSelector(side: Side) {
@@ -270,7 +278,7 @@ export function TransferForm({
           label={submitLabel}
           loading={pending}
           disabled={fetching || !canSwap || !validAmount}
-          onPress={() => void save()}
+          onPress={save}
         />
         {onCancel && (
           <FormButton label="Cancel" variant="secondary" disabled={locked} onPress={onCancel} />

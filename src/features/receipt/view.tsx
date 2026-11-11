@@ -14,22 +14,32 @@ import {
 } from '@/lib/transaction-edit';
 import { theme } from '@/theme';
 
+/** The save of an edit form. `ReceiptSession` owns it. */
+export type ReceiptSave = {
+  /** True while the write runs, and while the receipt reads again after the write. */
+  pending: boolean;
+  /** True when the write is in the database but the read of the receipt failed. */
+  committed: boolean;
+  /** The error of the write. After a committed write, the error of the read. */
+  error: unknown;
+  /** Runs `write`, then reads the receipt. After a committed write it only reads again. */
+  start: (write: () => Promise<unknown>) => void;
+};
+
 export function EditTransactionScreen({
   transaction,
   deleting,
+  save,
   onDirtyChange,
-  onSavingChange,
   onCancel,
   onDelete,
-  onSaved,
 }: {
   transaction: EditableTransaction;
   deleting: boolean;
+  save: ReceiptSave;
   onDirtyChange: (dirty: boolean) => void;
-  onSavingChange: (saving: boolean) => void;
   onCancel: () => void;
   onDelete: () => void;
-  onSaved: () => Promise<void>;
 }) {
   const initialAmount = formatLineItemAmount(transaction.amountMinor);
   const amountLocked = !!transaction.lendingKind;
@@ -52,9 +62,7 @@ export function EditTransactionScreen({
   );
   const [items, setItems] =
     useState<{ id?: number; name: string; amount: string; quantity: string }[]>(initialItems);
-  const [saving, setSaving] = useState(false);
-  const [committed, setCommitted] = useState(false);
-  const [error, setError] = useState<string>();
+  const { pending: saving, committed, error } = save;
   useEffect(() => {
     onDirtyChange(
       !committed &&
@@ -76,12 +84,8 @@ export function EditTransactionScreen({
     committed,
     onDirtyChange,
   ]);
-  const save = async () => {
-    if (saving) return;
-    setSaving(true);
-    onSavingChange(true);
-    setError(undefined);
-    try {
+  const start = () =>
+    save.start(async () => {
       if (amountMinor === undefined)
         throw new Error('Enter a positive amount with at most two decimal places.');
       const lineItems: LineItem[] = items.map((item) => {
@@ -89,18 +93,8 @@ export function EditTransactionScreen({
         const quantity = item.quantity.trim() === '' ? null : Number(item.quantity.trim());
         return { id: item.id, name: item.name, amountMinor, quantity };
       });
-      if (!committed) {
-        await saveTransactionEdit(transaction, note, excluded, tags, lineItems, amountMinor);
-        setCommitted(true);
-      }
-      await onSaved();
-    } catch (cause) {
-      setError(String(cause));
-    } finally {
-      setSaving(false);
-      onSavingChange(false);
-    }
-  };
+      await saveTransactionEdit(transaction, note, excluded, tags, lineItems, amountMinor);
+    });
   const locked = saving || committed || deleting;
   const labelStyle = {
     color: theme.colors.text,
@@ -274,13 +268,13 @@ export function EditTransactionScreen({
                     Principal movements are always excluded from reports.
                   </Text>
                 )}
-                {error && (
+                {!!error && (
                   <Text
                     accessibilityRole="alert"
                     selectable
                     style={{ color: theme.colors.warning }}
                   >
-                    {error}
+                    {String(error)}
                   </Text>
                 )}
                 <FormButton
@@ -288,7 +282,7 @@ export function EditTransactionScreen({
                   loading={saving}
                   disabled={deleting || calculating || amountMinor === undefined}
                   onPress={() => {
-                    if (!calculating) void save();
+                    if (!calculating) start();
                   }}
                 />
                 <FormButton
