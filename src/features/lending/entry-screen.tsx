@@ -94,8 +94,10 @@ function EntryForm({ id, initialPersonId }: { id?: number; initialPersonId?: num
     onSuccess: (result) => finish(result, () => save.mutate(true)),
   });
   const remove = useMutation({
-    mutationFn: (confirmed: boolean) =>
-      deleteLendingEntry(id!, { confirmDelete: true, confirmOverpayment: confirmed }),
+    mutationFn: async (confirmed: boolean) => {
+      if (!id) throw new Error('Entry not found.');
+      return deleteLendingEntry(id, { confirmDelete: true, confirmOverpayment: confirmed });
+    },
     onSuccess: (result) => finish(result, () => remove.mutate(true)),
   });
   const addPerson = useMutation({

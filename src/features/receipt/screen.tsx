@@ -4,8 +4,9 @@ import { Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight, useNavigation, usePreventRemove } from 'expo-router/react-navigation';
 import { Alert, BackHandler, KeyboardAvoidingView, Pressable, Text, View } from 'react-native';
 import { TransactionReceipt, TransferReceipt } from '@/components/transaction-receipt';
-import { TransferFormSection, errorMessage, type TransferDraft } from '@/features/transfer';
+import { TransferFormSection, type TransferDraft } from '@/features/transfer';
 import { dateFromEpochDay, epochDay } from '@/lib/database';
+import { errorMessage } from '@/lib/error-message';
 import { formatLineItemAmount } from '@/lib/line-item-amount';
 import { deleteTransaction } from '@/lib/transaction-delete';
 import { saveTransferEdit, type EditableTransfer } from '@/lib/transfers';
@@ -63,6 +64,9 @@ function ReceiptSession({ id }: { id: number }) {
       if (committed) void showSaved();
       else write.mutate(run);
     },
+    clearError: () => {
+      if (!committed) resetWrite();
+    },
   };
   const remove = useMutation({
     mutationFn: (confirmOverpayment: boolean) => deleteTransaction(id, { confirmOverpayment }),
@@ -97,6 +101,7 @@ function ReceiptSession({ id }: { id: number }) {
       // The pending state of the render can be late. Ask the mutation cache.
       if (
         client.isMutating({ mutationKey: ['receipt', id, 'save'] }) ||
+        saving ||
         deleting ||
         confirming.current
       )
@@ -136,7 +141,7 @@ function ReceiptSession({ id }: { id: number }) {
         },
       );
     },
-    [client, id, dirty, deleting],
+    [client, id, dirty, saving, deleting],
   );
   usePreventRemove(editing && !closing && (dirty || saving || deleting), ({ data: removal }) => {
     confirmDiscard(() => {
@@ -292,6 +297,7 @@ function EditTransferScreen({
       submitLabel={committed ? 'Retry receipt' : 'Save changes'}
       pending={save.pending}
       error={save.error ? errorMessage(save.error) : undefined}
+      onClearError={save.clearError}
       onSubmit={({ amountMinor, fromAccountId, toAccountId, note, date }: TransferDraft) =>
         save.start(() =>
           saveTransferEdit(transfer, {

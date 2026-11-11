@@ -24,6 +24,8 @@ export type ReceiptSave = {
   error: unknown;
   /** Runs `write`, then reads the receipt. After a committed write it only reads again. */
   start: (write: () => Promise<unknown>) => void;
+  /** Removes the error of a failed write. */
+  clearError: () => void;
 };
 
 export function EditTransactionScreen({

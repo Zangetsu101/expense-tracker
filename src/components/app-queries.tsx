@@ -16,7 +16,7 @@ export function AppQueryLifecycle({ children }: { children: ReactNode }) {
       }
       if (next !== 'inactive') previous = next;
     });
-    // A write can cross midnight. Take the time again after each successful mutation.
+    // A write can cross midnight.
     const unsubscribe = client.getMutationCache().subscribe((event) => {
       if (event.type === 'updated' && event.action.type === 'success') setNow(new Date());
     });

@@ -473,6 +473,7 @@ test('Account entry screens', async (t) => {
       assert.equal(state.alert[0], 'Overpayment warning');
       assert.equal(state.back, false);
       assert.equal(state.alert[2][0].text, 'Cancel');
+      await act(async () => state.alert[2][0].onPress?.());
       assert.equal(drafts.length, 1);
       assert.equal(button('Save repayment received').props.loading, false);
       await press('Save repayment received');

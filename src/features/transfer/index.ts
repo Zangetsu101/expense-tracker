@@ -1,2 +1,2 @@
-export { default as TransferScreen, TransferFormSection, errorMessage } from './screen.tsx';
+export { default as TransferScreen, TransferFormSection } from './screen.tsx';
 export type { TransferDraft } from './view.tsx';

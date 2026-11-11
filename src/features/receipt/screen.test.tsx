@@ -814,5 +814,8 @@ describe('Transfer', () => {
     expect(screen.getByRole('button', { name: 'Use 2 January 2024' })).toBeEnabled();
     expect(screen.getByLabelText('Transfer amount')).toHaveDisplayValue('9');
     expect(mockHeader.title).toBe('Edit transfer');
+
+    await user.press(screen.getByRole('button', { name: 'Swap accounts' }));
+    expect(screen.queryByText('Save failed')).not.toBeOnTheScreen();
   });
 });

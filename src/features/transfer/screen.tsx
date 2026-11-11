@@ -1,6 +1,7 @@
 import { useMutation, useSuspenseQuery } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { QueryBoundary } from '@/components/query-error-boundary';
+import { errorMessage } from '@/lib/error-message';
 import { addTransfer } from '@/lib/transfers';
 import { accountsQuery } from '@/lib/account-queries';
 import {
@@ -10,11 +11,6 @@ import {
   type TransferDraft,
   type TransferFormProps,
 } from './view.tsx';
-
-/** The text of a failed save, without the "Error:" prefix. */
-export function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
-}
 
 function ReadyTransferForm(props: TransferFormProps) {
   const { data, error, isFetching, refetch } = useSuspenseQuery(accountsQuery());
