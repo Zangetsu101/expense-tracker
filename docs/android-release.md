@@ -60,15 +60,26 @@ The APK uses the release signing key, so it installs over the production app and
 
 ## Build an APK for the Android emulator
 
-Manually run **Build Android APK** on a feature branch to build an x86_64 test APK. On `main`, check **emulator** to select this target. This job uploads a workflow artifact instead of creating a release and does not need release-signing secrets.
+**Build Android APK** builds an x86_64 test APK in these cases:
 
-For example, build the auto-backup PR before merging it:
+- **Automatically for a PR:** a PR that changes an input of the native build starts the build on each push. The `paths` list of the `pull_request` trigger in `.github/workflows/apk-release.yml` names these inputs, for example `package.json`, `pnpm-lock.yaml`, `app.json`, `plugins/` and the app images. A PR that changes only JavaScript does not start it. A new push to the PR cancels the build of the older push.
+- **Manually:** run the workflow on a feature branch. On `main`, check **emulator** to select this target.
+
+This job uploads a workflow artifact instead of creating a release. It does not need release-signing secrets.
+
+For example, build a branch before you open its PR:
 
 ```sh
 gh workflow run apk-release.yml --ref scheduled-backups-ndjson-wal
 ```
 
-Download the `expense-tracker-x86_64-emulator-<commit>` artifact from the workflow run. It contains `expense-tracker-<version>-x86_64-emulator.apk`. Artifacts are kept for 14 days.
+The artifact is `expense-tracker-x86_64-emulator-<commit>`. For a PR, `<commit>` is the PR head commit, not the temporary merge commit of GitHub. The job builds this commit, and the app shows it as its running release. The artifact contains `expense-tracker-<version>-x86_64-emulator.apk`. Artifacts are kept for 14 days. Find the artifact under **Artifacts** on the summary page of the workflow run, or download it with the GitHub CLI:
+
+```sh
+# Find the latest run for a branch or PR branch.
+gh run list --workflow apk-release.yml --branch <branch> --limit 1
+gh run download <run-id> --pattern 'expense-tracker-x86_64-emulator-*' --dir <empty-folder>
+```
 
 The APK uses the `.emulator` application ID suffix, an emulator-specific link scheme, and the Android debug signing key. It has an embedded JavaScript bundle and OTA updates are disabled, so it runs the selected commit without Metro. It can coexist with the production app and has its own database and backup settings.
 

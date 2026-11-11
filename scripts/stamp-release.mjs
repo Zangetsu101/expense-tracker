@@ -1,7 +1,8 @@
 import { execFileSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 
-const sha = process.env.GITHUB_SHA;
+// A pull_request run checks out the PR head commit, not the merge commit in GITHUB_SHA.
+const sha = process.env.RELEASE_COMMIT || process.env.GITHUB_SHA;
 const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 const dirty = execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], {
   encoding: 'utf8',
@@ -12,7 +13,9 @@ if (
   sha !== head ||
   dirty
 ) {
-  throw new Error('Release stamping requires a clean GitHub Actions checkout matching GITHUB_SHA.');
+  throw new Error(
+    'Release stamping requires a clean GitHub Actions checkout matching RELEASE_COMMIT or GITHUB_SHA.',
+  );
 }
 writeFileSync(
   new URL('../src/generated/release.ts', import.meta.url),

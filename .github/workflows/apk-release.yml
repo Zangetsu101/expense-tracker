@@ -11,17 +11,36 @@ on:
         description: Build a signed ARM64 test APK as a workflow artifact, with no release (any branch)
         type: boolean
         default: false
+  # A PR that changes an input of the native build gets an emulator APK.
+  # Git ignores android/, because prebuild generates it from these files.
+  # assets/images/ holds the icon and splash images that app.json names.
+  pull_request:
+    paths:
+      - package.json
+      - pnpm-lock.yaml
+      - app.json
+      - app.config.cjs
+      - assets/images/**
+      - plugins/**
+      - scripts/android-release.gradle
+      - scripts/build-emulator-apk.sh
+      - scripts/stamp-release.mjs
+      - .github/workflows/apk-release.yml
+      - .github/actions/setup-android-build/**
 
 permissions:
   contents: read
 
+# A PR run has the ref refs/pull/<number>/merge, so it never shares a group with a manual run.
+# A new push to a PR cancels the older PR run. A manual run is never cancelled.
 concurrency:
   group: apk-release-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
-    if: inputs.signed_test || (github.ref == 'refs/heads/main' && !inputs.emulator)
+    # Only a manual run builds a signed APK. A PR run never reads the signing secrets.
+    if: github.event_name == 'workflow_dispatch' && (inputs.signed_test || (github.ref == 'refs/heads/main' && !inputs.emulator))
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -115,13 +134,17 @@ jobs:
             --draft --prerelease --notes-file "$RUNNER_TEMP/release-notes.md"
 
   emulator:
-    if: ${{ !inputs.signed_test && (github.ref != 'refs/heads/main' || inputs.emulator) }}
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && !inputs.signed_test && (github.ref != 'refs/heads/main' || inputs.emulator))
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
       EXPENSE_TRACKER_BUILD_TARGET: emulator
+      # On a PR, GITHUB_SHA is a temporary merge commit. Build and stamp the PR head commit instead.
+      RELEASE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.RELEASE_COMMIT }}
       - uses: ./.github/actions/setup-android-build
       - name: Stamp the verified running release commit
         run: node scripts/stamp-release.mjs
@@ -130,7 +153,7 @@ jobs:
       - name: Upload emulator APK
         uses: actions/upload-artifact@v7.0.2
         with:
-          name: expense-tracker-x86_64-emulator-${{ github.sha }}
+          name: expense-tracker-x86_64-emulator-${{ env.RELEASE_COMMIT }}
           path: dist/*-x86_64-emulator.apk
           if-no-files-found: error
           retention-days: 14
