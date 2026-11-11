@@ -14,9 +14,8 @@ on:
 permissions:
   contents: read
 
-# The concurrency groups are on the jobs, not on the workflow.
-# A new run cancels a check that is in progress for the same event and ref.
-# A publish is never cancelled. The ota-production group runs one publish at a time.
+# Concurrency is set on each job. A cancel-in-progress group on the workflow
+# would also cancel a publish job that is in progress.
 
 jobs:
   check:
