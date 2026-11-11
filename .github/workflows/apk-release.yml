@@ -32,7 +32,7 @@ permissions:
   contents: read
 
 # A PR run has the ref refs/pull/<number>/merge, so it never shares a group with a manual run.
-# A new push to a PR cancels the older PR run. A manual run is never cancelled.
+# A new push to a PR cancels the older PR run. A new manual run does not cancel a running build.
 concurrency:
   group: apk-release-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
