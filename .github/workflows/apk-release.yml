@@ -31,21 +31,21 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
+      # The release notes need the full history and the tags to find the last release tag.
       - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
       - name: Validate release version
         if: ${{ !inputs.signed_test }}
         run: |
           node --input-type=module <<'JS'
-          import { readFileSync, appendFileSync } from 'node:fs';
-          const { expo } = JSON.parse(readFileSync('app.json', 'utf8'));
-          const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
-          if (!/^\d+\.\d+\.\d+$/.test(expo.version) || pkg.version !== expo.version) {
-            throw new Error('app.json and package.json must have the same x.y.z version.');
-          }
-          if (!Number.isSafeInteger(expo.android.versionCode) || expo.android.versionCode < 1) {
-            throw new Error('Android versionCode must be a positive integer.');
-          }
-          appendFileSync(process.env.GITHUB_ENV, `RELEASE_TAG=v${expo.version}\n`);
+          import { appendFileSync, readFileSync } from 'node:fs';
+          import { readRelease } from './scripts/release-version.mjs';
+          const { version } = readRelease({
+            appJson: readFileSync('app.json', 'utf8'),
+            packageJson: readFileSync('package.json', 'utf8'),
+          });
+          appendFileSync(process.env.GITHUB_ENV, `RELEASE_TAG=v${version}\n`);
           JS
       - name: Reject an existing release or tag
         if: ${{ !inputs.signed_test }}
@@ -101,15 +101,21 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
+      # A signed test run writes the same notes to the step summary as a dry run.
+      - name: Write the release notes
+        env:
+          SIGNED_TEST: ${{ inputs.signed_test }}
+        run: |
+          node scripts/release-notes.mjs dist/*-arm64.apk > "$RUNNER_TEMP/release-notes.md"
+          if [ "$SIGNED_TEST" = true ]; then
+            echo '## Release notes (dry run: this run creates no release)' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo '## Release notes of the draft release' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          cat "$RUNNER_TEMP/release-notes.md" >> "$GITHUB_STEP_SUMMARY"
       - name: Create draft GitHub prerelease
         if: ${{ !inputs.signed_test }}
         run: |
-          cat > "$RUNNER_TEMP/release-notes.md" <<EOF_NOTES
-          Signed ARM64 Android APK built from commit $GITHUB_SHA.
-
-          Back up app data, install the APK over the existing app, and test before publishing this draft.
-          Supports ARM64 Android devices only. The .sha256 file contains the APK checksum.
-          EOF_NOTES
           gh release create "$RELEASE_TAG" dist/*.apk dist/*.sha256 \
             --target "$GITHUB_SHA" --title "Expense Tracker ${RELEASE_TAG#v}" \
             --draft --prerelease --notes-file "$RUNNER_TEMP/release-notes.md"
