@@ -1,6 +1,7 @@
 import { useDeferredValue, useState } from 'react';
 import {
   QueryErrorResetBoundary,
+  useQuery,
   useSuspenseInfiniteQuery,
   useSuspenseQuery,
 } from '@tanstack/react-query';
@@ -27,11 +28,6 @@ import {
 } from './view.tsx';
 
 type ClearFilter = (clear: Partial<SearchFilters>) => void;
-
-function ReadyChips({ filters, onClear }: { filters: SearchFilters; onClear: ClearFilter }) {
-  const { data } = useSuspenseQuery(searchFilterOptionsQuery());
-  return <ActiveFilterChips filters={filters} options={data} onClear={onClear} />;
-}
 
 function Results({ filters, muted }: { filters: SearchFilters; muted: boolean }) {
   const {
@@ -105,6 +101,8 @@ function TransactionSearch({ reset }: { reset: () => void }) {
   const [draft, setDraft] = useState(filters);
   const [open, setOpen] = useState(false);
   const [categoryQuery, setCategoryQuery] = useState('');
+  // The chips show "Selected" until the options are ready. They need no fallback.
+  const { data: options } = useQuery(searchFilterOptionsQuery());
   const deferred = useDeferredValue(filters);
   const filterKey = JSON.stringify(filters);
   const deferredKey = JSON.stringify(deferred);
@@ -124,16 +122,7 @@ function TransactionSearch({ reset }: { reset: () => void }) {
           setCategoryQuery('');
           setOpen(true);
         }}
-        chips={
-          <QueryBoundary
-            reset={reset}
-            resetKey={filterKey}
-            pending={<ActiveFilterChips filters={filters} onClear={clearFilter} />}
-            error={() => <ActiveFilterChips filters={filters} onClear={clearFilter} />}
-          >
-            <ReadyChips filters={filters} onClear={clearFilter} />
-          </QueryBoundary>
-        }
+        chips={<ActiveFilterChips filters={filters} options={options} onClear={clearFilter} />}
       />
       <QueryBoundary
         reset={reset}

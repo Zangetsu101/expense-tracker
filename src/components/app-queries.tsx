@@ -17,7 +17,6 @@ export function AppQueryLifecycle({ children }: { children: ReactNode }) {
       }
       if (next !== 'inactive') previous = next;
     });
-    // After each committed SQLite write, mark all queries as stale and fetch the active ones again.
     // Keep this bridge. Import, restore, and background backup write outside React.
     const unsubscribe = subscribeDataChanges(() => {
       setNow(new Date());

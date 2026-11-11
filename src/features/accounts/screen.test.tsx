@@ -139,12 +139,12 @@ test('the add account sheet stays open with its text through an error and a retr
   await screen.findByText('Could not load accounts.');
 
   await user.press(screen.getByRole('button', { name: 'Add account' }));
-  await user.type(screen.getByLabelText('Account name'), 'Wallet');
+  await user.type(screen.getByLabelText('Account name'), 'Savings');
   jest.mocked(listManagedAccounts).mockResolvedValueOnce([cash]);
   await user.press(screen.getByRole('button', { name: 'Retry accounts' }));
 
   expect(await screen.findByText('Accounts (1)')).toBeOnTheScreen();
-  expect(screen.getByLabelText('Account name')).toHaveDisplayValue('Wallet');
+  expect(screen.getByLabelText('Account name')).toHaveDisplayValue('Savings');
 });
 
 test('a created account shows after the data change, without a second read in the screen', async () => {

@@ -6,7 +6,7 @@ import { Skeleton } from '@/components/loading';
 import { formatEpochDay } from '@/lib/transaction-format';
 import { theme } from '@/theme';
 import { personLedgerQuery } from './queries.ts';
-import { ScopeBoundary } from '@/components/query-error-boundary';
+import { QueryBoundary } from '@/components/query-error-boundary';
 import {
   ButtonSkeleton,
   EntryCardSkeleton,
@@ -126,12 +126,12 @@ export default function PersonScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const personId = Number(id);
   return (
-    <ScopeBoundary
-      scope={String(personId)}
+    <QueryBoundary
+      key={String(personId)}
       pending={<PersonSkeleton />}
       error={(retry) => <PersonError retry={retry} />}
     >
       <PersonLedger personId={personId} />
-    </ScopeBoundary>
+    </QueryBoundary>
   );
 }

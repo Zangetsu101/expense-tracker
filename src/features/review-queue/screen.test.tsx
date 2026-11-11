@@ -1,5 +1,6 @@
 import { act, screen, userEvent, waitFor } from '@testing-library/react-native';
-import { Alert } from 'react-native';
+import { useState } from 'react';
+import { Alert, Pressable } from 'react-native';
 import { notifyDataChanged } from '@/lib/data-changes';
 import {
   confirmCandidate,
@@ -140,4 +141,31 @@ test('a failed write reads the queue again and removes a candidate that is gone'
 
   expect(await screen.findByText('No transfer candidates to review.')).toBeOnTheScreen();
   alert.mockRestore();
+});
+
+function Reopen() {
+  const [open, setOpen] = useState(true);
+  return (
+    <>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Toggle screen"
+        onPress={() => setOpen((value) => !value)}
+      />
+      {open && <ReviewQueueScreen />}
+    </>
+  );
+}
+
+test('a screen that opens again after a failed read reads again', async () => {
+  const user = userEvent.setup();
+  jest.mocked(listReviewCandidates).mockRejectedValueOnce(new Error('Read failed'));
+  await renderWithQueries(<Reopen />);
+  expect(await screen.findByText('Could not load transfer candidates.')).toBeOnTheScreen();
+
+  jest.mocked(listReviewCandidates).mockResolvedValue([candidate]);
+  await user.press(screen.getByRole('button', { name: 'Toggle screen' }));
+  await user.press(screen.getByRole('button', { name: 'Toggle screen' }));
+
+  expect(await screen.findByText('Cash → Bank')).toBeOnTheScreen();
 });

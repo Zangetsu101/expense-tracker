@@ -46,7 +46,10 @@ type QueryBoundaryProps = {
   children: ReactNode;
 };
 
-/** Shows `pending` while a suspense query loads and `error` when it fails. Retry reads again. */
+/**
+ * Shows `pending` while a suspense query loads and `error` when it fails. Retry reads again.
+ * For a scope that comes from outside, such as a route param, give the scope as the `key`.
+ */
 export function QueryBoundary({ reset, ...props }: QueryBoundaryProps) {
   if (reset) return <Boundary reset={reset} {...props} />;
   return (
@@ -63,33 +66,18 @@ function Boundary({
   reset,
   children,
 }: Omit<QueryBoundaryProps, 'reset'> & { reset: () => void }) {
+  const [mounted, setMounted] = useState(false);
+  if (!mounted) {
+    // TanStack Query does not read a failed suspense query again until reset() runs.
+    // Call it when the boundary mounts, so that a screen that opens again reads again.
+    // Do not call it for a change of resetKey. A deferred render can run many times
+    // before it commits, and each reset() would start the failed read again.
+    reset();
+    setMounted(true);
+  }
   return (
     <ErrorBoundary resetKey={resetKey} onReset={reset} fallback={error}>
       <Suspense fallback={pending}>{children}</Suspense>
     </ErrorBoundary>
-  );
-}
-
-type ScopeBoundaryProps = Omit<QueryBoundaryProps, 'reset' | 'resetKey'> & { scope: string };
-
-function ScopedBoundary({ scope, reset, ...props }: ScopeBoundaryProps & { reset: () => void }) {
-  const [current, setCurrent] = useState<string>();
-  if (current !== scope) {
-    // A new scope reads again, also when its query failed before.
-    reset();
-    setCurrent(scope);
-  }
-  return <Boundary key={scope} reset={reset} {...props} />;
-}
-
-/**
- * A QueryBoundary for a scope that comes from outside, such as a route param.
- * The scope remounts the boundary, and each new scope reads again.
- */
-export function ScopeBoundary(props: ScopeBoundaryProps) {
-  return (
-    <QueryErrorResetBoundary>
-      {({ reset }) => <ScopedBoundary reset={reset} {...props} />}
-    </QueryErrorResetBoundary>
   );
 }

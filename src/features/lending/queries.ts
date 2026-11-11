@@ -52,6 +52,9 @@ export function unassignedHistoryQuery() {
 export function lendingEntryFormQuery(id: number | undefined) {
   return queryOptions({
     queryKey: [...lendingKey, 'entry-form', id ?? null],
+    // The form takes its first values from this read. Do not keep the result after the
+    // screen closes, so that the next form starts from a new read.
+    gcTime: 0,
     queryFn: async () => {
       const [people, accounts, entries] = await Promise.all([
         listPeople(),

@@ -563,50 +563,46 @@ test('Account entry screens', async (t) => {
     assert.equal(nodes('Category')[0].props.selectedId, 99);
     assert.equal(button('Save').props.disabled, true);
   });
-  await t.test(
-    'Mode failures recover locally on retry, including returning to a failed mode',
-    async () => {
-      let fail = true;
-      let accountReads = 0;
-      state.readAccounts = async () => {
-        accountReads++;
-        return [{ id: 1, name: 'Cash', currencyCode: 'USD', isFavorite: 1 }];
-      };
-      state.readPeople = async () => {
-        if (fail) throw Error('People unavailable');
-        return [{ id: 1, name: 'Rafi' }];
-      };
-      await mount(QuickAdd);
-      await change('Amount', '10');
-      await chooseCategory(3);
-      await change('Note', 'Keep me');
-      await act(async () => nodes('JoinedChoice')[0].props.onChange('PERSON'));
-      assert.ok(button('Retry people'));
-      assert.equal(button('Save lending').props.disabled, true);
-      await change('Search people', 'Ra');
-      await act(async () => nodes('JoinedChoice')[0].props.onChange('EXPENSE'));
-      assert.equal(button('Save').props.disabled, false);
-      fail = false;
-      await act(async () => nodes('JoinedChoice')[0].props.onChange('PERSON'));
-      await press('Retry people');
-      assert.equal(button('Retry people'), undefined);
-      await act(async () =>
-        nodes('Pressable')
-          .find((n) => n.props.accessibilityLabel === 'Rafi')
-          .props.onPress(),
-      );
-      assert.equal(button('Save lending').props.disabled, false);
-      assert.equal(
-        nodes('FormInput').find((n) => n.props.accessibilityLabel === 'Note').props.value,
-        'Keep me',
-      );
-      assert.equal(
-        nodes('FormInput').find((n) => n.props.accessibilityLabel === 'Search people').props.value,
-        'Ra',
-      );
-      assert.equal(accountReads, 1);
-    },
-  );
+  await t.test('A failed mode keeps the draft, and a return to that mode reads again', async () => {
+    let fail = true;
+    let accountReads = 0;
+    state.readAccounts = async () => {
+      accountReads++;
+      return [{ id: 1, name: 'Cash', currencyCode: 'USD', isFavorite: 1 }];
+    };
+    state.readPeople = async () => {
+      if (fail) throw Error('People unavailable');
+      return [{ id: 1, name: 'Rafi' }];
+    };
+    await mount(QuickAdd);
+    await change('Amount', '10');
+    await chooseCategory(3);
+    await change('Note', 'Keep me');
+    await act(async () => nodes('JoinedChoice')[0].props.onChange('PERSON'));
+    assert.ok(button('Retry people'));
+    assert.equal(button('Save lending').props.disabled, true);
+    await change('Search people', 'Ra');
+    await act(async () => nodes('JoinedChoice')[0].props.onChange('EXPENSE'));
+    assert.equal(button('Save').props.disabled, false);
+    fail = false;
+    await act(async () => nodes('JoinedChoice')[0].props.onChange('PERSON'));
+    assert.equal(button('Retry people'), undefined);
+    await act(async () =>
+      nodes('Pressable')
+        .find((n) => n.props.accessibilityLabel === 'Rafi')
+        .props.onPress(),
+    );
+    assert.equal(button('Save lending').props.disabled, false);
+    assert.equal(
+      nodes('FormInput').find((n) => n.props.accessibilityLabel === 'Note').props.value,
+      'Keep me',
+    );
+    assert.equal(
+      nodes('FormInput').find((n) => n.props.accessibilityLabel === 'Search people').props.value,
+      'Ra',
+    );
+    assert.equal(accountReads, 1);
+  });
   await t.test(
     'Failed cached refresh preserves draft and selections; deleted targets disable Save',
     async () => {

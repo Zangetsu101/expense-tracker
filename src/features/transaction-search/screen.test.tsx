@@ -299,7 +299,7 @@ describe('the filter modal', () => {
 
   test('shows an error with Retry for the options, and the other filters stay usable', async () => {
     const user = userEvent.setup();
-    jest.mocked(listManagedCategories).mockRejectedValueOnce(new Error('Disk error'));
+    jest.mocked(listManagedCategories).mockRejectedValue(new Error('Disk error'));
     jest.mocked(searchTransactions).mockResolvedValue([row(1, 'Row 1')]);
     await renderScreen();
     await screen.findByRole('button', { name: receipt('Row 1') });
@@ -309,6 +309,7 @@ describe('the filter modal', () => {
     await user.press(screen.getByRole('button', { name: 'income' }));
     expect(screen.getByRole('button', { name: 'income' })).toBeSelected();
 
+    jest.mocked(listManagedCategories).mockResolvedValue([food]);
     await user.press(screen.getByRole('button', { name: 'Retry categories and accounts' }));
     expect(await screen.findByRole('button', { name: 'Food · expense' })).toBeOnTheScreen();
     expect(screen.getByRole('button', { name: 'income' })).toBeSelected();

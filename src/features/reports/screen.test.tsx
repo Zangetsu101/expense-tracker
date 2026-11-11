@@ -19,9 +19,9 @@ jest.mock('@/lib/reports', () => ({ monthlyReport: jest.fn() }));
 
 type Report = Awaited<ReturnType<typeof monthlyReport>>;
 
-const wallet: ManagedAccount = {
+const cash: ManagedAccount = {
   id: 7,
-  name: 'Wallet',
+  name: 'Cash',
   currencyCode: 'USD',
   openingBalanceMinor: 0,
   isFavorite: 0,
@@ -41,11 +41,34 @@ const report = (income = 12000, expense = 3500): Report => ({
   spending: [{ currencyCode: 'USD', categoryId: 1, categoryName: 'Food', amountMinor: expense }],
 });
 
-const now = new Date();
-const year = now.getFullYear();
-const month = now.getMonth() + 1;
-const otherMonth = month === 1 ? 'February' : 'January';
-const otherMonthNumber = month === 1 ? 2 : 1;
+const year = 2026;
+const month = 3;
+const otherMonth = 'January';
+const otherMonthNumber = 1;
+
+beforeAll(() => {
+  // The screen starts in the month of the clock. Fix the clock and keep the real timers.
+  jest.useFakeTimers({
+    now: new Date(year, month - 1, 15),
+    doNotFake: [
+      'setTimeout',
+      'clearTimeout',
+      'setInterval',
+      'clearInterval',
+      'setImmediate',
+      'clearImmediate',
+      'nextTick',
+      'queueMicrotask',
+      'requestAnimationFrame',
+      'cancelAnimationFrame',
+      'requestIdleCallback',
+      'cancelIdleCallback',
+      'performance',
+      'hrtime',
+    ],
+  });
+});
+afterAll(() => jest.useRealTimers());
 
 beforeEach(() => {
   jest.mocked(listManagedAccounts).mockReset();
@@ -69,9 +92,9 @@ function reportReads() {
   return reads;
 }
 
-async function chooseWallet(user: ReturnType<typeof userEvent.setup>) {
+async function chooseCash(user: ReturnType<typeof userEvent.setup>) {
   await user.press(screen.getByRole('button', { name: 'Choose account scope, All accounts' }));
-  await user.press(screen.getByRole('radio', { name: 'Wallet · USD' }));
+  await user.press(screen.getByRole('radio', { name: 'Cash · USD' }));
 }
 
 test('first load shows a skeleton and then the report, and the month controls stay usable', async () => {
@@ -85,7 +108,7 @@ test('first load shows a skeleton and then the report, and the month controls st
   await user.press(screen.getByRole('button', { name: `${otherMonth} ${year}` }));
   expect(screen.getByRole('button', { name: `${otherMonth} ${year}` })).toBeSelected();
 
-  await act(async () => accounts.resolve([wallet, bank]));
+  await act(async () => accounts.resolve([cash, bank]));
   expect(await screen.findByLabelText('Income, EUR 9.00')).toBeOnTheScreen();
   expect(screen.getByLabelText('Income, USD 120.00')).toBeOnTheScreen();
   expect(screen.queryByLabelText('Loading reports')).not.toBeOnTheScreen();
@@ -94,7 +117,7 @@ test('first load shows a skeleton and then the report, and the month controls st
 
 test('the account scope drives the read and the visible currency totals', async () => {
   const user = userEvent.setup();
-  jest.mocked(listManagedAccounts).mockResolvedValue([wallet, bank]);
+  jest.mocked(listManagedAccounts).mockResolvedValue([cash, bank]);
   jest
     .mocked(monthlyReport)
     .mockImplementation(async (_year, _month, scope) =>
@@ -103,12 +126,12 @@ test('the account scope drives the read and the visible currency totals', async 
   await renderScreen();
   expect(await screen.findByLabelText('Income, EUR 9.00')).toBeOnTheScreen();
 
-  await chooseWallet(user);
+  await chooseCash(user);
 
   expect(await screen.findByLabelText('Income, USD 50.00')).toBeOnTheScreen();
   expect(monthlyReport).toHaveBeenLastCalledWith(year, month, 7);
   expect(
-    screen.getByRole('button', { name: 'Choose account scope, Wallet · USD' }),
+    screen.getByRole('button', { name: 'Choose account scope, Cash · USD' }),
   ).toBeOnTheScreen();
   expect(screen.getByLabelText('Expense, USD -12.50')).toBeOnTheScreen();
   expect(screen.getByLabelText('Net, USD 37.50')).toBeOnTheScreen();
@@ -118,19 +141,19 @@ test('the account scope drives the read and the visible currency totals', async 
 
 test('year navigation and a corrected year keep the month and the account scope', async () => {
   const user = userEvent.setup();
-  jest.mocked(listManagedAccounts).mockResolvedValue([wallet, bank]);
+  jest.mocked(listManagedAccounts).mockResolvedValue([cash, bank]);
   jest.mocked(monthlyReport).mockResolvedValue(report());
   await renderScreen();
   await screen.findByLabelText('Income, EUR 9.00');
 
   await user.press(screen.getByRole('button', { name: `September ${year}` }));
-  await chooseWallet(user);
+  await chooseCash(user);
   await user.press(screen.getByRole('button', { name: 'Next year' }));
   await waitFor(() => expect(monthlyReport).toHaveBeenLastCalledWith(year + 1, 9, 7));
   await user.press(screen.getByRole('button', { name: 'Previous year' }));
   expect(screen.getByText(`September ${year}`)).toBeOnTheScreen();
   expect(
-    screen.getByRole('button', { name: 'Choose account scope, Wallet · USD' }),
+    screen.getByRole('button', { name: 'Choose account scope, Cash · USD' }),
   ).toBeOnTheScreen();
 
   await user.press(screen.getByRole('button', { name: `Choose report year, ${year}` }));
@@ -151,7 +174,7 @@ test('year navigation and a corrected year keep the month and the account scope'
 
 test('a failed report read shows an error, and Retry reads again', async () => {
   const user = userEvent.setup();
-  jest.mocked(listManagedAccounts).mockResolvedValue([wallet, bank]);
+  jest.mocked(listManagedAccounts).mockResolvedValue([cash, bank]);
   jest.mocked(monthlyReport).mockRejectedValueOnce(new Error('Database unavailable'));
   await renderScreen();
 
@@ -173,7 +196,7 @@ test('a failed accounts read shows an error, and Retry reads again', async () =>
 
   expect(await screen.findByText('Could not load accounts.')).toBeOnTheScreen();
   expect(screen.getByRole('button', { name: `Choose report year, ${year}` })).toBeEnabled();
-  jest.mocked(listManagedAccounts).mockResolvedValueOnce([wallet, bank]);
+  jest.mocked(listManagedAccounts).mockResolvedValueOnce([cash, bank]);
   await user.press(screen.getByRole('button', { name: 'Retry' }));
 
   expect(await screen.findByLabelText('Income, USD 120.00')).toBeOnTheScreen();
@@ -182,7 +205,7 @@ test('a failed accounts read shows an error, and Retry reads again', async () =>
 
 test('the year sheet keeps its draft through a failed read and a retry', async () => {
   const user = userEvent.setup();
-  jest.mocked(listManagedAccounts).mockResolvedValue([wallet, bank]);
+  jest.mocked(listManagedAccounts).mockResolvedValue([cash, bank]);
   jest.mocked(monthlyReport).mockRejectedValueOnce(new Error('Database unavailable'));
   await renderScreen();
   await screen.findByText('Could not load the report.');
@@ -198,7 +221,7 @@ test('the year sheet keeps its draft through a failed read and a retry', async (
 });
 
 test('a data change shows the new report', async () => {
-  jest.mocked(listManagedAccounts).mockResolvedValue([wallet, bank]);
+  jest.mocked(listManagedAccounts).mockResolvedValue([cash, bank]);
   jest.mocked(monthlyReport).mockResolvedValueOnce(report());
   await renderScreen();
   await screen.findByLabelText('Income, USD 120.00');
@@ -217,7 +240,7 @@ test('a data change shows the new report', async () => {
 
 test('a failed refresh keeps the report and shows an alert with Retry', async () => {
   const user = userEvent.setup();
-  jest.mocked(listManagedAccounts).mockResolvedValue([wallet, bank]);
+  jest.mocked(listManagedAccounts).mockResolvedValue([cash, bank]);
   jest.mocked(monthlyReport).mockResolvedValueOnce(report());
   await renderScreen();
   await screen.findByLabelText('Income, USD 120.00');
@@ -236,13 +259,13 @@ test('a failed refresh keeps the report and shows an alert with Retry', async ()
 
 test('a removed account in a refresh resets the scope to All accounts', async () => {
   const user = userEvent.setup();
-  jest.mocked(listManagedAccounts).mockResolvedValue([wallet, bank]);
+  jest.mocked(listManagedAccounts).mockResolvedValue([cash, bank]);
   jest.mocked(monthlyReport).mockResolvedValue(report());
   await renderScreen();
   await screen.findByLabelText('Income, EUR 9.00');
-  await chooseWallet(user);
+  await chooseCash(user);
   await waitFor(() => expect(monthlyReport).toHaveBeenLastCalledWith(year, month, 7));
-  await screen.findByRole('button', { name: 'Choose account scope, Wallet · USD' });
+  await screen.findByRole('button', { name: 'Choose account scope, Cash · USD' });
 
   jest.mocked(listManagedAccounts).mockResolvedValue([bank]);
   await act(async () => notifyDataChanged());
@@ -259,7 +282,7 @@ test('a removed account in a refresh resets the scope to All accounts', async ()
 describe('a change of month', () => {
   test('keeps the previous report visible and muted until the new report arrives', async () => {
     const user = userEvent.setup();
-    jest.mocked(listManagedAccounts).mockResolvedValue([wallet, bank]);
+    jest.mocked(listManagedAccounts).mockResolvedValue([cash, bank]);
     const reads = reportReads();
     await renderScreen();
     await waitFor(() => expect(reads).toHaveLength(1));
@@ -284,7 +307,7 @@ describe('a change of month', () => {
 
   test('during a pending read shows only the report of the new month', async () => {
     const user = userEvent.setup();
-    jest.mocked(listManagedAccounts).mockResolvedValue([wallet, bank]);
+    jest.mocked(listManagedAccounts).mockResolvedValue([cash, bank]);
     const reads = reportReads();
     await renderScreen();
     await waitFor(() => expect(reads).toHaveLength(1));
@@ -305,7 +328,7 @@ describe('a change of month', () => {
   test('a return to a failed month reads again', async () => {
     const user = userEvent.setup();
     const current = new Date(year, month - 1).toLocaleDateString('en-US', { month: 'long' });
-    jest.mocked(listManagedAccounts).mockResolvedValue([wallet, bank]);
+    jest.mocked(listManagedAccounts).mockResolvedValue([cash, bank]);
     const reads = reportReads();
     await renderScreen();
     await waitFor(() => expect(reads).toHaveLength(1));

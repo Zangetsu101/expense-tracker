@@ -24,7 +24,7 @@ import { FormButton, FormInput } from '@/components/form-controls';
 import { QuickAddDate } from '@/components/quick-add-date';
 import { theme } from '@/theme';
 import { includeCreatedPerson, lendingEntryFormQuery } from './queries.ts';
-import { ScopeBoundary } from '@/components/query-error-boundary';
+import { QueryBoundary } from '@/components/query-error-boundary';
 import { ButtonSkeleton, FallbackScroll, LendingAlert, LoadingGroup } from './view.tsx';
 
 const c = theme.colors;
@@ -340,13 +340,13 @@ export default function EntryScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: c.background }}>
       <Stack.Screen options={{ title: id ? 'Edit lending entry' : 'Add lending entry' }} />
-      <ScopeBoundary
-        scope={id === undefined ? 'new' : String(id)}
+      <QueryBoundary
+        key={id === undefined ? 'new' : String(id)}
         pending={<EntryFormSkeleton />}
         error={(retry) => <EntryFormError retry={retry} />}
       >
         <EntryForm id={id} initialPersonId={Number(params.personId) || undefined} />
-      </ScopeBoundary>
+      </QueryBoundary>
     </View>
   );
 }

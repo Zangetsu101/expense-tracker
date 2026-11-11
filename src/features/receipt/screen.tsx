@@ -12,7 +12,7 @@ import { deleteTransaction } from '@/lib/transaction-delete';
 import { saveTransferEdit, type EditableTransfer } from '@/lib/transfers';
 import { theme } from '@/theme';
 import { receiptQuery, type Receipt } from './queries.ts';
-import { ScopeBoundary } from '@/components/query-error-boundary';
+import { QueryBoundary } from '@/components/query-error-boundary';
 import {
   EditTransactionScreen,
   NotFound,
@@ -312,12 +312,12 @@ export default function TransactionScreen() {
   const transactionId = Number(id);
   if (!id || !Number.isSafeInteger(transactionId) || transactionId <= 0) return <NotFound />;
   return (
-    <ScopeBoundary
-      scope={String(transactionId)}
+    <QueryBoundary
+      key={String(transactionId)}
       pending={<ReceiptSkeleton />}
       error={(retry) => <ReceiptError retry={retry} />}
     >
       <ReceiptSession id={transactionId} />
-    </ScopeBoundary>
+    </QueryBoundary>
   );
 }

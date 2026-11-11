@@ -346,3 +346,31 @@ test('a return to an entry whose read failed reads again', async () => {
   expect(await screen.findByDisplayValue('Rent help')).toBeOnTheScreen();
   expect(screen.queryByText('Could not load the entry form.')).not.toBeOnTheScreen();
 });
+
+function Reopen() {
+  const [open, setOpen] = useState(true);
+  return (
+    <>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Toggle screen"
+        onPress={() => setOpen((value) => !value)}
+      />
+      {open && <Route initial={{ id: '11' }} />}
+    </>
+  );
+}
+
+test('a form that opens again starts from a new read, not from the old entry', async () => {
+  const user = userEvent.setup();
+  await renderWithQueries(<Reopen />);
+  expect(await screen.findByLabelText('Note')).toHaveDisplayValue('Rent help');
+
+  await user.press(screen.getByRole('button', { name: 'Toggle screen' }));
+  jest.mocked(listLendingEntries).mockResolvedValue([{ ...entry, note: 'Rent for May' }]);
+  // TanStack Query keeps the result of a suspense query for one second at least.
+  await act(() => new Promise((resolve) => setTimeout(resolve, 1100)));
+  await user.press(screen.getByRole('button', { name: 'Toggle screen' }));
+
+  expect(await screen.findByLabelText('Note')).toHaveDisplayValue('Rent for May');
+});

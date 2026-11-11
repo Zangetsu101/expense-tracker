@@ -18,7 +18,6 @@ function Candidates() {
       else await rejectCandidate(id);
     } catch (cause) {
       Alert.alert('Could not resolve candidate', String(cause));
-      // The candidate can be gone. Read the queue again.
       void refetch();
     } finally {
       setPending(null);
