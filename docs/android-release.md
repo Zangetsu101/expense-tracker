@@ -4,8 +4,12 @@ Use this runbook to ship either a JavaScript/asset OTA update or a signed APK. G
 
 ## Choose the release type
 
-- **JavaScript/assets only:** publish an OTA update; keep the app version unchanged.
-- **Native dependencies, SDK, or native configuration:** build a new APK. Bump `expo.version` and `expo.android.versionCode` in `app.json`, and align `package.json`'s version. The app version is the OTA compatibility boundary.
+An installed app receives an OTA update only when the update has the same runtime version as the APK. The runtime version is a fingerprint: a hash of the native inputs of the project (see [ADR 0008](adr/0008-fingerprint-runtime-version.md)). CI calculates it, so you do not set it by hand.
+
+- **JavaScript/assets only:** publish an OTA update. Keep the app version unchanged.
+- **Native dependencies, SDK, Expo config, config plugins, icons or splash images:** build a new APK. Bump `expo.version` and `expo.android.versionCode` in `app.json`, and use the same version in `package.json`. These changes give a new fingerprint, so OTA updates from them do not reach older APKs.
+
+A JavaScript-only update of a package that has native code also gives a new fingerprint. Examples are an Expo SDK patch update and a new `react-native-screens` version. To see if a change needs a new APK, compare the runtime version that the CI `check` job prints on the pull request with the value for `main`. If they are different, the change needs a new APK.
 
 Back up app data and test on a device before releasing. Installed apps need an APK with EAS Update configured to receive OTA updates.
 
@@ -16,6 +20,8 @@ One-time CI requirement: an Expo access token with project access, stored as the
 1. Merge the tested changes into `main`. Each push to `main` starts the **CI** workflow. Its `check` job runs `pnpm check`. When the checks pass, its `publish` job publishes an Android OTA update to the `production` channel and environment and records the commit SHA. If the checks fail, the job does not publish.
 2. Confirm that both jobs of **GitHub Actions → CI** succeed. To publish manually, use **Run workflow** on `main` and type a description. The manual run also runs the checks first.
 3. Verify on the installed release app: open **Settings → Updates** to check for and download the update. When it is ready, tap **Updates** again and confirm **Restart to update** to apply it. Finish any unsaved entries before restarting. Tap the version/release line in Settings to confirm the running commit matches the published commit.
+
+The `publish` job prints the Android runtime version in its summary, and adds it to the update message. After `eas update`, the job fails if the published update has a different runtime version from the checkout. If an update does not arrive, tap the version/release line in Settings and compare **Runtime version** with the value in the job summary. If they are different, the installed APK is older than the last native change, so build and install a new APK.
 
 A newer push to `main` cancels the checks of an older push that are still in progress. The newer push then publishes the changes of both. A new push never cancels a publish that is in progress. Publishes run one at a time. Pull requests run only the `check` job.
 

@@ -53,7 +53,7 @@
     },
     "owner": "zangetsu101",
     "runtimeVersion": {
-      "policy": "appVersion"
+      "policy": "fingerprint"
     },
     "updates": {
       "url": "https://u.expo.dev/a5e575d5-8792-4775-b5c7-1b4eea907b3e",

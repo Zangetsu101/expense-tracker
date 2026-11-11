@@ -32,6 +32,9 @@ jobs:
           node-version: '22'
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # An OTA update reaches only an APK with the same runtime version (ADR 0008).
+      - name: Print the Android runtime version
+        run: node scripts/runtime-version.mjs
       - name: Typecheck, lint, formatting, tests, and backup fixtures
         run: pnpm check
 
@@ -68,10 +71,19 @@ jobs:
           token: ${{ secrets.EXPO_TOKEN }}
       - name: Stamp the verified running release commit
         run: node scripts/stamp-release.mjs
+      - name: Print the Android runtime version
+        id: runtime
+        run: node scripts/runtime-version.mjs
       - name: Publish Android production update
         env:
           UPDATE_MESSAGE: ${{ inputs.message || 'Automatic update from main' }}
+          RUNTIME_VERSION: ${{ steps.runtime.outputs.runtime-version }}
         run: >-
           eas update --channel production --platform android
-          --environment production --non-interactive
-          --message "$UPDATE_MESSAGE ($GITHUB_SHA)"
+          --environment production --non-interactive --json
+          --message "$UPDATE_MESSAGE ($GITHUB_SHA, runtime $RUNTIME_VERSION)"
+          > "$RUNNER_TEMP/updates.json"
+      # eas update resolves the runtime version again with the EAS environment
+      # variables. This step fails when that value is different.
+      - name: Check the runtime version of the published update
+        run: node scripts/runtime-version.mjs --check-published "$RUNNER_TEMP/updates.json"
