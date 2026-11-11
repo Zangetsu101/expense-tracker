@@ -40,6 +40,18 @@ Reuse the existing signing key so installed apps can upgrade without uninstallin
 
 A failed build creates no release. If publication fails after creating a draft, inspect/delete that draft before retrying; the workflow refuses to overwrite it.
 
+## Build a signed test APK without a release
+
+To test a branch on a real phone before a release, run **Build Android APK** with **signed_test** checked. You can select any branch:
+
+```sh
+gh workflow run apk-release.yml --ref <branch> -f signed_test=true
+```
+
+The job builds the same signed ARM64 APK as a release. It does not check or create a tag or a release. Download the `expense-tracker-arm64-signed-test-<commit>` artifact from the workflow run. It contains the APK and its `.sha256` file. Artifacts are kept for 14 days.
+
+The APK uses the release signing key, so it installs over the production app and keeps its data. It uses the version in `app.json` and receives OTA updates for that version. A later release with the same version installs over it.
+
 ## Build an APK for the Android emulator
 
 Manually run **Build Android APK** on a feature branch to build an x86_64 test APK. On `main`, check **emulator** to select this target. This job uploads a workflow artifact instead of creating a release and does not need release-signing secrets.

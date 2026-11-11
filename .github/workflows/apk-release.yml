@@ -7,6 +7,10 @@ on:
         description: Build an x86_64 emulator test APK (always used outside main)
         type: boolean
         default: false
+      signed_test:
+        description: Build a signed ARM64 test APK as a workflow artifact, with no release (any branch)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -17,7 +21,7 @@ concurrency:
 
 jobs:
   build:
-    if: github.ref == 'refs/heads/main' && !inputs.emulator
+    if: inputs.signed_test || (github.ref == 'refs/heads/main' && !inputs.emulator)
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -28,6 +32,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
       - name: Validate release version
+        if: ${{ !inputs.signed_test }}
         run: |
           node --input-type=module <<'JS'
           import { readFileSync, appendFileSync } from 'node:fs';
@@ -42,6 +47,7 @@ jobs:
           appendFileSync(process.env.GITHUB_ENV, `RELEASE_TAG=v${expo.version}\n`);
           JS
       - name: Reject an existing release or tag
+        if: ${{ !inputs.signed_test }}
         run: |
           gh api --paginate "repos/$GH_REPO/releases" --jq '.[].tag_name' > "$RUNNER_TEMP/release-tags"
           if grep -Fxq "$RELEASE_TAG" "$RUNNER_TEMP/release-tags"; then
@@ -95,7 +101,19 @@ jobs:
           unset ANDROID_KEYSTORE_BASE64
           pnpm android:apk
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs dist/*.apk
+      - name: Upload signed test APK
+        if: ${{ inputs.signed_test }}
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: expense-tracker-arm64-signed-test-${{ github.sha }}
+          path: |
+            dist/*.apk
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
       - name: Create draft GitHub prerelease
+        if: ${{ !inputs.signed_test }}
         run: |
           cat > "$RUNNER_TEMP/release-notes.md" <<EOF_NOTES
           Signed ARM64 Android APK built from commit $GITHUB_SHA.
@@ -108,7 +126,7 @@ jobs:
             --draft --prerelease --notes-file "$RUNNER_TEMP/release-notes.md"
 
   emulator:
-    if: github.ref != 'refs/heads/main' || inputs.emulator
+    if: ${{ !inputs.signed_test && (github.ref != 'refs/heads/main' || inputs.emulator) }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
