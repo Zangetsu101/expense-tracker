@@ -283,7 +283,7 @@ test('app navigation', async (t) => {
     },
   );
   await t.test(
-    'Quick add choices refresh after a committed SQLite change without resetting selection',
+    'Quick add choices refresh after a committed write without resetting selection',
     async () => {
       state.accounts = [{ id: 1, name: 'Cash', currencyCode: 'USD', isFavorite: 1 }];
       await mount(QuickAdd);
@@ -294,8 +294,7 @@ test('app navigation', async (t) => {
         { id: 1, name: 'Renamed', currencyCode: 'USD' },
         { id: 2, name: 'Bank', currencyCode: 'USD', isFavorite: 1 },
       ];
-      const { notifyDataChanged } = await import('./data-changes.ts');
-      await act(async () => notifyDataChanged());
+      await act(async () => void queryClient.invalidateQueries());
       assert.deepEqual(
         choices().props.accounts.map((account) => account.name),
         ['Renamed', 'Bank'],

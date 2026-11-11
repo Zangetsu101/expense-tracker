@@ -1,14 +1,13 @@
 import { act, screen, userEvent, waitFor } from '@testing-library/react-native';
 import { useState } from 'react';
 import { Alert, Pressable } from 'react-native';
-import { notifyDataChanged } from '@/lib/data-changes';
 import {
   confirmCandidate,
   listReviewCandidates,
   rejectCandidate,
   type ReviewCandidate,
 } from '@/lib/review-queue';
-import { renderWithQueries } from '@/test/render-with-queries';
+import { refreshQueries, renderWithQueries } from '@/test/render-with-queries';
 import ReviewQueueScreen from './screen';
 
 jest.mock('@/lib/review-queue', () => ({
@@ -72,7 +71,7 @@ test('a failed refresh keeps the candidates and shows an alert with Retry', asyn
   expect(await screen.findByText('Cash → Bank')).toBeOnTheScreen();
 
   jest.mocked(listReviewCandidates).mockRejectedValue(new Error('Refresh failed'));
-  await act(async () => notifyDataChanged());
+  await act(async () => refreshQueries());
 
   expect(await screen.findByText('Could not refresh transfer candidates.')).toBeOnTheScreen();
   expect(screen.getByText('Cash → Bank')).toBeOnTheScreen();
@@ -92,7 +91,7 @@ test('a data change refreshes the candidates and disables the actions while it r
 
   const refresh = Promise.withResolvers<ReviewCandidate[]>();
   jest.mocked(listReviewCandidates).mockReturnValue(refresh.promise);
-  await act(async () => notifyDataChanged());
+  await act(async () => refreshQueries());
 
   expect(screen.getByText('Cash → Bank')).toBeOnTheScreen();
   await waitFor(() =>

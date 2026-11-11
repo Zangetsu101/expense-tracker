@@ -8,11 +8,10 @@ import {
   setFavoriteAccount,
   type ManagedAccount,
 } from '@/lib/accounts';
-import { notifyDataChanged } from '@/lib/data-changes';
 import { epochDay } from '@/lib/database';
 import { QueryTimeContext } from '@/lib/query-time';
 import { accountBalances, type AccountBalance } from '@/lib/reports';
-import { renderWithQueries } from '@/test/render-with-queries';
+import { refreshQueries, renderWithQueries } from '@/test/render-with-queries';
 import { AccountsScreen } from './index';
 
 jest.mock('react-native-safe-area-context', () => ({
@@ -320,7 +319,7 @@ test('a failed refresh keeps the accounts and shows an alert with Retry', async 
   await screen.findByText('Accounts (1)');
 
   jest.mocked(listManagedAccounts).mockRejectedValueOnce(new Error('Disk error'));
-  await act(async () => notifyDataChanged());
+  await act(async () => refreshQueries());
 
   expect(await screen.findByText('Could not refresh accounts.')).toBeOnTheScreen();
   expect(screen.getByText('Cash · Favorite')).toBeOnTheScreen();
@@ -341,7 +340,7 @@ test('a refresh to no accounts replaces the accounts with the empty text', async
 
   const refresh = Promise.withResolvers<ManagedAccount[]>();
   jest.mocked(listManagedAccounts).mockReturnValueOnce(refresh.promise);
-  await act(async () => notifyDataChanged());
+  await act(async () => refreshQueries());
 
   expect(screen.getByText('Cash · Favorite')).toBeOnTheScreen();
   expect(screen.queryByLabelText('Loading accounts')).not.toBeOnTheScreen();

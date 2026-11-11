@@ -3,7 +3,6 @@ import { act, screen, userEvent, waitFor } from '@testing-library/react-native';
 import { Alert, Pressable } from 'react-native';
 import { router } from 'expo-router';
 import { listAccounts, type Account } from '@/lib/database';
-import { notifyDataChanged } from '@/lib/data-changes';
 import {
   createPerson,
   deleteLendingEntry,
@@ -13,7 +12,7 @@ import {
   type LendingEntry,
   type Person,
 } from '@/lib/lending';
-import { renderWithQueries } from '@/test/render-with-queries';
+import { refreshQueries, renderWithQueries } from '@/test/render-with-queries';
 import EntryScreen from './entry-screen';
 
 const MockParamsContext = createContext<{ id?: string; personId?: string }>({});
@@ -199,7 +198,7 @@ test('a data change updates the pickers, keeps the fields, and disables writes w
 
   const refresh = Promise.withResolvers<Account[]>();
   jest.mocked(listAccounts).mockReturnValue(refresh.promise);
-  await act(async () => notifyDataChanged());
+  await act(async () => refreshQueries());
   await waitFor(() => expect(screen.getByRole('button', { name: 'Save entry' })).toBeDisabled());
 
   await act(async () =>
@@ -219,7 +218,7 @@ test('a failed refresh keeps the form without an alert', async () => {
   await user.type(await screen.findByLabelText('Amount'), '12');
 
   jest.mocked(listPeople).mockRejectedValue(new Error('Refresh failed'));
-  await act(async () => notifyDataChanged());
+  await act(async () => refreshQueries());
   await waitFor(() => expect(listPeople).toHaveBeenCalledTimes(2));
   await waitFor(() => expect(screen.getByRole('button', { name: 'Save entry' })).toBeEnabled());
 

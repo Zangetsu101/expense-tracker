@@ -1,9 +1,8 @@
 import { act, screen, userEvent, waitFor } from '@testing-library/react-native';
 import { listManagedCategories, type ManagedCategory } from '@/lib/categories';
-import { notifyDataChanged } from '@/lib/data-changes';
 import { listAccounts, type Account } from '@/lib/database';
 import { searchTransactions, type SearchFilters, type SearchRow } from '@/lib/transaction-search';
-import { renderWithQueries } from '@/test/render-with-queries';
+import { refreshQueries, renderWithQueries } from '@/test/render-with-queries';
 import { TransactionSearchScreen } from './index';
 
 const mockParams: { accountId?: string } = {};
@@ -125,7 +124,7 @@ test('a data change shows the new results', async () => {
 
   const refresh = Promise.withResolvers<SearchRow[]>();
   jest.mocked(searchTransactions).mockReturnValueOnce(refresh.promise);
-  await act(async () => notifyDataChanged());
+  await act(async () => refreshQueries());
   await waitFor(() => expect(searchTransactions).toHaveBeenCalledTimes(2));
 
   expect(screen.getByRole('button', { name: receipt('Row 1') })).toBeOnTheScreen();
@@ -144,7 +143,7 @@ test('a failed refresh keeps the results and shows an alert with Retry', async (
   await screen.findByRole('button', { name: receipt('Row 1') });
 
   jest.mocked(searchTransactions).mockRejectedValueOnce(new Error('Disk error'));
-  await act(async () => notifyDataChanged());
+  await act(async () => refreshQueries());
 
   expect(await screen.findByText('Could not refresh results.')).toBeOnTheScreen();
   expect(screen.getByRole('button', { name: receipt('Row 1') })).toBeOnTheScreen();

@@ -2,7 +2,6 @@ import { createContext, useState } from 'react';
 import { act, screen, userEvent } from '@testing-library/react-native';
 import { Pressable } from 'react-native';
 import { router } from 'expo-router';
-import { notifyDataChanged } from '@/lib/data-changes';
 import {
   listLendingEntries,
   listLendingTotals,
@@ -11,7 +10,7 @@ import {
   type LendingTotal,
   type Person,
 } from '@/lib/lending';
-import { renderWithQueries } from '@/test/render-with-queries';
+import { refreshQueries, renderWithQueries } from '@/test/render-with-queries';
 import PersonScreen from './person-screen';
 
 const MockParamsContext = createContext<{ id?: string }>({});
@@ -141,7 +140,7 @@ test('a failed refresh keeps the ledger and shows an alert with Retry', async ()
   await screen.findByText('Lunch money');
 
   jest.mocked(listLendingEntries).mockRejectedValue(new Error('Refresh failed'));
-  await act(async () => notifyDataChanged());
+  await act(async () => refreshQueries());
 
   expect(await screen.findByText('Could not refresh this person.')).toBeOnTheScreen();
   expect(screen.getByText('Lunch money')).toBeOnTheScreen();
@@ -158,7 +157,7 @@ test('a data change shows new entries', async () => {
   await screen.findByText('Lunch money');
 
   jest.mocked(listLendingEntries).mockResolvedValue([{ ...entry, note: 'Taxi' }]);
-  await act(async () => notifyDataChanged());
+  await act(async () => refreshQueries());
 
   expect(await screen.findByText('Taxi')).toBeOnTheScreen();
   expect(screen.queryByText('Lunch money')).not.toBeOnTheScreen();

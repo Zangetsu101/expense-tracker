@@ -4,7 +4,6 @@ import { Alert, BackHandler, Pressable } from 'react-native';
 import { usePreventRemove } from 'expo-router/react-navigation';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { listAccounts, type Account } from '@/lib/database';
-import { notifyDataChanged } from '@/lib/data-changes';
 import { deleteTransaction } from '@/lib/transaction-delete';
 import {
   loadEditableTransaction,
@@ -12,7 +11,7 @@ import {
   type EditableTransaction,
 } from '@/lib/transaction-edit';
 import { loadTransfer, saveTransferEdit, type EditableTransfer } from '@/lib/transfers';
-import { renderWithQueries } from '@/test/render-with-queries';
+import { refreshQueries, renderWithQueries } from '@/test/render-with-queries';
 import TransactionScreen from './screen';
 
 type HeaderOptions = {
@@ -302,7 +301,7 @@ describe('reads', () => {
     await screen.findByText('Lunch');
 
     jest.mocked(loadEditableTransaction).mockRejectedValue(new Error('Refresh failed'));
-    await act(async () => notifyDataChanged());
+    await act(async () => refreshQueries());
 
     expect(await screen.findByText('Could not refresh the receipt.')).toBeOnTheScreen();
     expect(screen.getByText('Lunch')).toBeOnTheScreen();
@@ -322,7 +321,7 @@ describe('reads', () => {
 
     const refresh = Promise.withResolvers<EditableTransaction | null>();
     jest.mocked(loadEditableTransaction).mockReturnValue(refresh.promise);
-    await act(async () => notifyDataChanged());
+    await act(async () => refreshQueries());
     await waitFor(() => expect(screen.getByRole('button', { name: 'Edit' })).toBeDisabled());
 
     await act(async () => refresh.resolve({ ...transaction, note: 'Dinner' }));
@@ -337,7 +336,7 @@ describe('reads', () => {
     await user.type(noteInput(), 'draft');
 
     jest.mocked(loadEditableTransaction).mockResolvedValue({ ...transaction, note: 'Elsewhere' });
-    await act(async () => notifyDataChanged());
+    await act(async () => refreshQueries());
     await waitFor(() => expect(loadEditableTransaction).toHaveBeenCalledTimes(2));
 
     expect(noteInput()).toHaveDisplayValue('draft');

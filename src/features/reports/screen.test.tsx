@@ -1,9 +1,8 @@
 import { act, screen, userEvent, waitFor } from '@testing-library/react-native';
 import type { AppSheetProps } from '@/components/app-sheet';
 import { listManagedAccounts, type ManagedAccount } from '@/lib/accounts';
-import { notifyDataChanged } from '@/lib/data-changes';
 import { monthlyReport } from '@/lib/reports';
-import { renderWithQueries } from '@/test/render-with-queries';
+import { refreshQueries, renderWithQueries } from '@/test/render-with-queries';
 import { ReportsScreen } from './index';
 
 jest.mock('expo-router', () => ({ Stack: { Screen: () => null } }));
@@ -228,7 +227,7 @@ test('a data change shows the new report', async () => {
 
   const refresh = Promise.withResolvers<Report>();
   jest.mocked(monthlyReport).mockReturnValueOnce(refresh.promise);
-  await act(async () => notifyDataChanged());
+  await act(async () => refreshQueries());
   await waitFor(() => expect(monthlyReport).toHaveBeenCalledTimes(2));
 
   expect(screen.getByLabelText('Income, USD 120.00')).toBeOnTheScreen();
@@ -246,7 +245,7 @@ test('a failed refresh keeps the report and shows an alert with Retry', async ()
   await screen.findByLabelText('Income, USD 120.00');
 
   jest.mocked(monthlyReport).mockRejectedValueOnce(new Error('Database unavailable'));
-  await act(async () => notifyDataChanged());
+  await act(async () => refreshQueries());
 
   expect(await screen.findByText('Could not refresh the report.')).toBeOnTheScreen();
   expect(screen.getByLabelText('Income, USD 120.00')).toBeOnTheScreen();
@@ -268,7 +267,7 @@ test('a removed account in a refresh resets the scope to All accounts', async ()
   await screen.findByRole('button', { name: 'Choose account scope, Cash · USD' });
 
   jest.mocked(listManagedAccounts).mockResolvedValue([bank]);
-  await act(async () => notifyDataChanged());
+  await act(async () => refreshQueries());
 
   expect(
     await screen.findByRole('button', { name: 'Choose account scope, All accounts' }),

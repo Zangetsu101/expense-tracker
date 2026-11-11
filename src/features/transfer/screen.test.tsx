@@ -2,9 +2,8 @@ import type { ReactNode } from 'react';
 import { act, screen, userEvent, waitFor } from '@testing-library/react-native';
 import { router } from 'expo-router';
 import { listAccounts, type Account } from '@/lib/database';
-import { notifyDataChanged } from '@/lib/data-changes';
 import { addTransfer } from '@/lib/transfers';
-import { renderWithQueries } from '@/test/render-with-queries';
+import { refreshQueries, renderWithQueries } from '@/test/render-with-queries';
 import TransferScreen from './screen';
 
 jest.mock('expo-router', () => ({ router: { back: jest.fn() } }));
@@ -98,7 +97,7 @@ test('a failed refresh keeps the draft, shows an alert, and Retry clears it', as
   await user.type(await screen.findByLabelText('Transfer amount'), '12');
 
   jest.mocked(listAccounts).mockRejectedValue(new Error('Refresh failed'));
-  await act(async () => notifyDataChanged());
+  await act(async () => refreshQueries());
 
   expect(await screen.findByText('Could not refresh accounts.')).toBeOnTheScreen();
   expect(screen.getByLabelText('Transfer amount')).toHaveDisplayValue('12');
@@ -123,7 +122,7 @@ test('a data change shows new accounts, keeps the draft, and disables Save while
 
   const refresh = Promise.withResolvers<Account[]>();
   jest.mocked(listAccounts).mockReturnValue(refresh.promise);
-  await act(async () => notifyDataChanged());
+  await act(async () => refreshQueries());
   await waitFor(() => expect(screen.getByRole('button', { name: 'Save transfer' })).toBeDisabled());
 
   await act(async () =>

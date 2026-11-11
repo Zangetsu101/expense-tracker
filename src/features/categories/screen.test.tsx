@@ -5,8 +5,7 @@ import {
   renameCategory,
   type ManagedCategory,
 } from '@/lib/categories';
-import { notifyDataChanged } from '@/lib/data-changes';
-import { renderWithQueries } from '@/test/render-with-queries';
+import { refreshQueries, renderWithQueries } from '@/test/render-with-queries';
 import { CategoriesScreen } from './index';
 
 jest.mock('expo-router', () => ({ Stack: { Screen: () => null } }));
@@ -77,7 +76,7 @@ test('a data change shows the new categories and keeps the search text', async (
 
   const refresh = Promise.withResolvers<ManagedCategory[]>();
   jest.mocked(listManagedCategories).mockReturnValueOnce(refresh.promise);
-  await act(async () => notifyDataChanged());
+  await act(async () => refreshQueries());
 
   await waitFor(() => expect(screen.getByRole('button', { name: 'Add' })).toBeDisabled());
   expect(screen.getByRole('button', { name: /^Lunch, EXPENSE/ })).toBeOnTheScreen();
@@ -96,7 +95,7 @@ test('a data change to an empty list replaces the categories', async () => {
   await screen.findByRole('button', { name: /^Lunch, EXPENSE/ });
 
   jest.mocked(listManagedCategories).mockResolvedValueOnce([]);
-  await act(async () => notifyDataChanged());
+  await act(async () => refreshQueries());
 
   expect(
     await screen.findByText('No categories yet. Use Add to create a root category.'),
@@ -111,7 +110,7 @@ test('a failed refresh keeps the categories and shows an alert with Retry', asyn
   await screen.findByRole('button', { name: /^Lunch, EXPENSE/ });
 
   jest.mocked(listManagedCategories).mockRejectedValueOnce(new Error('Disk error'));
-  await act(async () => notifyDataChanged());
+  await act(async () => refreshQueries());
 
   expect(await screen.findByText('Could not refresh categories.')).toBeOnTheScreen();
   expect(screen.getByRole('button', { name: /^Lunch, EXPENSE/ })).toBeOnTheScreen();

@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react';
 import { act, screen, userEvent, waitFor } from '@testing-library/react-native';
 import { Alert } from 'react-native';
-import { notifyDataChanged } from '@/lib/data-changes';
 import {
   assignLendingTransaction,
   listPeople,
@@ -10,7 +9,7 @@ import {
   type Person,
   type UnassignedLendingTransaction,
 } from '@/lib/lending';
-import { renderWithQueries } from '@/test/render-with-queries';
+import { refreshQueries, renderWithQueries } from '@/test/render-with-queries';
 import UnassignedScreen from './unassigned-screen';
 
 jest.mock('expo-router', () => ({ Stack: { Screen: () => null } }));
@@ -107,7 +106,7 @@ test('a failed refresh keeps the entries and shows an alert with Retry', async (
   await screen.findByText('Old loan');
 
   jest.mocked(listUnassignedLendingTransactions).mockRejectedValue(new Error('Refresh failed'));
-  await act(async () => notifyDataChanged());
+  await act(async () => refreshQueries());
 
   expect(await screen.findByText('Could not refresh unassigned entries.')).toBeOnTheScreen();
   expect(screen.getByText('Old loan')).toBeOnTheScreen();
@@ -125,7 +124,7 @@ test('Assign person is disabled while a refresh reads and without saved people',
 
   const refresh = Promise.withResolvers<Person[]>();
   jest.mocked(listPeople).mockReturnValue(refresh.promise);
-  await act(async () => notifyDataChanged());
+  await act(async () => refreshQueries());
   await waitFor(() => expect(screen.getByRole('button', { name: 'Assign person' })).toBeDisabled());
 
   await act(async () => refresh.resolve([]));

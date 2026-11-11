@@ -1,4 +1,3 @@
-import { notifyDataChanged } from './data-changes.ts';
 import { database } from './database';
 
 export type CategoryType = 'EXPENSE' | 'INCOME';
@@ -61,7 +60,6 @@ export async function createCategory(input: CreateCategoryInput): Promise<void> 
       parentId,
     ]);
   });
-  notifyDataChanged();
 }
 
 export async function renameCategory(id: number, inputName: string): Promise<void> {
@@ -82,7 +80,6 @@ export async function renameCategory(id: number, inputName: string): Promise<voi
     if (duplicate) throw new Error('A Category with this name and type already exists.');
     await tx.runAsync('UPDATE categories SET name = ? WHERE id = ?', [name, id]);
   });
-  notifyDataChanged();
 }
 
 export async function markCategoryReviewed(id: number, confirmedType: CategoryType): Promise<void> {

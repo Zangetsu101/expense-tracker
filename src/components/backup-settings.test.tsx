@@ -100,8 +100,15 @@ afterEach(() => {
 async function mount(state: DriveBackupState = stored, props: { disabled?: boolean } = {}) {
   stored = structuredClone(state);
   const onBusyChange = jest.fn();
-  await render(<BackupSettings disabled={props.disabled ?? false} onBusyChange={onBusyChange} />);
-  return { onBusyChange };
+  const onRestored = jest.fn();
+  await render(
+    <BackupSettings
+      disabled={props.disabled ?? false}
+      onBusyChange={onBusyChange}
+      onRestored={onRestored}
+    />,
+  );
+  return { onBusyChange, onRestored };
 }
 const button = (name: string | RegExp) => screen.getByRole('button', { name });
 async function chooseAlert(label: string) {
@@ -124,6 +131,18 @@ describe('not connected', () => {
     await user.press(button('Restore'));
     expect(restoreBackup).toHaveBeenCalled();
     expect(driveBackups.listBackups).not.toHaveBeenCalled();
+  });
+
+  test('a restore from a file tells the owner only when the data was replaced', async () => {
+    const { onRestored } = await mount();
+    const user = userEvent.setup();
+    jest.mocked(restoreBackup).mockResolvedValue(false);
+    await user.press(await screen.findByRole('button', { name: 'Restore' }));
+    expect(onRestored).not.toHaveBeenCalled();
+    jest.mocked(restoreBackup).mockResolvedValue(true);
+    await user.press(button('Restore'));
+    expect(await screen.findByText(/Backup restored/)).toBeOnTheScreen();
+    expect(onRestored).toHaveBeenCalledTimes(1);
   });
 
   test('connecting to an empty Drive shows the first backup and the daily schedule', async () => {
@@ -328,7 +347,7 @@ describe('connected', () => {
   });
 
   test('Restore lists the Drive backups; cancelling the confirmation keeps the data', async () => {
-    await mount(connected);
+    const { onRestored } = await mount(connected);
     const user = userEvent.setup();
     jest.mocked(driveBackups.listBackups).mockResolvedValue([listing('a', 0, 1)]);
     jest.mocked(driveBackups.restore).mockImplementation(async (_backup, confirm) => confirm());
@@ -339,11 +358,23 @@ describe('connected', () => {
     await user.press(screen.getByRole('button', { name: /^Today at / }));
     await chooseAlert('Cancel');
     expect(screen.queryByText(/Backup restored/)).not.toBeOnTheScreen();
+    expect(onRestored).not.toHaveBeenCalled();
     expect(screen.queryByRole('alert')).not.toBeOnTheScreen();
   });
 
+  test('a restore from Drive tells the owner that the data was replaced', async () => {
+    const { onRestored } = await mount(connected);
+    const user = userEvent.setup();
+    jest.mocked(driveBackups.listBackups).mockResolvedValue([listing('a', 0, 1)]);
+    jest.mocked(driveBackups.restore).mockResolvedValue(true);
+    await user.press(await screen.findByRole('button', { name: 'Restore' }));
+    await user.press(screen.getByRole('button', { name: /^Today at / }));
+    expect(await screen.findByText(/Backup restored/)).toBeOnTheScreen();
+    expect(onRestored).toHaveBeenCalledTimes(1);
+  });
+
   test('a failed restore keeps the data and the Restore row offers Retry', async () => {
-    await mount(connected);
+    const { onRestored } = await mount(connected);
     const user = userEvent.setup();
     jest.mocked(driveBackups.listBackups).mockResolvedValue([listing('a', 0, 1)]);
     jest.mocked(driveBackups.restore).mockRejectedValue(new Error('Invalid backup'));
@@ -353,6 +384,7 @@ describe('connected', () => {
       'Restore failed. Current data was kept. Invalid backup',
     );
     expect(button('Restore')).toHaveAccessibilityValue({ text: 'Retry' });
+    expect(onRestored).not.toHaveBeenCalled();
   });
 
   test('the account sheet can switch accounts or disconnect', async () => {

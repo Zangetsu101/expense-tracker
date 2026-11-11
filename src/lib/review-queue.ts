@@ -1,4 +1,3 @@
-import { notifyDataChanged } from './data-changes.ts';
 import { database } from './database';
 
 const principalLegs = `SELECT t.id FROM transactions t
@@ -41,7 +40,6 @@ export async function rejectCandidate(id: number) {
     [id],
   );
   if (result.changes !== 1) throw new Error('Candidate is no longer available. Refresh the queue.');
-  notifyDataChanged();
 }
 
 export async function confirmCandidate(id: number) {
@@ -133,5 +131,4 @@ export async function confirmCandidate(id: number) {
     );
     await tx.runAsync('DELETE FROM transactions WHERE id = ?', [pair.incomingTxnId]);
   });
-  notifyDataChanged();
 }

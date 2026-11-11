@@ -1,4 +1,3 @@
-import { notifyDataChanged } from './data-changes.ts';
 import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 import { database } from '@/lib/database';
@@ -268,7 +267,6 @@ export async function importMoneyLoverFile(
       ).lastInsertRowId;
     }
   });
-  notifyDataChanged();
   return inserted;
 }
 
