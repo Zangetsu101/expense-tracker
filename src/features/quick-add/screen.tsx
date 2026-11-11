@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { categoriesQuery, peopleQuery, includeCreatedPerson } from './queries.ts';
 import { accountsQuery } from '@/lib/account-queries';
 import { ChoicesSection } from './view.tsx';
@@ -9,7 +9,13 @@ import { Alert, KeyboardAvoidingView, Pressable, ScrollView, Text, View } from '
 import { epochDay } from '@/lib/database';
 import { addQuickTransaction } from '@/lib/quick-add-tags';
 import { addTransfer } from '@/lib/transfers';
-import { createPerson, saveLendingEntry, type LendingKind, type LendingTotal } from '@/lib/lending';
+import {
+  createPerson,
+  saveLendingEntry,
+  type LendingKind,
+  type LendingResult,
+  type LendingTotal,
+} from '@/lib/lending';
 import { AmountInput } from '@/components/amount-input';
 import { useRankedCategories } from './use-ranked-categories.ts';
 import { QuickAddDate } from '@/components/quick-add-date';
@@ -61,23 +67,20 @@ function CancelAction({ disabled = false }: { disabled?: boolean }) {
   );
 }
 
-function confirmOverpayment(warnings: LendingTotal[]): Promise<boolean> {
-  return new Promise((resolve) =>
-    Alert.alert(
-      'Overpayment warning',
-      warnings
-        .map(
-          (warning) =>
-            `${warning.currencyCode} · ${warning.direction === 'LENT' ? 'They owe you' : 'You owe them'}: overpaid credit ${(warning.overpaidMinor / 100).toFixed(2)}`,
-        )
-        .join('\n') +
-        '\nSave anyway? Excess remains visible as credit, not an opposite obligation.',
-      [
-        { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
-        { text: 'Confirm', onPress: () => resolve(true) },
-      ],
-      { cancelable: false },
-    ),
+function askOverpayment(warnings: LendingTotal[], onConfirm: () => void) {
+  Alert.alert(
+    'Overpayment warning',
+    warnings
+      .map(
+        (warning) =>
+          `${warning.currencyCode} · ${warning.direction === 'LENT' ? 'They owe you' : 'You owe them'}: overpaid credit ${(warning.overpaidMinor / 100).toFixed(2)}`,
+      )
+      .join('\n') + '\nSave anyway? Excess remains visible as credit, not an opposite obligation.',
+    [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Confirm', onPress: onConfirm },
+    ],
+    { cancelable: false },
   );
 }
 
@@ -123,13 +126,9 @@ function QuickAddForm() {
   const [note, setNote] = useState('');
   const [tags, setTags] = useState('');
   const [date, setDate] = useState(() => new Date());
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState('');
+  // A synchronous lock. It stops a second tap before the pending state arrives, and it
+  // lets the screen close after a save while the mutation is still pending.
   const busy = useRef(false);
-  const navigation = useNavigation();
-  usePreventRemove(pending, ({ data: removal }) => {
-    if (!busy.current) navigation.dispatch(removal.action);
-  });
   const account = accounts.find((item) => item.id === accountId);
   const person = people.find((item) => item.id === personId);
   const orderedCategoryIds = useRankedCategories(
@@ -172,34 +171,24 @@ function QuickAddForm() {
         ? 'Save transfer'
         : 'Save';
 
-  async function addPerson() {
-    if (busy.current) return;
-    busy.current = true;
-    setPending(true);
-    setError('');
-    try {
-      const created = await createPerson(query);
+  const addPerson = useMutation({
+    mutationFn: (name: string) => createPerson(name),
+    onSuccess: (created) => {
       includeCreatedPerson(client, created);
       setPersonId(created.id);
       setQuery('');
-    } catch (cause) {
-      setError(String(cause));
-    } finally {
+    },
+    onSettled: () => {
       busy.current = false;
-      setPending(false);
-    }
-  }
-
-  async function save() {
-    if (busy.current || !canSave || !account || amountMinor === undefined) return;
-    busy.current = true;
-    setPending(true);
-    setError('');
-    try {
+    },
+  });
+  const save = useMutation({
+    mutationFn: async (confirmOverpayment: boolean): Promise<LendingResult | void> => {
+      if (!account || amountMinor === undefined) throw new Error('Enter an amount.');
       if (!Number.isFinite(date.getTime()) || epochDay(date) > epochDay(new Date()))
         throw new Error('Choose today or a past date.');
-      if (mode === 'TRANSFER') {
-        await addTransfer({
+      if (mode === 'TRANSFER')
+        return addTransfer({
           amountMinor,
           fromAccountId: account.id,
           toAccountId: toId!,
@@ -207,8 +196,8 @@ function QuickAddForm() {
           date,
           tagText: tags,
         });
-      } else if (mode === 'PERSON') {
-        const draft = {
+      if (mode === 'PERSON')
+        return saveLendingEntry({
           personId: person!.id,
           kind: action,
           amountMinor,
@@ -216,35 +205,46 @@ function QuickAddForm() {
           date: epochDay(date),
           note,
           tagText: tags,
-        };
-        const result = await saveLendingEntry(draft);
-        if (result.status === 'confirmation_required') {
-          if (!(await confirmOverpayment(result.warnings))) return;
-          await saveLendingEntry({ ...draft, confirmOverpayment: true });
-        }
-      } else {
-        await addQuickTransaction(
-          {
-            type: mode,
-            amountMinor,
-            accountId: account.id,
-            categoryId: categoryIds[mode]!,
-            date,
-            note: note.trim() || null,
-          },
-          tags,
-        );
-      }
+          ...(confirmOverpayment && { confirmOverpayment }),
+        });
+      await addQuickTransaction(
+        {
+          type: mode,
+          amountMinor,
+          accountId: account.id,
+          categoryId: categoryIds[mode]!,
+          date,
+          note: note.trim() || null,
+        },
+        tags,
+      );
+    },
+    onSuccess: (result) => {
       busy.current = false;
-      router.back();
-    } catch (cause) {
-      setError(String(cause));
-    } finally {
+      if (result?.status === 'confirmation_required')
+        askOverpayment(result.warnings, () => start(() => save.mutate(true)));
+      else router.back();
+    },
+    onSettled: () => {
       busy.current = false;
-      setPending(false);
-    }
+    },
+  });
+  const pending = save.isPending || addPerson.isPending;
+  const error = save.error ?? addPerson.error;
+  function clearError() {
+    save.reset();
+    addPerson.reset();
   }
-
+  function start(write: () => void) {
+    if (busy.current) return;
+    busy.current = true;
+    clearError();
+    write();
+  }
+  const navigation = useNavigation();
+  usePreventRemove(pending, ({ data: removal }) => {
+    if (!busy.current) navigation.dispatch(removal.action);
+  });
   return (
     <AmountInput currency={account?.currencyCode} disabled={pending} onChange={setAmountMinor}>
       {({ input, keypad, dismiss: dismissCalculator, editing }) => (
@@ -281,7 +281,7 @@ function QuickAddForm() {
                 disabled={pending}
                 onChange={(value) => {
                   setMode(value);
-                  setError('');
+                  clearError();
                 }}
               />
               <ChoicesSection
@@ -301,7 +301,7 @@ function QuickAddForm() {
                         onSelect={(id) => {
                           setAccountId(id);
                           setToId(undefined);
-                          setError('');
+                          clearError();
                         }}
                       />
                       {!readyAccounts.length && (
@@ -405,7 +405,7 @@ function QuickAddForm() {
                               label={`Add “${query.trim()}”`}
                               variant="secondary"
                               disabled={pending}
-                              onPress={() => void addPerson()}
+                              onPress={() => start(() => addPerson.mutate(query))}
                             />
                           )}
                         </View>
@@ -481,7 +481,7 @@ function QuickAddForm() {
               </View>
               {!!error && (
                 <Text selectable accessibilityRole="alert" style={{ color: c.warning }}>
-                  {error}
+                  {String(error)}
                 </Text>
               )}
               <FormButton
@@ -489,7 +489,7 @@ function QuickAddForm() {
                 loading={pending}
                 disabled={!canSave || editing}
                 onPress={() => {
-                  if (!editing) void save();
+                  if (!editing && canSave) start(() => save.mutate(false));
                 }}
               />
             </View>
