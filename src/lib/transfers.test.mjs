@@ -85,6 +85,23 @@ test('saves one same-currency transfer with a local date and no category', async
   );
 });
 
+test('a new Transfer tells listeners its id, date and both Accounts', async (t) => {
+  const { subscribeDataChanges } = await import('./data-changes.ts');
+  const saved = [];
+  t.after(subscribeDataChanges((change) => saved.push(change)));
+  await addTransfer({
+    amountMinor: 100,
+    fromAccountId: 1,
+    toAccountId: 2,
+    date: new Date(2026, 0, 2),
+  });
+  const id = sqlite.prepare('SELECT MAX(id) AS id FROM transactions').get().id;
+  assert.deepEqual(saved, [
+    { id, date: Math.floor(Date.UTC(2026, 0, 2) / 86400000), accountIds: [1, 2] },
+  ]);
+  sqlite.prepare('DELETE FROM transactions WHERE id = ?').run(id);
+});
+
 test('invalid accounts, currency and amount leave the database unchanged', async () => {
   const count = () => sqlite.prepare('SELECT COUNT(*) AS total FROM transactions').get().total;
   const before = count();

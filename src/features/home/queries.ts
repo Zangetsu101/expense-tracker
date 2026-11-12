@@ -1,6 +1,6 @@
-import { queryOptions, type QueryClient } from '@tanstack/react-query';
+import { infiniteQueryOptions, queryOptions, type QueryClient } from '@tanstack/react-query';
 import { epochDay } from '@/lib/database';
-import { homeData, homeDeckData, homePace, homeTrend } from './read-home.ts';
+import { homeDeckData, homeListPage, homePace, homeSearch, homeTrend } from './read-home.ts';
 import { homePeriod, periodKey, type PeriodSetting } from './period.ts';
 
 const homeQueryKey = ['home'] as const;
@@ -42,14 +42,29 @@ export function homePaceQuery(accountId: number | null, setting: PeriodSetting, 
   });
 }
 
-export function homeListQuery(accountId: number | null, now: Date) {
-  return queryOptions({
-    queryKey: [...homeQueryKey, 'list', accountId, epochDay(now)],
-    queryFn: async () => ({ ...(await homeData(accountId)), accountId }),
+/** The list under the deck: one page for the range of the cards, then one page for each older period. */
+export function homeListQuery(accountId: number | null, setting: PeriodSetting, now: Date) {
+  const today = epochDay(now);
+  return infiniteQueryOptions({
+    queryKey: [...homeQueryKey, 'list', accountId, periodKey(setting), today],
+    queryFn: async ({ pageParam }) => ({
+      ...(await homeListPage(accountId, setting, today, pageParam)),
+      scope: accountId,
+    }),
+    // A return to a card or a range shows one period again.
+    gcTime: 0,
+    initialPageParam: 0,
+    getNextPageParam: (page) => page.next ?? undefined,
   });
 }
 
-export type HomeList = Awaited<ReturnType<typeof homeData>> & { accountId: number | null };
+/** A search on all dates for the Account in view. */
+export function homeSearchQuery(accountId: number | null, query: string, now: Date) {
+  return queryOptions({
+    queryKey: [...homeQueryKey, 'search', accountId, query.trim(), epochDay(now)],
+    queryFn: () => homeSearch(accountId, query),
+  });
+}
 
 export function invalidateHome(client: QueryClient) {
   return client.invalidateQueries({ queryKey: homeQueryKey });

@@ -1,4 +1,4 @@
-import { notifyDataChanged } from './data-changes.ts';
+import { notifyDataChanged, type SavedTransaction } from './data-changes.ts';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { database } from './database';
 import { addTransactionTags, parseQuickAddTags } from './tag-store';
@@ -153,6 +153,7 @@ export async function saveLendingEntry(input: LendingInput): Promise<LendingResu
   if (!Number.isSafeInteger(input.date) || input.date < 0) throw new Error('Choose a valid date.');
   const db = await database();
   let result: LendingResult = { status: 'deleted' };
+  let added: SavedTransaction | undefined;
   await db.withExclusiveTransactionAsync(async (tx) => {
     await person(tx, input.personId);
     const before = await entries(tx);
@@ -215,6 +216,7 @@ export async function saveLendingEntry(input: LendingInput): Promise<LendingResu
           ],
         );
         transactionId = r.lastInsertRowId;
+        added = { id: transactionId, date: row.date, accountIds: [row.accountId!] };
       }
     }
     if (transactionId !== null && input.tagText !== undefined) {
@@ -244,7 +246,7 @@ export async function saveLendingEntry(input: LendingInput): Promise<LendingResu
       result = { status: 'saved', id: r.lastInsertRowId };
     }
   });
-  if (!('warnings' in result)) notifyDataChanged();
+  if (!('warnings' in result)) notifyDataChanged(added);
   return result;
 }
 export async function deleteLendingEntry(

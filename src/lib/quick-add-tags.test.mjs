@@ -63,6 +63,8 @@ const { addQuickTransaction, parseQuickAddTags, MAX_QUICK_ADD_TAGS } =
   await import('./quick-add-tags.ts');
 await database();
 sqlite.exec("INSERT INTO tags (name) VALUES ('Food')");
+const localDay = (date) =>
+  Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000);
 const input = {
   type: 'EXPENSE',
   amountMinor: 1234,
@@ -98,6 +100,16 @@ test('saves Transaction and reuses existing tags regardless of case', async () =
   assert.ok(Number.isSafeInteger(sqlite.prepare('SELECT date FROM transactions').get().date));
   await addQuickTransaction({ ...input, type: 'INCOME' }, '  ');
   assert.equal(sqlite.prepare('SELECT count(*) AS n FROM transactions').get().n, 2);
+});
+
+test('a new Transaction tells listeners its id, date and Account', async (t) => {
+  const { subscribeDataChanges } = await import('./data-changes.ts');
+  const saved = [];
+  t.after(subscribeDataChanges((change) => saved.push(change)));
+  await addQuickTransaction(input, '');
+  const id = sqlite.prepare('SELECT MAX(id) AS id FROM transactions').get().id;
+  assert.deepEqual(saved, [{ id, date: localDay(input.date), accountIds: [1] }]);
+  sqlite.prepare('DELETE FROM transactions WHERE id = ?').run(id);
 });
 
 test('invalid input or a tag write failure leaves no orphan Transaction or tag', async () => {

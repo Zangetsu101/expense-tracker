@@ -19,6 +19,7 @@ export async function addQuickTransaction(input: QuickAddInput, tagText: string)
     throw new Error('Choose today or a past date.');
   const tags = tagText.trim() ? parseQuickAddTags(tagText) : [];
   const db = await database();
+  let id = 0;
   await db.withExclusiveTransactionAsync(async (tx) => {
     const result = await tx.runAsync(
       'INSERT INTO transactions (type, amountMinor, date, accountId, categoryId, note) VALUES (?, ?, ?, ?, ?, ?)',
@@ -31,7 +32,8 @@ export async function addQuickTransaction(input: QuickAddInput, tagText: string)
         input.note,
       ],
     );
-    await addTransactionTags(tx, result.lastInsertRowId, tags);
+    id = result.lastInsertRowId;
+    await addTransactionTags(tx, id, tags);
   });
-  notifyDataChanged();
+  notifyDataChanged({ id, date: epochDay(input.date), accountIds: [input.accountId] });
 }

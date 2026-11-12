@@ -122,6 +122,19 @@ test('historical assignment is explicit, direction safe, and preserves movement 
   );
   await assert.rejects(api.assignLendingTransaction(53, p.id));
 });
+test('a new lending entry tells listeners its Transaction, and an edit does not', async (t) => {
+  const p = await api.createPerson('Signal');
+  const { subscribeDataChanges } = await import('./data-changes.ts');
+  const saved = [];
+  t.after(subscribeDataChanges((change) => saved.push(change)));
+  const entry = await api.saveLendingEntry(input(p.id, 'LEND', 100));
+  const { transactionId } = sqlite
+    .prepare('SELECT transactionId FROM lending_entries WHERE id = ?')
+    .get(entry.id);
+  await api.saveLendingEntry(input(p.id, 'LEND', 200, { id: entry.id }));
+  assert.deepEqual(saved, [{ id: transactionId, date: 20000, accountIds: [1] }, undefined]);
+});
+
 test('aggregate overpayment warnings cover edits, person/currency moves, and principal deletion without partial writes', async (t) => {
   const p = await api.createPerson('Warnings');
   const principal = await api.saveLendingEntry(input(p.id, 'LEND', 1000));

@@ -19,7 +19,7 @@ const mocks = {
   '@/lib/backup-background-task': `export const reconcileBackupTask=async()=>null,subscribeBackupSchedule=()=>()=>{},withBackupChangeNotice=(operation)=>operation(),runScheduledBackup=async()=>{};`,
   '@/lib/category-prediction-history': `export const listCategoryEvidence=async()=>[];`,
   'expo-haptics': `export const AndroidHaptics={Keyboard_Tap:'keyboard'},ImpactFeedbackStyle={Light:'light'}; export const performAndroidHapticsAsync=async()=>{},impactAsync=async()=>{};`,
-  'react-native-reanimated': `import {useRef} from 'react'; export default {View:'AnimatedView'}; export const Easing={out:x=>x,cubic:x=>x},ReduceMotion={System:'system'}; const builder={delay:()=>builder,duration:()=>builder,easing:()=>builder,withInitialValues:()=>builder,reduceMotion:()=>builder}; export const FadeInUp=builder,FadeInDown={},FadeOutUp={},LinearTransition={}; export const useSharedValue=value=>{const v=useRef({value}).current;v.get??=()=>v.value;v.set??=x=>{v.value=x};return v},useAnimatedStyle=fn=>fn(),withTiming=value=>value;`,
+  'react-native-reanimated': `import {useRef} from 'react'; export default {View:'AnimatedView'}; export const Easing={out:x=>x,cubic:x=>x},ReduceMotion={System:'system'}; const builder={delay:()=>builder,duration:()=>builder,easing:()=>builder,withInitialValues:()=>builder,reduceMotion:()=>builder}; export const FadeInUp=builder,FadeIn=builder,SlideInRight=builder,FadeInDown={},FadeOutUp={},LinearTransition=builder; export const useReducedMotion=()=>false; export const useSharedValue=value=>{const v=useRef({value}).current;v.get??=()=>v.value;v.set??=x=>{v.value=x};return v},useAnimatedStyle=fn=>fn(),withTiming=value=>value;`,
   '@/components/loading': `export const Skeleton='Skeleton',Shimmer='Shimmer';`,
   '@/components/backup-attention-banner': `export const BackupAttentionBanner=()=>null;`,
   './trend-chart.tsx': `export const TrendChart='TrendChart';`,
@@ -30,7 +30,7 @@ const mocks = {
   '@/lib/export-csv': `export const exportTransactionsCsv=async()=>null;`,
   '@/lib/import-csv': `export const importMoneyLoverFile=async()=>null;`,
   '@/components/app-updates': `export const UpdatesRow='UpdatesRow';`,
-  'react-native': `import React from 'react'; export const Platform={OS:'android'}; export const BackHandler={addEventListener:()=>({remove(){}})}; export const Keyboard={dismiss() {}}; export const KeyboardAvoidingView='KeyboardAvoidingView',View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',Image='Image',TextInput='TextInput',ActivityIndicator='ActivityIndicator'; export const FlatList=p=>React.createElement('FlatList',null,p.ListHeaderComponent,p.horizontal?p.data.map((item,index)=>React.createElement(React.Fragment,{key:index},p.renderItem({item,index}))):null,p.ListFooterComponent); export const useWindowDimensions=()=>({width:390,height:844}); export const Alert={alert(){}}; export const AppState={currentState:'active',addEventListener:(_,fn)=>{globalThis.__navTest.lifecycle=fn;return {remove(){}}}};`,
+  'react-native': `import React from 'react'; export const Platform={OS:'android'}; export const BackHandler={addEventListener:()=>({remove(){}})}; export const Keyboard={dismiss() {}}; export const KeyboardAvoidingView='KeyboardAvoidingView',View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',Image='Image'; export const SectionList=p=>React.createElement('SectionList',null,p.ListHeaderComponent,p.ListFooterComponent),TextInput='TextInput',ActivityIndicator='ActivityIndicator'; export const FlatList=p=>React.createElement('FlatList',null,p.ListHeaderComponent,p.horizontal?p.data.map((item,index)=>React.createElement(React.Fragment,{key:index},p.renderItem({item,index}))):null,p.ListFooterComponent); export const useWindowDimensions=()=>({width:390,height:844}); export const Alert={alert(){}}; export const AppState={currentState:'active',addEventListener:(_,fn)=>{globalThis.__navTest.lifecycle=fn;return {remove(){}}}};`,
   'expo-router': `import {useEffect} from 'react'; const s=globalThis.__navTest; export const useFocusEffect=fn=>useEffect(fn,[fn]); export const useLocalSearchParams=()=>({}); export const router={push:h=>s.calls.push(['push',h]),replace:h=>s.calls.push(['replace',h]),back:()=>s.calls.push(['back'])}; export const Link=({children})=>children; export const Stack={Screen:p=>{s.header={...s.header,...p.options};return null}};`,
   'expo-router/react-navigation': `export const useHeaderHeight=()=>88; export const useNavigation=()=>({dispatch(){}}); export const usePreventRemove=()=>{};`,
   'expo-status-bar': `export const StatusBar=()=>null;`,
@@ -39,7 +39,7 @@ const mocks = {
   '@/components/form-controls': `export const FormButton='FormButton',FormInput='FormInput',JoinedChoice='JoinedChoice';`,
   '@/components/quick-add-date': `export const QuickAddDate='Date';`,
   '@/components/quick-select-category': `export const QuickSelectCategory='Category',CategorySearchInput='CategorySearchInput';`,
-  './read-home.ts': `const s=globalThis.__navTest; export const homeData=async id=>{s.accountQueries.push(id);return {rows:[],dailySummaries:[]}}; export const homeDeckData=async()=>{if(s.accountsError)throw Error('Accounts unavailable');return {accounts:(s.accounts??[]).map(a=>({balanceMinor:0,lastUsedDay:null,...a})),displayRate:null,period:{range:'month',monthStart:1}}}; export const homeTrend=async()=>[0,0]; export const homePace=async()=>[]; export const savePeriodSetting=async()=>{};`,
+  './read-home.ts': `const s=globalThis.__navTest; export const homeListPage=async id=>{s.accountQueries.push(id);return {periods:[{period:{start:0,end:1,label:'November'},rows:[]}],firstDay:0,next:null}}; export const homeSearch=async()=>[]; export const homeDeckData=async()=>{if(s.accountsError)throw Error('Accounts unavailable');return {accounts:(s.accounts??[]).map(a=>({balanceMinor:0,lastUsedDay:null,...a})),displayRate:null,period:{range:'month',monthStart:1}}}; export const homeTrend=async()=>[0,0]; export const homePace=async()=>[]; export const savePeriodSetting=async()=>{};`,
   '@/lib/database': `export const epochDay=d=>Math.floor(d.getTime()/86400000); export const listAccounts=async()=>{if(globalThis.__navTest.accountsError)throw Error('Accounts unavailable');return globalThis.__navTest.accounts??[];}; export const listCategories=async()=>[]; export const setFavoriteAccount=async()=>{};`,
   '@/lib/reports': `export const accountBalances=async()=>[];`,
   '@/lib/categories': `export const listManagedCategories=async()=>[]; export const listCategoriesByRecentUse=async()=>[];`,
@@ -174,10 +174,13 @@ test('app navigation', async (t) => {
       ['push', { pathname: '/quick-add', params: {} }],
     ]);
   });
-  await t.test('Home keeps search for all transactions and drops the More list', async () => {
+  await t.test('Home keeps search for the range of the cards and drops the More list', async () => {
     await mount(Home);
     const shown = texts();
-    assert.ok(shown.includes('Search all transactions'));
+    assert.equal(
+      renderer.root.findByType('TextInput').props.placeholder,
+      'Search transactions from November',
+    );
     for (const old of [
       'More',
       'Transfer between accounts',
@@ -214,7 +217,6 @@ test('app navigation', async (t) => {
         'push',
         { pathname: '/quick-add', params: { accountId: '1' } },
       ]);
-      assert.ok(texts().includes('Search Cash'));
       const openCash = pressable('Cash, choose account', await headerPart('headerTitle'));
       await act(async () => openCash.props.onPress());
       await press('Bank');
