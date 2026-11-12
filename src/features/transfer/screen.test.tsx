@@ -2,9 +2,8 @@ import type { ReactNode } from 'react';
 import { act, screen, userEvent, waitFor } from '@testing-library/react-native';
 import { router } from 'expo-router';
 import { listAccounts, type Account } from '@/lib/database';
-import { notifyDataChanged } from '@/lib/data-changes';
 import { addTransfer } from '@/lib/transfers';
-import { renderWithQueries } from '@/test/render-with-queries';
+import { refreshQueries, renderWithQueries } from '@/test/render-with-queries';
 import TransferScreen from './screen';
 
 jest.mock('expo-router', () => ({ router: { back: jest.fn() } }));
@@ -88,7 +87,7 @@ test('choosing a destination enables Save and saves the direction of the transfe
     toAccountId: 2,
     note: '',
   });
-  expect(router.back).toHaveBeenCalledTimes(1);
+  await waitFor(() => expect(router.back).toHaveBeenCalledTimes(1));
 });
 
 test('a failed refresh keeps the draft, shows an alert, and Retry clears it', async () => {
@@ -98,7 +97,7 @@ test('a failed refresh keeps the draft, shows an alert, and Retry clears it', as
   await user.type(await screen.findByLabelText('Transfer amount'), '12');
 
   jest.mocked(listAccounts).mockRejectedValue(new Error('Refresh failed'));
-  await act(async () => notifyDataChanged());
+  await act(async () => refreshQueries());
 
   expect(await screen.findByText('Could not refresh accounts.')).toBeOnTheScreen();
   expect(screen.getByLabelText('Transfer amount')).toHaveDisplayValue('12');
@@ -112,7 +111,7 @@ test('a failed refresh keeps the draft, shows an alert, and Retry clears it', as
   expect(screen.getByLabelText('Transfer amount')).toHaveDisplayValue('12');
 });
 
-test('a data change shows new accounts, keeps the draft, and disables Save while it reads', async () => {
+test('a refresh shows new accounts, keeps the draft, and disables Save while it reads', async () => {
   const user = userEvent.setup();
   jest.mocked(listAccounts).mockResolvedValue(accounts);
   await renderScreen();
@@ -123,7 +122,7 @@ test('a data change shows new accounts, keeps the draft, and disables Save while
 
   const refresh = Promise.withResolvers<Account[]>();
   jest.mocked(listAccounts).mockReturnValue(refresh.promise);
-  await act(async () => notifyDataChanged());
+  await act(async () => refreshQueries());
   await waitFor(() => expect(screen.getByRole('button', { name: 'Save transfer' })).toBeDisabled());
 
   await act(async () =>
@@ -133,4 +132,34 @@ test('a data change shows new accounts, keeps the draft, and disables Save while
   expect(await screen.findByRole('button', { name: 'To account: Savings, USD' })).toBeOnTheScreen();
   expect(screen.getByLabelText('Transfer amount')).toHaveDisplayValue('5');
   expect(screen.getByRole('button', { name: 'Save transfer' })).toBeEnabled();
+});
+
+test('a pending save locks the form, and a failed save shows the error and keeps the draft', async () => {
+  const user = userEvent.setup();
+  jest.mocked(listAccounts).mockResolvedValue(accounts);
+  const write = Promise.withResolvers<void>();
+  jest.mocked(addTransfer).mockReturnValueOnce(write.promise);
+  await renderScreen();
+
+  await user.type(await screen.findByLabelText('Transfer amount'), '7');
+  await user.press(screen.getByRole('button', { name: 'To account: Not selected' }));
+  await user.press(screen.getByRole('button', { name: 'Bank · USD' }));
+  await user.press(screen.getByRole('button', { name: 'Save transfer' }));
+  await waitFor(() => expect(screen.getByLabelText('Transfer amount')).not.toBeEnabled());
+
+  await act(async () => write.reject(new Error('Disk is full')));
+  expect(await screen.findByText('Disk is full')).toBeOnTheScreen();
+  expect(screen.getByLabelText('Transfer amount')).toHaveDisplayValue('7');
+  expect(router.back).not.toHaveBeenCalled();
+  expect(listAccounts).toHaveBeenCalledTimes(1);
+
+  await user.press(screen.getByRole('button', { name: 'Swap accounts' }));
+  expect(screen.queryByText('Disk is full')).not.toBeOnTheScreen();
+  jest.mocked(addTransfer).mockResolvedValueOnce(undefined);
+  await user.press(screen.getByRole('button', { name: 'Save transfer' }));
+
+  await waitFor(() => expect(router.back).toHaveBeenCalledTimes(1));
+  expect(addTransfer).toHaveBeenLastCalledWith(
+    expect.objectContaining({ fromAccountId: 2, toAccountId: 1 }),
+  );
 });

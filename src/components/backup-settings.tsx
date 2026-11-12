@@ -137,9 +137,12 @@ function confirmReplace(name: string, active: { current: boolean }) {
 export function BackupSettings({
   disabled,
   onBusyChange,
+  onRestored,
 }: {
   disabled: boolean;
   onBusyChange: (busy: boolean) => void;
+  /** Runs after a restore replaced the data. The owner makes the screens read again. */
+  onRestored: () => void;
 }) {
   const { width } = useWindowDimensions();
   const [state, setState] = useState<DriveBackupState>();
@@ -234,6 +237,7 @@ export function BackupSettings({
         confirmReplace(name, active),
       );
       if (!restored) return;
+      onRestored();
       if (signedIn) await withBackupChangeNotice(() => driveBackups.adoptAfterFileRestore());
       if (active.current) setFeedback(restoredMessage);
     });
@@ -251,6 +255,7 @@ export function BackupSettings({
           confirmReplace(`Google Drive backup from ${backupTime(backup.createdAt)}`, active),
         ),
       );
+      if (restored) onRestored();
       if (restored && active.current) setFeedback(restoredMessage);
     });
   }

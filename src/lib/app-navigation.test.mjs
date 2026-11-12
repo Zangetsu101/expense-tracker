@@ -282,27 +282,23 @@ test('app navigation', async (t) => {
       }
     },
   );
-  await t.test(
-    'Quick add choices refresh after a committed SQLite change without resetting selection',
-    async () => {
-      state.accounts = [{ id: 1, name: 'Cash', currencyCode: 'USD', isFavorite: 1 }];
-      await mount(QuickAdd);
-      const choices = () => renderer.root.findAll((n) => n.type?.name === 'AccountChoices')[0];
-      await act(async () => choices().props.onSelect(1));
-      assert.equal(choices().props.selectedId, 1);
-      state.accounts = [
-        { id: 1, name: 'Renamed', currencyCode: 'USD' },
-        { id: 2, name: 'Bank', currencyCode: 'USD', isFavorite: 1 },
-      ];
-      const { notifyDataChanged } = await import('./data-changes.ts');
-      await act(async () => notifyDataChanged());
-      assert.deepEqual(
-        choices().props.accounts.map((account) => account.name),
-        ['Renamed', 'Bank'],
-      );
-      assert.equal(choices().props.selectedId, 1);
-    },
-  );
+  await t.test('Quick add choices refresh without resetting selection', async () => {
+    state.accounts = [{ id: 1, name: 'Cash', currencyCode: 'USD', isFavorite: 1 }];
+    await mount(QuickAdd);
+    const choices = () => renderer.root.findAll((n) => n.type?.name === 'AccountChoices')[0];
+    await act(async () => choices().props.onSelect(1));
+    assert.equal(choices().props.selectedId, 1);
+    state.accounts = [
+      { id: 1, name: 'Renamed', currencyCode: 'USD' },
+      { id: 2, name: 'Bank', currencyCode: 'USD', isFavorite: 1 },
+    ];
+    await act(async () => void queryClient.invalidateQueries());
+    assert.deepEqual(
+      choices().props.accounts.map((account) => account.name),
+      ['Renamed', 'Bank'],
+    );
+    assert.equal(choices().props.selectedId, 1);
+  });
   await t.test(
     'Quick add centers its title and offers Cancel with transfer in the mode selector',
     async () => {

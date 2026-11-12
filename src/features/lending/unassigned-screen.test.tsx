@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react';
 import { act, screen, userEvent, waitFor } from '@testing-library/react-native';
 import { Alert } from 'react-native';
-import { notifyDataChanged } from '@/lib/data-changes';
 import {
   assignLendingTransaction,
   listPeople,
@@ -10,7 +9,7 @@ import {
   type Person,
   type UnassignedLendingTransaction,
 } from '@/lib/lending';
-import { renderWithQueries } from '@/test/render-with-queries';
+import { refreshQueries, renderWithQueries } from '@/test/render-with-queries';
 import UnassignedScreen from './unassigned-screen';
 
 jest.mock('expo-router', () => ({ Stack: { Screen: () => null } }));
@@ -107,7 +106,7 @@ test('a failed refresh keeps the entries and shows an alert with Retry', async (
   await screen.findByText('Old loan');
 
   jest.mocked(listUnassignedLendingTransactions).mockRejectedValue(new Error('Refresh failed'));
-  await act(async () => notifyDataChanged());
+  await act(async () => refreshQueries());
 
   expect(await screen.findByText('Could not refresh unassigned entries.')).toBeOnTheScreen();
   expect(screen.getByText('Old loan')).toBeOnTheScreen();
@@ -125,7 +124,7 @@ test('Assign person is disabled while a refresh reads and without saved people',
 
   const refresh = Promise.withResolvers<Person[]>();
   jest.mocked(listPeople).mockReturnValue(refresh.promise);
-  await act(async () => notifyDataChanged());
+  await act(async () => refreshQueries());
   await waitFor(() => expect(screen.getByRole('button', { name: 'Assign person' })).toBeDisabled());
 
   await act(async () => refresh.resolve([]));
@@ -135,12 +134,11 @@ test('Assign person is disabled while a refresh reads and without saved people',
   expect(screen.getByRole('button', { name: 'Assign person' })).toBeDisabled();
 });
 
-test('an assignment asks first, writes, and the data change removes the entry', async () => {
+test('an assignment asks first, writes, and the refresh removes the entry', async () => {
   const user = userEvent.setup();
   jest.mocked(listUnassignedLendingTransactions).mockResolvedValue([row]);
   jest.mocked(assignLendingTransaction).mockImplementation(async () => {
     jest.mocked(listUnassignedLendingTransactions).mockResolvedValue([]);
-    notifyDataChanged();
     return { status: 'saved', id: 3 };
   });
   await renderScreen();
@@ -185,9 +183,11 @@ test('an overpayment asks again, and a failed write shows the error', async () =
   await chooseAlert('Assign');
   expect(alert.mock.calls.at(-1)?.[0]).toBe('Overpayment warning');
   expect(alert.mock.calls.at(-1)?.[1]).toMatch(/USD: overpaid credit 5\.00/);
+  // The first write changed no data, so the screen does not read again.
+  expect(listUnassignedLendingTransactions).toHaveBeenCalledTimes(1);
   await chooseAlert('Assign anyway');
 
   expect(assignLendingTransaction).toHaveBeenLastCalledWith(30, 1, { confirmOverpayment: true });
-  expect(screen.getByText('Error: Write failed')).toBeOnTheScreen();
+  expect(await screen.findByText('Error: Write failed')).toBeOnTheScreen();
   expect(screen.getByText('Old loan')).toBeOnTheScreen();
 });

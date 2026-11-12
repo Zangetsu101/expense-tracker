@@ -1,4 +1,3 @@
-import { notifyDataChanged } from './data-changes.ts';
 import { database } from './database';
 import type { LendingLabel } from './transaction-format';
 import { parseQuickAddTags } from './quick-add-tags';
@@ -174,5 +173,4 @@ export async function saveTransactionEdit(
       );
     }
   });
-  notifyDataChanged();
 }

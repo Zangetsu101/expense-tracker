@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useSuspenseQuery } from '@tanstack/react-query';
+import { useMutation, useSuspenseQuery } from '@tanstack/react-query';
 import { Stack } from 'expo-router';
 import { Alert, FlatList, Text, View } from 'react-native';
 import {
@@ -25,37 +25,36 @@ import { EntryCardSkeleton, FallbackScroll, LendingAlert, LoadingGroup } from '.
 const c = theme.colors;
 const listStyle = { padding: 20, paddingTop: 0, gap: 16, paddingBottom: 48 };
 
+type Assignment = { row: UnassignedLendingTransaction; person: Person; confirmed: boolean };
+
 function UnassignedList() {
   const { data, error, isFetching, refetch } = useSuspenseQuery(unassignedHistoryQuery());
   const { rows, people } = data;
   const [selected, setSelected] = useState<UnassignedLendingTransaction>();
-  const [pending, setPending] = useState(false);
-  const [writeError, setWriteError] = useState('');
-  async function assign(row: UnassignedLendingTransaction, person: Person, confirmed = false) {
-    if (pending) return;
-    setPending(true);
-    setWriteError('');
+  const assign = useMutation({
+    mutationFn: ({ row, person, confirmed }: Assignment) =>
+      assignLendingTransaction(row.transactionId, person.id, { confirmOverpayment: confirmed }),
+    onSuccess: (result, assignment) => {
+      if (result.status !== 'confirmation_required') return;
+      Alert.alert(
+        'Overpayment warning',
+        result.warnings
+          .map((w) => `${w.currencyCode}: overpaid credit ${(w.overpaidMinor / 100).toFixed(2)}`)
+          .join('\n') + '\nAssign anyway? Credit stays separate from outstanding obligations.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Assign anyway',
+            onPress: () => assign.mutate({ ...assignment, confirmed: true }),
+          },
+        ],
+      );
+    },
+  });
+  function start(row: UnassignedLendingTransaction, person: Person) {
+    if (assign.isPending) return;
     setSelected(undefined);
-    try {
-      const result = await assignLendingTransaction(row.transactionId, person.id, {
-        confirmOverpayment: confirmed,
-      });
-      if (result.status === 'confirmation_required')
-        Alert.alert(
-          'Overpayment warning',
-          result.warnings
-            .map((w) => `${w.currencyCode}: overpaid credit ${(w.overpaidMinor / 100).toFixed(2)}`)
-            .join('\n') + '\nAssign anyway? Credit stays separate from outstanding obligations.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Assign anyway', onPress: () => void assign(row, person, true) },
-          ],
-        );
-    } catch (e) {
-      setWriteError(String(e));
-    } finally {
-      setPending(false);
-    }
+    assign.mutate({ row, person, confirmed: false });
   }
   return (
     <View style={{ flex: 1 }}>
@@ -72,9 +71,9 @@ function UnassignedList() {
                 retry={() => void refetch()}
               />
             )}
-            {!!writeError && (
+            {!!assign.error && (
               <Text selectable accessibilityRole="alert" style={{ color: c.warning }}>
-                {writeError}
+                {String(assign.error)}
               </Text>
             )}
             {rows.length === 0 && (
@@ -111,7 +110,7 @@ function UnassignedList() {
             <FormButton
               label="Assign person"
               variant="secondary"
-              disabled={pending || isFetching || !people.length}
+              disabled={assign.isPending || isFetching || !people.length}
               onPress={() => setSelected(item)}
             />
           </View>
@@ -138,7 +137,7 @@ function UnassignedList() {
                       `${(row.amountMinor / 100).toFixed(2)} ${row.currencyCode} on ${formatEpochDay(row.date)} → ${person.name}. No additional Account movement will be created.`,
                       [
                         { text: 'Cancel', style: 'cancel' },
-                        { text: 'Assign', onPress: () => void assign(row, person) },
+                        { text: 'Assign', onPress: () => start(row, person) },
                       ],
                     );
                   }}

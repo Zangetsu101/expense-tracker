@@ -1,5 +1,5 @@
 import { use, useDeferredValue, useState } from 'react';
-import { useSuspenseQuery } from '@tanstack/react-query';
+import { useMutation, useSuspenseQuery } from '@tanstack/react-query';
 import { QueryBoundary } from '@/components/query-error-boundary';
 import { createAccount, setFavoriteAccount } from '@/lib/accounts';
 import { epochDay } from '@/lib/database';
@@ -61,44 +61,25 @@ const emptyForm: AccountForm = { name: '', currencyCode: '', openingBalance: '0'
 export default function AccountsScreen() {
   const [form, setForm] = useState(emptyForm);
   const [sheet, setSheet] = useState(false);
-  const [pending, setPending] = useState(false);
-  const [formError, setFormError] = useState<string>();
-  const [favoriteError, setFavoriteError] = useState<string>();
-
-  async function save() {
-    if (pending) return;
-    setPending(true);
-    setFormError(undefined);
-    try {
-      await createAccount(form);
+  const create = useMutation({
+    mutationFn: (input: AccountForm) => createAccount(input),
+    onSuccess: () => {
       setForm(emptyForm);
       setSheet(false);
-    } catch (e) {
-      setFormError(String(e));
-    } finally {
-      setPending(false);
-    }
-  }
-  async function makeFavorite(id: number) {
-    if (pending) return;
-    setPending(true);
-    setFavoriteError(undefined);
-    try {
-      await setFavoriteAccount(id);
-    } catch (e) {
-      setFavoriteError(String(e));
-    } finally {
-      setPending(false);
-    }
-  }
+    },
+  });
+  const favorite = useMutation({ mutationFn: (id: number) => setFavoriteAccount(id) });
+  const pending = create.isPending || favorite.isPending;
   const writes: Writes = {
     pending,
-    favoriteError,
+    favoriteError: favorite.error ? String(favorite.error) : undefined,
     onAdd: () => {
-      setFormError(undefined);
+      create.reset();
       setSheet(true);
     },
-    onFavorite: (id) => void makeFavorite(id),
+    onFavorite: (id) => {
+      if (!pending) favorite.mutate(id);
+    },
   };
 
   return (
@@ -109,8 +90,10 @@ export default function AccountsScreen() {
             form={form}
             onChange={setForm}
             pending={pending}
-            error={formError}
-            onSave={() => void save()}
+            error={create.error ? String(create.error) : undefined}
+            onSave={() => {
+              if (!pending) create.mutate(form);
+            }}
             onClose={() => setSheet(false)}
           />
         )

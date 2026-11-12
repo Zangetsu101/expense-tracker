@@ -3,7 +3,6 @@ import { AppState } from 'react-native';
 import { focusManager, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { createQueryClient } from '@/lib/query-client';
 import { QueryTimeContext } from '@/lib/query-time';
-import { subscribeDataChanges } from '@/lib/data-changes';
 
 export function AppQueryLifecycle({ children }: { children: ReactNode }) {
   const client = useQueryClient();
@@ -17,10 +16,9 @@ export function AppQueryLifecycle({ children }: { children: ReactNode }) {
       }
       if (next !== 'inactive') previous = next;
     });
-    // Keep this bridge. Import, restore, and background backup write outside React.
-    const unsubscribe = subscribeDataChanges(() => {
-      setNow(new Date());
-      void client.invalidateQueries();
+    // A write can cross midnight.
+    const unsubscribe = client.getMutationCache().subscribe((event) => {
+      if (event.type === 'updated' && event.action.type === 'success') setNow(new Date());
     });
     return () => {
       lifecycle.remove();

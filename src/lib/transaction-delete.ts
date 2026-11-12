@@ -1,4 +1,3 @@
-import { notifyDataChanged } from './data-changes.ts';
 import { database } from './database';
 import { deleteLendingEntry, type LendingResult } from './lending';
 
@@ -32,6 +31,5 @@ export async function deleteTransaction(
     const result = await tx.runAsync('DELETE FROM transactions WHERE id = ?', [id]);
     if (result.changes !== 1) throw new Error('Transaction was already removed.');
   });
-  notifyDataChanged();
   return { status: 'deleted' };
 }

@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
-import { useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight, useNavigation, usePreventRemove } from 'expo-router/react-navigation';
 import { Alert, BackHandler, KeyboardAvoidingView, Pressable, Text, View } from 'react-native';
 import { TransactionReceipt, TransferReceipt } from '@/components/transaction-receipt';
 import { TransferFormSection, type TransferDraft } from '@/features/transfer';
 import { dateFromEpochDay, epochDay } from '@/lib/database';
-import type { LendingResult } from '@/lib/lending';
+import { errorMessage } from '@/lib/error-message';
 import { formatLineItemAmount } from '@/lib/line-item-amount';
 import { deleteTransaction } from '@/lib/transaction-delete';
 import { saveTransferEdit, type EditableTransfer } from '@/lib/transfers';
@@ -19,6 +19,7 @@ import {
   ReceiptError,
   ReceiptRefreshAlert,
   ReceiptSkeleton,
+  type ReceiptSave,
 } from './view.tsx';
 
 function ReceiptSession({ id }: { id: number }) {
@@ -32,22 +33,79 @@ function ReceiptSession({ id }: { id: number }) {
   const [dirty, setDirty] = useState(false);
   const navigation = useNavigation();
   const headerHeight = useHeaderHeight();
-  const [saving, setSaving] = useState(false);
-  const [deleting, startDeleting] = useTransition();
-  const savingRef = useRef(false);
-  const onSavingChange = useCallback((value: boolean) => {
-    savingRef.current = value;
-    setSaving(value);
-  }, []);
+  // A committed save is never reported as a failed save. The write waits for the read of
+  // the receipt. If that read fails, the write is still a success, and the form stays
+  // open and locked with "Retry receipt".
+  const showSaved = async () => {
+    // The committed write already started this read. Join it.
+    const read = await refetch({ cancelRefetch: false });
+    if (!read.isError) exitEditing();
+  };
+  const write = useMutation({
+    mutationKey: ['receipt', id, 'save'],
+    mutationFn: (run: () => Promise<unknown>) => run(),
+    onSuccess: showSaved,
+  });
+  const resetWrite = write.reset;
   const exitEditing = useCallback(() => {
     setSnapshot(undefined);
     setDirty(false);
-  }, []);
+    resetWrite();
+  }, [resetWrite]);
+  // The form is still open after a successful write only if the read of the receipt failed.
+  const committed = write.isSuccess;
+  const saving = write.isPending || (committed && isFetching);
+  const save: ReceiptSave = {
+    pending: saving,
+    committed,
+    error: write.error ?? (committed ? error : null),
+    start: (run) => {
+      if (saving) return;
+      if (committed) void showSaved();
+      else write.mutate(run);
+    },
+    clearError: () => {
+      if (!committed) resetWrite();
+    },
+  };
+  const remove = useMutation({
+    mutationFn: (confirmOverpayment: boolean) => deleteTransaction(id, { confirmOverpayment }),
+    onSuccess: (result) => {
+      if (result.status === 'confirmation_required') {
+        Alert.alert(
+          'Overpayment warning',
+          result.warnings
+            .map(
+              (w) =>
+                `${w.currencyCode} · ${w.direction === 'LENT' ? 'They owe you' : 'You owe them'}: overpaid credit ${formatLineItemAmount(w.overpaidMinor)}`,
+            )
+            .join('\n') +
+            '\nDelete anyway? Excess remains visible as credit, not an opposite obligation.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Delete', style: 'destructive', onPress: () => remove.mutate(true) },
+          ],
+        );
+        return;
+      }
+      setDirty(false);
+      setClosing(true);
+    },
+    onError: (cause) => Alert.alert('Could not delete', String(cause)),
+  });
+  const deleting = remove.isPending;
   const confirming = useRef(false);
   const pendingNavigation = useRef<(() => void) | null>(null);
   const confirmDiscard = useCallback(
     (discard: () => void) => {
-      if (savingRef.current || deleting || confirming.current) return;
+      // The pending state of the render can be late. Ask the mutation cache.
+      if (
+        client.isMutating({ mutationKey: ['receipt', id, 'save'] }) ||
+        saving ||
+        deleting ||
+        confirming.current
+      )
+        return;
       if (!dirty) {
         setDirty(false);
         discard();
@@ -83,7 +141,7 @@ function ReceiptSession({ id }: { id: number }) {
         },
       );
     },
-    [dirty, deleting],
+    [client, id, dirty, saving, deleting],
   );
   usePreventRemove(editing && !closing && (dirty || saving || deleting), ({ data: removal }) => {
     confirmDiscard(() => {
@@ -91,47 +149,14 @@ function ReceiptSession({ id }: { id: number }) {
       exitEditing();
     });
   });
-  function runDelete(confirmOverpayment: boolean) {
-    startDeleting(async () => {
-      let result: LendingResult;
-      try {
-        result = await deleteTransaction(id, { confirmOverpayment });
-      } catch (cause) {
-        Alert.alert('Could not delete', String(cause));
-        return;
-      }
-      if (result.status === 'confirmation_required') {
-        Alert.alert(
-          'Overpayment warning',
-          result.warnings
-            .map(
-              (w) =>
-                `${w.currencyCode} · ${w.direction === 'LENT' ? 'They owe you' : 'You owe them'}: overpaid credit ${formatLineItemAmount(w.overpaidMinor)}`,
-            )
-            .join('\n') +
-            '\nDelete anyway? Excess remains visible as credit, not an opposite obligation.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Delete', style: 'destructive', onPress: () => runDelete(true) },
-          ],
-        );
-        return;
-      }
-      // React does not keep updates after an await in the transition. Wrap them again.
-      startDeleting(() => {
-        setDirty(false);
-        setClosing(true);
-      });
-    });
-  }
   function confirmDelete() {
-    if (savingRef.current || deleting) return;
+    if (saving || deleting) return;
     Alert.alert(
       'Delete transaction?',
       'It will be removed from Account balances and reports. You cannot undo this.',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: () => runDelete(false) },
+        { text: 'Delete', style: 'destructive', onPress: () => remove.mutate(false) },
       ],
     );
   }
@@ -153,13 +178,6 @@ function ReceiptSession({ id }: { id: number }) {
     });
     return () => subscription.remove();
   }, [editing, confirmDiscard, exitEditing]);
-  // A committed save is never reported as a failed save. If this read fails,
-  // the form stays locked and offers "Retry receipt".
-  const onSaved = async () => {
-    const refreshed = await client.fetchQuery(receiptQuery(id));
-    if (!refreshed) throw new Error('Transaction not found after saving');
-    exitEditing();
-  };
   if (!editing && !data) return <NotFound />;
   const title = !snapshot
     ? 'Receipt'
@@ -215,21 +233,19 @@ function ReceiptSession({ id }: { id: number }) {
           <EditTransferScreen
             transfer={snapshot}
             deleting={deleting || closing}
+            save={save}
             onDirtyChange={setDirty}
-            onSavingChange={onSavingChange}
             onCancel={() => confirmDiscard(exitEditing)}
             onDelete={confirmDelete}
-            onSaved={onSaved}
           />
         ) : (
           <EditTransactionScreen
             transaction={snapshot}
             deleting={deleting || closing}
+            save={save}
             onDirtyChange={setDirty}
-            onSavingChange={onSavingChange}
             onCancel={() => confirmDiscard(exitEditing)}
             onDelete={confirmDelete}
-            onSaved={onSaved}
           />
         )
       ) : data ? (
@@ -249,21 +265,19 @@ function ReceiptSession({ id }: { id: number }) {
 function EditTransferScreen({
   transfer,
   deleting,
+  save,
   onDirtyChange,
-  onSavingChange,
   onCancel,
   onDelete,
-  onSaved,
 }: {
   transfer: EditableTransfer;
   deleting: boolean;
+  save: ReceiptSave;
   onDirtyChange: (dirty: boolean) => void;
-  onSavingChange: (saving: boolean) => void;
   onCancel: () => void;
   onDelete: () => void;
-  onSaved: () => Promise<void>;
 }) {
-  const [committed, setCommitted] = useState(false);
+  const { committed } = save;
   const [initial] = useState(() => ({
     fromId: transfer.fromAccountId,
     toId: transfer.toAccountId,
@@ -275,31 +289,26 @@ function EditTransferScreen({
     (dirty: boolean) => onDirtyChange(dirty && !committed),
     [onDirtyChange, committed],
   );
-  const submit = async ({ amountMinor, fromAccountId, toAccountId, note, date }: TransferDraft) => {
-    onSavingChange(true);
-    try {
-      if (!committed) {
-        await saveTransferEdit(transfer, {
-          amountMinor,
-          fromAccountId,
-          toAccountId,
-          note,
-          date: epochDay(date),
-        });
-        setCommitted(true);
-      }
-      await onSaved();
-    } finally {
-      onSavingChange(false);
-    }
-  };
   return (
     <TransferFormSection
       initial={initial}
       editDate
       fieldsLocked={committed || deleting}
       submitLabel={committed ? 'Retry receipt' : 'Save changes'}
-      onSubmit={submit}
+      pending={save.pending}
+      error={save.error ? errorMessage(save.error) : undefined}
+      onClearError={save.clearError}
+      onSubmit={({ amountMinor, fromAccountId, toAccountId, note, date }: TransferDraft) =>
+        save.start(() =>
+          saveTransferEdit(transfer, {
+            amountMinor,
+            fromAccountId,
+            toAccountId,
+            note,
+            date: epochDay(date),
+          }),
+        )
+      }
       onDirtyChange={dirtyChange}
       onCancel={onCancel}
       onDelete={onDelete}

@@ -26,13 +26,27 @@ const groupCorners = {
   overflow: 'hidden',
 } as const;
 const connector = { length: 14, radius: t.radius.elbow };
+
+export type CategorySave = {
+  pending: boolean;
+  error?: string;
+  /** Starts the write. `saved` runs after the write commits. */
+  start: (
+    input: CreateCategoryInput,
+    editing: ManagedCategory | undefined,
+    saved: () => void,
+  ) => void;
+  clearError: () => void;
+};
+
 export function CategoryBrowser({
   items,
-  onSave,
+  save,
   disabled = false,
 }: {
   items: ManagedCategory[];
-  onSave: (input: CreateCategoryInput, editing?: ManagedCategory) => Promise<void>;
+  /** The save of the owner. The browser shows its state in the form. */
+  save: CategorySave;
   /** Disables Add and Edit, for example while the items refresh. */
   disabled?: boolean;
 }) {
@@ -511,13 +525,17 @@ export function CategoryBrowser({
           initialParentId={addParent}
           editing={editing}
           onClose={() => setAdding(false)}
-          onSave={async (input) => {
-            await onSave(input, editing);
-            const parentId = input.parentId;
-            if (parentId != null) setOpen((current) => [...new Set([...current, parentId])]);
-            setNotice(`${input.name} ${editing ? 'renamed' : 'added'}.`);
-            setAdding(false);
-          }}
+          pending={save.pending}
+          saveError={save.error}
+          onClearSaveError={save.clearError}
+          onSave={(input) =>
+            save.start(input, editing, () => {
+              const parentId = input.parentId;
+              if (parentId != null) setOpen((current) => [...new Set([...current, parentId])]);
+              setNotice(`${input.name} ${editing ? 'renamed' : 'added'}.`);
+              setAdding(false);
+            })
+          }
         />
       )}
     </View>

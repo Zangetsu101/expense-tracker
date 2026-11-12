@@ -1,4 +1,3 @@
-import { notifyDataChanged } from './data-changes.ts';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { database, epochDay } from './database';
 import { addTransactionTags, parseQuickAddTags } from './tag-store';
@@ -69,7 +68,6 @@ export async function addTransfer(input: TransferInput & { date?: Date; tagText?
     );
     await addTransactionTags(tx, result.lastInsertRowId, tags);
   });
-  notifyDataChanged();
 }
 
 export async function loadTransfer(id: number): Promise<EditableTransfer | null> {
@@ -113,5 +111,4 @@ export async function saveTransferEdit(
     if (result.changes !== 1)
       throw new Error('Transaction was changed or removed. Reload before saving.');
   });
-  notifyDataChanged();
 }

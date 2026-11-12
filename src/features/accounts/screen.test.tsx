@@ -8,11 +8,10 @@ import {
   setFavoriteAccount,
   type ManagedAccount,
 } from '@/lib/accounts';
-import { notifyDataChanged } from '@/lib/data-changes';
 import { epochDay } from '@/lib/database';
 import { QueryTimeContext } from '@/lib/query-time';
 import { accountBalances, type AccountBalance } from '@/lib/reports';
-import { renderWithQueries } from '@/test/render-with-queries';
+import { refreshQueries, renderWithQueries } from '@/test/render-with-queries';
 import { AccountsScreen } from './index';
 
 jest.mock('react-native-safe-area-context', () => ({
@@ -147,13 +146,12 @@ test('the add account sheet stays open with its text through an error and a retr
   expect(screen.getByLabelText('Account name')).toHaveDisplayValue('Savings');
 });
 
-test('a created account shows after the data change, without a second read in the screen', async () => {
+test('a created account shows after the refresh, without a second read in the screen', async () => {
   const user = userEvent.setup();
   jest.mocked(listManagedAccounts).mockResolvedValueOnce([cash]);
   jest.mocked(accountBalances).mockResolvedValue([balance(cash, 1500), balance(bank, 0)]);
   jest.mocked(createAccount).mockImplementation(async () => {
     jest.mocked(listManagedAccounts).mockResolvedValueOnce([cash, bank]);
-    notifyDataChanged();
   });
   await renderScreen();
   await screen.findByText('Accounts (1)');
@@ -189,14 +187,13 @@ test('a failed create keeps the sheet open with the error', async () => {
   expect(screen.getByLabelText('Account name')).toHaveDisplayValue('Bank');
 });
 
-test('a favorite change shows after the data change, and stars stay disabled during the refresh', async () => {
+test('a favorite change shows after the write, and stars stay disabled during the refresh', async () => {
   const user = userEvent.setup();
   jest.mocked(listManagedAccounts).mockResolvedValueOnce([cash, bank]);
   jest.mocked(accountBalances).mockResolvedValue([balance(cash, 1500), balance(bank, 700)]);
   const refresh = Promise.withResolvers<ManagedAccount[]>();
   jest.mocked(setFavoriteAccount).mockImplementation(async () => {
     jest.mocked(listManagedAccounts).mockReturnValueOnce(refresh.promise);
-    notifyDataChanged();
   });
   await renderScreen();
 
@@ -282,7 +279,6 @@ test('a failed refresh after a committed create retries the read and not the cre
   jest.mocked(accountBalances).mockResolvedValue([balance(cash, 1500), balance(bank, 0)]);
   jest.mocked(createAccount).mockImplementation(async () => {
     jest.mocked(listManagedAccounts).mockRejectedValueOnce(new Error('Refetch failed'));
-    notifyDataChanged();
   });
   await renderScreen();
   await screen.findByText('Accounts (1)');
@@ -323,7 +319,7 @@ test('a failed refresh keeps the accounts and shows an alert with Retry', async 
   await screen.findByText('Accounts (1)');
 
   jest.mocked(listManagedAccounts).mockRejectedValueOnce(new Error('Disk error'));
-  await act(async () => notifyDataChanged());
+  await act(async () => refreshQueries());
 
   expect(await screen.findByText('Could not refresh accounts.')).toBeOnTheScreen();
   expect(screen.getByText('Cash · Favorite')).toBeOnTheScreen();
@@ -344,7 +340,7 @@ test('a refresh to no accounts replaces the accounts with the empty text', async
 
   const refresh = Promise.withResolvers<ManagedAccount[]>();
   jest.mocked(listManagedAccounts).mockReturnValueOnce(refresh.promise);
-  await act(async () => notifyDataChanged());
+  await act(async () => refreshQueries());
 
   expect(screen.getByText('Cash · Favorite')).toBeOnTheScreen();
   expect(screen.queryByLabelText('Loading accounts')).not.toBeOnTheScreen();

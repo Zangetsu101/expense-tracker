@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useSuspenseQuery } from '@tanstack/react-query';
+import { useMutation, useSuspenseQuery } from '@tanstack/react-query';
 import { Stack, router } from 'expo-router';
 import { ScrollView, Text, View } from 'react-native';
 import { createPerson } from '@/lib/lending';
@@ -53,21 +53,13 @@ function LendingOverviewSkeleton() {
 
 export default function LendingScreen() {
   const [name, setName] = useState('');
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState('');
-  async function add() {
-    setPending(true);
-    setError('');
-    try {
-      const person = await createPerson(name);
+  const add = useMutation({
+    mutationFn: (personName: string) => createPerson(personName),
+    onSuccess: (person) => {
       setName('');
       router.push({ pathname: '/lending/person', params: { id: person.id } });
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setPending(false);
-    }
-  }
+    },
+  });
   return (
     <>
       <Stack.Screen options={{ title: 'Lending & borrowing' }} />
@@ -87,18 +79,18 @@ export default function LendingScreen() {
           placeholder="Person’s name"
           value={name}
           onChangeText={setName}
-          editable={!pending}
+          editable={!add.isPending}
         />
         <FormButton
           label="Save person"
           variant="secondary"
           disabled={!name.trim()}
-          loading={pending}
-          onPress={() => void add()}
+          loading={add.isPending}
+          onPress={() => add.mutate(name)}
         />
-        {!!error && (
+        {!!add.error && (
           <Text selectable accessibilityRole="alert" style={{ color: c.warning }}>
-            {error}
+            {String(add.error)}
           </Text>
         )}
         <View style={{ gap: 16 }}>

@@ -1,6 +1,5 @@
-import { act, screen, userEvent } from '@testing-library/react-native';
+import { act, screen, userEvent, waitFor } from '@testing-library/react-native';
 import { router } from 'expo-router';
-import { notifyDataChanged } from '@/lib/data-changes';
 import {
   createPerson,
   listPeople,
@@ -8,7 +7,7 @@ import {
   type Person,
   type UnassignedLendingTransaction,
 } from '@/lib/lending';
-import { renderWithQueries } from '@/test/render-with-queries';
+import { refreshQueries, renderWithQueries } from '@/test/render-with-queries';
 import LendingScreen from './overview-screen';
 
 jest.mock('expo-router', () => ({
@@ -81,7 +80,7 @@ test('a failed refresh keeps the people and shows an alert with Retry', async ()
   await screen.findByRole('button', { name: 'Rafi' });
 
   jest.mocked(listPeople).mockRejectedValue(new Error('Refresh failed'));
-  await act(async () => notifyDataChanged());
+  await act(async () => refreshQueries());
 
   expect(await screen.findByText('Could not refresh people.')).toBeOnTheScreen();
   expect(screen.getByRole('button', { name: 'Rafi' })).toBeOnTheScreen();
@@ -92,7 +91,7 @@ test('a failed refresh keeps the people and shows an alert with Retry', async ()
   expect(screen.queryByText('Could not refresh people.')).not.toBeOnTheScreen();
 });
 
-test('a data change shows the new people and count', async () => {
+test('a refresh shows the new people and count', async () => {
   jest.mocked(listPeople).mockResolvedValue(people);
   jest.mocked(listUnassignedLendingTransactions).mockResolvedValue(unassigned);
   await renderScreen();
@@ -100,7 +99,7 @@ test('a data change shows the new people and count', async () => {
 
   jest.mocked(listPeople).mockResolvedValue([...people, { id: 3, name: 'Tara' }]);
   jest.mocked(listUnassignedLendingTransactions).mockResolvedValue([]);
-  await act(async () => notifyDataChanged());
+  await act(async () => refreshQueries());
 
   expect(await screen.findByRole('button', { name: 'Tara' })).toBeOnTheScreen();
   expect(
@@ -118,11 +117,18 @@ test('Save person opens the new person, and a failed save shows the error', asyn
   jest.mocked(createPerson).mockRejectedValueOnce(new Error('Name taken'));
   await user.type(screen.getByLabelText('New person name'), 'Rafi');
   await user.press(screen.getByRole('button', { name: 'Save person' }));
-  expect(screen.getByText('Error: Name taken')).toBeOnTheScreen();
+  expect(await screen.findByText('Error: Name taken')).toBeOnTheScreen();
   expect(screen.getByRole('button', { name: 'Rafi' })).toBeOnTheScreen();
 
-  jest.mocked(createPerson).mockResolvedValue({ id: 5, name: 'Rafi' });
+  jest.mocked(createPerson).mockImplementation(async () => {
+    jest.mocked(listPeople).mockResolvedValue([...people, { id: 5, name: 'Tara' }]);
+    return { id: 5, name: 'Tara' };
+  });
   await user.press(screen.getByRole('button', { name: 'Save person' }));
-  expect(router.push).toHaveBeenCalledWith({ pathname: '/lending/person', params: { id: 5 } });
+  await waitFor(() =>
+    expect(router.push).toHaveBeenCalledWith({ pathname: '/lending/person', params: { id: 5 } }),
+  );
+  expect(screen.queryByText('Error: Name taken')).not.toBeOnTheScreen();
   expect(screen.getByLabelText('New person name')).toHaveDisplayValue('');
+  expect(await screen.findByRole('button', { name: 'Tara' })).toBeOnTheScreen();
 });

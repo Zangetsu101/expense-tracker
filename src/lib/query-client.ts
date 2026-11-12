@@ -1,7 +1,26 @@
-import { QueryClient } from '@tanstack/react-query';
+import { MutationCache, QueryClient } from '@tanstack/react-query';
+
+/** A write that asks for a confirmation first has not changed the data. */
+function committed(result: unknown) {
+  return !(
+    typeof result === 'object' &&
+    result !== null &&
+    'status' in result &&
+    result.status === 'confirmation_required'
+  );
+}
 
 export function createQueryClient() {
-  return new QueryClient({
+  const client: QueryClient = new QueryClient({
+    // Each committed write makes all queries read again. Thus all writes of the screens
+    // must go through useMutation. This runs before the onSuccess of the mutation itself,
+    // so the queries already fetch when the mutation is no longer pending.
+    // A mutation that changes no data that a query reads again sets meta.refresh to false.
+    mutationCache: new MutationCache({
+      onSuccess: (result, _variables, _onMutateResult, mutation) => {
+        if (mutation.meta?.refresh !== false && committed(result)) void client.invalidateQueries();
+      },
+    }),
     defaultOptions: {
       queries: {
         networkMode: 'always',
@@ -9,6 +28,9 @@ export function createQueryClient() {
         refetchOnWindowFocus: true,
         refetchOnReconnect: false,
       },
+      // The writes go to SQLite on the device. They must also run without a network.
+      mutations: { networkMode: 'always' },
     },
   });
+  return client;
 }

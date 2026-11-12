@@ -1,4 +1,3 @@
-import { notifyDataChanged } from './data-changes.ts';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { database } from './database';
 import { addTransactionTags, parseQuickAddTags } from './tag-store';
@@ -65,7 +64,6 @@ export async function createPerson(name: string): Promise<Person> {
   if (!name) throw new Error('Enter a person name.');
   const db = await database();
   const result = await db.runAsync('INSERT INTO people (name) VALUES (?)', [name]);
-  notifyDataChanged();
   return { id: result.lastInsertRowId, name };
 }
 export async function listPeople(): Promise<Person[]> {
@@ -244,7 +242,6 @@ export async function saveLendingEntry(input: LendingInput): Promise<LendingResu
       result = { status: 'saved', id: r.lastInsertRowId };
     }
   });
-  if (!('warnings' in result)) notifyDataChanged();
   return result;
 }
 export async function deleteLendingEntry(
@@ -271,7 +268,6 @@ export async function deleteLendingEntry(
     if (row.transactionId !== null)
       await tx.runAsync('DELETE FROM transactions WHERE id=?', [row.transactionId]);
   });
-  if (!('warnings' in result)) notifyDataChanged();
   return result;
 }
 export type UnassignedLendingTransaction = {
@@ -323,6 +319,5 @@ export async function assignLendingTransaction(
     );
     result = { status: 'saved', id: r.lastInsertRowId };
   });
-  if (!('warnings' in result)) notifyDataChanged();
   return result;
 }

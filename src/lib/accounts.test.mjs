@@ -88,37 +88,25 @@ test('creation validates before writing, parameterizes names and stores currency
   assert.equal((await listManagedAccounts())[0].name, 'Savings');
 });
 
-test('Account cache notification follows commit and excludes failed writes', async () => {
-  const { subscribeDataChanges } = await import('./data-changes.ts');
-  const events = [];
-  const unsubscribe = subscribeDataChanges(() =>
-    events.push({
-      inTransaction: db.isTransaction,
-      found: db.prepare('SELECT id FROM accounts WHERE name = ?').get('Cache notification'),
-    }),
-  );
+test('Account creation resolves after the commit and rejects a failed write', async () => {
   try {
-    await createAccount({ name: 'Cache notification', currencyCode: 'USD', openingBalance: '1' });
-    assert.equal(events.length, 1);
-    assert.equal(events[0].inTransaction, false, 'observers must only see committed writes');
-    assert.ok(events[0].found);
+    await createAccount({ name: 'Committed', currencyCode: 'USD', openingBalance: '1' });
+    assert.equal(db.isTransaction, false, 'the write resolves only after the commit');
+    assert.ok(db.prepare('SELECT id FROM accounts WHERE name = ?').get('Committed'));
     failCommit = true;
     await assert.rejects(
-      createAccount({ name: 'Rolled back notification', currencyCode: 'USD', openingBalance: '1' }),
+      createAccount({ name: 'Rolled back', currencyCode: 'USD', openingBalance: '1' }),
       /commit failed/,
     );
     assert.equal(
-      db.prepare('SELECT id FROM accounts WHERE name = ?').get('Rolled back notification'),
+      db.prepare('SELECT id FROM accounts WHERE name = ?').get('Rolled back'),
       undefined,
     );
-    assert.equal(events.length, 1, 'rollback must not refresh the cache');
     failCommit = false;
     await assert.rejects(
-      createAccount({ name: 'Cache notification', currencyCode: 'USD', openingBalance: '1' }),
+      createAccount({ name: 'Committed', currencyCode: 'USD', openingBalance: '1' }),
     );
-    assert.equal(events.length, 1, 'rejected duplicate must not refresh the cache');
   } finally {
     failCommit = false;
-    unsubscribe();
   }
 });

@@ -4,7 +4,6 @@ import { Alert, BackHandler, Pressable } from 'react-native';
 import { usePreventRemove } from 'expo-router/react-navigation';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { listAccounts, type Account } from '@/lib/database';
-import { notifyDataChanged } from '@/lib/data-changes';
 import { deleteTransaction } from '@/lib/transaction-delete';
 import {
   loadEditableTransaction,
@@ -12,7 +11,7 @@ import {
   type EditableTransaction,
 } from '@/lib/transaction-edit';
 import { loadTransfer, saveTransferEdit, type EditableTransfer } from '@/lib/transfers';
-import { renderWithQueries } from '@/test/render-with-queries';
+import { refreshQueries, renderWithQueries } from '@/test/render-with-queries';
 import TransactionScreen from './screen';
 
 type HeaderOptions = {
@@ -302,7 +301,7 @@ describe('reads', () => {
     await screen.findByText('Lunch');
 
     jest.mocked(loadEditableTransaction).mockRejectedValue(new Error('Refresh failed'));
-    await act(async () => notifyDataChanged());
+    await act(async () => refreshQueries());
 
     expect(await screen.findByText('Could not refresh the receipt.')).toBeOnTheScreen();
     expect(screen.getByText('Lunch')).toBeOnTheScreen();
@@ -315,14 +314,14 @@ describe('reads', () => {
     expect(screen.getByRole('button', { name: 'Edit' })).toBeEnabled();
   });
 
-  test('a data change shows the new receipt and disables Edit while it reads', async () => {
+  test('a refresh shows the new receipt and disables Edit while it reads', async () => {
     jest.mocked(loadEditableTransaction).mockResolvedValue({ ...transaction, note: 'Lunch' });
     await renderScreen();
     await screen.findByText('Lunch');
 
     const refresh = Promise.withResolvers<EditableTransaction | null>();
     jest.mocked(loadEditableTransaction).mockReturnValue(refresh.promise);
-    await act(async () => notifyDataChanged());
+    await act(async () => refreshQueries());
     await waitFor(() => expect(screen.getByRole('button', { name: 'Edit' })).toBeDisabled());
 
     await act(async () => refresh.resolve({ ...transaction, note: 'Dinner' }));
@@ -337,7 +336,7 @@ describe('reads', () => {
     await user.type(noteInput(), 'draft');
 
     jest.mocked(loadEditableTransaction).mockResolvedValue({ ...transaction, note: 'Elsewhere' });
-    await act(async () => notifyDataChanged());
+    await act(async () => refreshQueries());
     await waitFor(() => expect(loadEditableTransaction).toHaveBeenCalledTimes(2));
 
     expect(noteInput()).toHaveDisplayValue('draft');
@@ -426,6 +425,29 @@ describe('Transaction edit', () => {
     expect(mockHeader.title).toBe('Receipt');
   });
 
+  test('a save shows Saving until the one read of the new receipt arrives', async () => {
+    const user = userEvent.setup();
+    jest.mocked(saveTransactionEdit).mockResolvedValue(undefined);
+    await renderScreen();
+    await openEditor(user);
+    await user.type(noteInput(), 'lunch');
+    const reload = Promise.withResolvers<EditableTransaction | null>();
+    jest.mocked(loadEditableTransaction).mockReturnValue(reload.promise);
+    await user.press(screen.getByRole('button', { name: 'Save changes' }));
+
+    expect(await screen.findByRole('button', { name: 'Saving…' })).toBeOnTheScreen();
+    expect(mockHeader.title).toBe('Edit transaction');
+    await act(async () => reload.resolve({ ...transaction, note: 'lunch' }));
+
+    expect(await screen.findByText('lunch')).toBeOnTheScreen();
+    expect(mockHeader.title).toBe('Receipt');
+    expect(loadEditableTransaction).toHaveBeenCalledTimes(2);
+
+    await openEditor(user);
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeOnTheScreen();
+    expect(noteInput()).toBeEnabled();
+  });
+
   test('a failed read after a committed save keeps the draft locked, and Retry receipt does not save again', async () => {
     const user = userEvent.setup();
     jest.mocked(saveTransactionEdit).mockResolvedValue(undefined);
@@ -500,7 +522,7 @@ describe('Transaction edit', () => {
     expect(noteInput()).not.toBeEnabled();
     await act(async () => save.reject(new Error('Save failed')));
 
-    expect(screen.getByText('Error: Save failed')).toBeOnTheScreen();
+    expect(await screen.findByText('Error: Save failed')).toBeOnTheScreen();
     expect(noteInput()).toHaveDisplayValue('draft');
     const reload = Promise.withResolvers<EditableTransaction | null>();
     jest.mocked(saveTransactionEdit).mockResolvedValue(undefined);
@@ -588,7 +610,6 @@ describe('Delete', () => {
     const user = userEvent.setup();
     jest.mocked(deleteTransaction).mockImplementation(async () => {
       jest.mocked(loadEditableTransaction).mockResolvedValue(null);
-      notifyDataChanged();
       return { status: 'deleted' };
     });
     await renderScreen();
@@ -793,5 +814,8 @@ describe('Transfer', () => {
     expect(screen.getByRole('button', { name: 'Use 2 January 2024' })).toBeEnabled();
     expect(screen.getByLabelText('Transfer amount')).toHaveDisplayValue('9');
     expect(mockHeader.title).toBe('Edit transfer');
+
+    await user.press(screen.getByRole('button', { name: 'Swap accounts' }));
+    expect(screen.queryByText('Save failed')).not.toBeOnTheScreen();
   });
 });

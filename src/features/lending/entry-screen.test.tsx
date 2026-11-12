@@ -3,7 +3,6 @@ import { act, screen, userEvent, waitFor } from '@testing-library/react-native';
 import { Alert, Pressable } from 'react-native';
 import { router } from 'expo-router';
 import { listAccounts, type Account } from '@/lib/database';
-import { notifyDataChanged } from '@/lib/data-changes';
 import {
   createPerson,
   deleteLendingEntry,
@@ -13,7 +12,7 @@ import {
   type LendingEntry,
   type Person,
 } from '@/lib/lending';
-import { renderWithQueries } from '@/test/render-with-queries';
+import { refreshQueries, renderWithQueries } from '@/test/render-with-queries';
 import EntryScreen from './entry-screen';
 
 const MockParamsContext = createContext<{ id?: string; personId?: string }>({});
@@ -191,7 +190,7 @@ test('an unknown entry shows the error', async () => {
   expect(await screen.findByText('Could not load the entry form.')).toBeOnTheScreen();
 });
 
-test('a data change updates the pickers, keeps the fields, and disables writes while it reads', async () => {
+test('a refresh updates the pickers, keeps the fields, and disables writes while it reads', async () => {
   const user = userEvent.setup();
   await renderScreen({ personId: '1' });
   await user.type(await screen.findByLabelText('Amount'), '12');
@@ -199,7 +198,7 @@ test('a data change updates the pickers, keeps the fields, and disables writes w
 
   const refresh = Promise.withResolvers<Account[]>();
   jest.mocked(listAccounts).mockReturnValue(refresh.promise);
-  await act(async () => notifyDataChanged());
+  await act(async () => refreshQueries());
   await waitFor(() => expect(screen.getByRole('button', { name: 'Save entry' })).toBeDisabled());
 
   await act(async () =>
@@ -219,7 +218,7 @@ test('a failed refresh keeps the form without an alert', async () => {
   await user.type(await screen.findByLabelText('Amount'), '12');
 
   jest.mocked(listPeople).mockRejectedValue(new Error('Refresh failed'));
-  await act(async () => notifyDataChanged());
+  await act(async () => refreshQueries());
   await waitFor(() => expect(listPeople).toHaveBeenCalledTimes(2));
   await waitFor(() => expect(screen.getByRole('button', { name: 'Save entry' })).toBeEnabled());
 
@@ -230,7 +229,12 @@ test('a failed refresh keeps the form without an alert', async () => {
 
 test('Save new person adds the person to the choices and selects the person', async () => {
   const user = userEvent.setup();
-  jest.mocked(createPerson).mockResolvedValue({ id: 3, name: 'Tara' });
+  const tara = { id: 3, name: 'Tara' };
+  const refresh = Promise.withResolvers<Person[]>();
+  jest.mocked(createPerson).mockImplementation(async () => {
+    jest.mocked(listPeople).mockReturnValue(refresh.promise);
+    return tara;
+  });
   await renderScreen();
   expect(await screen.findByRole('button', { name: 'Borrower: Choose person' })).toBeOnTheScreen();
 
@@ -238,8 +242,10 @@ test('Save new person adds the person to the choices and selects the person', as
   await user.press(screen.getByRole('button', { name: 'Save new person' }));
 
   expect(createPerson).toHaveBeenCalledWith('Tara');
-  expect(screen.getByRole('button', { name: 'Borrower: Tara' })).toBeOnTheScreen();
+  // The person shows before the refresh ends.
+  expect(await screen.findByRole('button', { name: 'Borrower: Tara' })).toBeOnTheScreen();
   expect(screen.getByLabelText('New person name')).toHaveDisplayValue('');
+  await act(async () => refresh.resolve([...people, tara]));
   await user.press(screen.getByRole('button', { name: 'Borrower: Tara' }));
   expect(screen.getByRole('button', { name: 'Tara' })).toBeOnTheScreen();
 });
@@ -278,21 +284,22 @@ test('Save sends the draft, asks again for an overpayment, and closes the screen
       confirmOverpayment: false,
     }),
   );
-  expect(alert.mock.calls.at(-1)?.[0]).toBe('Overpayment warning');
+  await waitFor(() => expect(alert.mock.calls.at(-1)?.[0]).toBe('Overpayment warning'));
   expect(router.back).not.toHaveBeenCalled();
+  // The first write changed no data, so the form does not read again.
+  expect(listPeople).toHaveBeenCalledTimes(1);
   await chooseAlert('Confirm');
 
   expect(saveLendingEntry).toHaveBeenLastCalledWith(
     expect.objectContaining({ amountMinor: 1250, confirmOverpayment: true }),
   );
-  expect(router.back).toHaveBeenCalledTimes(1);
+  await waitFor(() => expect(router.back).toHaveBeenCalledTimes(1));
 });
 
 test('a delete closes the screen and the failed refresh does not replace the form', async () => {
   const user = userEvent.setup();
   jest.mocked(deleteLendingEntry).mockImplementation(async () => {
     jest.mocked(listLendingEntries).mockResolvedValue([]);
-    notifyDataChanged();
     return { status: 'deleted' };
   });
   await renderScreen({ id: '11' });

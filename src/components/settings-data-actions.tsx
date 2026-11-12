@@ -2,6 +2,7 @@ import { BackupSettings } from '@/components/backup-settings';
 import { SettingsGroup, SettingsRow } from '@/components/settings-controls';
 import { FormButton } from '@/components/form-controls';
 import { useEffect, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Stack } from 'expo-router';
 import { usePreventRemove } from 'expo-router/react-navigation';
 import { ActivityIndicator, Alert, Text, View } from 'react-native';
@@ -22,6 +23,7 @@ const labels: Record<Operation, string> = {
 };
 
 export function SettingsDataActions({ onBusyChange }: { onBusyChange?: (busy: boolean) => void }) {
+  const client = useQueryClient();
   const [backupBusy, setBackupBusy] = useState(false);
   const [status, setStatus] = useState<Status>();
   const locked = useRef(false);
@@ -80,6 +82,8 @@ export function SettingsDataActions({ onBusyChange }: { onBusyChange?: (busy: bo
           return accepted;
         });
         cancelled = cancelled || count === null;
+        // The import does not go through a mutation. Make the screens read again here.
+        if (count !== null) void client.invalidateQueries();
         message = `${count ?? 0} transaction${count === 1 ? '' : 's'} imported.`;
       } else {
         const uri = await exportTransactionsCsv();
@@ -153,7 +157,11 @@ export function SettingsDataActions({ onBusyChange }: { onBusyChange?: (busy: bo
   return (
     <>
       <Stack.Screen options={{ gestureEnabled: !busy }} />
-      <BackupSettings disabled={busy} onBusyChange={setBackupBusy} />
+      <BackupSettings
+        disabled={busy}
+        onBusyChange={setBackupBusy}
+        onRestored={() => void client.invalidateQueries()}
+      />
       <SettingsGroup title="Import & export">
         {action('export', 'For spreadsheets; not a full backup', true)}
         {action('import', 'Bring in your transaction history')}

@@ -1,4 +1,3 @@
-import { notifyDataChanged } from './data-changes.ts';
 import { database, setFavoriteAccount } from './database';
 
 export type ManagedAccount = {
@@ -48,7 +47,6 @@ export async function createAccount(input: {
       [name, currencyCode, openingBalanceMinor],
     );
   });
-  notifyDataChanged();
 }
 
 export { setFavoriteAccount };

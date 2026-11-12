@@ -1,14 +1,13 @@
 import { act, screen, userEvent, waitFor } from '@testing-library/react-native';
 import { useState } from 'react';
 import { Alert, Pressable } from 'react-native';
-import { notifyDataChanged } from '@/lib/data-changes';
 import {
   confirmCandidate,
   listReviewCandidates,
   rejectCandidate,
   type ReviewCandidate,
 } from '@/lib/review-queue';
-import { renderWithQueries } from '@/test/render-with-queries';
+import { refreshQueries, renderWithQueries } from '@/test/render-with-queries';
 import ReviewQueueScreen from './screen';
 
 jest.mock('@/lib/review-queue', () => ({
@@ -72,7 +71,7 @@ test('a failed refresh keeps the candidates and shows an alert with Retry', asyn
   expect(await screen.findByText('Cash → Bank')).toBeOnTheScreen();
 
   jest.mocked(listReviewCandidates).mockRejectedValue(new Error('Refresh failed'));
-  await act(async () => notifyDataChanged());
+  await act(async () => refreshQueries());
 
   expect(await screen.findByText('Could not refresh transfer candidates.')).toBeOnTheScreen();
   expect(screen.getByText('Cash → Bank')).toBeOnTheScreen();
@@ -85,14 +84,14 @@ test('a failed refresh keeps the candidates and shows an alert with Retry', asyn
   expect(screen.queryByText('Could not refresh transfer candidates.')).not.toBeOnTheScreen();
 });
 
-test('a data change refreshes the candidates and disables the actions while it reads', async () => {
+test('a refresh reads the candidates again and disables the actions while it reads', async () => {
   jest.mocked(listReviewCandidates).mockResolvedValue([candidate]);
   await renderScreen();
   expect(await screen.findByText('Cash → Bank')).toBeOnTheScreen();
 
   const refresh = Promise.withResolvers<ReviewCandidate[]>();
   jest.mocked(listReviewCandidates).mockReturnValue(refresh.promise);
-  await act(async () => notifyDataChanged());
+  await act(async () => refreshQueries());
 
   expect(screen.getByText('Cash → Bank')).toBeOnTheScreen();
   await waitFor(() =>
@@ -140,6 +139,29 @@ test('a failed write reads the queue again and removes a candidate that is gone'
   await act(async () => alert.mock.calls.at(-1)?.[2]?.[1].onPress?.());
 
   expect(await screen.findByText('No transfer candidates to review.')).toBeOnTheScreen();
+  alert.mockRestore();
+});
+
+test('a confirmed candidate leaves the queue after the write', async () => {
+  const user = userEvent.setup();
+  const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  jest.mocked(listReviewCandidates).mockResolvedValueOnce([candidate]);
+  const write = Promise.withResolvers<void>();
+  jest.mocked(confirmCandidate).mockReturnValue(write.promise);
+  await renderScreen();
+
+  await user.press(await screen.findByRole('button', { name: 'Confirm transfer' }));
+  await act(async () => alert.mock.calls.at(-1)?.[2]?.[1].onPress?.());
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Confirm transfer' })).toBeDisabled(),
+  );
+  expect(screen.getByRole('button', { name: 'Reject match' })).toBeDisabled();
+
+  jest.mocked(listReviewCandidates).mockResolvedValueOnce([]);
+  await act(async () => write.resolve());
+
+  expect(await screen.findByText('No transfer candidates to review.')).toBeOnTheScreen();
+  expect(listReviewCandidates).toHaveBeenCalledTimes(2);
   alert.mockRestore();
 });
 

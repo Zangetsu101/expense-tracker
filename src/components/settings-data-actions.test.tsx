@@ -1,8 +1,11 @@
 import { act, render, screen, userEvent } from '@testing-library/react-native';
-import { Alert } from 'react-native';
+import { QueryClientProvider, useQuery } from '@tanstack/react-query';
+import type { ReactElement } from 'react';
+import { Alert, Text } from 'react-native';
 import { usePreventRemove } from 'expo-router/react-navigation';
 import { exportTransactionsCsv } from '@/lib/export-csv';
 import { importMoneyLoverFile } from '@/lib/import-csv';
+import { createQueryClient } from '@/lib/query-client';
 import { SettingsDataActions } from './settings-data-actions';
 
 jest.mock('expo-router', () => ({ Stack: { Screen: () => null } }));
@@ -13,11 +16,18 @@ jest.mock('@/components/backup-settings', () => {
     BackupSettings: ({
       disabled,
       onBusyChange,
+      onRestored,
     }: {
       disabled: boolean;
       onBusyChange: (busy: boolean) => void;
+      onRestored: () => void;
     }) => (
       <View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Finish restore"
+          onPress={onRestored}
+        />
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Start backup"
@@ -41,7 +51,17 @@ beforeEach(() => {
   jest.resetAllMocks();
   alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
 });
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => {
+  jest.restoreAllMocks();
+  client.clear();
+});
+
+// This file resets the mocks of React Native, so it cannot use the app query lifecycle.
+let client: ReturnType<typeof createQueryClient>;
+async function renderWithClient(ui: ReactElement) {
+  client = createQueryClient();
+  await render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+}
 
 async function chooseAlert(label: string) {
   const buttons = alert.mock.calls.at(-1)?.[2];
@@ -55,7 +75,7 @@ test('pending work blocks duplicate actions and leaving, and reports success onl
   const onBusyChange = jest.fn();
   const completion = Promise.withResolvers<string | null>();
   jest.mocked(exportTransactionsCsv).mockReturnValue(completion.promise);
-  await render(<SettingsDataActions onBusyChange={onBusyChange} />);
+  await renderWithClient(<SettingsDataActions onBusyChange={onBusyChange} />);
   expect(onBusyChange).toHaveBeenLastCalledWith(false);
   await user.press(screen.getByRole('button', { name: 'Export transactions CSV' }));
 
@@ -93,7 +113,7 @@ test.each([
   const user = userEvent.setup();
   jest.mocked(exportTransactionsCsv).mockResolvedValue(null);
   jest.mocked(importMoneyLoverFile).mockResolvedValue(null);
-  await render(<SettingsDataActions />);
+  await renderWithClient(<SettingsDataActions />);
   await user.press(screen.getByRole('button', { name: label }));
 
   expect(await screen.findByText(`${label} cancelled.`)).toBeOnTheScreen();
@@ -116,7 +136,7 @@ test.each([
       if (!answer) throw new Error('Mixed Categories require confirmation');
       return 2;
     });
-    await render(<SettingsDataActions />);
+    await renderWithClient(<SettingsDataActions />);
     await user.press(screen.getByRole('button', { name: 'Import from MoneyLover' }));
 
     expect(alert).toHaveBeenCalledWith(
@@ -140,7 +160,7 @@ test.each([
 ])('import reports the completed count of %i', async (count, message) => {
   const user = userEvent.setup();
   jest.mocked(importMoneyLoverFile).mockResolvedValue(count);
-  await render(<SettingsDataActions />);
+  await renderWithClient(<SettingsDataActions />);
   await user.press(screen.getByRole('button', { name: 'Import from MoneyLover' }));
   expect(await screen.findByText(message)).toBeOnTheScreen();
 });
@@ -151,7 +171,7 @@ test('CSV export failure can be retried without restarting a different operation
     .mocked(exportTransactionsCsv)
     .mockRejectedValueOnce(new Error('Write failed'))
     .mockResolvedValueOnce('content://csv');
-  await render(<SettingsDataActions />);
+  await renderWithClient(<SettingsDataActions />);
   await user.press(screen.getByRole('button', { name: 'Export transactions CSV' }));
   expect(await screen.findByRole('alert')).toHaveTextContent(
     'Export transactions CSV failed. Write failed',
@@ -170,7 +190,7 @@ test('Retry stays blocked during a backup and resumes when the backup finishes',
     .mocked(exportTransactionsCsv)
     .mockRejectedValueOnce(new Error('Write failed'))
     .mockResolvedValueOnce('content://csv');
-  await render(<SettingsDataActions />);
+  await renderWithClient(<SettingsDataActions />);
   await user.press(screen.getByRole('button', { name: 'Export transactions CSV' }));
   expect(await screen.findByRole('alert')).toHaveTextContent(
     'Export transactions CSV failed. Write failed',
@@ -186,4 +206,57 @@ test('Retry stays blocked during a backup and resumes when the backup finishes',
   await user.press(screen.getByRole('button', { name: 'Retry' }));
   expect(await screen.findByText('Transactions CSV exported.')).toBeOnTheScreen();
   expect(exportTransactionsCsv).toHaveBeenCalledTimes(2);
+});
+
+describe('a refresh of the screens', () => {
+  const read = jest.fn();
+  function Probe() {
+    const { data } = useQuery({ queryKey: ['probe'], queryFn: read });
+    return <Text>{data}</Text>;
+  }
+  /** Renders a query next to the actions. Returns a check that the query read again. */
+  async function renderWithProbe() {
+    read.mockResolvedValueOnce('first read').mockResolvedValue('second read');
+    await renderWithClient(
+      <>
+        <SettingsDataActions />
+        <Probe />
+      </>,
+    );
+    await screen.findByText('first read');
+    return async (again: boolean) => {
+      if (again) expect(await screen.findByText('second read')).toBeOnTheScreen();
+      else expect(screen.getByText('first read')).toBeOnTheScreen();
+    };
+  }
+
+  test('an import makes all queries read again, and a cancelled import does not', async () => {
+    const user = userEvent.setup();
+    const readAgain = await renderWithProbe();
+    jest.mocked(importMoneyLoverFile).mockResolvedValueOnce(null);
+    await user.press(screen.getByRole('button', { name: 'Import from MoneyLover' }));
+    await screen.findByText('Import from MoneyLover cancelled.');
+    await readAgain(false);
+
+    jest.mocked(importMoneyLoverFile).mockResolvedValueOnce(3);
+    await user.press(screen.getByRole('button', { name: 'Import from MoneyLover' }));
+    await screen.findByText('3 transactions imported.');
+    await readAgain(true);
+  });
+
+  test('an export does not make the queries read again', async () => {
+    const user = userEvent.setup();
+    const readAgain = await renderWithProbe();
+    jest.mocked(exportTransactionsCsv).mockResolvedValue('file://export.csv');
+    await user.press(screen.getByRole('button', { name: 'Export transactions CSV' }));
+    await screen.findByText('Transactions CSV exported.');
+    await readAgain(false);
+  });
+
+  test('a restore makes all queries read again', async () => {
+    const user = userEvent.setup();
+    const readAgain = await renderWithProbe();
+    await user.press(screen.getByRole('button', { name: 'Finish restore' }));
+    await readAgain(true);
+  });
 });

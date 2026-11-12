@@ -472,7 +472,8 @@ test('Account entry screens', async (t) => {
       await press('Save repayment received');
       assert.equal(state.alert[0], 'Overpayment warning');
       assert.equal(state.back, false);
-      await act(async () => state.alert[2][0].onPress());
+      assert.equal(state.alert[2][0].text, 'Cancel');
+      await act(async () => state.alert[2][0].onPress?.());
       assert.equal(drafts.length, 1);
       assert.equal(button('Save repayment received').props.loading, false);
       await press('Save repayment received');
@@ -656,6 +657,10 @@ test('Account entry screens', async (t) => {
       await press('Add “New person”');
       assert.equal(creates, 1);
       assert.equal(state.removal.enabled, true);
+      state.readPeople = async () => [
+        { id: 1, name: 'Rafi' },
+        { id: 2, name: 'New person' },
+      ];
       await act(async () => finish({ id: 2, name: 'New person' }));
       assert.ok(
         nodes('Pressable').find((n) => n.props.accessibilityLabel === 'New person').props

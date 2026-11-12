@@ -1,7 +1,11 @@
 import { act, screen, userEvent, waitFor } from '@testing-library/react-native';
-import { listManagedCategories, type ManagedCategory } from '@/lib/categories';
-import { notifyDataChanged } from '@/lib/data-changes';
-import { renderWithQueries } from '@/test/render-with-queries';
+import {
+  createCategory,
+  listManagedCategories,
+  renameCategory,
+  type ManagedCategory,
+} from '@/lib/categories';
+import { refreshQueries, renderWithQueries } from '@/test/render-with-queries';
 import { CategoriesScreen } from './index';
 
 jest.mock('expo-router', () => ({ Stack: { Screen: () => null } }));
@@ -29,7 +33,10 @@ const category = (id: number, name: string, type: ManagedCategory['type']): Mana
 const lunch = category(1, 'Lunch', 'EXPENSE');
 const salary = category(2, 'Salary', 'INCOME');
 
-beforeEach(() => jest.mocked(listManagedCategories).mockReset());
+beforeEach(() => {
+  for (const mock of [listManagedCategories, createCategory, renameCategory])
+    jest.mocked(mock).mockReset();
+});
 
 async function renderScreen() {
   const view = await renderWithQueries(<CategoriesScreen />);
@@ -61,7 +68,7 @@ test('a failed first load shows an error, and Retry reads again', async () => {
   expect(screen.queryByText('Could not load categories.')).not.toBeOnTheScreen();
 });
 
-test('a data change shows the new categories and keeps the search text', async () => {
+test('a refresh shows the new categories and keeps the search text', async () => {
   const user = userEvent.setup();
   jest.mocked(listManagedCategories).mockResolvedValueOnce([lunch, salary]);
   await renderScreen();
@@ -69,7 +76,7 @@ test('a data change shows the new categories and keeps the search text', async (
 
   const refresh = Promise.withResolvers<ManagedCategory[]>();
   jest.mocked(listManagedCategories).mockReturnValueOnce(refresh.promise);
-  await act(async () => notifyDataChanged());
+  await act(async () => refreshQueries());
 
   await waitFor(() => expect(screen.getByRole('button', { name: 'Add' })).toBeDisabled());
   expect(screen.getByRole('button', { name: /^Lunch, EXPENSE/ })).toBeOnTheScreen();
@@ -82,13 +89,13 @@ test('a data change shows the new categories and keeps the search text', async (
   expect(screen.getByRole('button', { name: 'Add' })).toBeEnabled();
 });
 
-test('a data change to an empty list replaces the categories', async () => {
+test('a refresh to an empty list replaces the categories', async () => {
   jest.mocked(listManagedCategories).mockResolvedValueOnce([lunch]);
   await renderScreen();
   await screen.findByRole('button', { name: /^Lunch, EXPENSE/ });
 
   jest.mocked(listManagedCategories).mockResolvedValueOnce([]);
-  await act(async () => notifyDataChanged());
+  await act(async () => refreshQueries());
 
   expect(
     await screen.findByText('No categories yet. Use Add to create a root category.'),
@@ -103,7 +110,7 @@ test('a failed refresh keeps the categories and shows an alert with Retry', asyn
   await screen.findByRole('button', { name: /^Lunch, EXPENSE/ });
 
   jest.mocked(listManagedCategories).mockRejectedValueOnce(new Error('Disk error'));
-  await act(async () => notifyDataChanged());
+  await act(async () => refreshQueries());
 
   expect(await screen.findByText('Could not refresh categories.')).toBeOnTheScreen();
   expect(screen.getByRole('button', { name: /^Lunch, EXPENSE/ })).toBeOnTheScreen();
@@ -113,4 +120,73 @@ test('a failed refresh keeps the categories and shows an alert with Retry', asyn
 
   expect(await screen.findByRole('button', { name: /^Salary, INCOME/ })).toBeOnTheScreen();
   expect(screen.queryByText('Could not refresh categories.')).not.toBeOnTheScreen();
+});
+
+test('Add saves a root category, shows a notice, and the refresh shows the category', async () => {
+  const user = userEvent.setup();
+  jest.mocked(listManagedCategories).mockResolvedValueOnce([lunch]);
+  const write = Promise.withResolvers<void>();
+  jest.mocked(createCategory).mockReturnValue(write.promise);
+  await renderScreen();
+
+  await user.press(await screen.findByRole('button', { name: 'Add' }));
+  await user.type(screen.getByLabelText('New category name'), 'Travel');
+  await user.press(screen.getByRole('button', { name: 'Save' }));
+
+  expect(createCategory).toHaveBeenCalledWith({ name: 'Travel', type: 'EXPENSE', parentId: null });
+  expect(await screen.findByRole('button', { name: 'Saving…' })).toBeOnTheScreen();
+  expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+
+  jest
+    .mocked(listManagedCategories)
+    .mockResolvedValueOnce([lunch, category(3, 'Travel', 'EXPENSE')]);
+  await act(async () => write.resolve());
+
+  expect(await screen.findByText('Travel added.')).toBeOnTheScreen();
+  expect(screen.queryByLabelText('New category name')).not.toBeOnTheScreen();
+  expect(await screen.findByRole('button', { name: /^Travel, EXPENSE/ })).toBeOnTheScreen();
+  expect(listManagedCategories).toHaveBeenCalledTimes(2);
+});
+
+test('Edit renames the selected category', async () => {
+  const user = userEvent.setup();
+  jest.mocked(listManagedCategories).mockResolvedValueOnce([lunch]);
+  jest.mocked(renameCategory).mockImplementation(async () => {
+    jest.mocked(listManagedCategories).mockResolvedValueOnce([category(1, 'Dinner', 'EXPENSE')]);
+  });
+  await renderScreen();
+
+  await user.longPress(await screen.findByRole('button', { name: /^Lunch, EXPENSE/ }));
+  await user.press(screen.getByRole('button', { name: 'Edit' }));
+  await user.clear(screen.getByLabelText('Category name'));
+  await user.type(screen.getByLabelText('Category name'), 'Dinner');
+  await user.press(screen.getByRole('button', { name: 'Save' }));
+
+  expect(await screen.findByText('Dinner renamed.')).toBeOnTheScreen();
+  expect(renameCategory).toHaveBeenCalledWith(1, 'Dinner');
+  expect(await screen.findByRole('button', { name: /^Dinner, EXPENSE/ })).toBeOnTheScreen();
+});
+
+test('a failed save keeps the form with the error, and a name change clears the error', async () => {
+  const user = userEvent.setup();
+  jest.mocked(listManagedCategories).mockResolvedValue([lunch]);
+  jest.mocked(createCategory).mockRejectedValueOnce(new Error('Disk is full'));
+  await renderScreen();
+
+  await user.press(await screen.findByRole('button', { name: 'Add' }));
+  await user.type(screen.getByLabelText('New category name'), 'Travel');
+  await user.press(screen.getByRole('button', { name: 'Save' }));
+
+  expect(await screen.findByText('Disk is full')).toBeOnTheScreen();
+  expect(screen.getByLabelText('New category name')).toHaveDisplayValue('Travel');
+  expect(listManagedCategories).toHaveBeenCalledTimes(1);
+
+  await user.type(screen.getByLabelText('New category name'), 's');
+  expect(screen.queryByText('Disk is full')).not.toBeOnTheScreen();
+
+  await user.clear(screen.getByLabelText('New category name'));
+  await user.type(screen.getByLabelText('New category name'), 'Lunch');
+  await user.press(screen.getByRole('button', { name: 'Save' }));
+  expect(screen.getByText('A category with this name and type already exists.')).toBeOnTheScreen();
+  expect(createCategory).toHaveBeenCalledTimes(1);
 });
