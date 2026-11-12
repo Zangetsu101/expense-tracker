@@ -1,4 +1,4 @@
-import { Suspense, use, useDeferredValue, useRef, useState, type ReactNode } from 'react';
+import { use, useDeferredValue, useRef, useState, type ReactNode } from 'react';
 import { FlatList, Text, View, useWindowDimensions } from 'react-native';
 import { router } from 'expo-router';
 import {
@@ -7,7 +7,7 @@ import {
   useQueryClient,
   useSuspenseQuery,
 } from '@tanstack/react-query';
-import { ErrorBoundary } from '@/components/query-error-boundary';
+import { QueryBoundary } from '@/components/query-error-boundary';
 import { accountParams } from '@/lib/account-selection';
 import { defaultCurrencyCode } from '@/lib/currency';
 import { epochDay } from '@/lib/database';
@@ -179,11 +179,13 @@ export default function HomeScreen() {
   return (
     <QueryErrorResetBoundary>
       {({ reset }) => (
-        <ErrorBoundary onReset={reset} fallback={(retry) => <HomeScreenError retry={retry} />}>
-          <Suspense fallback={<HomeScreenFallback />}>
-            <Home reset={reset} />
-          </Suspense>
-        </ErrorBoundary>
+        <QueryBoundary
+          reset={reset}
+          pending={<HomeScreenFallback />}
+          error={(retry) => <HomeScreenError retry={retry} />}
+        >
+          <Home reset={reset} />
+        </QueryBoundary>
       )}
     </QueryErrorResetBoundary>
   );

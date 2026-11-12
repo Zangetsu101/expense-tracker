@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { accountsQuery, categoriesQuery, peopleQuery, includeCreatedPerson } from './queries.ts';
+import { categoriesQuery, peopleQuery, includeCreatedPerson } from './queries.ts';
+import { accountsQuery } from '@/lib/account-queries';
 import { ChoicesSection } from './view.tsx';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight, useNavigation, usePreventRemove } from 'expo-router/react-navigation';

@@ -66,7 +66,3 @@ export function homeSearchQuery(accountId: number | null, query: string, now: Da
     queryFn: () => homeSearch(accountId, query),
   });
 }
-
-export function invalidateHome(client: QueryClient) {
-  return client.invalidateQueries({ queryKey: homeQueryKey });
-}

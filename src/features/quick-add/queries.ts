@@ -1,5 +1,4 @@
 import { queryOptions, type QueryClient } from '@tanstack/react-query';
-import { listAccounts } from '@/lib/database';
 import { listCategoriesByRecentUse, type CategoryType } from '@/lib/categories';
 import { listPeople, listLendingTotals, type Person } from '@/lib/lending';
 import { listCategoryEvidence } from '@/lib/category-prediction-history';
@@ -11,10 +10,6 @@ export function categoryEvidenceQuery(type: 'EXPENSE' | 'INCOME', currency: stri
     queryKey: [...quickAddKey, 'category-evidence', type, currency],
     queryFn: () => listCategoryEvidence(type, currency),
   });
-}
-
-export function accountsQuery() {
-  return queryOptions({ queryKey: [...quickAddKey, 'accounts'], queryFn: listAccounts });
 }
 
 export function categoriesQuery(type: CategoryType) {
@@ -45,8 +40,4 @@ export function includeCreatedPerson(client: QueryClient, person: Person) {
         ),
       },
   );
-}
-
-export function invalidateQuickAdd(client: QueryClient) {
-  return client.invalidateQueries({ queryKey: quickAddKey });
 }

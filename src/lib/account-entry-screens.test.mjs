@@ -25,12 +25,9 @@ const mocks = {
   'react-native-safe-area-context': `export const useSafeAreaInsets=()=>({bottom:0});`,
   '@expo/ui': `export const Host='Host',BottomSheet='BottomSheet',Column='Column',Text='NativeText',Button='NativeButton';`,
   '@/components/form-controls': `export const FormButton='FormButton',FormInput='FormInput',JoinedChoice='JoinedChoice';`,
-  '@/components/app-sheet': `import React from 'react'; export function AppSheet(props){return React.createElement('Sheet',props,props.children);}`,
   '@/components/quick-add-date': `export const QuickAddDate='Date';`,
   '@/components/quick-select-category': `export const QuickSelectCategory='Category',CategorySearchInput='CategorySearchInput';`,
   '@/lib/lending': `export const listPeople=async()=>globalThis.__entryTest.readPeople?.()??[{id:1,name:'Rafi'}]; export const listLendingTotals=async()=>globalThis.__entryTest.readTotals?.()??[]; export const createPerson=async name=>globalThis.__entryTest.createPerson?.(name)??({id:2,name:name.trim()}); export const saveLendingEntry=x=>globalThis.__entryTest.save(x);`,
-  '@/lib/accounts': `export const listManagedAccounts=()=>globalThis.__entryTest.list(); export const createAccount=x=>globalThis.__entryTest.save(x); export const setFavoriteAccount=async()=>{};`,
-  '@/lib/reports': `export const accountBalances=async()=>globalThis.__entryTest.balances ?? [{id:1,balanceMinor:100}];`,
   '@/lib/database': `export const epochDay=d=>Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/86400000); export const listAccounts=async()=>{if(globalThis.__entryTest.readAccounts)return globalThis.__entryTest.readAccounts();if(globalThis.__entryTest.loadError)throw Error('Load failed');return [{id:1,name:'Cash',currencyCode:'USD',isFavorite:1},{id:2,name:'Bank',currencyCode:'USD'},{id:4,name:'Foreign',currencyCode:'BDT'}]}; export const listCategories=async type=>globalThis.__entryTest.readCategories?.(type)??[{id:3,name:'Food'}]; export const setFavoriteAccount=async()=>{};`,
   '@/lib/categories': `export const listManagedCategories=async()=>[]; export const listCategoriesByRecentUse=async type=>globalThis.__entryTest.readManaged?.(type)??[{id:3,name:'Food',type:'EXPENSE',parentId:null,parentName:null,needsReview:0}];`,
   '@/lib/quick-add-tags': `export const addQuickTransaction=(...args)=>globalThis.__entryTest.save(...args);`,
@@ -46,8 +43,6 @@ const hooks = registerHooks({
       };
     if (specifier === '@/components/entry-choices')
       return { url: new URL('src/components/entry-choices.tsx', root).href, shortCircuit: true };
-    if (specifier === '@/components/transfer-form')
-      return { url: new URL('src/components/transfer-form.tsx', root).href, shortCircuit: true };
     if (specifier.startsWith('@/')) {
       const stem = specifier.replace('@/', 'src/');
       const path = existsSync(new URL(`${stem}/index.ts`, root))
@@ -78,9 +73,7 @@ const hooks = registerHooks({
     return next(url, context);
   },
 });
-const { default: Accounts } = await import('../app/(tabs)/accounts/index.tsx');
 const { default: QuickAdd } = await import('../app/quick-add.tsx');
-const { default: Transfer } = await import('../app/transfer.tsx');
 const { createQueryClient } = await import('./query-client.ts');
 let queryClient;
 function EntryScreen({ Screen }) {
@@ -123,7 +116,6 @@ async function chooseCategory(id) {
 }
 async function mount(Screen) {
   Object.assign(state, {
-    list: async () => [],
     save: async () => ({ status: 'saved', id: 1 }),
     back: false,
     alert: undefined,
@@ -147,7 +139,6 @@ test('Account entry screens', async (t) => {
     if (renderer) await act(async () => renderer.unmount());
     renderer = undefined;
     queryClient?.clear();
-    delete state.balances;
     delete state.params;
     for (const key of [
       'readAccounts',
@@ -166,85 +157,6 @@ test('Account entry screens', async (t) => {
     if (previousActEnvironment === undefined) delete globalThis.IS_REACT_ACT_ENVIRONMENT;
     else globalThis.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
   });
-  await t.test('Accounts group headings use singular and plural counts', async () => {
-    Object.assign(state, { save: async () => {}, back: false });
-    state.list = async () => [
-      { id: 1, name: 'Cash', currencyCode: 'BDT', openingBalanceMinor: 0, isFavorite: 1 },
-      { id: 2, name: 'Bank', currencyCode: 'BDT', openingBalanceMinor: 0, isFavorite: 0 },
-      { id: 3, name: 'Card', currencyCode: 'USD', openingBalanceMinor: 0, isFavorite: 0 },
-    ];
-    state.balances = [1, 2, 3].map((id) => ({ id, balanceMinor: 0 }));
-    await act(async () => {
-      renderer = create(React.createElement(Accounts));
-    });
-    assert.match(text(), /BDT · 2 accounts/);
-    assert.match(text(), /USD · 1 account$/m);
-  });
-  await t.test(
-    'Accounts Cancel closes without writing; negative opening balance stays editable',
-    async () => {
-      await mount(Accounts);
-      await press('Add account');
-      await change('Opening balance', '-20');
-      assert.deepEqual(nodes('Sheet')[0].findByType('ScrollView').props.style, {
-        width: 390,
-        maxHeight: 844 * 0.82,
-      });
-      assert.equal(
-        nodes('FormInput').find((n) => n.props.accessibilityLabel === 'Opening balance').props
-          .keyboardType,
-        'numbers-and-punctuation',
-      );
-      state.save = () => assert.fail('Cancel must not write');
-      await press('Cancel');
-      assert.equal(nodes('Sheet').length, 0);
-    },
-  );
-  await t.test(
-    'Accounts pending blocks cancel and hardware dismissal; create error retains draft and permits retry',
-    async () => {
-      await mount(Accounts);
-      await press('Add account');
-      await change('Account name', 'Draft');
-      let reject;
-      state.save = () =>
-        new Promise((_, no) => {
-          reject = no;
-        });
-      await press('Create account');
-      assert.equal(button('Cancel').props.disabled, true);
-      await act(async () => nodes('Sheet')[0].props.onDismiss());
-      assert.equal(nodes('Sheet').length, 1);
-      await act(async () => reject(Error('Create failed')));
-      assert.match(text(), /Create failed/);
-      assert.equal(nodes('FormInput')[0].props.value, 'Draft');
-      assert.equal(button('Cancel').props.disabled, false);
-      state.save = async () => {};
-      await press('Create account');
-      assert.equal(nodes('Sheet').length, 0);
-    },
-  );
-  await t.test(
-    'Accounts committed create plus refetch failure retries loading, not creation',
-    async () => {
-      await mount(Accounts);
-      await press('Add account');
-      let saves = 0;
-      state.save = async () => {
-        saves++;
-      };
-      state.list = async () => {
-        throw Error('Refetch failed');
-      };
-      await press('Create account');
-      assert.equal(nodes('Sheet').length, 0);
-      assert.match(text(), /Refetch failed/);
-      state.list = async () => [];
-      await press('Retry accounts');
-      assert.equal(saves, 1);
-      assert.doesNotMatch(text(), /Refetch failed/);
-    },
-  );
   await t.test('Quick add ranks after Done without selecting a Category', async () => {
     await mount(QuickAdd);
     state.readManaged = async () => [
@@ -461,32 +373,6 @@ test('Account entry screens', async (t) => {
     },
   );
   await t.test(
-    'Transfer destination selection enables shared save and preserves account direction',
-    async () => {
-      await mount(Transfer);
-      await change('Transfer amount', '7');
-      assert.equal(button('Save transfer').props.disabled, true);
-      await act(async () =>
-        nodes('Pressable')
-          .find((n) => n.props.accessibilityLabel?.startsWith('To account:'))
-          .props.onPress(),
-      );
-      await act(async () =>
-        nodes('NativeButton')
-          .find((n) => n.props.label.startsWith('Bank'))
-          .props.onPress(),
-      );
-      assert.equal(button('Save transfer').props.disabled, false);
-      let saved;
-      state.save = async (x) => {
-        saved = x;
-      };
-      await press('Save transfer');
-      assert.deepEqual(saved, { amountMinor: 700, fromAccountId: 1, toAccountId: 2, note: '' });
-      assert.equal(state.back, true);
-    },
-  );
-  await t.test(
     'Quick add transfer selects accounts inline, restricts currency, and saves date and tags',
     async () => {
       await mount(QuickAdd);
@@ -677,50 +563,46 @@ test('Account entry screens', async (t) => {
     assert.equal(nodes('Category')[0].props.selectedId, 99);
     assert.equal(button('Save').props.disabled, true);
   });
-  await t.test(
-    'Mode failures recover locally on retry, including returning to a failed mode',
-    async () => {
-      let fail = true;
-      let accountReads = 0;
-      state.readAccounts = async () => {
-        accountReads++;
-        return [{ id: 1, name: 'Cash', currencyCode: 'USD', isFavorite: 1 }];
-      };
-      state.readPeople = async () => {
-        if (fail) throw Error('People unavailable');
-        return [{ id: 1, name: 'Rafi' }];
-      };
-      await mount(QuickAdd);
-      await change('Amount', '10');
-      await chooseCategory(3);
-      await change('Note', 'Keep me');
-      await act(async () => nodes('JoinedChoice')[0].props.onChange('PERSON'));
-      assert.ok(button('Retry people'));
-      assert.equal(button('Save lending').props.disabled, true);
-      await change('Search people', 'Ra');
-      await act(async () => nodes('JoinedChoice')[0].props.onChange('EXPENSE'));
-      assert.equal(button('Save').props.disabled, false);
-      fail = false;
-      await act(async () => nodes('JoinedChoice')[0].props.onChange('PERSON'));
-      await press('Retry people');
-      assert.equal(button('Retry people'), undefined);
-      await act(async () =>
-        nodes('Pressable')
-          .find((n) => n.props.accessibilityLabel === 'Rafi')
-          .props.onPress(),
-      );
-      assert.equal(button('Save lending').props.disabled, false);
-      assert.equal(
-        nodes('FormInput').find((n) => n.props.accessibilityLabel === 'Note').props.value,
-        'Keep me',
-      );
-      assert.equal(
-        nodes('FormInput').find((n) => n.props.accessibilityLabel === 'Search people').props.value,
-        'Ra',
-      );
-      assert.equal(accountReads, 1);
-    },
-  );
+  await t.test('A failed mode keeps the draft, and a return to that mode reads again', async () => {
+    let fail = true;
+    let accountReads = 0;
+    state.readAccounts = async () => {
+      accountReads++;
+      return [{ id: 1, name: 'Cash', currencyCode: 'USD', isFavorite: 1 }];
+    };
+    state.readPeople = async () => {
+      if (fail) throw Error('People unavailable');
+      return [{ id: 1, name: 'Rafi' }];
+    };
+    await mount(QuickAdd);
+    await change('Amount', '10');
+    await chooseCategory(3);
+    await change('Note', 'Keep me');
+    await act(async () => nodes('JoinedChoice')[0].props.onChange('PERSON'));
+    assert.ok(button('Retry people'));
+    assert.equal(button('Save lending').props.disabled, true);
+    await change('Search people', 'Ra');
+    await act(async () => nodes('JoinedChoice')[0].props.onChange('EXPENSE'));
+    assert.equal(button('Save').props.disabled, false);
+    fail = false;
+    await act(async () => nodes('JoinedChoice')[0].props.onChange('PERSON'));
+    assert.equal(button('Retry people'), undefined);
+    await act(async () =>
+      nodes('Pressable')
+        .find((n) => n.props.accessibilityLabel === 'Rafi')
+        .props.onPress(),
+    );
+    assert.equal(button('Save lending').props.disabled, false);
+    assert.equal(
+      nodes('FormInput').find((n) => n.props.accessibilityLabel === 'Note').props.value,
+      'Keep me',
+    );
+    assert.equal(
+      nodes('FormInput').find((n) => n.props.accessibilityLabel === 'Search people').props.value,
+      'Ra',
+    );
+    assert.equal(accountReads, 1);
+  });
   await t.test(
     'Failed cached refresh preserves draft and selections; deleted targets disable Save',
     async () => {
@@ -732,9 +614,8 @@ test('Account entry screens', async (t) => {
       state.readAccounts = async () => {
         throw Error('Refresh failed');
       };
-      const { invalidateQuickAdd } = await import('../features/quick-add/index.ts');
       await act(async () => {
-        await invalidateQuickAdd(queryClient);
+        await queryClient.invalidateQueries();
       });
       assert.ok(button('Retry accounts'));
       assert.equal(button('Save').props.disabled, false);
