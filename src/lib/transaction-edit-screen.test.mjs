@@ -12,19 +12,28 @@ const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const root = new URL('../../', import.meta.url);
 const mocks = {
-  'react-native': `export const KeyboardAvoidingView='KeyboardAvoidingView',View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator'; export const Alert={alert:(...args)=>globalThis.__editTest.alert=args}; export const BackHandler={addEventListener:(_,fn)=>{globalThis.__editTest.back=fn;return {remove(){}}}};`,
+  'react-native': `export const Keyboard={dismiss(){}}; export const KeyboardAvoidingView='KeyboardAvoidingView',View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator'; export const Alert={alert:(...args)=>globalThis.__editTest.alert=args}; export const BackHandler={addEventListener:(_,fn)=>{globalThis.__editTest.back=fn;return {remove(){}}}};`,
   'expo-router': `export const useLocalSearchParams=()=>({id:'1'}); export const Stack={Screen:(props)=>{globalThis.__editTest.header=props.options;return null}};`,
-  'expo-router/react-navigation': `export const useHeaderHeight=()=>88; export const useNavigation=()=>({dispatch:action=>globalThis.__editTest.dispatched=action}); export const usePreventRemove=(enabled,callback)=>{Object.assign(globalThis.__editTest,{prevent:enabled,navigate:callback})};`,
+  'expo-router/react-navigation': `export const useHeaderHeight=()=>88; export const useNavigation=()=>({dispatch:action=>globalThis.__editTest.dispatched=action,goBack:()=>globalThis.__editTest.dispatched='GO_BACK'}); export const usePreventRemove=(enabled,callback)=>{Object.assign(globalThis.__editTest,{prevent:enabled,navigate:callback})};`,
   '@expo/ui': `export const Host='Host',Switch='Switch',BottomSheet='BottomSheet',Column='Column',Text='NativeText',Button='NativeButton';`,
   '@/components/transaction-receipt': `export const TransactionReceipt='Receipt',TransferReceipt='TransferReceipt';`,
   '@/components/quick-add-date': `export const QuickAddDate='Date';`,
   '@/lib/transfers': `export const loadTransfer=(...args)=>globalThis.__editTest.loadTransfer(...args); export const saveTransferEdit=(...args)=>globalThis.__editTest.saveTransfer(...args);`,
   '@/lib/database': `export const epochDay=d=>Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/86400000); export const dateFromEpochDay=n=>{const u=new Date(n*86400000);return new Date(u.getUTCFullYear(),u.getUTCMonth(),u.getUTCDate(),12)}; export const listAccounts=async()=>[{id:1,name:'Cash',currencyCode:'USD'},{id:2,name:'Bank',currencyCode:'USD'},{id:3,name:'Card',currencyCode:'EUR'}];`,
+  'react-native-safe-area-context': `export const useSafeAreaInsets=()=>({top:0,bottom:0,left:0,right:0});`,
+  'react-native-reanimated': `import { useRef } from 'react'; export default { View: 'AnimatedView' }; export const Easing={out:x=>x,cubic:x=>x}, ReduceMotion={System:'system'}; export const useSharedValue=value=>useRef({value}).current; export const useAnimatedStyle=fn=>fn(); export const withTiming=value=>value;`,
+  'expo-haptics': `export const AndroidHaptics={Keyboard_Tap:'keyboard'}, ImpactFeedbackStyle={Light:'light'}; export const performAndroidHapticsAsync=async()=>{}; export const impactAsync=async()=>{};`,
+  'expo-symbols': `export const SymbolView='SymbolView';`,
+  '@/lib/transaction-delete': `export const deleteTransaction=(...args)=>globalThis.__editTest.remove(...args);`,
   '@/lib/transaction-edit': `export const loadEditableTransaction=(...args)=>globalThis.__editTest.load(...args); export const saveTransactionEdit=(...args)=>globalThis.__editTest.save(...args);`,
 };
 const hooks = registerHooks({
   resolve(specifier, context, next) {
-    if (specifier === '@/components/form-controls' || specifier === '@/components/transfer-form')
+    if (
+      specifier === '@/components/form-controls' ||
+      specifier === '@/components/transfer-form' ||
+      specifier === '@/components/amount-input'
+    )
       return {
         url: new URL(`${specifier.replace('@/', 'src/')}.tsx`, root).href,
         shortCircuit: true,
@@ -92,12 +101,13 @@ async function change(label, value) {
       .props.onChangeText(value),
   );
 }
-async function mount() {
+async function mount(current = transaction) {
   Object.assign(state, {
     alert: undefined,
     dispatched: undefined,
-    load: async () => transaction,
+    load: async () => current,
     save: async () => {},
+    remove: async () => ({ status: 'deleted' }),
     loadTransfer: async () => null,
     saveTransfer: async () => {},
   });
@@ -124,6 +134,7 @@ async function mountTransfer(current = transfer) {
     dispatched: undefined,
     load: async () => null,
     save: () => assert.fail('not a transfer save'),
+    remove: async () => ({ status: 'deleted' }),
     loadTransfer: async () => current,
     saveTransfer: async () => {},
   });
@@ -211,7 +222,10 @@ test('Transaction edit screen', async (t) => {
     };
     await press('Save changes');
     assert.ok(texts().includes('Error: Reload failed'));
-    assert.equal(nodes('TextInput')[0].props.value, 'draft');
+    assert.equal(
+      nodes('TextInput').find((n) => n.props.accessibilityLabel === 'Note').props.value,
+      'draft',
+    );
     assert.equal(state.prevent, false);
     assert.ok(nodes('TextInput').every((n) => n.props.editable === false));
     state.load = async () => ({ ...transaction, note: 'draft' });
@@ -249,7 +263,10 @@ test('Transaction edit screen', async (t) => {
         await act(async () => resolve({ ...transaction, note: 'saved note' }));
         assert.equal(nodes('Receipt')[0].props.transaction.note, 'saved note');
         await act(async () => state.header.headerRight().props.onPress());
-        assert.equal(nodes('TextInput')[0].props.value, 'saved note');
+        assert.equal(
+          nodes('TextInput').find((n) => n.props.accessibilityLabel === 'Note').props.value,
+          'saved note',
+        );
         assert.equal(saves, 1);
       },
     );
@@ -296,7 +313,10 @@ test('Transaction edit screen', async (t) => {
       assert.ok(nodes('TextInput').every((n) => n.props.editable === false));
       await act(async () => reject(new Error('Save failed')));
       assert.ok(texts().includes('Error: Save failed'));
-      assert.equal(nodes('TextInput')[0].props.value, 'draft');
+      assert.equal(
+        nodes('TextInput').find((n) => n.props.accessibilityLabel === 'Note').props.value,
+        'draft',
+      );
       let reload;
       state.save = async () => {};
       state.load = () =>
@@ -431,6 +451,105 @@ test('Transaction edit screen', async (t) => {
     assert.equal(state.alert[0], 'Discard changes?');
     await alertChoice('Discard');
     assert.equal(nodes('TransferReceipt').length, 1);
+  });
+  await t.test('amount edit uses the calculator keypad and reaches save', async () => {
+    await mount();
+    const amount = () => nodes('Pressable').find((n) => n.props.accessibilityLabel === 'Amount');
+    assert.equal(amount().props.accessibilityValue.text, '10.00');
+    assert.equal(nodes('AnimatedView')[0].props.accessibilityElementsHidden, true);
+    assert.equal(state.prevent, false);
+    let saved;
+    state.save = async (...args) => {
+      saved = args;
+    };
+    await press('Amount');
+    assert.notEqual(nodes('AnimatedView')[0].props.accessibilityElementsHidden, true);
+    for (const key of ['Clear calculation', '0', 'Done']) await press(key);
+    assert.ok(texts().some((text) => text.includes('positive amount')));
+    assert.equal(
+      nodes('Pressable').find((n) =>
+        n.findAllByType('Text').some((t) => t.children.join('') === 'Save changes'),
+      ).props.disabled,
+      true,
+    );
+    await press('Amount');
+    for (const key of ['Clear calculation', '1', '2', '.', '5', 'Done']) await press(key);
+    assert.equal(amount().props.accessibilityValue.text, '12.50');
+    assert.equal(state.prevent, true);
+    await press('Save changes');
+    assert.equal(saved[5], 1250);
+  });
+  await t.test('lending Transaction shows a read-only amount', async () => {
+    await mount({ ...transaction, type: 'EXPENSE', lendingKind: 'LEND', personName: 'Sam' });
+    assert.equal(
+      nodes('Pressable').some((n) => n.props.accessibilityLabel === 'Amount'),
+      false,
+    );
+    assert.ok(texts().some((text) => text.includes('from Lending')));
+  });
+  await t.test('Delete asks first, then deletes a dirty draft and leaves the screen', async () => {
+    await mount();
+    await change('Note', 'draft');
+    const calls = [];
+    state.remove = async (...args) => {
+      calls.push(args);
+      return { status: 'deleted' };
+    };
+    await press('Delete transaction');
+    assert.equal(state.alert[0], 'Delete transaction?');
+    assert.equal(calls.length, 0);
+    await alertChoice('Delete');
+    assert.deepEqual(calls, [[1, { confirmOverpayment: false }]]);
+    assert.equal(state.dispatched, 'GO_BACK');
+    assert.equal(state.prevent, false);
+  });
+  await t.test(
+    'Delete of lending principal confirms overpaid credit before it deletes',
+    async () => {
+      await mount();
+      const calls = [];
+      state.remove = async (id, options) => {
+        calls.push(options.confirmOverpayment);
+        return options.confirmOverpayment
+          ? { status: 'deleted' }
+          : {
+              status: 'confirmation_required',
+              warnings: [{ currencyCode: 'USD', direction: 'LENT', overpaidMinor: 250 }],
+            };
+      };
+      await press('Delete transaction');
+      await alertChoice('Delete');
+      assert.equal(state.alert[0], 'Overpayment warning');
+      assert.match(state.alert[1], /overpaid credit 2\.50/);
+      assert.equal(state.dispatched, undefined);
+      await alertChoice('Delete');
+      assert.deepEqual(calls, [false, true]);
+      assert.equal(state.dispatched, 'GO_BACK');
+    },
+  );
+  await t.test('failed Delete stays on the editor', async () => {
+    await mount();
+    state.remove = async () => {
+      throw new Error('Delete failed');
+    };
+    await press('Delete transaction');
+    await alertChoice('Delete');
+    assert.equal(state.alert[0], 'Could not delete');
+    assert.equal(state.dispatched, undefined);
+    await press('Delete transaction');
+  });
+  await t.test('Transfer edit can delete the Transfer', async () => {
+    await mountTransfer();
+    await act(async () => state.header.headerRight().props.onPress());
+    let deleted;
+    state.remove = async (id) => {
+      deleted = id;
+      return { status: 'deleted' };
+    };
+    await press('Delete transfer');
+    await alertChoice('Delete');
+    assert.equal(deleted, 1);
+    assert.equal(state.dispatched, 'GO_BACK');
   });
   await t.test('failed Transfer save keeps the draft editable', async () => {
     await mountTransfer();

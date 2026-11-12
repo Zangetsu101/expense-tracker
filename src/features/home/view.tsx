@@ -1,3 +1,4 @@
+import { BackupAttentionBanner } from '@/components/backup-attention-banner';
 import { type ReactNode } from 'react';
 import { Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -6,6 +7,7 @@ import Animated, { FadeInDown, FadeOutUp } from 'react-native-reanimated';
 import { SymbolView } from 'expo-symbols';
 import { formatActivityDay, formatMoney, transactionTitle } from '@/lib/transaction-format';
 import { Skeleton } from '@/components/loading';
+import { EnterView, useNewItems } from '@/components/motion';
 import type { HomeList } from './queries.ts';
 import { RetryButton } from './cards.tsx';
 import { theme } from '@/theme';
@@ -50,6 +52,7 @@ export function HomeLayout({
         }}
       />
       <StatusBar style="light" />
+      <BackupAttentionBanner />
       {children}
       <Pressable
         onPress={() =>
@@ -154,6 +157,10 @@ export function SearchField({ accountId, name }: { accountId: number | null; nam
 
 export function ActivityList({ list, muted = false }: { list: HomeList; muted?: boolean }) {
   const { accountId, rows, dailySummaries } = list;
+  const isNew = useNewItems(
+    rows.map((row) => row.id),
+    accountId,
+  );
   return (
     <View
       pointerEvents={muted ? 'none' : 'auto'}
@@ -181,7 +188,7 @@ export function ActivityList({ list, muted = false }: { list: HomeList; muted?: 
           ? `${incoming ? '+' : '−'}${formatMoney('TRANSFER', item.amountMinor, item.currencyCode)}`
           : formatMoney(item.type, item.amountMinor, item.currencyCode);
         return (
-          <View key={item.id}>
+          <EnterView key={item.id} animate={isNew(item.id)}>
             {(index === 0 || rows[index - 1].date !== item.date) && (
               <View
                 style={{
@@ -283,7 +290,7 @@ export function ActivityList({ list, muted = false }: { list: HomeList; muted?: 
                 {displayAmount}
               </Text>
             </Pressable>
-          </View>
+          </EnterView>
         );
       })}
     </View>

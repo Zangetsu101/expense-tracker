@@ -5,17 +5,26 @@ Use this runbook to ship either a JavaScript/asset OTA update or a signed APK. G
 ## Choose the release type
 
 - **JavaScript/assets only:** publish an OTA update; keep the app version unchanged.
-- **Native dependencies, SDK, or native configuration:** build a new APK. Bump `expo.version` and `expo.android.versionCode` in `app.json`, and align `package.json`'s version. The app version is the OTA compatibility boundary.
+- **Native dependencies, SDK, or native configuration:** build a new APK. Run `pnpm release:bump <major|minor|patch>` to bump the version (see [Build an APK in GitHub Actions](#build-an-apk-in-github-actions)). The app version is the runtime version, so it is the OTA compatibility boundary.
+
+The native fingerprint guard ([ADR 0008](adr/0008-native-fingerprint-guard-for-ota-updates.md)) enforces this boundary. `native-fingerprint.txt` contains the native fingerprint of the tree. `pnpm check` runs `pnpm native:fingerprint`, which calculates the fingerprint and fails in these cases:
+
+- **The file is stale.** A change of a native package, a config plugin, an image in `app.json` or the Expo config changed the fingerprint. Run `pnpm native:fingerprint --write` and commit `native-fingerprint.txt`. If the check fails and you made no native change, run `pnpm install --frozen-lockfile` first. A version bump does not change the fingerprint.
+- **The version is released.** The tag `v<version>` exists, and the fingerprint is different from the file at that tag. The installed APKs of this version do not have the new native code. Run `pnpm release:bump <major|minor|patch>`, commit `app.json` and `package.json`, and build a new APK after the merge. OTA updates from this change go only to APKs with the new version.
+
+Before the version is released, native changes under that version are allowed. The guard does not see a draft release, because GitHub creates its tag only at publication. So do not merge native changes while a draft release is open. Signed test APKs have no tag, so the guard does not protect them.
 
 Back up app data and test on a device before releasing. Installed apps need an APK with EAS Update configured to receive OTA updates.
 
 ## Publish an OTA update
 
-One-time CI requirement: an Expo access token with project access, stored as the repository secret [`EXPO_TOKEN`](https://github.com/Zangetsu101/expense-tracker/settings/secrets/actions). The workflows must be on `main`.
+One-time CI requirement: an Expo access token with project access, stored as the repository secret [`EXPO_TOKEN`](https://github.com/Zangetsu101/expense-tracker/settings/secrets/actions). The workflow file `.github/workflows/ci.yml` must be on `main`.
 
-1. Merge the tested changes into `main`. Every push to `main` runs checks and publishes an Android OTA update to the `production` channel and environment, recording the commit SHA.
-2. Confirm **GitHub Actions → Publish Android OTA** succeeds. You can also use **Run workflow** on `main` with a description to publish manually.
+1. Merge the tested changes into `main`. Each push to `main` starts the **CI** workflow. Its `check` job runs `pnpm check`, which includes the native fingerprint guard. When the checks pass, its `publish` job publishes an Android OTA update to the `production` channel and environment and records the commit SHA. If the checks fail, the job does not publish. If the guard fails on `main`, follow its message (see [Choose the release type](#choose-the-release-type)) in a new PR. No OTA update is published until that PR is merged.
+2. Confirm that both jobs of **GitHub Actions → CI** succeed. To publish manually, use **Run workflow** on `main` and type a description. The manual run also runs the checks first.
 3. Verify on the installed release app: open **Settings → Updates** to check for and download the update. When it is ready, tap **Updates** again and confirm **Restart to update** to apply it. Finish any unsaved entries before restarting. Tap the version/release line in Settings to confirm the running commit matches the published commit.
+
+A newer push to `main` cancels the checks of an older push that are still in progress. The newer push then publishes the changes of both. A new push never cancels a publish that is in progress. Publishes run one at a time. Pull requests run only the `check` job.
 
 See [Expo's debugging guide](https://docs.expo.dev/eas-update/debug/) if an update does not arrive.
 
@@ -32,13 +41,56 @@ One-time setup: add these repository secrets in [Actions secrets](https://github
 
 Reuse the existing signing key so installed apps can upgrade without uninstalling. Do not commit signing credentials. No Expo token is required for the APK build.
 
-1. For each new APK release, bump `expo.version` and `expo.android.versionCode` in `app.json`, align `package.json`'s version, and merge those changes to `main`. The version code must exceed the installed release's code.
-2. Open **GitHub Actions → Build Android APK → Run workflow** and select `main`. Other branches are skipped.
-3. The workflow runs checks, stamps the commit into the embedded bundle, prebuilds, builds a signed ARM64 APK, verifies its signature, and creates a **draft prerelease** with the APK and SHA-256 checksum. Existing versions/tags are rejected rather than overwritten.
+1. For each new APK release, run `pnpm release:bump <major|minor|patch>`. The command sets the next version in `app.json` and `package.json` and adds 1 to `expo.android.versionCode`. It stops and changes nothing if the two versions are different. The version code must be more than the code of the installed release. Commit the two files and merge the change to `main`. The command does not make a commit or a tag.
+2. Open **GitHub Actions → Build Android APK → Run workflow** and select `main`. Leave **emulator** unchecked for a release. Other branches produce an emulator test artifact.
+3. The workflow stops if the commit has no successful `check` job. GitHub Actions runs this job on each push to `main`, so wait for it to pass first. Then the workflow stamps the commit into the embedded bundle, prebuilds, builds a signed ARM64 APK, verifies its signature, and creates a **draft prerelease** with the APK and SHA-256 checksum. The workflow writes the notes of the draft. The notes show the runtime version of the APK and list the changes on `main` since the last `vX.Y.Z` tag that the commit contains. A merged PR shows as its title. The step summary of the run shows the same notes. Existing versions/tags are rejected rather than overwritten.
 4. Open the draft under **GitHub Releases** while signed in with repository write access. A draft is unpublished; download its APK, back up app data, install over the existing app, and verify behavior and the signing certificate.
-5. Edit the draft's notes to include known limitations, then click **Publish release** when testing passes. The release remains marked as a prerelease.
+5. Read the notes of the draft. Add known limitations if there are some, then click **Publish release** when testing passes. The release remains marked as a prerelease.
 
 A failed build creates no release. If publication fails after creating a draft, inspect/delete that draft before retrying; the workflow refuses to overwrite it.
+
+## Build a signed test APK without a release
+
+To test a branch on a real phone before a release, run **Build Android APK** with **signed_test** checked. You can select any branch:
+
+```sh
+gh workflow run apk-release.yml --ref <branch> -f signed_test=true
+```
+
+The job builds the same signed ARM64 APK as a release. It does not check or create a tag or a release. The step summary shows the release notes that a release from this commit would get, with the runtime version of the APK. It does not run the repository checks or require a successful `check` job. Download the `expense-tracker-arm64-signed-test-<commit>` artifact from the workflow run. It contains the APK and its `.sha256` file. Artifacts are kept for 14 days.
+
+To check the APK, run this command in the folder that contains the downloaded files:
+
+```sh
+sha256sum -c expense-tracker-*-arm64.apk.sha256
+```
+
+The APK uses the release signing key, so it installs over the production app and keeps its data. It uses the version in `app.json` and receives OTA updates for that version. A later release with the same version installs over it.
+
+## Build an APK for the Android emulator
+
+Manually run **Build Android APK** on a feature branch to build an x86_64 test APK. On `main`, check **emulator** to select this target. This job uploads a workflow artifact instead of creating a release and does not need release-signing secrets.
+
+For example, build the auto-backup PR before merging it:
+
+```sh
+gh workflow run apk-release.yml --ref scheduled-backups-ndjson-wal
+```
+
+Download the `expense-tracker-x86_64-emulator-<commit>` artifact from the workflow run. It contains `expense-tracker-<version>-x86_64-emulator.apk`. Artifacts are kept for 14 days.
+
+The APK uses the `.emulator` application ID suffix, an emulator-specific link scheme, and the Android debug signing key. It has an embedded JavaScript bundle and OTA updates are disabled, so it runs the selected commit without Metro. It can coexist with the production app and has its own database and backup settings.
+
+To build the same target locally:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm android:apk:emulator
+```
+
+The build command does not run the repository checks. Run `pnpm check` first if you need them. The command prebuilds the emulator configuration and assembles a release variant for x86_64 with debug signing. Native configuration switches through `EXPENSE_TRACKER_BUILD_TARGET=emulator`; leave this variable unset for production builds. The production APK command rejects emulator mode.
+
+Google Drive backups on the emulator need their own Android OAuth client. See [Google Drive backups](google-drive-backups.md#set-up-google-cloud).
 
 ## Build an APK locally
 
@@ -60,7 +112,7 @@ pnpm install --frozen-lockfile
 )
 ```
 
-The command runs checks, prebuild, and the signed ARM64 release build. It produces `dist/expense-tracker-<version>-arm64.apk` and its `.sha256` file. Native sources are generated: edit `app.json`, the signing plugin, or the signing Gradle script instead of `android/`.
+The command runs prebuild and the signed ARM64 release build. It does not run the repository checks, so run `pnpm check` first. It produces `dist/expense-tracker-<version>-arm64.apk` and its `.sha256` file. The `.sha256` file contains only the file name, so `sha256sum -c` works in the folder that contains both files. Both APK targets use Huawei Cloud’s Gradle 9.3.1 mirror, pinned to Gradle’s official SHA-256 checksum by `plugins/with-gradle-mirror.cjs`. When upgrading Expo’s generated Gradle version, update the mirror and checksum together. Native sources are generated: edit `app.json`, the signing plugin, or the signing Gradle script instead of `android/`.
 
 Verify the release certificate and install without clearing app data:
 
@@ -72,6 +124,8 @@ apk="dist/expense-tracker-${version}-arm64.apk"
 adb install -r "$apk"
 ```
 
+Before the build, set the version with `pnpm release:bump <major|minor|patch>` and commit the change.
+
 After device testing, tag the exact build commit and push the tag:
 
 ```sh
@@ -79,4 +133,10 @@ git tag -a "v$version" -m "Expense Tracker $version"
 git push origin "v$version"
 ```
 
-Create a GitHub prerelease for that tag and attach the APK and checksum. Include known limitations and note that the APK supports ARM64 Android devices only.
+Create a GitHub prerelease for that tag and attach the APK and checksum. To write the notes, run this command in the build checkout. The checkout must have the full history and the tags:
+
+```sh
+node scripts/release-notes.mjs "$apk" > release-notes.md
+```
+
+Add known limitations to the notes.

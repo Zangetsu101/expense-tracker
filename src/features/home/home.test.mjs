@@ -25,6 +25,8 @@ const mocks = {
   'expo-router': `export const Stack={Screen:({options})=>options.headerTitle?options.headerTitle():null}; export const router={push(to){globalThis.__homeScreenTest.pushed.push(to)}};`,
   'expo-status-bar': `export const StatusBar=()=>null;`,
   'expo-symbols': `export const SymbolView='SymbolView';`,
+  '@/components/motion': `import React from 'react'; export const RollingNumber=({value,style})=>React.createElement('Text',{style},value); export const EnterView=({children})=>children; export const useNewItems=()=>()=>false;`,
+  '@/components/backup-attention-banner': `export const BackupAttentionBanner=()=>null;`,
   '@/components/loading': `export const Skeleton='Skeleton'; export const Shimmer='Shimmer';`,
   '@/components/app-sheet': `export const AppSheet='AppSheet';`,
   '@/lib/database': `export const epochDay=d=>Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/86400000);`,

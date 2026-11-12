@@ -1,12 +1,14 @@
 {
   "name": "expense-tracker-expo",
-  "main": "expo-router/entry",
+  "main": "./index.js",
   "type": "module",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "dependencies": {
     "@expo/ui": "~57.0.20",
+    "@react-native-google-signin/google-signin": "16.1.5",
     "@tanstack/react-query": "^5.106.1",
     "expo": "~57.0.25",
+    "expo-background-task": "~57.0.22",
     "expo-constants": "~57.0.19",
     "expo-device": "~57.0.2",
     "expo-document-picker": "~57.0.2",
@@ -23,6 +25,7 @@
     "expo-status-bar": "~57.0.1",
     "expo-symbols": "~57.0.3",
     "expo-system-ui": "~57.0.4",
+    "expo-task-manager": "~57.0.22",
     "expo-updates": "~57.0.26",
     "expo-web-browser": "~57.0.3",
     "react": "19.2.3",
@@ -37,12 +40,18 @@
     "react-native-worklets": "0.10.1"
   },
   "devDependencies": {
+    "@testing-library/react-native": "^14.1.0",
+    "@types/jest": "29.5.14",
+    "@types/node": "26.6.2",
     "@types/react": "~19.2.2",
     "eslint": "^9.39.5",
     "eslint-config-expo": "~57.0.2",
+    "jest": "~29.7.0",
+    "jest-expo": "~57.0.6",
     "lint-staged": "17.6.0",
     "prettier": "3.9.10",
     "react-test-renderer": "19.2.3",
+    "test-renderer": "1.2.0",
     "typescript": "~6.0.3"
   },
   "scripts": {
@@ -52,14 +61,19 @@
     "android:apk": "bash scripts/build-android-apk.sh",
     "ios": "pnpm start --ios",
     "web": "expo start --web",
-    "test": "node --test src/lib/*.test.mjs src/components/*.test.mjs src/features/*/*.test.mjs scripts/*.test.mjs",
+    "test": "pnpm test:node && pnpm test:ui",
     "test:backup": "node scripts/check-backup-format.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "pnpm lint --fix",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
-    "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm test:backup"
+    "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm test:backup && pnpm native:fingerprint",
+    "test:node": "node --test src/lib/*.test.mjs src/components/*.test.mjs src/features/*/*.test.mjs scripts/*.test.mjs",
+    "test:ui": "jest --runInBand",
+    "android:apk:emulator": "bash scripts/build-emulator-apk.sh",
+    "release:bump": "node scripts/release-bump.mjs",
+    "native:fingerprint": "node scripts/native-fingerprint.mjs"
   },
   "lint-staged": {
     "*.{js,cjs,mjs,jsx,ts,tsx}": [

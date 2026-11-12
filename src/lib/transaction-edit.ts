@@ -82,10 +82,15 @@ export async function saveTransactionEdit(
   excludeFromReport: boolean,
   tagText: string,
   lineItems: LineItem[] = original.lineItems,
+  amountMinor: number = original.amountMinor,
 ) {
   validId(original.id);
   if (original.type !== 'EXPENSE' && original.type !== 'INCOME')
     throw new Error('Transfers cannot be edited here.');
+  if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0)
+    throw new Error('Enter a positive amount.');
+  if (amountMinor !== original.amountMinor && original.lendingKind)
+    throw new Error('Change the amount of a lending entry from Lending.');
   validateLineItems(lineItems);
   const originalIds = new Set(original.lineItems.map((item) => item.id));
   if (lineItems.some((item) => item.id !== undefined && !originalIds.has(item.id)))
@@ -122,11 +127,13 @@ export async function saveTransactionEdit(
     )
       throw new Error('Transaction was changed or removed. Reload before saving.');
     const result = await tx.runAsync(
-      `UPDATE transactions AS t SET note = ?, excludeFromReport = CASE
+      `UPDATE transactions AS t SET amountMinor = ?, note = ?, excludeFromReport = CASE
         WHEN ${principalReportExclusion} THEN 1 ELSE ? END
       WHERE id = ? AND type = ? AND amountMinor = ? AND date = ? AND accountId = ?
-        AND categoryId IS ? AND note IS ? AND excludeFromReport = ?`,
+        AND categoryId IS ? AND note IS ? AND excludeFromReport = ?
+        AND NOT (? <> amountMinor AND EXISTS (SELECT 1 FROM lending_entries WHERE transactionId = t.id))`,
       [
+        amountMinor,
         note.trim() || null,
         Number(excludeFromReport),
         original.id,
@@ -137,6 +144,7 @@ export async function saveTransactionEdit(
         original.categoryId,
         original.note,
         original.excludeFromReport,
+        amountMinor,
       ],
     );
     if (result.changes !== 1)

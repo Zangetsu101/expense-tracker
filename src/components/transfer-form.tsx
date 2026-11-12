@@ -27,6 +27,7 @@ type Props = {
   onSubmit: (draft: TransferDraft) => Promise<void>;
   onDirtyChange?: (dirty: boolean) => void;
   onCancel?: () => void;
+  onDelete?: () => void;
 };
 const { text: ink, muted, surface, accent } = theme.colors;
 
@@ -55,6 +56,7 @@ export function TransferForm({
   onSubmit,
   onDirtyChange,
   onCancel,
+  onDelete,
 }: Props) {
   const [fromId, setFromId] = useState(initial.fromId);
   const [toId, setToId] = useState(initial.toId);
@@ -287,6 +289,14 @@ export function TransferForm({
         />
         {onCancel && (
           <FormButton label="Cancel" variant="secondary" disabled={locked} onPress={onCancel} />
+        )}
+        {onDelete && (
+          <FormButton
+            label="Delete transfer"
+            variant="danger"
+            disabled={locked}
+            onPress={onDelete}
+          />
         )}
       </ScrollView>
       <Host>

@@ -9,13 +9,13 @@ A local-first personal finance app built with Expo, React Native, and SQLite. Tr
 - Transaction search and filters, monthly summaries, and spending by category.
 - Lending and borrowing tracked by person and currency.
 - MoneyLover CSV import with duplicate detection and review of uncertain transfers.
-- JSON backup and restore, plus CSV export for portability.
+- Automatic JSON backups to Google Drive on Android, a backup file to share, restore, and CSV export for portability.
 
 ## Status
 
 This project is under active development. Android has been exercised in Expo Go; iOS has not yet been device-verified. Web is not a verified target.
 
-Keep an independent copy of your financial records before trying imports or restore. CSV export is not a full backup. Automatic scheduled backups are not implemented, and backup values above JavaScript's safe integer limit cannot round-trip reliably.
+Keep an independent copy of your financial records before trying imports or restore. CSV export is not a full backup. Automatic backups need a Google account and the setup in [docs/google-drive-backups.md](docs/google-drive-backups.md). Backup values above JavaScript's safe integer limit cannot round-trip reliably.
 
 ## Run locally
 
@@ -60,7 +60,8 @@ pnpm check
 Use `pnpm lint:fix` to apply ESLint fixes and `pnpm format` to format files. Prettier
 uses single quotes and a 100-character print width, and skips generated files,
 vendored skills, and Git-ignored files. GitHub Actions runs `pnpm check` on pull
-requests and pushes to `main`; APK and OTA release workflows run it before publishing too.
+requests and pushes to `main`. The OTA workflow runs it before it publishes. The APK release job
+requires a successful `check` job for its commit.
 
 Enable the repository's Git hooks once per clone:
 
