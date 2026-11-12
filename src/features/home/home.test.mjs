@@ -25,7 +25,7 @@ const mocks = {
   'expo-router': `export const Stack={Screen:({options})=>options.headerTitle?options.headerTitle():null}; export const router={push(to){globalThis.__homeScreenTest.pushed.push(to)}};`,
   'expo-status-bar': `export const StatusBar=()=>null;`,
   'expo-symbols': `export const SymbolView='SymbolView';`,
-  '@/components/motion': `import React from 'react'; export const RollingNumber=({value,style})=>React.createElement('Text',{style},value); export const EnterView=({children})=>children; export const useNewItems=()=>()=>false;`,
+  '@/components/motion': `import React from 'react'; export const RollingNumber=({value,style})=>React.createElement('Text',{style,rolling:true},value); export const EnterView=({children})=>children; export const useNewItems=()=>()=>false;`,
   '@/components/backup-attention-banner': `export const BackupAttentionBanner=()=>null;`,
   '@/components/loading': `export const Skeleton='Skeleton'; export const Shimmer='Shimmer';`,
   '@/components/app-sheet': `export const AppSheet='AppSheet';`,
@@ -413,6 +413,22 @@ test('Home boundaries', async (t) => {
       assert.ok(cardTexts('Cash').includes('৳2,500.00'));
     },
   );
+
+  await t.test('a balance at rest rolls, and a scrubbed value does not', async () => {
+    reads();
+    await mount();
+    const amount = () =>
+      card('Cash')
+        .findAllByType('Text')
+        .find((n) => n.props.style?.fontSize === 28);
+    assert.equal(textOf(amount()), '৳1,000.00');
+    assert.equal(amount().props.rolling, true);
+    const chart = card('Cash').findByType('TrendChart');
+    await act(async () => chart.props.onScrub(0));
+    assert.equal(amount().props.rolling, undefined, 'the scrubbed value is still');
+    await act(async () => chart.props.onScrub(null));
+    assert.equal(amount().props.rolling, true);
+  });
 
   await t.test('the notice stays while Retry runs and goes after a refresh succeeds', async () => {
     reads();

@@ -1,9 +1,10 @@
 import { Suspense, useState, type ReactNode, type Ref } from 'react';
-import { ActivityIndicator, FlatList, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, Text, View, type TextStyle } from 'react-native';
 import { useSuspenseQuery } from '@tanstack/react-query';
 import { SymbolView } from 'expo-symbols';
 import { ErrorBoundary } from '@/components/query-error-boundary';
 import { Skeleton } from '@/components/loading';
+import { RollingNumber } from '@/components/motion';
 import { currencySymbol } from '@/lib/currency';
 import { formatActivityDay, formatBalance } from '@/lib/transaction-format';
 import type { DisplayRate } from '@/lib/display-rate';
@@ -131,7 +132,7 @@ export function HomeCard({
         </Pressable>
       </View>
       {card.face === 'trend' && scrub !== null ? (
-        <Amount minor={scrub} currency={card.account.currencyCode} />
+        <Amount minor={scrub} currency={card.account.currencyCode} still />
       ) : account ? (
         <Amount minor={account.balanceMinor} currency={account.currencyCode} />
       ) : (
@@ -142,24 +143,33 @@ export function HomeCard({
   );
 }
 
+const amountStyle: TextStyle = {
+  color: c.text,
+  fontSize: 28,
+  fontWeight: '700',
+  fontVariant: ['tabular-nums'],
+};
+
+/**
+ * The digits roll to a new balance after a change. A scrubbed value is `still`,
+ * because it changes faster than a roll can finish.
+ */
 function Amount({
   minor,
   currency,
   prefix = '',
+  still = false,
 }: {
   minor: number;
   currency: string;
   prefix?: string;
+  still?: boolean;
 }) {
+  const value = `${prefix}${formatBalance(minor, currency)}`;
+  if (!still) return <RollingNumber value={value} style={amountStyle} />;
   return (
-    <Text
-      selectable
-      numberOfLines={1}
-      adjustsFontSizeToFit
-      style={{ color: c.text, fontSize: 28, fontWeight: '700', fontVariant: ['tabular-nums'] }}
-    >
-      {prefix}
-      {formatBalance(minor, currency)}
+    <Text selectable numberOfLines={1} adjustsFontSizeToFit style={amountStyle}>
+      {value}
     </Text>
   );
 }
