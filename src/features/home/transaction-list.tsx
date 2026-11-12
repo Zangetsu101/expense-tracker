@@ -1,12 +1,5 @@
-import {
-  useDeferredValue,
-  useId,
-  useRef,
-  useState,
-  type ReactElement,
-  type ReactNode,
-} from 'react';
-import { SectionList, Text, View, type CellRendererProps } from 'react-native';
+import { useDeferredValue, useMemo, useRef, type ReactElement, type ReactNode } from 'react';
+import { ScrollView, SectionList, Text, View, type CellRendererProps } from 'react-native';
 import { router } from 'expo-router';
 import Animated, {
   FadeIn,
@@ -96,15 +89,16 @@ type TransactionListProps = {
 /** Transactions grouped by day, with the deck in the scrolling header. */
 export function TransactionList(props: TransactionListProps) {
   const { reset } = useQueryErrorResetBoundary();
-  const id = useId();
-  const key = `${props.scope.accountId}:${props.scope.face}:${periodKey(props.setting)}:${epochDay(props.now)}`;
-  const requested = { key, scope: props.scope, setting: props.setting, now: props.now };
-  const [visit, setVisit] = useState({ ...requested, number: 0 });
-  if (visit.key !== key) {
-    reset();
-    setVisit({ ...requested, number: visit.number + 1 });
-  }
-  const shown = useDeferredValue(visit);
+  const requested = useMemo(
+    () => ({
+      key: JSON.stringify(homeListQuery(props.scope, props.setting, props.now).queryKey),
+      scope: props.scope,
+      setting: props.setting,
+      now: props.now,
+    }),
+    [props.scope, props.setting, props.now],
+  );
+  const shown = useDeferredValue(requested);
   const search = useScopedSearch(`${props.scope.accountId}:${periodKey(props.setting)}`);
   const savedState = useSavedRowState({
     accountId: props.scope.accountId,
@@ -112,22 +106,80 @@ export function TransactionList(props: TransactionListProps) {
     onShowAccount: props.onShowAccount,
     onShow: () => search.change(''),
   });
-  const searchHeader = () => (
-    <View style={{ gap: 8 }}>
+  const header = (
+    <ListHeader
+      accountId={props.scope.accountId}
+      setting={props.setting}
+      now={props.now}
+      search={search}
+    >
       {props.header}
+    </ListHeader>
+  );
+  return (
+    <>
+      <QueryBoundary
+        reset={reset}
+        resetKey={shown.key}
+        pending={
+          <ListFallback>
+            {header}
+            <ListFallback.Content>
+              <ActivitySkeleton />
+            </ListFallback.Content>
+          </ListFallback>
+        }
+        error={(retry) => (
+          <ListFallback>
+            {header}
+            <ListFallback.Content>
+              <ActivityError retry={retry} />
+            </ListFallback.Content>
+          </ListFallback>
+        )}
+      >
+        <ReadyList
+          {...props}
+          scope={shown.scope}
+          setting={shown.setting}
+          now={shown.now}
+          stale={shown.key !== requested.key}
+          search={search}
+          savedState={savedState}
+          searchHeader={header}
+        />
+      </QueryBoundary>
+      {savedState.snack && <Snackbar text={savedState.snack.text} onShow={savedState.show} />}
+    </>
+  );
+}
+
+function ListHeader({
+  accountId,
+  setting,
+  now,
+  search,
+  children,
+}: {
+  accountId: number | null;
+  setting: PeriodSetting;
+  now: Date;
+  search: ReturnType<typeof useScopedSearch>;
+  children: ReactNode;
+}) {
+  return (
+    <View style={{ gap: 8 }}>
+      {children}
       <View style={{ paddingHorizontal: gutter, paddingTop: 6 }}>
         <SearchField
           value={search.text}
-          placeholder={searchPlaceholder(
-            props.setting,
-            homePeriod(props.setting, epochDay(props.now)).label,
-          )}
+          placeholder={searchPlaceholder(setting, homePeriod(setting, epochDay(now)).label)}
           onChange={search.change}
           onOpenFilters={() =>
             router.push({
               pathname: '/transactions',
               params: {
-                ...accountParams(props.scope.accountId),
+                ...accountParams(accountId),
                 ...(search.text.trim() ? { query: search.text.trim() } : {}),
               },
             })
@@ -136,40 +188,22 @@ export function TransactionList(props: TransactionListProps) {
       </View>
     </View>
   );
-  const fallback = (footer: ReactNode) => (
-    <SectionList
-      sections={[]}
-      renderItem={() => null}
+}
+
+function ListFallback({ children }: { children: ReactNode }) {
+  return (
+    <ScrollView
       contentInsetAdjustmentBehavior="automatic"
       contentContainerStyle={{ paddingBottom: 100 }}
-      ListHeaderComponent={searchHeader()}
-      ListFooterComponent={<View style={{ paddingHorizontal: gutter }}>{footer}</View>}
-    />
-  );
-  return (
-    <>
-      <QueryBoundary
-        reset={reset}
-        resetKey={`${shown.key}:${shown.number}`}
-        pending={fallback(<ActivitySkeleton />)}
-        error={(retry) => fallback(<ActivityError retry={retry} />)}
-      >
-        <ReadyList
-          {...props}
-          scope={shown.scope}
-          setting={shown.setting}
-          now={shown.now}
-          session={`${id}:${shown.number}`}
-          stale={shown !== visit}
-          search={search}
-          savedState={savedState}
-          searchHeader={searchHeader}
-        />
-      </QueryBoundary>
-      {savedState.snack && <Snackbar text={savedState.snack.text} onShow={savedState.show} />}
-    </>
+    >
+      {children}
+    </ScrollView>
   );
 }
+
+ListFallback.Content = function ListFallbackContent({ children }: { children: ReactNode }) {
+  return <View style={{ paddingHorizontal: gutter }}>{children}</View>;
+};
 
 function ReadyList({
   header,
@@ -178,23 +212,21 @@ function ReadyList({
   setting,
   now,
   onAdd,
-  session,
   stale,
   search,
   savedState,
   searchHeader,
 }: TransactionListProps & {
-  session: string;
   stale: boolean;
   search: ReturnType<typeof useScopedSearch>;
   savedState: ReturnType<typeof useSavedRowState>;
-  searchHeader: () => ReactNode;
+  searchHeader: ReactElement;
 }) {
   const today = epochDay(now);
   const { accountId } = scope;
   const listRef = useRef<SectionList<ListItem, ListSection>>(null);
   const reduceMotion = useReducedMotion();
-  const list = useSuspenseInfiniteQuery(homeListQuery(scope, setting, now, session));
+  const list = useSuspenseInfiniteQuery(homeListQuery(scope, setting, now));
   const periods = list.data.pages.flatMap((page) => page.periods);
   const firstDay = list.data.pages[0].firstDay;
   const shownScope = list.data.pages[0].scope;
@@ -289,7 +321,7 @@ function ReadyList({
       onScrollToIndexFailed={saved.onScrollToIndexFailed}
       ListHeaderComponent={
         <View style={{ gap: 8 }}>
-          {hasAny ? searchHeader() : header}
+          {hasAny ? searchHeader : header}
           <RefreshNotice
             failed={!!list.error && !list.isFetching && !list.isFetchNextPageError}
             onRetry={() => void list.refetch()}

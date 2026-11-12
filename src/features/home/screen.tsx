@@ -24,7 +24,7 @@ import {
 import { cardIndex, deckCards } from './deck.ts';
 import { PeriodSheet } from './period-sheet.tsx';
 import { homePeriod, periodKey, type PeriodSetting } from './period.ts';
-import { cachePeriodSetting, homeDeckQuery } from './queries.ts';
+import { cachePeriodSetting, homeDeckQuery, homeListQuery } from './queries.ts';
 import { savePeriodSetting } from './read-home.ts';
 import { TransactionList } from './transaction-list.tsx';
 import { ActivitySkeleton, HomeLayout, RefreshNotice } from './view.tsx';
@@ -61,10 +61,14 @@ function Home({ reset }: { reset: () => void }) {
     if (accountId === scope) return;
     // A failed read for this scope must fetch again when the deck returns to it.
     reset();
+    void client.prefetchInfiniteQuery(
+      homeListQuery(cards[cardIndex(cards, accountId)], setting, now),
+    );
     setSelected(accountId);
   };
   const changePeriod = (next: PeriodSetting) => {
     reset();
+    void client.prefetchInfiniteQuery(homeListQuery(cards[index], next, now));
     setSetting(next);
     savePeriod.mutate(next);
   };

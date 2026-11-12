@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { act, fireEvent, render, screen, userEvent } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, render, screen, userEvent } from '@testing-library/react-native';
 import { router } from 'expo-router';
 import { AccessibilityInfo, SectionList, StyleSheet, View, Pressable, Text } from 'react-native';
 import {
@@ -14,6 +14,8 @@ import type { DeckAccount } from './deck.ts';
 import type { ListPeriod, ListRow, ListScope } from './list.ts';
 import { homeListPage, homeSearch, type HomeListPage } from './read-home.ts';
 import { TransactionList } from './transaction-list.tsx';
+import { homeListQuery } from './queries.ts';
+import type { PeriodSetting } from './period.ts';
 
 let mockFocused = true;
 jest.mock('expo-router', () => ({
@@ -72,49 +74,87 @@ const onAdd = jest.fn();
 let client: QueryClient;
 const allAccounts: ListScope = { face: 'pace', accountId: null };
 const trend = (accountId: number): ListScope => ({ face: 'trend', accountId });
-const list = (
-  scope: ListScope,
+function ListContent({
+  scope,
   header = <View />,
-  onSelect: (accountId: number) => void = onShowAccount,
-) => (
+  onSelect = onShowAccount,
+  setting = { range: 'month', monthStart: 1 },
+}: {
+  scope: ListScope;
+  header?: React.ReactElement;
+  onSelect?: (accountId: number) => void;
+  setting?: PeriodSetting;
+}) {
+  return (
+    <TransactionList
+      header={header}
+      scope={scope}
+      scopeName={accounts.find((account) => account.id === scope.accountId)?.name ?? 'All accounts'}
+      setting={setting}
+      now={now}
+      accounts={accounts}
+      onShowAccount={onSelect}
+      onAdd={onAdd}
+    />
+  );
+}
+const list = (scope: ListScope, header = <View />) => (
   <QueryClientProvider client={client}>
     <QueryErrorResetBoundary>
-      <TransactionList
-        header={header}
-        scope={scope}
-        scopeName={
-          accounts.find((account) => account.id === scope.accountId)?.name ?? 'All accounts'
-        }
-        setting={{ range: 'month', monthStart: 1 }}
-        now={now}
-        accounts={accounts}
-        onShowAccount={onSelect}
-        onAdd={onAdd}
-      />
+      <ListContent scope={scope} header={header} />
     </QueryErrorResetBoundary>
   </QueryClientProvider>
 );
 function ControlledList({ initialScope }: { initialScope: ListScope }) {
   const [scope, setScope] = useState(initialScope);
-  const select = (accountId: number) => {
+  const [setting, setSetting] = useState<PeriodSetting>({ range: 'month', monthStart: 1 });
+  const select = (accountId: number, reset: () => void) => {
+    reset();
     onShowAccount(accountId);
+    void client.prefetchInfiniteQuery(homeListQuery(trend(accountId), setting, now));
     setScope(trend(accountId));
   };
-  return list(
-    scope,
-    <View>
-      {accounts.map((account) => (
-        <Pressable
-          key={account.id}
-          accessibilityRole="button"
-          accessibilityLabel={`Show ${account.name}`}
-          onPress={() => select(account.id)}
-        >
-          <Text>{account.name}</Text>
-        </Pressable>
-      ))}
-    </View>,
-    select,
+  return (
+    <QueryClientProvider client={client}>
+      <QueryErrorResetBoundary>
+        {({ reset }) => (
+          <ListContent
+            scope={scope}
+            setting={setting}
+            onSelect={(accountId) => select(accountId, reset)}
+            header={
+              <View>
+                {accounts.map((account) => (
+                  <Pressable
+                    key={account.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Show ${account.name}`}
+                    onPress={() => select(account.id, reset)}
+                  >
+                    <Text>{account.name}</Text>
+                  </Pressable>
+                ))}
+                {(['month', 'week'] as const).map((range) => (
+                  <Pressable
+                    key={range}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Show ${range}`}
+                    onPress={() => {
+                      reset();
+                      const next = { ...setting, range };
+                      void client.prefetchInfiniteQuery(homeListQuery(scope, next, now));
+                      setSetting(next);
+                    }}
+                  >
+                    <Text>{range}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            }
+          />
+        )}
+      </QueryErrorResetBoundary>
+    </QueryClientProvider>
   );
 }
 
@@ -151,9 +191,13 @@ beforeEach(() => {
   mockFocused = true;
   jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(true);
   client = createQueryClient();
+  client.setDefaultOptions({
+    queries: { ...client.getDefaultOptions().queries, gcTime: Infinity },
+  });
   jest.spyOn(SectionList.prototype, 'scrollToLocation').mockImplementation(() => {});
 });
-afterEach(() => {
+afterEach(async () => {
+  await cleanup();
   jest.useRealTimers();
   client.clear();
   jest.restoreAllMocks();
@@ -196,7 +240,7 @@ test('the button becomes a spinner while the older period loads', async () => {
   expect(await screen.findByText('Lunch 2')).toBeOnTheScreen();
 });
 
-test('a return to an Account shows one period again', async () => {
+test('a return to an Account keeps its loaded periods', async () => {
   jest
     .mocked(homeListPage)
     .mockImplementation(async (scope, _setting, _today, steps) =>
@@ -204,16 +248,34 @@ test('a return to an Account shows one period again', async () => {
         ? page([row(scope === 2 ? 3 : 1)], { next: 1 })
         : page([row(2, { date: today - 20 })], { period: october }),
     );
-  const view = await render(list(trend(1)));
+  await render(<ControlledList initialScope={trend(1)} />);
   const user = userEvent.setup();
   await user.press(await screen.findByRole('button', { name: 'Show October' }));
   expect(await screen.findByText('Lunch 2')).toBeOnTheScreen();
-  await view.rerender(list(trend(2)));
+  await user.press(screen.getByRole('button', { name: 'Show Bank' }));
   expect(await screen.findByText('Lunch 3')).toBeOnTheScreen();
-  await view.rerender(list(trend(1)));
+  await user.press(screen.getByRole('button', { name: 'Show Cash' }));
   expect(await screen.findByText('Lunch 1')).toBeOnTheScreen();
+  expect(screen.getByText('Lunch 2')).toBeOnTheScreen();
+  expect(screen.queryByRole('button', { name: 'Show October' })).not.toBeOnTheScreen();
+});
+
+test('returning to a range keeps its loaded older periods', async () => {
+  jest.mocked(homeListPage).mockImplementation(async (_account, setting, _today, steps) => {
+    if (setting.range === 'week') return page([row(3)]);
+    return steps === 0
+      ? page([row(1)], { next: 1 })
+      : page([row(2, { date: today - 20 })], { period: october });
+  });
+  await render(<ControlledList initialScope={trend(1)} />);
+  const user = userEvent.setup();
+  await user.press(await screen.findByRole('button', { name: 'Show October' }));
+  await screen.findByText('Lunch 2');
+  await user.press(screen.getByRole('button', { name: 'Show week' }));
+  await screen.findByText('Lunch 3');
   expect(screen.queryByText('Lunch 2')).not.toBeOnTheScreen();
-  expect(screen.getByRole('button', { name: 'Show October' })).toBeOnTheScreen();
+  await user.press(screen.getByRole('button', { name: 'Show month' }));
+  expect(await screen.findByText('Lunch 2')).toBeOnTheScreen();
 });
 
 test('All accounts with no Transactions offers Quick add and hides search', async () => {
@@ -493,7 +555,22 @@ test('an account change hides old rows from actions until its period arrives', a
   expect(screen.queryByText('Lunch 1')).not.toBeOnTheScreen();
 });
 
-test('initial failure retries locally and a return to a failed Account reads again', async () => {
+test('initial failure retries locally and preserves the search text', async () => {
+  jest.spyOn(console, 'error').mockImplementation(() => {});
+  jest
+    .mocked(homeListPage)
+    .mockRejectedValueOnce(Error('disk unavailable'))
+    .mockResolvedValue(page([row(1)]));
+  await render(<ControlledList initialScope={trend(1)} />);
+  await screen.findByText('Couldn’t load account activity');
+  const user = userEvent.setup();
+  await user.type(screen.getByRole('search'), 'lunch');
+  await user.press(screen.getByRole('button', { name: 'Retry' }));
+  expect(await screen.findByText('Lunch 1')).toBeOnTheScreen();
+  expect(screen.getByRole('search')).toHaveDisplayValue('lunch');
+});
+
+test('returning to an Account whose first read failed tries it again', async () => {
   jest.spyOn(console, 'error').mockImplementation(() => {});
   let failed = true;
   jest.mocked(homeListPage).mockImplementation(async (account) => {
@@ -501,18 +578,8 @@ test('initial failure retries locally and a return to a failed Account reads aga
     return page([row(account === 2 ? 2 : 1)]);
   });
   await render(<ControlledList initialScope={trend(1)} />);
-  expect(await screen.findByText('Couldn’t load account activity')).toBeOnTheScreen();
-  const user = userEvent.setup();
-  await user.type(screen.getByRole('search'), 'lunch');
-  failed = false;
-  await user.press(screen.getByRole('button', { name: 'Retry' }));
-  expect(await screen.findByText('Lunch 1')).toBeOnTheScreen();
-  expect(screen.getByRole('search')).toHaveDisplayValue('lunch');
-  await user.press(screen.getByRole('button', { name: 'Show Bank' }));
-  await screen.findByText('Lunch 2');
-  failed = true;
-  await user.press(screen.getByRole('button', { name: 'Show Cash' }));
   await screen.findByText('Couldn’t load account activity');
+  const user = userEvent.setup();
   await user.press(screen.getByRole('button', { name: 'Show Bank' }));
   await screen.findByText('Lunch 2');
   failed = false;
