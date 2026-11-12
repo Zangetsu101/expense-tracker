@@ -44,7 +44,7 @@ export default function CategoriesScreen() {
   );
 
   const save = async (input: CreateCategoryInput, editing?: ManagedCategory) => {
-    if (editing) await updateCategory(editing.id, input.name, input.iconKey);
+    if (editing) await updateCategory(editing.id, input.name, input.emoji);
     else await createCategory(input);
     // A committed write must never be reported as a failed save: retry only the read.
     void load();

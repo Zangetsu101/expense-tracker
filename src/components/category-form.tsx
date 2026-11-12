@@ -13,7 +13,7 @@ import { FormButton, FormInput, JoinedChoice } from './form-controls';
 import { AppSheet } from './app-sheet';
 import { categoryPath } from '../lib/category-taxonomy';
 import {
-  maxCategoryIconLength,
+  maxCategoryEmojiLength,
   type ManagedCategory,
   type CategoryType,
   type CreateCategoryInput,
@@ -35,7 +35,7 @@ export function CategoryForm({ items, initialParentId = null, editing, onSave, o
   const parent = items.find((item) => item.id === (editing ? editing.parentId : initialParentId));
   const [focused, setFocused] = useState(false);
   const [name, setName] = useState(editing?.name ?? '');
-  const [icon, setIcon] = useState(editing?.iconKey ?? '');
+  const [emoji, setEmoji] = useState(editing?.emoji ?? '');
   const [topLevelKind, setTopLevelKind] = useState<Kind>('EXPENSE');
   const kind = editing?.type ?? parent?.type ?? topLevelKind;
   const parentId = parent?.id ?? null;
@@ -72,7 +72,7 @@ export function CategoryForm({ items, initialParentId = null, editing, onSave, o
     setPending(true);
     setError('');
     try {
-      await onSave({ name: trimmed, type: kind, parentId, iconKey: icon.trim() || null });
+      await onSave({ name: trimmed, type: kind, parentId, emoji: emoji.trim() || null });
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Could not save the category. Try again.');
     } finally {
@@ -136,14 +136,14 @@ export function CategoryForm({ items, initialParentId = null, editing, onSave, o
           />
           <FormInput
             accessibilityLabel="Emoji"
-            placeholder={parent?.iconKey ? `Emoji (${parent.iconKey} from parent)` : 'Emoji'}
-            value={icon}
+            placeholder={parent?.emoji ? `Emoji (${parent.emoji} from parent)` : 'Emoji'}
+            value={emoji}
             editable={!pending}
             onChangeText={(value) => {
-              setIcon(value);
+              setEmoji(value);
               setError('');
             }}
-            maxLength={maxCategoryIconLength}
+            maxLength={maxCategoryEmojiLength}
             returnKeyType="done"
           />
           {editing || parent ? (

@@ -7,7 +7,7 @@ export type CreateCategoryInput = {
   type: CategoryType;
   parentId?: number | null;
   /** An emoji for the list on Home. */
-  iconKey?: string | null;
+  emoji?: string | null;
 };
 export type ManagedCategory = {
   id: number;
@@ -15,24 +15,24 @@ export type ManagedCategory = {
   type: CategoryType;
   parentId: number | null;
   parentName: string | null;
-  iconKey: string | null;
+  emoji: string | null;
   needsReview: number;
 };
 
 /** The longest emoji in UTF-16 units. A family emoji uses 11. */
-export const maxCategoryIconLength = 16;
+export const maxCategoryEmojiLength = 16;
 
 /** Trims the emoji. An empty emoji is no emoji. */
-function categoryIcon(value: string | null | undefined): string | null {
-  const icon = value?.trim() || null;
-  if (icon && icon.length > maxCategoryIconLength)
-    throw new Error(`Use ${maxCategoryIconLength} characters or fewer for the emoji.`);
-  return icon;
+function normalizeEmoji(value: string | null | undefined): string | null {
+  const emoji = value?.trim() || null;
+  if (emoji && emoji.length > maxCategoryEmojiLength)
+    throw new Error(`Use ${maxCategoryEmojiLength} characters or fewer for the emoji.`);
+  return emoji;
 }
 
 export async function listCategoriesByRecentUse(type: CategoryType): Promise<ManagedCategory[]> {
   return (await database()).getAllAsync<ManagedCategory>(
-    `SELECT c.id, c.name, c.type, c.parentId, p.name AS parentName, c.iconKey, c.needsReview
+    `SELECT c.id, c.name, c.type, c.parentId, p.name AS parentName, c.iconKey AS emoji, c.needsReview
        FROM categories c LEFT JOIN categories p ON p.id = c.parentId
        LEFT JOIN transactions t ON t.id = (
          SELECT id FROM transactions WHERE categoryId = c.id AND type = c.type
@@ -45,7 +45,7 @@ export async function listCategoriesByRecentUse(type: CategoryType): Promise<Man
 
 export async function listManagedCategories(): Promise<ManagedCategory[]> {
   const db = await database();
-  return db.getAllAsync<ManagedCategory>(`SELECT c.id, c.name, c.type, c.parentId, p.name AS parentName, c.iconKey, c.needsReview
+  return db.getAllAsync<ManagedCategory>(`SELECT c.id, c.name, c.type, c.parentId, p.name AS parentName, c.iconKey AS emoji, c.needsReview
     FROM categories c LEFT JOIN categories p ON p.id = c.parentId
     ORDER BY c.type, c.name COLLATE NOCASE, c.id`);
 }
@@ -58,7 +58,7 @@ export async function createCategory(input: CreateCategoryInput): Promise<void> 
   const parentId = input.parentId ?? null;
   if (parentId !== null && (!Number.isSafeInteger(parentId) || parentId <= 0))
     throw new Error('Invalid parent Category.');
-  const iconKey = categoryIcon(input.iconKey);
+  const emoji = normalizeEmoji(input.emoji);
   const db = await database();
   await db.withExclusiveTransactionAsync(async (tx) => {
     if (parentId !== null) {
@@ -76,22 +76,22 @@ export async function createCategory(input: CreateCategoryInput): Promise<void> 
     if (existing) throw new Error('A Category with this name and type already exists.');
     await tx.runAsync(
       'INSERT INTO categories (name, type, parentId, iconKey) VALUES (?, ?, ?, ?)',
-      [name, input.type, parentId, iconKey],
+      [name, input.type, parentId, emoji],
     );
   });
   notifyDataChanged();
 }
 
-/** Changes the name, and the emoji when `inputIcon` is given. */
+/** Changes the name, and the emoji when `inputEmoji` is given. */
 export async function updateCategory(
   id: number,
   inputName: string,
-  inputIcon?: string | null,
+  inputEmoji?: string | null,
 ): Promise<void> {
   if (!Number.isSafeInteger(id) || id <= 0) throw new Error('Invalid Category.');
   const name = inputName.trim();
   if (!name || name.length > 100) throw new Error('Enter a category name (up to 100 characters).');
-  const iconKey = inputIcon === undefined ? undefined : categoryIcon(inputIcon);
+  const emoji = inputEmoji === undefined ? undefined : normalizeEmoji(inputEmoji);
   const db = await database();
   await db.withExclusiveTransactionAsync(async (tx) => {
     const category = await tx.getFirstAsync<{ type: CategoryType }>(
@@ -104,12 +104,12 @@ export async function updateCategory(
       [name, category.type, id],
     );
     if (duplicate) throw new Error('A Category with this name and type already exists.');
-    if (iconKey === undefined)
+    if (emoji === undefined)
       await tx.runAsync('UPDATE categories SET name = ? WHERE id = ?', [name, id]);
     else
       await tx.runAsync('UPDATE categories SET name = ?, iconKey = ? WHERE id = ?', [
         name,
-        iconKey,
+        emoji,
         id,
       ]);
   });

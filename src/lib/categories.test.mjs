@@ -97,7 +97,7 @@ test('creates descendants at any depth and validates failed writes without alter
   assert.deepEqual(await listManagedCategories(), before);
 });
 
-test('rename changes only the name and preserves descendants, type, and review status', async () => {
+test('update changes only the name and preserves descendants, type, and review status', async () => {
   const before = await listManagedCategories();
   const category = before.find((category) => category.name === 'Food');
   db.prepare('UPDATE categories SET needsReview = 1 WHERE id = ?').run(category.id);
@@ -116,7 +116,7 @@ test('rename changes only the name and preserves descendants, type, and review s
   db.prepare('UPDATE categories SET needsReview = 0 WHERE id = ?').run(category.id);
 });
 
-test('rename validates names and IDs and rejects same-type duplicates without changing data', async () => {
+test('update validates names and IDs and rejects same-type duplicates without changing data', async () => {
   const before = await listManagedCategories();
   for (const [id, name] of [
     [2, ' '],
@@ -137,25 +137,25 @@ test('rename validates names and IDs and rejects same-type duplicates without ch
   await updateCategory(2, 'Food');
 });
 
-test('a Category keeps an emoji that create and rename set, and an empty emoji is none', async () => {
-  await createCategory({ name: 'Coffee', type: 'EXPENSE', iconKey: ' ☕ ' });
+test('a Category keeps an emoji that create and update set, and an empty emoji is none', async () => {
+  await createCategory({ name: 'Coffee', type: 'EXPENSE', emoji: ' ☕ ' });
   const coffee = (await listManagedCategories()).find((item) => item.name === 'Coffee');
-  assert.equal(coffee.iconKey, '☕');
+  assert.equal(coffee.emoji, '☕');
   await updateCategory(coffee.id, 'Cafes');
   assert.equal(
-    (await listManagedCategories()).find((item) => item.id === coffee.id).iconKey,
+    (await listManagedCategories()).find((item) => item.id === coffee.id).emoji,
     '☕',
-    'a rename without an emoji keeps the emoji',
+    'an update without an emoji keeps the emoji',
   );
   await updateCategory(coffee.id, 'Cafes', '👨‍👩‍👧‍👦');
-  assert.equal((await listManagedCategories()).find((item) => item.id === coffee.id).iconKey, '👨‍👩‍👧‍👦');
+  assert.equal((await listManagedCategories()).find((item) => item.id === coffee.id).emoji, '👨‍👩‍👧‍👦');
   await updateCategory(coffee.id, 'Cafes', '  ');
-  assert.equal((await listManagedCategories()).find((item) => item.id === coffee.id).iconKey, null);
+  assert.equal((await listManagedCategories()).find((item) => item.id === coffee.id).emoji, null);
   await assert.rejects(
     updateCategory(coffee.id, 'Cafes', 'x'.repeat(17)),
     /characters or fewer for the emoji/,
   );
-  await assert.rejects(createCategory({ name: 'Tea', type: 'EXPENSE', iconKey: 'x'.repeat(17) }));
+  await assert.rejects(createCategory({ name: 'Tea', type: 'EXPENSE', emoji: 'x'.repeat(17) }));
   db.prepare('DELETE FROM categories WHERE id = ?').run(coffee.id);
 });
 
