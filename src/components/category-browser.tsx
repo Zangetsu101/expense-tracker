@@ -454,8 +454,8 @@ export function CategoryBrowser({
       <Text accessibilityLiveRegion="polite" style={{ color: c.muted }}>
         Selected: {context}
         {selectedItem
-          ? ' · Add creates a child; Edit renames.'
-          : ' · Select a category to rename it.'}
+          ? ' · Add creates a child; Edit changes the name and the emoji.'
+          : ' · Select a category to edit it.'}
       </Text>
     </View>
   );
@@ -512,7 +512,7 @@ export function CategoryBrowser({
             await onSave(input, editing);
             const parentId = input.parentId;
             if (parentId != null) setOpen((current) => [...new Set([...current, parentId])]);
-            setNotice(`${input.name} ${editing ? 'renamed' : 'added'}.`);
+            setNotice(`${input.name} ${editing ? 'saved' : 'added'}.`);
             setAdding(false);
           }}
         />

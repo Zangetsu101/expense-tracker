@@ -5,7 +5,7 @@ import { CategoryBrowser } from '@/components/category-browser';
 import {
   createCategory,
   listManagedCategories,
-  renameCategory,
+  updateCategory,
   type CreateCategoryInput,
   type ManagedCategory,
 } from '@/lib/categories';
@@ -44,7 +44,7 @@ export default function CategoriesScreen() {
   );
 
   const save = async (input: CreateCategoryInput, editing?: ManagedCategory) => {
-    if (editing) await renameCategory(editing.id, input.name);
+    if (editing) await updateCategory(editing.id, input.name, input.iconKey);
     else await createCategory(input);
     // A committed write must never be reported as a failed save: retry only the read.
     void load();

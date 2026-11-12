@@ -21,7 +21,7 @@ const mocks = {
   '@/components/category-browser': `import React from 'react'; export const CategoryBrowser=p=>React.createElement('CategoryBrowser',p);`,
   '@/lib/accounts': `export const listManagedAccounts=()=>globalThis.__tabRefreshTest.read('accounts'); export const createAccount=async()=>{}; export const setFavoriteAccount=async()=>{};`,
   '@/lib/reports': `export const monthlyReport=()=>globalThis.__tabRefreshTest.read('reports'); export const accountBalances=today=>globalThis.__tabRefreshTest.read('balances',today);`,
-  '@/lib/categories': `export const listManagedCategories=()=>globalThis.__tabRefreshTest.read('categories'); export const createCategory=async()=>{}; export const renameCategory=async()=>{};`,
+  '@/lib/categories': `export const listManagedCategories=()=>globalThis.__tabRefreshTest.read('categories'); export const createCategory=async()=>{}; export const updateCategory=async()=>{};`,
 };
 const hooks = registerHooks({
   resolve(specifier, context, next) {
