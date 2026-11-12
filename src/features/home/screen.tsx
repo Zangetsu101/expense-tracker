@@ -1,4 +1,4 @@
-import { Suspense, use, useDeferredValue, useRef, useState, type ReactNode } from 'react';
+import { use, useDeferredValue, useRef, useState, type ReactNode } from 'react';
 import { FlatList, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { router } from 'expo-router';
 import {
@@ -8,7 +8,7 @@ import {
   useQueryClient,
   useSuspenseQuery,
 } from '@tanstack/react-query';
-import { ErrorBoundary } from '@/components/query-error-boundary';
+import { QueryBoundary } from '@/components/query-error-boundary';
 import { defaultCurrencyCode } from '@/lib/currency';
 import { epochDay } from '@/lib/database';
 import { QueryTimeContext } from '@/lib/query-time';
@@ -124,22 +124,21 @@ function Home({ reset }: { reset: () => void }) {
           <PageDots count={cards.length} index={index} />
           <View style={{ paddingHorizontal: pageGutter, paddingTop: 6 }}>
             <SearchField accountId={scope} name={scope === null ? 'all transactions' : name} />
-            <ErrorBoundary
+            <QueryBoundary
+              reset={reset}
               resetKey={`${shownScope}:${today}`}
-              onReset={reset}
-              fallback={(retry) => <ActivityError retry={retry} />}
+              pending={<ActivitySkeleton />}
+              error={(retry) => <ActivityError retry={retry} />}
             >
-              <Suspense fallback={<ActivitySkeleton />}>
-                {/* A new reader for each scope: TanStack Query does not fetch again when a
-                    mounted reader switches to a failed query, even after reset(). */}
-                <ActivityContent
-                  key={String(shownScope)}
-                  accountId={shownScope}
-                  now={now}
-                  muted={scope !== shownScope}
-                />
-              </Suspense>
-            </ErrorBoundary>
+              {/* A new reader for each scope: TanStack Query does not fetch again when a
+                  mounted reader switches to a failed query, even after reset(). */}
+              <ActivityContent
+                key={String(shownScope)}
+                accountId={shownScope}
+                now={now}
+                muted={scope !== shownScope}
+              />
+            </QueryBoundary>
           </View>
         </View>
       </ScrollView>
@@ -208,11 +207,13 @@ export default function HomeScreen() {
   return (
     <QueryErrorResetBoundary>
       {({ reset }) => (
-        <ErrorBoundary onReset={reset} fallback={(retry) => <HomeScreenError retry={retry} />}>
-          <Suspense fallback={<HomeScreenFallback />}>
-            <Home reset={reset} />
-          </Suspense>
-        </ErrorBoundary>
+        <QueryBoundary
+          reset={reset}
+          pending={<HomeScreenFallback />}
+          error={(retry) => <HomeScreenError retry={retry} />}
+        >
+          <Home reset={reset} />
+        </QueryBoundary>
       )}
     </QueryErrorResetBoundary>
   );
