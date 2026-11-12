@@ -44,7 +44,7 @@ layout; presentation mocks establish only the JavaScript behavior around them.
 ## Examples and compatibility
 
 For search and controlled selection, see
-[`account-picker.test.tsx`](../src/features/home/account-picker.test.tsx). For pending
+[`screen.test.tsx`](../src/features/transaction-search/screen.test.tsx). For pending
 operations, retry, and native confirmation callbacks, see
 [`settings-data-actions.test.tsx`](../src/components/settings-data-actions.test.tsx).
 

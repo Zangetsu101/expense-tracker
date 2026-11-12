@@ -14,7 +14,6 @@ const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const root = new URL('../../../', import.meta.url);
 const mocks = {
-  '@/features/quick-add': `export const invalidateQuickAdd=async()=>{};`,
   'react-native': `import React from 'react';
     export const View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator';
     export const FlatList=p=>React.createElement('FlatList',p,p.data.map((item,index)=>React.createElement(React.Fragment,{key:p.keyExtractor(item)},p.renderItem({item,index}))));

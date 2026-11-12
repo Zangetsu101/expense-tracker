@@ -50,7 +50,3 @@ export function homeListQuery(accountId: number | null, now: Date) {
 }
 
 export type HomeList = Awaited<ReturnType<typeof homeData>> & { accountId: number | null };
-
-export function invalidateHome(client: QueryClient) {
-  return client.invalidateQueries({ queryKey: homeQueryKey });
-}

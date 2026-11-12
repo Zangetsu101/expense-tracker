@@ -29,9 +29,12 @@ const connector = { length: 14, radius: t.radius.elbow };
 export function CategoryBrowser({
   items,
   onSave,
+  disabled = false,
 }: {
   items: ManagedCategory[];
   onSave: (input: CreateCategoryInput, editing?: ManagedCategory) => Promise<void>;
+  /** Disables Add and Edit, for example while the items refresh. */
+  disabled?: boolean;
 }) {
   const longPressSelected = useRef(false);
   const [focused, setFocused] = useState(false);
@@ -447,8 +450,8 @@ export function CategoryBrowser({
           Browse categories
         </Text>
         <View style={{ marginLeft: 'auto', flexDirection: 'row', gap: 8 }}>
-          {button('Add', () => add(selectedItem?.id ?? null), true)}
-          {button('Edit', edit, false, !selectedItem)}
+          {button('Add', () => add(selectedItem?.id ?? null), true, disabled)}
+          {button('Edit', edit, false, disabled || !selectedItem)}
         </View>
       </View>
       <Text accessibilityLiveRegion="polite" style={{ color: c.muted }}>

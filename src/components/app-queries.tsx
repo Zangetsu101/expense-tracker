@@ -3,8 +3,6 @@ import { AppState } from 'react-native';
 import { focusManager, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { createQueryClient } from '@/lib/query-client';
 import { QueryTimeContext } from '@/lib/query-time';
-import { invalidateHome } from '@/features/home';
-import { invalidateQuickAdd } from '@/features/quick-add';
 import { subscribeDataChanges } from '@/lib/data-changes';
 
 export function AppQueryLifecycle({ children }: { children: ReactNode }) {
@@ -19,11 +17,10 @@ export function AppQueryLifecycle({ children }: { children: ReactNode }) {
       }
       if (next !== 'inactive') previous = next;
     });
-    // Bridge committed SQLite writes to the query cache until mutation onSuccess handlers own invalidation.
+    // Keep this bridge. Import, restore, and background backup write outside React.
     const unsubscribe = subscribeDataChanges(() => {
       setNow(new Date());
-      void invalidateHome(client);
-      void invalidateQuickAdd(client);
+      void client.invalidateQueries();
     });
     return () => {
       lifecycle.remove();
