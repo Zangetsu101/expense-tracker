@@ -13,7 +13,7 @@ const tx = {
 globalThis.__displayRateDb = { ...tx, withExclusiveTransactionAsync: async (fn) => fn(tx) };
 registerHooks({
   resolve(specifier, context, next) {
-    if (specifier === '@/lib/database') return { url: 'test:database', shortCircuit: true };
+    if (specifier === './database.ts') return { url: 'test:database', shortCircuit: true };
     return next(specifier, context);
   },
   load(url, context, next) {
@@ -34,8 +34,8 @@ registerHooks({
     return next(url, context);
   },
 });
-const { combinedMinor, combinedCategorySpending, saveDisplayRate, getDisplayRate } =
-  await import('./display-rate.ts');
+const { combinedMinor, combinedCategorySpending } = await import('./display-rate.ts');
+const { saveDisplayRate, getDisplayRate } = await import('./display-rate-store.ts');
 
 const rate = { base: 'USD', quote: 'BDT', rate: 100 };
 test('combined totals require an exact pair and explicit rate', () => {

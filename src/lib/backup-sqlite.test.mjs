@@ -42,6 +42,7 @@ registerHooks({
       'expo-document-picker': 'picker',
       'expo-file-system/legacy': 'legacy',
       'expo-file-system': 'file',
+      'expo-sharing': 'sharing',
     };
     if (mocks[specifier]) return { url: `test:${mocks[specifier]}`, shortCircuit: true };
     const path = specifier.startsWith('@/lib/')
@@ -58,6 +59,12 @@ registerHooks({
       return {
         format: 'module',
         source: 'export const openDatabaseAsync = async () => globalThis.__backupDb;',
+        shortCircuit: true,
+      };
+    if (url === 'test:sharing')
+      return {
+        format: 'module',
+        source: 'export const isAvailableAsync = async () => true, shareAsync = async () => {};',
         shortCircuit: true,
       };
     if (url === 'test:picker')
@@ -356,9 +363,13 @@ test('failed SQLite replacement rolls back every table including settings and im
 });
 
 test('snapshot reads every table in one transaction and restore preserves device-local scheduling', async () => {
-  const schedule = JSON.stringify({ interval: 'weekly', directoryUri: 'content://private-folder' });
+  const schedule = JSON.stringify({
+    status: 'connected',
+    interval: 'weekly',
+    account: { email: 'private@example.com', photoUrl: null },
+  });
   await adapter.runAsync(
-    "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('scheduledBackups', ?)",
+    "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('driveBackups', ?)",
     [schedule],
   );
   const getAll = adapter.getAllAsync;
@@ -378,10 +389,10 @@ test('snapshot reads every table in one transaction and restore preserves device
     adapter.getAllAsync = getAll;
     adapter.getFirstAsync = getFirst;
   }
-  assert.ok(!encodeBackup(snapshot).includes('private-folder'));
+  assert.ok(!encodeBackup(snapshot).includes('private@example.com'));
   await backupStore.replace(snapshot);
   assert.equal(
-    (await adapter.getFirstAsync("SELECT value FROM app_settings WHERE key = 'scheduledBackups'"))
+    (await adapter.getFirstAsync("SELECT value FROM app_settings WHERE key = 'driveBackups'"))
       .value,
     schedule,
   );

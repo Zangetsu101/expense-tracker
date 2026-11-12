@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted. The folder destination is superseded by [0007](0007-google-drive-backups.md).
 
 ## Decision
 

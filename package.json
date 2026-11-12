@@ -2,9 +2,10 @@
   "name": "expense-tracker-expo",
   "main": "./index.js",
   "type": "module",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "dependencies": {
     "@expo/ui": "~57.0.20",
+    "@react-native-google-signin/google-signin": "16.1.5",
     "@tanstack/react-query": "^5.106.1",
     "expo": "~57.0.25",
     "expo-background-task": "~57.0.22",
@@ -34,12 +35,14 @@
     "react-native-reanimated": "4.5.1",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",
+    "react-native-svg": "15.15.4",
     "react-native-web": "~0.21.0",
     "react-native-worklets": "0.10.1"
   },
   "devDependencies": {
     "@testing-library/react-native": "^14.1.0",
     "@types/jest": "29.5.14",
+    "@types/node": "26.6.2",
     "@types/react": "~19.2.2",
     "eslint": "^9.39.5",
     "eslint-config-expo": "~57.0.2",
@@ -65,10 +68,12 @@
     "lint:fix": "pnpm lint --fix",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
-    "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm test:backup",
+    "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm test:backup && pnpm native:fingerprint",
     "test:node": "node --test src/lib/*.test.mjs src/components/*.test.mjs src/features/*/*.test.mjs scripts/*.test.mjs",
     "test:ui": "jest --runInBand",
-    "android:apk:emulator": "bash scripts/build-emulator-apk.sh"
+    "android:apk:emulator": "bash scripts/build-emulator-apk.sh",
+    "release:bump": "node scripts/release-bump.mjs",
+    "native:fingerprint": "node scripts/native-fingerprint.mjs"
   },
   "lint-staged": {
     "*.{js,cjs,mjs,jsx,ts,tsx}": [

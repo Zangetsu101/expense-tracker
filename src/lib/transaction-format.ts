@@ -1,3 +1,5 @@
+import { currencySymbol } from './currency.ts';
+
 export function formatTransactionAmount(
   type: 'EXPENSE' | 'INCOME' | 'TRANSFER',
   amountMinor: number,
@@ -69,7 +71,7 @@ export function formatMoney(
 ): string {
   if (currency !== 'BDT') return formatTransactionAmount(type, minor, currency);
   const sign = type === 'EXPENSE' ? '−' : type === 'INCOME' ? '+' : '';
-  return `${sign}৳${new Intl.NumberFormat('en-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(minor / 100)}`;
+  return `${sign}${currencySymbol(currency)}${new Intl.NumberFormat('en-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(minor / 100)}`;
 }
 
 export function formatBalance(minor: number, currency: string): string {

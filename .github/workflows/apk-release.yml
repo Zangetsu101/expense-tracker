@@ -7,6 +7,10 @@ on:
         description: Build an x86_64 emulator test APK (always used outside main)
         type: boolean
         default: false
+      signed_test:
+        description: Build a signed ARM64 test APK as a workflow artifact, with no release (any branch)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -17,31 +21,34 @@ concurrency:
 
 jobs:
   build:
-    if: github.ref == 'refs/heads/main' && !inputs.emulator
+    if: inputs.signed_test || (github.ref == 'refs/heads/main' && !inputs.emulator)
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
+      checks: read
       contents: write
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
+      # The release notes need the full history and the tags to find the last release tag.
       - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
       - name: Validate release version
+        if: ${{ !inputs.signed_test }}
         run: |
           node --input-type=module <<'JS'
-          import { readFileSync, appendFileSync } from 'node:fs';
-          const { expo } = JSON.parse(readFileSync('app.json', 'utf8'));
-          const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
-          if (!/^\d+\.\d+\.\d+$/.test(expo.version) || pkg.version !== expo.version) {
-            throw new Error('app.json and package.json must have the same x.y.z version.');
-          }
-          if (!Number.isSafeInteger(expo.android.versionCode) || expo.android.versionCode < 1) {
-            throw new Error('Android versionCode must be a positive integer.');
-          }
-          appendFileSync(process.env.GITHUB_ENV, `RELEASE_TAG=v${expo.version}\n`);
+          import { appendFileSync, readFileSync } from 'node:fs';
+          import { readRelease } from './scripts/release-version.mjs';
+          const { version } = readRelease({
+            appJson: readFileSync('app.json', 'utf8'),
+            packageJson: readFileSync('package.json', 'utf8'),
+          });
+          appendFileSync(process.env.GITHUB_ENV, `RELEASE_TAG=v${version}\n`);
           JS
       - name: Reject an existing release or tag
+        if: ${{ !inputs.signed_test }}
         run: |
           gh api --paginate "repos/$GH_REPO/releases" --jq '.[].tag_name' > "$RUNNER_TEMP/release-tags"
           if grep -Fxq "$RELEASE_TAG" "$RUNNER_TEMP/release-tags"; then
@@ -53,28 +60,16 @@ jobs:
             echo '::error::A tag already exists for this version. Bump the version before releasing again.'
             exit 1
           fi
-      - uses: pnpm/action-setup@v6.1.1
-      - uses: actions/setup-node@v7.1.0
-        with:
-          node-version: '22'
-          cache: pnpm
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '21'
-      - uses: android-actions/setup-android@v3
-        with:
-          packages: platform-tools platforms;android-36 build-tools;36.0.0
-          log-accepted-android-sdk-licenses: false
-      - name: Configure Gradle memory and failure handling
+      - name: Require a successful check job for the commit
+        if: ${{ !inputs.signed_test }}
         run: |
-          mkdir -p "$HOME/.gradle"
-          cat >> "$HOME/.gradle/gradle.properties" <<'EOF_GRADLE'
-          org.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=1g -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8
-          org.gradle.workers.max=2
-          org.gradle.daemon=false
-          EOF_GRADLE
-      - run: pnpm install --frozen-lockfile
+          passed=$(gh api "repos/$GH_REPO/commits/$GITHUB_SHA/check-runs?check_name=check&filter=latest" \
+            --jq 'any(.check_runs[]; .conclusion == "success")')
+          if [ "$passed" != true ]; then
+            echo '::error::The commit has no successful check job. Wait for the checks to pass, then run the release again.'
+            exit 1
+          fi
+      - uses: ./.github/actions/setup-android-build
       - name: Stamp the verified running release commit
         run: node scripts/stamp-release.mjs
       - name: Build signed ARM64 APK
@@ -95,48 +90,45 @@ jobs:
           unset ANDROID_KEYSTORE_BASE64
           pnpm android:apk
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs dist/*.apk
-      - name: Create draft GitHub prerelease
+      - name: Upload signed test APK
+        if: ${{ inputs.signed_test }}
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: expense-tracker-arm64-signed-test-${{ github.sha }}
+          path: |
+            dist/*.apk
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+      # A signed test run writes the same notes to the step summary as a dry run.
+      - name: Write the release notes
+        env:
+          SIGNED_TEST: ${{ inputs.signed_test }}
         run: |
-          cat > "$RUNNER_TEMP/release-notes.md" <<EOF_NOTES
-          Signed ARM64 Android APK built from commit $GITHUB_SHA.
-
-          Back up app data, install the APK over the existing app, and test before publishing this draft.
-          Supports ARM64 Android devices only. The .sha256 file contains the APK checksum.
-          EOF_NOTES
+          node scripts/release-notes.mjs dist/*-arm64.apk > "$RUNNER_TEMP/release-notes.md"
+          if [ "$SIGNED_TEST" = true ]; then
+            echo '## Release notes (dry run: this run creates no release)' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo '## Release notes of the draft release' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          cat "$RUNNER_TEMP/release-notes.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Create draft GitHub prerelease
+        if: ${{ !inputs.signed_test }}
+        run: |
           gh release create "$RELEASE_TAG" dist/*.apk dist/*.sha256 \
             --target "$GITHUB_SHA" --title "Expense Tracker ${RELEASE_TAG#v}" \
             --draft --prerelease --notes-file "$RUNNER_TEMP/release-notes.md"
 
   emulator:
-    if: github.ref != 'refs/heads/main' || inputs.emulator
+    if: ${{ !inputs.signed_test && (github.ref != 'refs/heads/main' || inputs.emulator) }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
       EXPENSE_TRACKER_BUILD_TARGET: emulator
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: pnpm/action-setup@v6.1.1
-      - uses: actions/setup-node@v7.1.0
-        with:
-          node-version: '22'
-          cache: pnpm
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '21'
-      - uses: android-actions/setup-android@v3
-        with:
-          packages: platform-tools platforms;android-36 build-tools;36.0.0
-          log-accepted-android-sdk-licenses: false
-      - name: Configure Gradle memory and failure handling
-        run: |
-          mkdir -p "$HOME/.gradle"
-          cat >> "$HOME/.gradle/gradle.properties" <<'EOF_GRADLE'
-          org.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=1g -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8
-          org.gradle.workers.max=2
-          org.gradle.daemon=false
-          EOF_GRADLE
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-android-build
       - name: Stamp the verified running release commit
         run: node scripts/stamp-release.mjs
       - name: Build isolated x86_64 APK with bundled JavaScript

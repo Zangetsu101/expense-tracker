@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      message:
+        description: Description of the tested JavaScript/asset changes
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# Concurrency is set on each job. A cancel-in-progress group on the workflow
+# would also cancel a publish job that is in progress.
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: checks-${{ github.event_name }}-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: pnpm/action-setup@v6.1.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The native fingerprint check compares with the file at the release tag of
+      # this version. The checkout has no tags, so fetch only that tag if it exists.
+      - name: Fetch the release tag of the app version
+        run: |
+          tag="v$(node -p "require('./app.json').expo.version")"
+          status=0
+          git ls-remote --exit-code --tags origin "refs/tags/$tag" > /dev/null || status=$?
+          if [ "$status" -eq 0 ]; then
+            git fetch --no-tags --depth=1 origin "+refs/tags/$tag:refs/tags/$tag"
+          elif [ "$status" -ne 2 ]; then
+            exit "$status"
+          fi
+      - name: Typecheck, lint, formatting, tests, backup fixtures, and native fingerprint
+        run: pnpm check
+
+  publish:
+    needs: check
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: ota-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: pnpm/action-setup@v6.1.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Require Expo credentials
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo '::error::Add the EXPO_TOKEN repository secret before publishing.'
+            exit 1
+          fi
+      - uses: expo/expo-github-action@9.0.1
+        with:
+          eas-version: '27.4.1'
+          packager: npm
+          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Stamp the verified running release commit
+        run: node scripts/stamp-release.mjs
+      - name: Publish Android production update
+        env:
+          UPDATE_MESSAGE: ${{ inputs.message || 'Automatic update from main' }}
+        run: >-
+          eas update --channel production --platform android
+          --environment production --non-interactive
+          --message "$UPDATE_MESSAGE ($GITHUB_SHA)"

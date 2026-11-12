@@ -1,3 +1,4 @@
+import { defaultCurrencyCode } from './currency.ts';
 import { notifyDataChanged } from './data-changes.ts';
 import * as SQLite from 'expo-sqlite';
 
@@ -32,7 +33,8 @@ export function database() {
       CREATE INDEX IF NOT EXISTS lending_entries_person ON lending_entries(personId);
       CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);`);
       await db.runAsync(
-        "INSERT INTO accounts (name, currencyCode, isFavorite) SELECT 'Cash', 'BDT', 1 WHERE NOT EXISTS (SELECT 1 FROM accounts)",
+        "INSERT INTO accounts (name, currencyCode, isFavorite) SELECT 'Cash', ?, 1 WHERE NOT EXISTS (SELECT 1 FROM accounts)",
+        [defaultCurrencyCode],
       );
       await db.runAsync(
         "INSERT INTO categories (name, type) SELECT 'Other', 'EXPENSE' WHERE NOT EXISTS (SELECT 1 FROM categories WHERE type = 'EXPENSE')",

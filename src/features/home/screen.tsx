@@ -1,97 +1,219 @@
-import { use, useDeferredValue, useMemo, useState } from 'react';
-import { QueryErrorResetBoundary, useSuspenseQuery } from '@tanstack/react-query';
+import { Suspense, use, useDeferredValue, useRef, useState, type ReactNode } from 'react';
+import { FlatList, ScrollView, Text, View, useWindowDimensions } from 'react-native';
+import { router } from 'expo-router';
 import {
-  FinancialView,
-  HomeLayout,
-  AccountSelection,
-  FinancialSkeleton,
-  FinancialError,
-  HomeScreenSkeleton,
-  HomeScreenError,
-} from './view.tsx';
-import { QueryBoundary } from '@/components/query-error-boundary';
-import { resolveHomeAccount } from '@/lib/account-selection';
+  QueryErrorResetBoundary,
+  useMutation,
+  usePrefetchQuery,
+  useQueryClient,
+  useSuspenseQuery,
+} from '@tanstack/react-query';
+import { ErrorBoundary } from '@/components/query-error-boundary';
+import { defaultCurrencyCode } from '@/lib/currency';
 import { epochDay } from '@/lib/database';
-import { homeSnapshotQuery } from './queries.ts';
-import { accountsQuery } from '@/lib/account-queries';
 import { QueryTimeContext } from '@/lib/query-time';
+import { AccountSheet, HomeTitle } from './account-sheet.tsx';
+import {
+  Deck,
+  DeckSkeleton,
+  PageDots,
+  RetryButton,
+  type CardContext,
+  type DeckItem,
+} from './cards.tsx';
+import { cardIndex, deckCards } from './deck.ts';
+import { PeriodSheet } from './period-sheet.tsx';
+import { homePeriod, periodKey, type PeriodSetting } from './period.ts';
+import { cachePeriodSetting, homeDeckQuery, homeListQuery } from './queries.ts';
+import { savePeriodSetting } from './read-home.ts';
+import {
+  ActivityError,
+  ActivityList,
+  ActivitySkeleton,
+  HomeLayout,
+  RefreshNotice,
+  SearchField,
+} from './view.tsx';
+import { theme } from '@/theme';
 
-type FinancialRequest = { accountId: number | null; now: Date };
+const pageGutter = 20;
+const cardPeek = 44;
 
-function FinancialContent({ request, muted }: { request: FinancialRequest; muted: boolean }) {
-  const { data } = useSuspenseQuery(homeSnapshotQuery(request.accountId, request.now));
-  return <FinancialView snapshot={data} muted={muted} />;
-}
-
-function FinancialSection({
-  now,
+function ActivityContent({
   accountId,
-  reset,
+  now,
+  muted,
 }: {
-  now: Date;
   accountId: number | null;
-  reset: () => void;
+  now: Date;
+  muted: boolean;
 }) {
-  const request = useMemo(() => ({ accountId, now }), [accountId, now]);
-  const deferred = useDeferredValue(request);
-  const stale =
-    accountId !== deferred.accountId || epochDay(request.now) !== epochDay(deferred.now);
+  const { data } = useSuspenseQuery(homeListQuery(accountId, now));
+  return <ActivityList list={data} muted={muted} />;
+}
+
+function Home({ reset }: { reset: () => void }) {
+  const now = useDeferredValue(use(QueryTimeContext));
+  const client = useQueryClient();
+  const { width } = useWindowDimensions();
+  const { data: deck, error, refetch } = useSuspenseQuery(homeDeckQuery(now));
+  const cards = deckCards(deck.accounts);
+  const [selected, setSelected] = useState(() => cards[0].accountId);
+  const [setting, setSetting] = useState(() => deck.period);
+  const [sheet, setSheet] = useState<'period' | 'accounts' | null>(null);
+  const deckRef = useRef<FlatList<DeckItem>>(null);
+  const savePeriod = useMutation({
+    mutationFn: savePeriodSetting,
+    onSuccess: (_, saved) => cachePeriodSetting(client, now, saved),
+  });
+
+  const index = cardIndex(cards, selected);
+  const deckOrderKey = cards.map((card) => card.accountId).join();
+  const scope = cards[index].accountId;
+  const shownScope = useDeferredValue(scope);
+  const shownSetting = useDeferredValue(setting);
+  const favorite = deck.accounts.find((account) => account.isFavorite) ?? deck.accounts[0];
+  const today = epochDay(now);
+  const period = homePeriod(setting, today);
+  const name = cards[index].account?.name ?? 'All accounts';
+
+  const selectScope = (accountId: number | null) => {
+    if (accountId === scope) return;
+    // A failed read for this scope must fetch again when the deck returns to it.
+    reset();
+    setSelected(accountId);
+  };
+  const changePeriod = (next: PeriodSetting) => {
+    reset();
+    setSetting(next);
+    savePeriod.mutate(next);
+  };
+  const context: CardContext = {
+    accounts: deck.accounts,
+    displayRate: deck.displayRate,
+    mainCurrency: favorite?.currencyCode ?? defaultCurrencyCode,
+    now,
+    period,
+    shownSetting,
+    stale: periodKey(setting) !== periodKey(shownSetting),
+    width: width - pageGutter - cardPeek,
+    reset,
+    onOpenPeriod: () => setSheet('period'),
+  };
   return (
-    <QueryBoundary
-      resetKey={`${deferred.accountId}:${epochDay(deferred.now)}`}
-      reset={reset}
-      pending={<FinancialSkeleton accountId={accountId} />}
-      error={(retry) => <FinancialError accountId={accountId} retry={retry} />}
+    <HomeLayout
+      title={<HomeTitle name={name} onPress={() => setSheet('accounts')} />}
+      notice={<RefreshNotice failed={!!error} onRetry={() => void refetch()} />}
+      quickAddAccountId={scope ?? favorite?.id ?? null}
+      accountsReady
     >
-      <FinancialContent
-        key={`${deferred.accountId}:${epochDay(deferred.now)}`}
-        request={deferred}
-        muted={stale}
-      />
-    </QueryBoundary>
+      <ScrollView
+        contentInsetAdjustmentBehavior="automatic"
+        contentContainerStyle={{ paddingBottom: 100 }}
+      >
+        <View style={{ gap: 8 }}>
+          <Deck
+            key={deckOrderKey}
+            initialIndex={index}
+            cards={cards}
+            context={context}
+            listRef={deckRef}
+            onScopeChange={selectScope}
+            onAddAccount={() => router.push('/accounts')}
+          />
+          <PageDots count={cards.length} index={index} />
+          <View style={{ paddingHorizontal: pageGutter, paddingTop: 6 }}>
+            <SearchField accountId={scope} name={scope === null ? 'all transactions' : name} />
+            <ErrorBoundary
+              resetKey={`${shownScope}:${today}`}
+              onReset={reset}
+              fallback={(retry) => <ActivityError retry={retry} />}
+            >
+              <Suspense fallback={<ActivitySkeleton />}>
+                {/* A new reader for each scope: TanStack Query does not fetch again when a
+                    mounted reader switches to a failed query, even after reset(). */}
+                <ActivityContent
+                  key={String(shownScope)}
+                  accountId={shownScope}
+                  now={now}
+                  muted={scope !== shownScope}
+                />
+              </Suspense>
+            </ErrorBoundary>
+          </View>
+        </View>
+      </ScrollView>
+      {sheet === 'period' && (
+        <PeriodSheet
+          setting={setting}
+          label={period.label}
+          onChange={changePeriod}
+          onDismiss={() => setSheet(null)}
+        />
+      )}
+      {sheet === 'accounts' && (
+        <AccountSheet
+          cards={cards}
+          selectedId={scope}
+          onSelect={(accountId) => {
+            setSheet(null);
+            selectScope(accountId);
+            deckRef.current?.scrollToIndex({
+              index: cardIndex(cards, accountId),
+              animated: true,
+            });
+          }}
+          onAddAccount={() => {
+            setSheet(null);
+            router.push('/accounts');
+          }}
+          onDismiss={() => setSheet(null)}
+        />
+      )}
+    </HomeLayout>
   );
 }
 
-function Home() {
-  const { data: accounts, isFetching, error, refetch } = useSuspenseQuery(accountsQuery());
-  const [selectedAccountId, setSelectedAccountId] = useState(() =>
-    resolveHomeAccount(accounts, undefined),
-  );
-  const now = use(QueryTimeContext);
-  const accountId = resolveHomeAccount(accounts, selectedAccountId);
+function HomeScreenFallback({ children }: { children?: ReactNode }) {
+  const { width } = useWindowDimensions();
   return (
-    <QueryErrorResetBoundary>
-      {({ reset }) => (
-        <HomeLayout
-          quickAddAccountId={accountId ?? resolveHomeAccount(accounts, undefined)}
-          accountsReady
-        >
-          <AccountSelection
-            accounts={accounts}
-            selectedId={accountId}
-            error={!!error && !isFetching}
-            onRetry={() => {
-              void refetch();
-            }}
-            onSelect={(id) => {
-              reset();
-              setSelectedAccountId(id);
-            }}
-          />
-          <FinancialSection accountId={accountId} now={now} reset={reset} />
-        </HomeLayout>
-      )}
-    </QueryErrorResetBoundary>
+    <HomeLayout quickAddAccountId={null} accountsReady={false}>
+      <View style={{ gap: 8 }}>
+        <DeckSkeleton width={width - pageGutter - cardPeek}>{children}</DeckSkeleton>
+        <View style={{ paddingHorizontal: pageGutter, paddingTop: 20 }}>
+          <View style={{ height: 48, borderRadius: 24, backgroundColor: theme.colors.surface }} />
+          {!children && <ActivitySkeleton />}
+        </View>
+      </View>
+    </HomeLayout>
+  );
+}
+
+export function HomeScreenError({ retry }: { retry: () => void }) {
+  return (
+    <HomeScreenFallback>
+      <View style={{ alignItems: 'center', gap: 12 }}>
+        <Text accessibilityRole="alert" style={{ color: theme.colors.muted }}>
+          Couldn’t load Home
+        </Text>
+        <RetryButton onPress={retry} />
+      </View>
+    </HomeScreenFallback>
   );
 }
 
 export default function HomeScreen() {
+  // Home always opens on All accounts, so its list can load while the deck loads.
+  usePrefetchQuery(homeListQuery(null, use(QueryTimeContext)));
   return (
-    <QueryBoundary
-      pending={<HomeScreenSkeleton />}
-      error={(retry) => <HomeScreenError retry={retry} />}
-    >
-      <Home />
-    </QueryBoundary>
+    <QueryErrorResetBoundary>
+      {({ reset }) => (
+        <ErrorBoundary onReset={reset} fallback={(retry) => <HomeScreenError retry={retry} />}>
+          <Suspense fallback={<HomeScreenFallback />}>
+            <Home reset={reset} />
+          </Suspense>
+        </ErrorBoundary>
+      )}
+    </QueryErrorResetBoundary>
   );
 }

@@ -1,25 +1,4 @@
-export function backupFailureKind(message: string): 'folder' | 'storage' | 'save' | 'retention' {
-  if (message.startsWith('Backup saved, but')) return 'retention';
-  if (/ENOSPC|no space left|not enough space|disk full/i.test(message)) return 'storage';
-  if (
-    /EACCES|EPERM|ENOENT|permission|access.*(?:lost|denied)|securityexception|not writable|isn't (?:writable|readable)|filenotfound|(?:folder|directory|document).*(?:not found|does not exist)/i.test(
-      message,
-    )
-  )
-    return 'folder';
-  return 'save';
-}
-
-export function backupFolderName(uri: string): string {
-  const path = decodeURIComponent(uri.split('/tree/')[1] ?? uri);
-  return (
-    path
-      .split('/')
-      .filter(Boolean)
-      .at(-1)
-      ?.replace(/^[^:]+:/, '') || path
-  );
-}
+import { needsAttention, type SignedInBackupState } from '@/lib/drive-backups';
 
 export function backupTime(timestamp: number | null, now = new Date()): string {
   if (timestamp === null) return 'Never';
@@ -29,4 +8,68 @@ export function backupTime(timestamp: number | null, now = new Date()): string {
   const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
   if (date.toDateString() === yesterday.toDateString()) return `Yesterday at ${time}`;
   return `${date.toLocaleDateString()} at ${time}`;
+}
+
+export type BackupAction = 'backup' | 'retry' | 'reconnect' | 'review';
+export type BackupStatus = { text: string; warning: boolean; action: BackupAction };
+
+export const actionLabels: Record<BackupAction, string> = {
+  backup: 'Back up now',
+  retry: 'Retry backup',
+  reconnect: 'Reconnect',
+  review: 'Review backups',
+};
+
+/** What the Drive card and the Home banner say about a connected account. */
+export function backupStatus(state: SignedInBackupState, now = new Date()): BackupStatus {
+  if (state.status === 'awaitingChoice')
+    return {
+      text: 'Google Drive has backups from Expense Tracker. Choose what to do with them.',
+      warning: false,
+      action: 'review',
+    };
+  const last = state.lastSuccess === null ? null : backupTime(state.lastSuccess, now);
+  const error = state.lastError;
+  if (error?.kind === 'auth')
+    return {
+      text: 'Google Drive access was removed. Reconnect to keep backing up.',
+      warning: true,
+      action: 'reconnect',
+    };
+  if (error?.kind === 'quota')
+    return {
+      text: 'Your Google Drive is full. Free up space, then retry.',
+      warning: true,
+      action: 'retry',
+    };
+  if (needsAttention(state, now.getTime())) {
+    const detail =
+      error?.kind === 'network'
+        ? 'The app couldn’t reach Google Drive.'
+        : (error?.message ?? 'Open the app to back up.');
+    return {
+      text: `${last ? `No backup since ${last}.` : 'No backup yet.'} ${detail}`,
+      warning: true,
+      action: 'retry',
+    };
+  }
+  if (state.removalError !== null)
+    return {
+      text: 'Backup saved. Older backups couldn’t be removed.',
+      warning: true,
+      action: 'backup',
+    };
+  if (error?.kind === 'network')
+    return {
+      text: `Last backup: ${last ?? 'Never'} · waiting for internet`,
+      warning: false,
+      action: 'backup',
+    };
+  if (error)
+    return { text: `Backup couldn’t be saved. ${error.message}`, warning: true, action: 'retry' };
+  return {
+    text: last ? `Last backup: ${last}` : 'No backups yet',
+    warning: false,
+    action: 'backup',
+  };
 }

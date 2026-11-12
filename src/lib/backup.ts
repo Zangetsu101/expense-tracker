@@ -302,11 +302,11 @@ export interface BackupStore {
   replace(data: BackupData): Promise<void>;
 }
 
-/** Android document picker / SAF boundary: URI is selected by the user, never a raw filesystem path. */
+/** Share sheet and document picker boundary: URIs come from the system, never a raw path. */
 export interface BackupDocuments {
-  createJsonDocument(name: string): Promise<string | null>;
+  /** Writes the text to a temporary file and opens the share sheet. */
+  shareJson(name: string, text: string): Promise<void>;
   pickJsonDocument(): Promise<{ uri: string; name: string } | null>;
-  writeText(uri: string, text: string): Promise<void>;
   readText(uri: string): Promise<string>;
 }
 
@@ -317,22 +317,18 @@ export function serializeBackupOperation<T>(job: () => Promise<T>): Promise<T> {
   return result;
 }
 
-export async function exportBackup(
+export async function shareBackup(
   store: BackupStore,
-  documents: BackupDocuments,
-  name = 'expense-backup.json',
-): Promise<string | null> {
-  return serializeBackupOperation(async () => {
-    const json = encodeBackup(await store.snapshot());
-    const uri = await documents.createJsonDocument(name);
-    if (uri !== null) await documents.writeText(uri, json);
-    return uri;
-  });
+  documents: Pick<BackupDocuments, 'shareJson'>,
+  now = new Date(),
+): Promise<void> {
+  const json = await serializeBackupOperation(async () => encodeBackup(await store.snapshot()));
+  await documents.shareJson(`expense-backup-${now.toISOString().slice(0, 10)}.json`, json);
 }
 
 export async function restoreBackup(
   store: BackupStore,
-  documents: BackupDocuments,
+  documents: Pick<BackupDocuments, 'pickJsonDocument' | 'readText'>,
   confirm: (name: string) => Promise<boolean>,
 ): Promise<boolean> {
   return serializeBackupOperation(async () => {
