@@ -26,7 +26,7 @@ import { PeriodSheet } from './period-sheet.tsx';
 import { homePeriod, periodKey, type PeriodSetting } from './period.ts';
 import { cachePeriodSetting, homeDeckQuery, homeListQuery } from './queries.ts';
 import { savePeriodSetting } from './read-home.ts';
-import { TransactionList } from './transaction-list.tsx';
+import { HomeActivity } from './home-activity.tsx';
 import { ActivitySkeleton, HomeLayout, RefreshNotice } from './view.tsx';
 import { theme } from '@/theme';
 
@@ -101,7 +101,7 @@ function Home({ reset }: { reset: () => void }) {
       quickAddAccountId={quickAddAccountId}
       accountsReady
     >
-      <TransactionList
+      <HomeActivity
         scope={cards[index]}
         scopeName={name}
         setting={setting}

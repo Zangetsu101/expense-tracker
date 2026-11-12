@@ -13,7 +13,7 @@ import { createQueryClient } from '@/lib/query-client';
 import type { DeckAccount } from './deck.ts';
 import type { ListPeriod, ListRow, ListScope } from './list.ts';
 import { homeListPage, homeSearch, type HomeListPage } from './read-home.ts';
-import { TransactionList } from './transaction-list.tsx';
+import { HomeActivity } from './home-activity.tsx';
 import { homeListQuery } from './queries.ts';
 import type { PeriodSetting } from './period.ts';
 
@@ -86,7 +86,7 @@ function ListContent({
   setting?: PeriodSetting;
 }) {
   return (
-    <TransactionList
+    <HomeActivity
       header={header}
       scope={scope}
       scopeName={accounts.find((account) => account.id === scope.accountId)?.name ?? 'All accounts'}
