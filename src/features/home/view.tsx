@@ -93,8 +93,15 @@ export function HomeLayout({
   );
 }
 
-/** Shows only after a refresh of the cached deck failed. It slides in under the title and out again, and it does not scroll. */
-export function RefreshNotice({ failed, onRetry }: { failed: boolean; onRetry: () => void }) {
+export function RefreshNotice({
+  failed,
+  onRetry,
+  message = 'Couldn’t refresh accounts',
+}: {
+  failed: boolean;
+  onRetry: () => void;
+  message?: string;
+}) {
   if (!failed) return null;
   return (
     <Animated.View
@@ -113,7 +120,7 @@ export function RefreshNotice({ failed, onRetry }: { failed: boolean; onRetry: (
       }}
     >
       <Text accessibilityRole="alert" style={{ color: colors.warning, flex: 1 }}>
-        Couldn’t refresh accounts
+        {message}
       </Text>
       <Pressable
         accessibilityRole="button"

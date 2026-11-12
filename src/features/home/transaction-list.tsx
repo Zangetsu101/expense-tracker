@@ -1,4 +1,11 @@
-import { useDeferredValue, useRef, type ReactElement, type ReactNode } from 'react';
+import {
+  useDeferredValue,
+  useId,
+  useRef,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 import { SectionList, Text, View, type CellRendererProps } from 'react-native';
 import { router } from 'expo-router';
 import Animated, {
@@ -8,7 +15,12 @@ import Animated, {
   SlideInRight,
   useReducedMotion,
 } from 'react-native-reanimated';
-import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import {
+  useQueryErrorResetBoundary,
+  useSuspenseInfiniteQuery,
+  useQuery,
+} from '@tanstack/react-query';
+import { QueryBoundary } from '@/components/query-error-boundary';
 import { accountParams } from '@/lib/account-selection';
 import { epochDay } from '@/lib/database';
 import { theme } from '@/theme';
@@ -34,10 +46,10 @@ import {
   Snackbar,
   TransactionRow,
 } from './list-view.tsx';
-import { useSavedRow, useScopedSearch } from './list-hooks.ts';
-import { periodKey, type PeriodSetting } from './period.ts';
+import { useSavedRow, useSavedRowState, useScopedSearch } from './list-hooks.ts';
+import { homePeriod, periodKey, type PeriodSetting } from './period.ts';
 import { homeListQuery, homeSearchQuery } from './queries.ts';
-import { ActivityError, ActivitySkeleton } from './view.tsx';
+import { ActivityError, ActivitySkeleton, RefreshNotice } from './view.tsx';
 
 const gutter = 20;
 /** A row counts as in view when half of it shows, so that a slide does not start at its edge. */
@@ -70,20 +82,7 @@ function Dimmed({ muted, children }: { muted: boolean; children: ReactNode }) {
   );
 }
 
-/**
- * The Transactions of the Account in view in the range of the cards, newest
- * first, grouped by day. `header` scrolls above the list.
- */
-export function TransactionList({
-  header,
-  scope,
-  scopeName,
-  setting,
-  now,
-  accounts,
-  onShowAccount,
-  onAdd,
-}: {
+type TransactionListProps = {
   header: ReactElement;
   scope: ListScope;
   scopeName: string;
@@ -92,21 +91,115 @@ export function TransactionList({
   accounts: DeckAccount[];
   onShowAccount: (accountId: number) => void;
   onAdd: () => void;
+};
+
+/** Transactions grouped by day, with the deck in the scrolling header. */
+export function TransactionList(props: TransactionListProps) {
+  const { reset } = useQueryErrorResetBoundary();
+  const id = useId();
+  const key = `${props.scope.accountId}:${props.scope.face}:${periodKey(props.setting)}:${epochDay(props.now)}`;
+  const requested = { key, scope: props.scope, setting: props.setting, now: props.now };
+  const [visit, setVisit] = useState({ ...requested, number: 0 });
+  if (visit.key !== key) {
+    reset();
+    setVisit({ ...requested, number: visit.number + 1 });
+  }
+  const shown = useDeferredValue(visit);
+  const search = useScopedSearch(`${props.scope.accountId}:${periodKey(props.setting)}`);
+  const savedState = useSavedRowState({
+    accountId: props.scope.accountId,
+    accounts: props.accounts,
+    onShowAccount: props.onShowAccount,
+    onShow: () => search.change(''),
+  });
+  const searchHeader = () => (
+    <View style={{ gap: 8 }}>
+      {props.header}
+      <View style={{ paddingHorizontal: gutter, paddingTop: 6 }}>
+        <SearchField
+          value={search.text}
+          placeholder={searchPlaceholder(
+            props.setting,
+            homePeriod(props.setting, epochDay(props.now)).label,
+          )}
+          onChange={search.change}
+          onOpenFilters={() =>
+            router.push({
+              pathname: '/transactions',
+              params: {
+                ...accountParams(props.scope.accountId),
+                ...(search.text.trim() ? { query: search.text.trim() } : {}),
+              },
+            })
+          }
+        />
+      </View>
+    </View>
+  );
+  const fallback = (footer: ReactNode) => (
+    <SectionList
+      sections={[]}
+      renderItem={() => null}
+      contentInsetAdjustmentBehavior="automatic"
+      contentContainerStyle={{ paddingBottom: 100 }}
+      ListHeaderComponent={searchHeader()}
+      ListFooterComponent={<View style={{ paddingHorizontal: gutter }}>{footer}</View>}
+    />
+  );
+  return (
+    <>
+      <QueryBoundary
+        reset={reset}
+        resetKey={`${shown.key}:${shown.number}`}
+        pending={fallback(<ActivitySkeleton />)}
+        error={(retry) => fallback(<ActivityError retry={retry} />)}
+      >
+        <ReadyList
+          {...props}
+          scope={shown.scope}
+          setting={shown.setting}
+          now={shown.now}
+          session={`${id}:${shown.number}`}
+          stale={shown !== visit}
+          search={search}
+          savedState={savedState}
+          searchHeader={searchHeader}
+        />
+      </QueryBoundary>
+      {savedState.snack && <Snackbar text={savedState.snack.text} onShow={savedState.show} />}
+    </>
+  );
+}
+
+function ReadyList({
+  header,
+  scope,
+  scopeName,
+  setting,
+  now,
+  onAdd,
+  session,
+  stale,
+  search,
+  savedState,
+  searchHeader,
+}: TransactionListProps & {
+  session: string;
+  stale: boolean;
+  search: ReturnType<typeof useScopedSearch>;
+  savedState: ReturnType<typeof useSavedRowState>;
+  searchHeader: () => ReactNode;
 }) {
   const today = epochDay(now);
   const { accountId } = scope;
   const listRef = useRef<SectionList<ListItem, ListSection>>(null);
   const reduceMotion = useReducedMotion();
-  const list = useInfiniteQuery({
-    ...homeListQuery(scope, setting, now),
-    placeholderData: keepPreviousData,
-  });
-  const periods = list.data?.pages.flatMap((page) => page.periods) ?? [];
-  const firstDay = list.data?.pages[0].firstDay;
-  const shownScope = list.data ? list.data.pages[0].scope : scope;
+  const list = useSuspenseInfiniteQuery(homeListQuery(scope, setting, now, session));
+  const periods = list.data.pages.flatMap((page) => page.periods);
+  const firstDay = list.data.pages[0].firstDay;
+  const shownScope = list.data.pages[0].scope;
   const loadedFrom = periods.at(-1)?.period.start ?? today + 1;
 
-  const search = useScopedSearch(`${accountId}:${periodKey(setting)}`);
   const query = useDeferredValue(search.text);
   const searching = query.trim() !== '';
   const allDatesSearch = useQuery({
@@ -121,30 +214,22 @@ export function TransactionList({
     : !searching
       ? listSections(periods, shownScope)
       : searchSections(allDatesRows ?? rangeRows);
-  const muted = list.isPlaceholderData || search.text !== query;
+  const muted = stale || search.text !== query;
   const saved = useSavedRow({
+    state: savedState,
     accountId,
     sections,
     loadedFrom,
     searching,
-    accounts,
-    paging: { ...list, ready: !!list.data && !list.isPlaceholderData },
+    paging: { ...list, ready: !stale },
     listRef,
-    onShowAccount,
-    onShow: () => search.change(''),
   });
 
   const headerEntering = reduceMotion ? headerFadeIn : headerSlideIn;
-  const nextStep = list.data?.pages.at(-1)?.next ?? null;
+  const nextStep = list.data.pages.at(-1)?.next ?? null;
 
   let footer: ReactNode = null;
-  if (!list.data)
-    footer = list.isError ? (
-      <ActivityError retry={() => void list.refetch()} />
-    ) : (
-      <ActivitySkeleton />
-    );
-  else if (!hasAny)
+  if (!hasAny)
     footer = (
       <EmptyList
         title={
@@ -189,90 +274,78 @@ export function TransactionList({
 
   const resultCount = sections.reduce((count, section) => count + section.data.length, 0);
   return (
-    <>
-      <SectionList
-        ref={listRef}
-        sections={sections}
-        keyExtractor={(item, index) =>
-          item.kind === 'row' ? String(item.row.id) : `${item.kind}${index}`
-        }
-        stickySectionHeadersEnabled
-        contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={{ paddingBottom: 100 }}
-        CellRendererComponent={MovingCell}
-        viewabilityConfig={viewabilityConfig}
-        onViewableItemsChanged={saved.onViewableItemsChanged}
-        onScrollToIndexFailed={saved.onScrollToIndexFailed}
-        ListHeaderComponent={
-          <View style={{ gap: 8 }}>
-            {header}
-            {(hasAny || !list.data) && (
-              <View style={{ paddingHorizontal: gutter, paddingTop: 6 }}>
-                <SearchField
-                  value={search.text}
-                  placeholder={searchPlaceholder(setting, periods[0]?.period.label ?? '')}
-                  onChange={search.change}
-                  onOpenFilters={() =>
-                    router.push({
-                      pathname: '/transactions',
-                      params: {
-                        ...accountParams(accountId),
-                        ...(search.text.trim() ? { query: search.text.trim() } : {}),
-                      },
-                    })
-                  }
-                />
-                {searching && resultCount > 0 && (
-                  <Text style={{ color: theme.colors.muted, fontSize: 13, paddingTop: 12 }}>
-                    {resultCount} {resultCount === 1 ? 'result' : 'results'}
-                  </Text>
-                )}
-              </View>
-            )}
-          </View>
-        }
-        renderSectionHeader={({ section }) =>
-          section.date === null ? null : (
-            <Dimmed muted={muted}>
-              <DayHeader
-                date={section.date}
-                totals={section.totals}
-                now={now}
-                entering={
-                  saved.slidingId !== null && rowIndex(section, saved.slidingId) !== -1
-                    ? headerEntering
-                    : undefined
-                }
-              />
-            </Dimmed>
-          )
-        }
-        renderItem={({ item }) => (
+    <SectionList
+      ref={listRef}
+      sections={sections}
+      keyExtractor={(item, index) =>
+        item.kind === 'row' ? String(item.row.id) : `${item.kind}${index}`
+      }
+      stickySectionHeadersEnabled
+      contentInsetAdjustmentBehavior="automatic"
+      contentContainerStyle={{ paddingBottom: 100 }}
+      CellRendererComponent={MovingCell}
+      viewabilityConfig={viewabilityConfig}
+      onViewableItemsChanged={saved.onViewableItemsChanged}
+      onScrollToIndexFailed={saved.onScrollToIndexFailed}
+      ListHeaderComponent={
+        <View style={{ gap: 8 }}>
+          {hasAny ? searchHeader() : header}
+          <RefreshNotice
+            failed={!!list.error && !list.isFetching && !list.isFetchNextPageError}
+            onRetry={() => void list.refetch()}
+            message="Couldn’t refresh account activity"
+          />
+          {hasAny && (
+            <View style={{ paddingHorizontal: gutter }}>
+              {searching && resultCount > 0 && (
+                <Text style={{ color: theme.colors.muted, fontSize: 13, paddingTop: 12 }}>
+                  {resultCount} {resultCount === 1 ? 'result' : 'results'}
+                </Text>
+              )}
+            </View>
+          )}
+        </View>
+      }
+      renderSectionHeader={({ section }) =>
+        section.date === null ? null : (
           <Dimmed muted={muted}>
-            {item.kind === 'row' ? (
-              <TransactionRow
-                row={item.row}
-                scope={shownScope}
-                query={searching ? query : ''}
-                disabled={muted}
-                slide={saved.phase(item.row.id)}
-                onPress={() =>
-                  router.push({
-                    pathname: '/transaction/[id]',
-                    params: { id: String(item.row.id) },
-                  })
-                }
-              />
-            ) : item.kind === 'divider' ? (
-              <PeriodDivider label={item.label} totals={item.totals} />
-            ) : (
-              <ListMessage text={item.text} />
-            )}
+            <DayHeader
+              date={section.date}
+              totals={section.totals}
+              now={now}
+              entering={
+                saved.slidingId !== null && rowIndex(section, saved.slidingId) !== -1
+                  ? headerEntering
+                  : undefined
+              }
+            />
           </Dimmed>
-        )}
-        ListFooterComponent={<View style={{ paddingHorizontal: gutter }}>{footer}</View>}
-      />
-      {saved.snack && <Snackbar text={saved.snack} onShow={saved.show} />}
-    </>
+        )
+      }
+      renderItem={({ item }) => (
+        <Dimmed muted={muted}>
+          {item.kind === 'row' ? (
+            <TransactionRow
+              row={item.row}
+              scope={shownScope}
+              query={searching ? query : ''}
+              disabled={muted}
+              slide={saved.phase(item.row.id)}
+              onPress={() =>
+                router.push({
+                  pathname: '/transaction/[id]',
+                  params: { id: String(item.row.id) },
+                })
+              }
+            />
+          ) : item.kind === 'divider' ? (
+            <PeriodDivider label={item.label} totals={item.totals} />
+          ) : (
+            <ListMessage text={item.text} />
+          )}
+        </Dimmed>
+      )}
+      ListFooterComponent={<Dimmed muted={muted}>{footer}</Dimmed>}
+    />
   );
 }

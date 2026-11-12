@@ -44,15 +44,28 @@ export function homePaceQuery(accountId: number | null, setting: PeriodSetting, 
 }
 
 /** The list under the deck: one page for the range of the cards, then one page for each older period. */
-export function homeListQuery(scope: ListScope, setting: PeriodSetting, now: Date) {
+export function homeListQuery(
+  scope: ListScope,
+  setting: PeriodSetting,
+  now: Date,
+  session: string,
+) {
   const today = epochDay(now);
   return infiniteQueryOptions({
-    queryKey: [...homeQueryKey, 'list', scope.accountId, scope.face, periodKey(setting), today],
+    // Suspense retains unused queries for at least a second; a new visit starts with one period.
+    queryKey: [
+      ...homeQueryKey,
+      'list',
+      scope.accountId,
+      scope.face,
+      periodKey(setting),
+      today,
+      session,
+    ],
     queryFn: async ({ pageParam }) => ({
       ...(await homeListPage(scope.accountId, setting, today, pageParam)),
       scope,
     }),
-    // A return to a card or a range shows one period again.
     gcTime: 0,
     initialPageParam: 0,
     getNextPageParam: (page) => page.next ?? undefined,

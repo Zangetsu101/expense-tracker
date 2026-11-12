@@ -1,7 +1,13 @@
+import { useState } from 'react';
 import { act, fireEvent, render, screen, userEvent } from '@testing-library/react-native';
 import { router } from 'expo-router';
-import { SectionList, StyleSheet, View } from 'react-native';
-import { QueryClientProvider, notifyManager, type QueryClient } from '@tanstack/react-query';
+import { AccessibilityInfo, SectionList, StyleSheet, View, Pressable, Text } from 'react-native';
+import {
+  QueryClientProvider,
+  QueryErrorResetBoundary,
+  notifyManager,
+  type QueryClient,
+} from '@tanstack/react-query';
 import { notifyDataChanged } from '@/lib/data-changes';
 import { createQueryClient } from '@/lib/query-client';
 import type { DeckAccount } from './deck.ts';
@@ -15,6 +21,10 @@ jest.mock('expo-router', () => ({
   useIsFocused: () => mockFocused,
   useFocusEffect: () => {},
 }));
+jest.mock('@react-native-google-signin/google-signin', () => ({
+  GoogleSignin: {},
+  statusCodes: {},
+}));
 jest.mock('expo-symbols', () => ({ SymbolView: () => null }));
 jest.mock('react-native-worklets', () => jest.requireActual('react-native-worklets/src/mock'));
 jest.mock('react-native-reanimated', () => ({
@@ -22,13 +32,6 @@ jest.mock('react-native-reanimated', () => ({
   useReducedMotion: () => false,
 }));
 jest.mock('./read-home.ts', () => ({ homeListPage: jest.fn(), homeSearch: jest.fn() }));
-jest.mock('./view.tsx', () => {
-  const { Text } = jest.requireActual('react-native');
-  return {
-    ActivitySkeleton: () => <Text>Loading activity</Text>,
-    ActivityError: () => <Text>Couldn’t load account activity</Text>,
-  };
-});
 
 const now = new Date(2026, 10, 12);
 const today = Math.floor(Date.UTC(2026, 10, 12) / 86400000);
@@ -69,20 +72,52 @@ const onAdd = jest.fn();
 let client: QueryClient;
 const allAccounts: ListScope = { face: 'pace', accountId: null };
 const trend = (accountId: number): ListScope => ({ face: 'trend', accountId });
-const list = (scope: ListScope) => (
+const list = (
+  scope: ListScope,
+  header = <View />,
+  onSelect: (accountId: number) => void = onShowAccount,
+) => (
   <QueryClientProvider client={client}>
-    <TransactionList
-      header={<View />}
-      scope={scope}
-      scopeName={accounts.find((account) => account.id === scope.accountId)?.name ?? 'All accounts'}
-      setting={{ range: 'month', monthStart: 1 }}
-      now={now}
-      accounts={accounts}
-      onShowAccount={onShowAccount}
-      onAdd={onAdd}
-    />
+    <QueryErrorResetBoundary>
+      <TransactionList
+        header={header}
+        scope={scope}
+        scopeName={
+          accounts.find((account) => account.id === scope.accountId)?.name ?? 'All accounts'
+        }
+        setting={{ range: 'month', monthStart: 1 }}
+        now={now}
+        accounts={accounts}
+        onShowAccount={onSelect}
+        onAdd={onAdd}
+      />
+    </QueryErrorResetBoundary>
   </QueryClientProvider>
 );
+function ControlledList({ initialScope }: { initialScope: ListScope }) {
+  const [scope, setScope] = useState(initialScope);
+  const select = (accountId: number) => {
+    onShowAccount(accountId);
+    setScope(trend(accountId));
+  };
+  return list(
+    scope,
+    <View>
+      {accounts.map((account) => (
+        <Pressable
+          key={account.id}
+          accessibilityRole="button"
+          accessibilityLabel={`Show ${account.name}`}
+          onPress={() => select(account.id)}
+        >
+          <Text>{account.name}</Text>
+        </Pressable>
+      ))}
+    </View>,
+    select,
+  );
+}
+
 /**
  * The list reports the cells in view after layout, which the test renderer does not do.
  * A cell index counts the header of each day too: cell 1 is the first row of the first day.
@@ -110,8 +145,11 @@ const scrolled = () =>
 beforeAll(() => notifyManager.setScheduler(queueMicrotask));
 afterAll(() => notifyManager.setScheduler((callback) => setTimeout(callback, 0)));
 beforeEach(() => {
-  jest.resetAllMocks();
+  jest.clearAllMocks();
+  jest.mocked(homeListPage).mockReset();
+  jest.mocked(homeSearch).mockReset();
   mockFocused = true;
+  jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(true);
   client = createQueryClient();
   jest.spyOn(SectionList.prototype, 'scrollToLocation').mockImplementation(() => {});
 });
@@ -386,3 +424,162 @@ test('a scroll to a row that is not rendered yet scrolls near it and tries once 
   const tries = [expect.objectContaining({ sectionIndex: 1, itemIndex: 0 })];
   expect(scrolled()).toEqual([...tries, ...tries]);
 });
+
+test('a failed refresh keeps rows and offers a local retry', async () => {
+  jest.mocked(homeListPage).mockResolvedValue(page([row(1)]));
+  await render(list(allAccounts));
+  await screen.findByText('Lunch 1');
+  jest.mocked(homeListPage).mockRejectedValueOnce(Error('disk unavailable'));
+  await act(async () => client.invalidateQueries());
+  expect(await screen.findByText('Couldn’t refresh account activity')).toBeOnTheScreen();
+  expect(screen.getByRole('button', { name: 'Lunch 1, Cash, −৳5.00' })).toBeOnTheScreen();
+  jest.mocked(homeListPage).mockResolvedValue(page([row(2)]));
+  await userEvent.setup().press(screen.getByRole('button', { name: 'Retry refresh' }));
+  expect(await screen.findByText('Lunch 2')).toBeOnTheScreen();
+  expect(screen.queryByText('Couldn’t refresh account activity')).not.toBeOnTheScreen();
+});
+
+test('the deck and search stay usable while the first period loads', async () => {
+  let resolve: (value: HomeListPage) => void = () => {};
+  jest.mocked(homeListPage).mockImplementation(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  );
+  const openDeck = jest.fn();
+  await render(
+    list(
+      allAccounts,
+      <Pressable accessibilityRole="button" onPress={openDeck}>
+        <Text>Account deck</Text>
+      </Pressable>,
+    ),
+  );
+  expect(screen.getByLabelText('Loading activity')).toBeOnTheScreen();
+  const user = userEvent.setup();
+  await user.press(screen.getByRole('button', { name: 'Account deck' }));
+  expect(openDeck).toHaveBeenCalledTimes(1);
+  await user.type(
+    screen.getByRole('search', { name: 'Search transactions from November' }),
+    'rahim',
+  );
+  await act(async () => resolve(page([row(1, { note: 'with Rahim' }), row(2)])));
+  expect(await screen.findByText('1 result')).toBeOnTheScreen();
+  expect(screen.getByRole('search')).toHaveDisplayValue('rahim');
+  expect(screen.queryByText('Lunch 2')).not.toBeOnTheScreen();
+});
+
+test('an account change hides old rows from actions until its period arrives', async () => {
+  const user = userEvent.setup();
+  let resolve: (value: HomeListPage) => void = () => {};
+  jest.mocked(homeListPage).mockImplementation(async (account) =>
+    account === 2
+      ? new Promise((done) => {
+          resolve = done;
+        })
+      : page([row(1)]),
+  );
+  await render(<ControlledList initialScope={trend(1)} />);
+  await screen.findByText('Lunch 1');
+  await user.press(screen.getByRole('button', { name: 'Show Bank' }));
+  expect(screen.queryByLabelText('Loading activity')).not.toBeOnTheScreen();
+  expect(screen.queryByRole('button', { name: 'Lunch 1, −৳5.00' })).not.toBeOnTheScreen();
+  expect(
+    screen.getByRole('button', { name: 'Lunch 1, −৳5.00', includeHiddenElements: true }),
+  ).toBeDisabled();
+  await act(async () => resolve(page([row(3, { accountId: 2, accountName: 'Bank' })])));
+  expect(await screen.findByRole('button', { name: 'Lunch 3, −৳5.00' })).toBeEnabled();
+  expect(screen.queryByText('Lunch 1')).not.toBeOnTheScreen();
+});
+
+test('initial failure retries locally and a return to a failed Account reads again', async () => {
+  jest.spyOn(console, 'error').mockImplementation(() => {});
+  let failed = true;
+  jest.mocked(homeListPage).mockImplementation(async (account) => {
+    if (account === 1 && failed) throw Error('disk unavailable');
+    return page([row(account === 2 ? 2 : 1)]);
+  });
+  await render(<ControlledList initialScope={trend(1)} />);
+  expect(await screen.findByText('Couldn’t load account activity')).toBeOnTheScreen();
+  const user = userEvent.setup();
+  await user.type(screen.getByRole('search'), 'lunch');
+  failed = false;
+  await user.press(screen.getByRole('button', { name: 'Retry' }));
+  expect(await screen.findByText('Lunch 1')).toBeOnTheScreen();
+  expect(screen.getByRole('search')).toHaveDisplayValue('lunch');
+  await user.press(screen.getByRole('button', { name: 'Show Bank' }));
+  await screen.findByText('Lunch 2');
+  failed = true;
+  await user.press(screen.getByRole('button', { name: 'Show Cash' }));
+  await screen.findByText('Couldn’t load account activity');
+  await user.press(screen.getByRole('button', { name: 'Show Bank' }));
+  await screen.findByText('Lunch 2');
+  failed = false;
+  await user.press(screen.getByRole('button', { name: 'Show Cash' }));
+  expect(await screen.findByText('Lunch 1')).toBeOnTheScreen();
+});
+
+test('Show retains its saved-row target through an Account load failure and retry', async () => {
+  const user = userEvent.setup();
+  jest.spyOn(console, 'error').mockImplementation(() => {});
+  let failed = true;
+  jest.mocked(homeListPage).mockImplementation(async (account) => {
+    if (account === 2 && failed) throw Error('disk unavailable');
+    return page([account === 2 ? row(9, { accountId: 2, accountName: 'Bank' }) : row(1)]);
+  });
+  await render(<ControlledList initialScope={trend(1)} />);
+  await screen.findByText('Lunch 1');
+  await act(async () => notifyDataChanged({ id: 9, date: today, accountIds: [2] }));
+  await user.press(screen.getByRole('button', { name: 'Show' }));
+  await screen.findByText('Couldn’t load account activity');
+  failed = false;
+  await user.press(screen.getByRole('button', { name: 'Retry' }));
+  await screen.findByText('Lunch 9');
+  expect(scrolled()).toEqual([expect.objectContaining({ sectionIndex: 0, itemIndex: 0 })]);
+  await reportInView([[1, row(9, { accountId: 2, accountName: 'Bank' })]]);
+  expect(shift('Lunch 9, −৳5.00')).toBe(0);
+});
+
+test('a late period read cannot replace the Account selected afterward', async () => {
+  const user = userEvent.setup();
+  let resolve: (value: HomeListPage) => void = () => {};
+  jest.mocked(homeListPage).mockImplementation(async (account) =>
+    account === 2
+      ? new Promise((done) => {
+          resolve = done;
+        })
+      : page([row(1)]),
+  );
+  await render(<ControlledList initialScope={trend(1)} />);
+  await screen.findByText('Lunch 1');
+  await user.press(screen.getByRole('button', { name: 'Show Bank' }));
+  await user.press(screen.getByRole('button', { name: 'Show Cash' }));
+  expect(await screen.findByRole('button', { name: 'Lunch 1, −৳5.00' })).toBeEnabled();
+  await act(async () => resolve(page([row(2, { accountId: 2, accountName: 'Bank' })])));
+  expect(screen.getByRole('button', { name: 'Lunch 1, −৳5.00' })).toBeEnabled();
+  expect(screen.queryByText('Lunch 2')).not.toBeOnTheScreen();
+});
+
+test.each(['pending', 'failed'] as const)(
+  'a save while the list is %s still offers Show and navigates to its Account',
+  async (status) => {
+    const user = userEvent.setup();
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    jest.mocked(homeListPage).mockImplementation(async (account) => {
+      if (account === 1) {
+        if (status === 'failed') throw Error('disk unavailable');
+        return new Promise(() => {});
+      }
+      return page([row(9, { accountId: 2, accountName: 'Bank' })]);
+    });
+    await render(<ControlledList initialScope={trend(1)} />);
+    if (status === 'failed') await screen.findByText('Couldn’t load account activity');
+    else expect(screen.getByLabelText('Loading activity')).toBeOnTheScreen();
+    await act(async () => notifyDataChanged({ id: 9, date: today, accountIds: [2] }));
+    expect(await screen.findByText('Saved to Bank')).toBeOnTheScreen();
+    await user.press(screen.getByRole('button', { name: 'Show' }));
+    expect(await screen.findByText('Lunch 9')).toBeOnTheScreen();
+    expect(scrolled()).toEqual([expect.objectContaining({ sectionIndex: 0, itemIndex: 0 })]);
+  },
+);
