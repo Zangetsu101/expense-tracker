@@ -84,7 +84,7 @@ test('a failed refresh keeps the candidates and shows an alert with Retry', asyn
   expect(screen.queryByText('Could not refresh transfer candidates.')).not.toBeOnTheScreen();
 });
 
-test('a data change refreshes the candidates and disables the actions while it reads', async () => {
+test('a refresh reads the candidates again and disables the actions while it reads', async () => {
   jest.mocked(listReviewCandidates).mockResolvedValue([candidate]);
   await renderScreen();
   expect(await screen.findByText('Cash → Bank')).toBeOnTheScreen();

@@ -146,7 +146,7 @@ test('the add account sheet stays open with its text through an error and a retr
   expect(screen.getByLabelText('Account name')).toHaveDisplayValue('Savings');
 });
 
-test('a created account shows after the data change, without a second read in the screen', async () => {
+test('a created account shows after the refresh, without a second read in the screen', async () => {
   const user = userEvent.setup();
   jest.mocked(listManagedAccounts).mockResolvedValueOnce([cash]);
   jest.mocked(accountBalances).mockResolvedValue([balance(cash, 1500), balance(bank, 0)]);
@@ -187,7 +187,7 @@ test('a failed create keeps the sheet open with the error', async () => {
   expect(screen.getByLabelText('Account name')).toHaveDisplayValue('Bank');
 });
 
-test('a favorite change shows after the data change, and stars stay disabled during the refresh', async () => {
+test('a favorite change shows after the write, and stars stay disabled during the refresh', async () => {
   const user = userEvent.setup();
   jest.mocked(listManagedAccounts).mockResolvedValueOnce([cash, bank]);
   jest.mocked(accountBalances).mockResolvedValue([balance(cash, 1500), balance(bank, 700)]);

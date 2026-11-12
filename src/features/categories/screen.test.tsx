@@ -68,7 +68,7 @@ test('a failed first load shows an error, and Retry reads again', async () => {
   expect(screen.queryByText('Could not load categories.')).not.toBeOnTheScreen();
 });
 
-test('a data change shows the new categories and keeps the search text', async () => {
+test('a refresh shows the new categories and keeps the search text', async () => {
   const user = userEvent.setup();
   jest.mocked(listManagedCategories).mockResolvedValueOnce([lunch, salary]);
   await renderScreen();
@@ -89,7 +89,7 @@ test('a data change shows the new categories and keeps the search text', async (
   expect(screen.getByRole('button', { name: 'Add' })).toBeEnabled();
 });
 
-test('a data change to an empty list replaces the categories', async () => {
+test('a refresh to an empty list replaces the categories', async () => {
   jest.mocked(listManagedCategories).mockResolvedValueOnce([lunch]);
   await renderScreen();
   await screen.findByRole('button', { name: /^Lunch, EXPENSE/ });

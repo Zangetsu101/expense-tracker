@@ -111,7 +111,7 @@ test('a failed refresh keeps the draft, shows an alert, and Retry clears it', as
   expect(screen.getByLabelText('Transfer amount')).toHaveDisplayValue('12');
 });
 
-test('a data change shows new accounts, keeps the draft, and disables Save while it reads', async () => {
+test('a refresh shows new accounts, keeps the draft, and disables Save while it reads', async () => {
   const user = userEvent.setup();
   jest.mocked(listAccounts).mockResolvedValue(accounts);
   await renderScreen();

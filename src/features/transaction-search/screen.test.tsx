@@ -117,7 +117,7 @@ test('a failed search shows an error, and Retry reads again with the search text
   expect(searchTransactions).toHaveBeenLastCalledWith(expect.objectContaining({ query: 'Row' }), 0);
 });
 
-test('a data change shows the new results', async () => {
+test('a refresh shows the new results', async () => {
   jest.mocked(searchTransactions).mockResolvedValueOnce([row(1, 'Row 1')]);
   await renderScreen();
   await screen.findByRole('button', { name: receipt('Row 1') });

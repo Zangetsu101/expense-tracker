@@ -91,7 +91,7 @@ test('a failed refresh keeps the people and shows an alert with Retry', async ()
   expect(screen.queryByText('Could not refresh people.')).not.toBeOnTheScreen();
 });
 
-test('a data change shows the new people and count', async () => {
+test('a refresh shows the new people and count', async () => {
   jest.mocked(listPeople).mockResolvedValue(people);
   jest.mocked(listUnassignedLendingTransactions).mockResolvedValue(unassigned);
   await renderScreen();

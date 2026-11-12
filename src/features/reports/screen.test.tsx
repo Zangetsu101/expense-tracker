@@ -219,7 +219,7 @@ test('the year sheet keeps its draft through a failed read and a retry', async (
   expect(screen.getByLabelText('Report year')).toHaveDisplayValue('20');
 });
 
-test('a data change shows the new report', async () => {
+test('a refresh shows the new report', async () => {
   jest.mocked(listManagedAccounts).mockResolvedValue([cash, bank]);
   jest.mocked(monthlyReport).mockResolvedValueOnce(report());
   await renderScreen();

@@ -151,7 +151,7 @@ test('a failed refresh keeps the ledger and shows an alert with Retry', async ()
   expect(screen.queryByText('Could not refresh this person.')).not.toBeOnTheScreen();
 });
 
-test('a data change shows new entries', async () => {
+test('a refresh shows new entries', async () => {
   jest.mocked(listLendingEntries).mockResolvedValue([entry]);
   await renderScreen();
   await screen.findByText('Lunch money');

@@ -314,7 +314,7 @@ describe('reads', () => {
     expect(screen.getByRole('button', { name: 'Edit' })).toBeEnabled();
   });
 
-  test('a data change shows the new receipt and disables Edit while it reads', async () => {
+  test('a refresh shows the new receipt and disables Edit while it reads', async () => {
     jest.mocked(loadEditableTransaction).mockResolvedValue({ ...transaction, note: 'Lunch' });
     await renderScreen();
     await screen.findByText('Lunch');

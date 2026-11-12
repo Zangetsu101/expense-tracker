@@ -190,7 +190,7 @@ test('an unknown entry shows the error', async () => {
   expect(await screen.findByText('Could not load the entry form.')).toBeOnTheScreen();
 });
 
-test('a data change updates the pickers, keeps the fields, and disables writes while it reads', async () => {
+test('a refresh updates the pickers, keeps the fields, and disables writes while it reads', async () => {
   const user = userEvent.setup();
   await renderScreen({ personId: '1' });
   await user.type(await screen.findByLabelText('Amount'), '12');
