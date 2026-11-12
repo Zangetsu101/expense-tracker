@@ -5,31 +5,39 @@ import { test } from 'node:test';
 import React from 'react';
 import { act, create } from 'react-test-renderer';
 import ts from 'typescript';
-import { QueryClientProvider, notifyManager, onlineManager } from '@tanstack/react-query';
+import { QueryClientProvider, notifyManager } from '@tanstack/react-query';
 
 notifyManager.setScheduler(queueMicrotask);
-const state = { read: undefined };
+const state = { read: undefined, pushed: [] };
 globalThis.__homeScreenTest = state;
 const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const root = new URL('../../../', import.meta.url);
 const mocks = {
   '@/features/quick-add': `export const invalidateQuickAdd=async()=>{};`,
-  'react-native': `import React from 'react'; export const View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator',KeyboardAvoidingView='KeyboardAvoidingView'; export const FlatList=p=>React.createElement('FlatList',p,p.ListHeaderComponent,p.data.map((item,index)=>React.createElement(React.Fragment,{key:item.id},p.renderItem({item,index})))); export const AppState={currentState:'active',addEventListener:(_,fn)=>{globalThis.__homeScreenTest.lifecycle=fn;return {remove(){}}}}; export const Platform={OS:'android'}; export const useWindowDimensions=()=>({width:400,height:800});`,
-  'expo-router': `export const Stack={Screen:()=>null}; export const Link=({children})=>children; export const router={push(){}};`,
+  'react-native': `import React from 'react';
+    export const View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator';
+    export const FlatList=p=>React.createElement('FlatList',p,p.data.map((item,index)=>React.createElement(React.Fragment,{key:p.keyExtractor(item)},p.renderItem({item,index}))));
+    export const AppState={currentState:'active',addEventListener:(_,fn)=>{globalThis.__homeScreenTest.lifecycle=fn;return {remove(){}}}};
+    export const Platform={OS:'android'}; export const useWindowDimensions=()=>({width:400,height:800});`,
+  'react-native-reanimated': `export default {View:'AnimatedView'}; export const FadeInDown={},FadeOutUp={},LinearTransition={};`,
+  './trend-chart.tsx': `export const TrendChart='TrendChart';`,
+  'expo-router': `export const Stack={Screen:({options})=>options.headerTitle?options.headerTitle():null}; export const router={push(to){globalThis.__homeScreenTest.pushed.push(to)}};`,
   'expo-status-bar': `export const StatusBar=()=>null;`,
   'expo-symbols': `export const SymbolView='SymbolView';`,
-  '@/components/motion': `import React from 'react'; export const RollingNumber=({value,style})=>React.createElement('Text',{style},value); export const EnterView=({children})=>children; export const useNewItems=()=>()=>false;`,
+  '@/components/motion': `import React from 'react'; export const RollingNumber=({value,style})=>React.createElement('Text',{style,rolling:true},value); export const EnterView=({children})=>children; export const useNewItems=()=>()=>false;`,
   '@/components/backup-attention-banner': `export const BackupAttentionBanner=()=>null;`,
   '@/components/loading': `export const Skeleton='Skeleton'; export const Shimmer='Shimmer';`,
-  './account-picker.tsx': `export const HomeAccountPicker='HomeAccountPicker',HomeAccountPickerSkeleton='HomeAccountPickerSkeleton';`,
-  '@/lib/database': `export const epochDay=d=>Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/86400000); export const listAccounts=async()=>{if(globalThis.__homeScreenTest.accountsRead)return globalThis.__homeScreenTest.accountsRead();if(globalThis.__homeScreenTest.accountsError)throw Error('accounts unavailable');return globalThis.__homeScreenTest.accountItems??[{id:1,name:'Cash',currencyCode:'USD',isFavorite:1},{id:2,name:'Bank',currencyCode:'USD',isFavorite:0},{id:3,name:'Savings',currencyCode:'USD',isFavorite:0},{id:4,name:'Card',currencyCode:'USD',isFavorite:0}];};`,
-  '@/lib/reports': `export const monthlyReport=()=>globalThis.__homeScreenTest.read('reports'); export const accountBalances=today=>globalThis.__homeScreenTest.read('balances',today);`,
-  './read-home.ts': `export const homeData=(_,id)=>globalThis.__homeScreenTest.read('home',id);`,
+  '@/components/app-sheet': `export const AppSheet='AppSheet';`,
+  '@/lib/database': `export const epochDay=d=>Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/86400000);`,
+  './read-home.ts': `const r=(...a)=>globalThis.__homeScreenTest.read(...a);
+    export const homeDeckData=today=>r('deck',today); export const homeTrend=(id,start,today)=>r('trend',id,start,today);
+    export const homePace=(id)=>r('pace',id); export const homeData=id=>r('list',id);
+    export const savePeriodSetting=setting=>r('save',setting);`,
 };
 const hooks = registerHooks({
   resolve(specifier, context, next) {
-    if (specifier in mocks) return { url: `tab-mock:${specifier}`, shortCircuit: true };
+    if (specifier in mocks) return { url: `home-mock:${specifier}`, shortCircuit: true };
     if (specifier.startsWith('@/')) {
       const stem = specifier.replace('@/', 'src/');
       const path = existsSync(new URL(`${stem}/index.ts`, root))
@@ -41,14 +49,14 @@ const hooks = registerHooks({
     }
     return next(
       specifier,
-      context.parentURL?.startsWith('tab-mock:')
+      context.parentURL?.startsWith('home-mock:')
         ? { ...context, parentURL: import.meta.url }
         : context,
     );
   },
   load(url, context, next) {
-    if (url.startsWith('tab-mock:'))
-      return { format: 'module', source: mocks[url.slice(9)], shortCircuit: true };
+    if (url.startsWith('home-mock:'))
+      return { format: 'module', source: mocks[url.slice(10)], shortCircuit: true };
     if (url.startsWith(root.href) && /\.tsx?$/.test(url))
       return {
         format: 'module',
@@ -61,58 +69,119 @@ const hooks = registerHooks({
   },
 });
 
-const fixtures = {
-  home: {
-    dailySummaries: [{ date: 20000, currencyCode: 'USD', expenseMinor: 500, incomeMinor: 0 }],
-    rows: [
-      {
-        id: 1,
-        type: 'EXPENSE',
-        date: 20000,
-        amountMinor: 500,
-        currencyCode: 'USD',
-        accountName: 'Cash',
-        categoryName: 'Lunch',
-      },
-    ],
-    summaries: [{ currencyCode: 'USD', expenseMinor: 500, incomeMinor: 1000 }],
-  },
-  balances: [{ id: 1, name: 'Cash', currencyCode: 'USD', balanceMinor: 1500 }],
+const account = (id, name, isFavorite = 0, balanceMinor = 100000) => ({
+  id,
+  name,
+  currencyCode: 'BDT',
+  isFavorite,
+  balanceMinor,
+  lastUsedDay: null,
+});
+const threeAccounts = [account(1, 'Cash', 1), account(2, 'Bank'), account(3, 'Savings')];
+const deck = (accounts = threeAccounts, period = { range: 'month', monthStart: 1 }) => ({
+  accounts,
+  displayRate: null,
+  period,
+});
+const row = (id, name) => ({
+  id,
+  type: 'EXPENSE',
+  date: 20000,
+  amountMinor: 500,
+  currencyCode: 'BDT',
+  accountId: 1,
+  transferAccountId: null,
+  accountName: name,
+  transferAccountName: null,
+  categoryName: `Lunch ${id}`,
+});
+const list = (id) => ({ rows: [row(id ?? 0, 'Cash')], dailySummaries: [] });
+const pace = [{ currencyCode: 'BDT', spentMinor: 6000, sameMinor: 5000, previousMinor: 9000 }];
+const ready = {
+  deck: () => deck(),
+  trend: () => [1000, 1200, 1100],
+  pace: () => pace,
+  list: (id) => list(id),
+  save: () => undefined,
 };
+/** Reads resolve at once from `ready` unless a test gives its own function for a key. */
+function reads(overrides = {}) {
+  const log = [];
+  state.read = async (key, ...args) => {
+    log.push([key, ...args]);
+    return (overrides[key] ?? ready[key])(...args);
+  };
+  return log;
+}
+/** Reads for `key` wait until the test settles them. */
+function pending(key, rest = {}) {
+  const calls = [];
+  const log = reads({
+    ...rest,
+    [key]: (...args) => new Promise((resolve, reject) => calls.push({ args, resolve, reject })),
+  });
+  return { calls, log };
+}
+
 const { HomeScreen } = await import('./index.ts');
 const { createQueryClient } = await import('../../lib/query-client.ts');
 const { AppQueryLifecycle } = await import('../../components/app-queries.tsx');
 const { notifyDataChanged } = await import('../../lib/data-changes.ts');
-const { QueryTimeContext } = await import('../../lib/query-time.ts');
+
 let queryClient;
-function QueryScreen({ Screen }) {
-  return React.createElement(
-    QueryClientProvider,
-    { client: queryClient },
-    React.createElement(AppQueryLifecycle, null, React.createElement(Screen)),
-  );
-}
-function resetQueryClient() {
+let renderer;
+async function mount() {
   queryClient?.clear();
   queryClient = createQueryClient();
   queryClient.setDefaultOptions({
     queries: { ...queryClient.getDefaultOptions().queries, gcTime: Infinity },
   });
+  await act(async () => {
+    renderer = create(
+      React.createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        React.createElement(AppQueryLifecycle, null, React.createElement(HomeScreen)),
+      ),
+    );
+  });
 }
-let renderer;
-const texts = () => renderer.root.findAllByType('Text').map((n) => n.children.join(''));
-const financialRetry = () =>
+const textOf = (node) =>
+  node.children.map((child) => (typeof child === 'string' ? child : textOf(child))).join('');
+const texts = () => renderer.root.findAllByType('Text').map(textOf);
+const has = (text) => texts().includes(text);
+const button = (label) =>
+  renderer.root.findAllByType('Pressable').find((n) => n.props.accessibilityLabel === label);
+const retries = () =>
   renderer.root
     .findAllByType('Pressable')
-    .find((n) => n.findAllByType('Text').some((t) => t.children.join('') === 'Retry'));
-test('Home loading, retained content and cache behavior', async (t) => {
+    .filter((n) => n.findAllByType('Text').some((t) => t.children.join('') === 'Retry'));
+const title = () =>
+  renderer.root
+    .findAllByType('Pressable')
+    .find((n) => n.props.accessibilityLabel?.endsWith(', choose account'));
+const deckList = () => renderer.root.findAllByType('FlatList').find((n) => n.props.horizontal);
+const interval = 400 - 64 + 12;
+const swipeTo = (index) =>
+  act(async () =>
+    deckList().props.onMomentumScrollEnd({
+      nativeEvent: { contentOffset: { x: index * interval } },
+    }),
+  );
+const pickAccount = async (name) => {
+  await act(async () => title().props.onPress());
+  await act(async () => button(name).props.onPress());
+};
+const card = (name) =>
+  renderer.root.findAllByType('View').find((n) => n.props.accessibilityLabel === name);
+const cardTexts = (name) => card(name).findAllByType('Text').map(textOf);
+
+test('Home boundaries', async (t) => {
   t.afterEach(async () => {
     await act(async () => renderer?.unmount());
     renderer = undefined;
     queryClient?.clear();
-    delete state.accountsError;
-    delete state.accountsRead;
-    delete state.accountItems;
+    state.pushed = [];
   });
   t.after(() => {
     notifyManager.setScheduler((callback) => setTimeout(callback, 0));
@@ -121,592 +190,355 @@ test('Home loading, retained content and cache behavior', async (t) => {
     if (previousActEnvironment === undefined) delete globalThis.IS_REACT_ACT_ENVIRONMENT;
     else globalThis.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
   });
-  await t.test('Accounts suspend before selection and financial reads initialize', async () => {
-    let finishAccounts;
-    state.accountsRead = () =>
-      new Promise((resolve) => {
-        finishAccounts = resolve;
-      });
-    const scopes = [];
-    state.read = async (key, id) => {
-      if (key === 'home') scopes.push(id);
-      return fixtures[key];
-    };
-    await act(async () => {
-      resetQueryClient();
-      renderer = create(React.createElement(QueryScreen, { Screen: HomeScreen }));
-    });
-    const picker = () => renderer.root.findByType('HomeAccountPicker');
-    assert.equal(renderer.root.findAllByType('HomeAccountPicker').length, 0);
-    assert.equal(renderer.root.findByType('HomeAccountPickerSkeleton').props.animated, true);
-    assert.ok(renderer.root.findAllByType('Skeleton').length > 0);
-    assert.deepEqual(scopes, [], 'financial reads wait for the default Account');
-    await act(async () =>
-      finishAccounts([
-        { id: 1, name: 'Cash', currencyCode: 'USD', isFavorite: 0 },
-        { id: 2, name: 'Bank', currencyCode: 'USD', isFavorite: 1 },
-      ]),
-    );
-    assert.equal(picker().props.selectedId, 2);
-    assert.equal(renderer.root.findAllByType('HomeAccountPickerSkeleton').length, 0);
-    assert.deepEqual(scopes, [2]);
-  });
+
   await t.test(
-    'Home Account transitions retain the correct receipt meaning and recover without stale writes',
+    'first load shows skeletons, starts the list with the deck, and opens on All accounts',
     async () => {
-      const Screen = HomeScreen;
-      const transfer = {
-        id: 9,
-        type: 'TRANSFER',
-        date: 20000,
-        amountMinor: 500,
-        currencyCode: 'USD',
-        accountId: 1,
-        transferAccountId: 2,
-        accountName: 'Cash',
-        transferAccountName: 'Bank',
-      };
-      state.read = async (key) =>
-        key === 'home' ? { ...fixtures.home, rows: [transfer] } : fixtures[key];
-      await act(async () => {
-        resetQueryClient();
-        renderer = create(React.createElement(QueryScreen, { Screen }));
-      });
-      const picker = () => renderer.root.findByType('HomeAccountPicker');
-      const entry = () =>
-        renderer.root
-          .findAllByType('Pressable')
-          .find((n) => n.props.accessibilityLabel === 'Transfer, Cash');
-      assert.ok(texts().some((s) => s === 'Sent to Bank'));
-      assert.equal(entry().props.disabled, false);
-      const requests = [];
-      state.read = (key, id) =>
-        key === 'home'
-          ? new Promise((resolve, reject) => requests.push({ id, resolve, reject }))
-          : Promise.resolve(fixtures[key]);
-      await act(async () => picker().props.onSelect(2));
-      assert.equal(picker().props.selectedId, 2, 'selection changes before data');
-      assert.equal(picker().props.loading, false);
-      assert.equal(entry().props.disabled, true, 'old Transactions cannot be opened');
-      assert.ok(
-        texts().some((s) => s === 'Sent to Bank'),
-        'old Transfer keeps its original direction',
+      const { calls, log } = pending('deck');
+      await mount();
+      assert.ok(renderer.root.findAllByType('Skeleton').length > 0);
+      assert.equal(title(), undefined, 'no title button before the deck loads');
+      assert.equal(button('Add transaction').props.disabled, true);
+      assert.deepEqual(
+        log.map(([key, id]) => [key, id]),
+        [
+          ['list', null],
+          ['deck', log[1][1]],
+        ],
+        'the list read starts at the same time as the deck read',
       );
-      assert.ok(!texts().some((s) => s === 'Received from Cash'));
+      await act(async () => calls[0].resolve(deck()));
+      assert.equal(title().props.accessibilityLabel, 'All accounts, choose account');
+      assert.ok(has('Lunch 0'));
+      assert.ok(cardTexts('All accounts').includes('Spent ৳60.00'));
+      assert.ok(cardTexts('Cash').some((text) => text.startsWith('+৳1.00 since ')));
+      assert.equal(
+        log.filter(([key]) => key === 'list').length,
+        1,
+        'the prefetched list is reused',
+      );
+      assert.equal(button('Card 1 of 4'), undefined);
+      assert.ok(
+        renderer.root
+          .findAllByType('View')
+          .some((n) => n.props.accessibilityLabel === 'Card 1 of 4'),
+      );
+    },
+  );
+
+  await t.test('a failed card keeps its balance and retries on its own', async () => {
+    let fail = true;
+    const log = reads({
+      pace: () => {
+        if (fail) throw Error('pace unavailable');
+        return pace;
+      },
+    });
+    await mount();
+    assert.ok(cardTexts('All accounts').includes('Couldn’t load this card'));
+    assert.ok(cardTexts('All accounts').includes('৳3,000.00'), 'the balance stays');
+    assert.ok(has('Lunch 0'), 'the list is not affected');
+    assert.ok(!cardTexts('Cash').includes('Couldn’t load this card'));
+    fail = false;
+    const listReads = log.filter(([key]) => key === 'list').length;
+    await act(async () =>
+      card('All accounts')
+        .findAllByType('Pressable')
+        .find((n) => n.findAllByType('Text').some((x) => x.children.join('') === 'Retry'))
+        .props.onPress(),
+    );
+    assert.ok(cardTexts('All accounts').includes('Spent ৳60.00'));
+    assert.equal(
+      log.filter(([key]) => key === 'list').length,
+      listReads,
+      'Retry reads the card only',
+    );
+  });
+
+  await t.test(
+    'a scope change dims the old list at once and a late result cannot replace the new scope',
+    async () => {
+      reads();
+      await mount();
+      const { calls } = pending('list');
+      await swipeTo(2);
+      assert.equal(
+        title().props.accessibilityLabel,
+        'Bank, choose account',
+        'the title changes at once',
+      );
+      assert.ok(button('Search Bank'));
+      assert.ok(has('Lunch 0'), 'the old rows stay');
+      assert.equal(button('Lunch 0, Cash').props.disabled, true, 'old rows cannot be opened');
+      await pickAccount('Savings');
+      assert.equal(title().props.accessibilityLabel, 'Savings, choose account');
+      assert.deepEqual(
+        calls.map((call) => call.args[0]),
+        [2, 3],
+      );
+      await act(async () => calls[1].resolve(list(3)));
+      await act(async () => calls[0].resolve(list(2)));
+      assert.ok(has('Lunch 3'));
+      assert.ok(!has('Lunch 2'), 'the late result for Bank does not show');
+      assert.equal(button('Lunch 3, Cash').props.disabled, false);
+    },
+  );
+
+  await t.test('a failed list tries again when the deck returns to its Account', async () => {
+    let bankFails = true;
+    const log = reads({
+      list: (id) => {
+        if (id === 2 && bankFails) throw Error('Bank unavailable');
+        return list(id);
+      },
+    });
+    await mount();
+    await swipeTo(2);
+    assert.ok(has('Couldn’t load account activity'));
+    assert.ok(cardTexts('Bank').includes('৳1,000.00'), 'the deck stays');
+    await swipeTo(3);
+    assert.ok(has('Lunch 3'));
+    bankFails = false;
+    await swipeTo(2);
+    assert.ok(has('Lunch 2'));
+    assert.equal(
+      log.filter(([key, id]) => key === 'list' && id === 2).length,
+      2,
+      'the return fetches Bank again',
+    );
+  });
+
+  await t.test('list Retry recovers the list without reading the deck again', async () => {
+    let fail = true;
+    const log = reads({
+      list: (id) => {
+        if (fail) throw Error('unavailable');
+        return list(id);
+      },
+    });
+    await mount();
+    assert.ok(has('Couldn’t load account activity'));
+    assert.equal(renderer.root.findAllByType('Skeleton').length, 0);
+    fail = false;
+    const deckReads = log.filter(([key]) => key === 'deck').length;
+    await act(async () => retries()[0].props.onPress());
+    assert.ok(has('Lunch 0'));
+    assert.equal(log.filter(([key]) => key === 'deck').length, deckReads);
+  });
+
+  await t.test(
+    'a range change keeps the old cards dimmed, saves the range, and shows the new label at once',
+    async () => {
+      reads();
+      await mount();
+      const { calls, log } = pending('pace');
+      await act(async () => button('Period, November').props.onPress());
+      await act(async () => button('This week').props.onPress());
+      const pill = renderer.root
+        .findAllByType('Pressable')
+        .find((n) => n.props.accessibilityLabel?.startsWith('Period, Week of'));
+      assert.ok(pill, 'the pill shows the new range at once');
+      assert.equal(pill.props.accessibilityState.busy, true);
+      assert.ok(pill.findAllByType('ActivityIndicator').length > 0);
+      assert.ok(cardTexts('All accounts').includes('Spent ৳60.00'), 'old Pace stays');
+      assert.ok(
+        log.some(([key, setting]) => key === 'save' && setting.range === 'week'),
+        'the range is saved',
+      );
+      await act(async () =>
+        calls[0].resolve([
+          { currencyCode: 'BDT', spentMinor: 1000, sameMinor: 2000, previousMinor: 3000 },
+        ]),
+      );
+      assert.ok(cardTexts('All accounts').includes('Spent ৳10.00'));
       assert.equal(
         renderer.root
           .findAllByType('Pressable')
-          .find((n) => n.props.accessibilityLabel === 'Add transaction').props.disabled,
+          .find((n) => n.props.accessibilityLabel?.startsWith('Period, Week of')).props
+          .accessibilityState.busy,
         false,
       );
-      await act(async () => requests[0].reject(new Error('read failed')));
-      assert.equal(picker().props.error, false);
-      assert.equal(picker().props.loading, false);
-      assert.equal(picker().props.selectedId, 2);
-      assert.equal(entry(), undefined);
-      assert.ok(texts().includes('Couldn’t load account activity'));
-      await act(async () => financialRetry().props.onPress());
-      assert.equal(picker().props.error, false);
-      await act(async () => requests[1].resolve({ ...fixtures.home, rows: [transfer] }));
-      assert.equal(entry().props.disabled, false);
-      assert.ok(texts().some((s) => s === 'Received from Cash'));
-      await act(async () => picker().props.onSelect(3));
-      await act(async () => picker().props.onSelect(4));
-      await act(async () => requests[3].resolve({ ...fixtures.home, rows: [] }));
-      await act(async () => requests[2].resolve({ ...fixtures.home, rows: [transfer] }));
-      assert.equal(picker().props.selectedId, 4);
       assert.equal(
-        renderer.root.findByType('FlatList').props.data.length,
-        0,
-        'late result cannot replace the latest selection',
+        queryClient.getQueriesData({ queryKey: ['home', 'deck'] })[0][1].period.range,
+        'week',
+        'the cached deck holds the saved range',
       );
     },
   );
-  await t.test(
-    'Home keeps an explicit selection after backgrounding and resets on remount',
-    async () => {
-      state.read = async (key) => fixtures[key];
-      await act(async () => {
-        resetQueryClient();
-        renderer = create(React.createElement(QueryScreen, { Screen: HomeScreen }));
-      });
-      const picker = () => renderer.root.findByType('HomeAccountPicker');
-      await act(async () => picker().props.onSelect(2));
-      await act(async () => {
-        state.lifecycle('background');
-        state.lifecycle('active');
-      });
-      assert.equal(picker().props.selectedId, 2);
-      await act(async () => renderer.unmount());
-      await act(async () => {
-        renderer = create(React.createElement(QueryScreen, { Screen: HomeScreen }));
-      });
-      assert.equal(picker().props.selectedId, 1, 'a new mount starts at the favorite');
-    },
-  );
-  await t.test(
-    'the same selector stays mounted through financial loading, success, error and retry',
-    async () => {
-      const reads = [];
-      state.read = (key) =>
-        key === 'home'
-          ? new Promise((resolve, reject) => reads.push({ resolve, reject }))
-          : Promise.resolve(fixtures[key]);
-      await act(async () => {
-        resetQueryClient();
-        renderer = create(React.createElement(QueryScreen, { Screen: HomeScreen }));
-      });
-      const selector = renderer.root.findByType('HomeAccountPicker');
-      const assertSameSelector = () =>
-        assert.equal(renderer.root.findByType('HomeAccountPicker'), selector);
-      assert.ok(renderer.root.findAllByType('Skeleton').length > 0);
-      await act(async () => reads[0].resolve(fixtures.home));
-      assertSameSelector();
-      await act(async () => selector.props.onSelect(2));
-      assertSameSelector();
-      await act(async () => reads[1].reject(Error('unavailable')));
-      assert.ok(texts().includes('Couldn’t load account activity'));
-      assertSameSelector();
-      assert.equal(selector.props.selectedId, 2);
-      await act(async () => financialRetry().props.onPress());
-      assertSameSelector();
-      await act(async () => reads[2].resolve(fixtures.home));
-      assertSameSelector();
-      assert.ok(texts().includes('Lunch'));
-    },
-  );
-  await t.test('Home cold failure offers retry instead of empty state or skeletons', async () => {
-    const Screen = HomeScreen;
-    state.read = async () => {
-      throw new Error('unavailable');
-    };
-    await act(async () => {
-      resetQueryClient();
-      renderer = create(React.createElement(QueryScreen, { Screen }));
-    });
-    assert.ok(texts().includes('Couldn’t load account activity'));
-    assert.equal(renderer.root.findAllByType('Skeleton').length, 0);
-    assert.ok(!texts().some((s) => s.includes('No transactions')));
-    state.read = async (key) => fixtures[key];
-    const retry = renderer.root
-      .findAllByType('Pressable')
-      .find((n) => n.findAllByType('Text').some((t) => t.children.join('') === 'Retry'));
-    await act(async () => retry.props.onPress());
-    assert.ok(texts().includes('Lunch'));
-  });
-  await t.test(
-    'Home retains an empty result while switching, then replaces it on error',
-    async () => {
-      const Screen = HomeScreen;
-      state.read = async (key) => (key === 'home' ? { ...fixtures.home, rows: [] } : fixtures[key]);
-      await act(async () => {
-        resetQueryClient();
-        renderer = create(React.createElement(QueryScreen, { Screen }));
-      });
-      const empty = 'No transactions in this account. Add one or choose another account.';
-      assert.ok(texts().includes(empty));
-      let reject;
-      state.read = (key) =>
-        key === 'home'
-          ? new Promise((_, fail) => {
-              reject = fail;
-            })
-          : Promise.resolve(fixtures[key]);
-      await act(async () => renderer.root.findByType('HomeAccountPicker').props.onSelect(null));
-      assert.ok(
-        texts().includes(empty),
-        'retained Account empty state must not become All accounts',
-      );
-      await act(async () => reject(Error('unavailable')));
-      assert.ok(!texts().includes(empty), 'error replaces previous content');
-      assert.ok(texts().includes('Couldn’t load account activity'));
-    },
-  );
-  await t.test(
-    'Home Account lookup failure stops loading and recovers through cold retry',
-    async () => {
-      state.accountsError = true;
-      const Screen = HomeScreen;
-      await act(async () => {
-        resetQueryClient();
-        renderer = create(React.createElement(QueryScreen, { Screen }));
-      });
-      const picker = () => renderer.root.findByType('HomeAccountPicker');
-      assert.equal(renderer.root.findAllByType('HomeAccountPicker').length, 0);
-      assert.equal(renderer.root.findByType('HomeAccountPickerSkeleton').props.animated, false);
-      assert.ok(texts().includes('Couldn’t load Home'));
-      state.read = async (key) => fixtures[key];
-      const retry = renderer.root
-        .findAllByType('Pressable')
-        .find((n) => n.findAllByType('Text').some((t) => t.children.join('') === 'Retry'));
-      await act(async () => retry.props.onPress());
-      assert.ok(texts().includes('Couldn’t load Home'), 'a failed retry stays recoverable');
-      assert.equal(renderer.root.findByType('HomeAccountPickerSkeleton').props.animated, false);
-      assert.equal(renderer.root.findAllByType('Skeleton').length, 0);
-      delete state.accountsError;
-      const retryAgain = renderer.root
-        .findAllByType('Pressable')
-        .find((n) => n.findAllByType('Text').some((t) => t.children.join('') === 'Retry'));
-      await act(async () => retryAgain.props.onPress());
-      assert.equal(picker().props.selectedId, 1);
-      assert.equal(renderer.root.findAllByType('HomeAccountPickerSkeleton').length, 0);
-      assert.ok(texts().includes('Lunch'));
-    },
-  );
-  await t.test('Accounts and financial errors have independent retries', async () => {
-    state.read = async (key) => fixtures[key];
-    await act(async () => {
-      resetQueryClient();
-      renderer = create(React.createElement(QueryScreen, { Screen: HomeScreen }));
-    });
-    const picker = () => renderer.root.findByType('HomeAccountPicker');
-    let financialReads = 0;
-    state.read = async (key, id) => {
-      if (key === 'home' && id === 2) {
-        financialReads++;
-        throw Error('Bank unavailable');
-      }
-      return fixtures[key];
-    };
-    await act(async () => picker().props.onSelect(2));
-    assert.equal(picker().props.error, false);
-    assert.ok(texts().includes('Couldn’t load account activity'));
-    assert.ok(!texts().includes('Lunch'));
-    state.accountsError = true;
-    await act(async () => notifyDataChanged());
-    assert.equal(picker().props.error, true);
-    const readsBeforeAccountsRetry = financialReads;
-    delete state.accountsError;
-    await act(async () => picker().props.onRetry());
-    assert.equal(
-      financialReads,
-      readsBeforeAccountsRetry,
-      'Accounts retry does not retry financial data',
-    );
-    assert.equal(picker().props.error, false);
-    assert.ok(texts().includes('Couldn’t load account activity'));
-    state.accountsError = true;
-    state.read = async (key) => (key === 'home' ? { ...fixtures.home, rows: [] } : fixtures[key]);
-    await act(async () => financialRetry().props.onPress());
-    assert.equal(picker().props.selectedId, 2);
-    assert.ok(!texts().includes('Couldn’t load account activity'));
-    assert.equal(renderer.root.findByType('FlatList').props.data.length, 0);
-  });
-  await t.test('a financial error can be escaped by choosing another Account', async () => {
-    let failedReads = 0;
-    state.read = async (key, id) => {
-      if (key === 'home' && id === 1) {
-        failedReads++;
+
+  await t.test('a range change clears a card error', async () => {
+    reads({
+      pace: () => {
         throw Error('unavailable');
-      }
-      return fixtures[key];
-    };
-    await act(async () => {
-      resetQueryClient();
-      renderer = create(React.createElement(QueryScreen, { Screen: HomeScreen }));
+      },
     });
-    assert.ok(texts().includes('Couldn’t load account activity'));
-    await act(async () => renderer.root.findByType('HomeAccountPicker').props.onSelect(2));
-    assert.ok(texts().includes('Lunch'));
-    assert.equal(renderer.root.findByType('HomeAccountPicker').props.selectedId, 2);
-    assert.equal(failedReads, 1, 'switching does not remount the failed scope');
-  });
-  await t.test(
-    'a failed background financial refresh keeps cached content active and a later refresh recovers',
-    async () => {
-      state.read = async (key) => fixtures[key];
-      await act(async () => {
-        resetQueryClient();
-        queryClient.setDefaultOptions({
-          queries: { ...queryClient.getDefaultOptions().queries, staleTime: Infinity },
-        });
-        renderer = create(React.createElement(QueryScreen, { Screen: HomeScreen }));
-      });
-      const before = texts();
-      state.read = async () => {
-        throw Error('unavailable');
-      };
-      await act(async () => queryClient.refetchQueries({ queryKey: ['home', 'snapshot'] }));
-      assert.deepEqual(texts(), before);
-      assert.ok(!texts().includes('Couldn’t load account activity'));
-      assert.equal(renderer.root.findAllByType('Skeleton').length, 0);
-      const entry = renderer.root
-        .findAllByType('Pressable')
-        .find((n) => n.props.accessibilityLabel === 'Lunch, Cash');
-      assert.equal(entry.props.disabled, false);
-      assert.equal(renderer.root.findByType('HomeAccountPicker').props.error, false);
-      state.read = async (key) => (key === 'home' ? { ...fixtures.home, rows: [] } : fixtures[key]);
-      await act(async () => queryClient.refetchQueries({ queryKey: ['home', 'snapshot'] }));
-      assert.ok(!texts().includes('Lunch'));
-      assert.ok(
-        texts().includes('No transactions in this account. Add one or choose another account.'),
-      );
-    },
-  );
-  await t.test(
-    'a new local date clears a financial error without rereading the failed date',
-    async () => {
-      let now = new Date(2026, 10, 6, 23, 59);
-      const Screen = () =>
-        React.createElement(QueryTimeContext, { value: now }, React.createElement(HomeScreen));
-      const balanceDates = [];
-      state.read = async (key, day) => {
-        if (key === 'balances') balanceDates.push(day);
-        if (key === 'home') throw Error('unavailable');
-        return fixtures[key];
-      };
-      await act(async () => {
-        resetQueryClient();
-        renderer = create(React.createElement(QueryScreen, { Screen }));
-      });
-      assert.ok(texts().includes('Couldn’t load account activity'));
-      now = new Date(2026, 10, 7, 0, 1);
-      state.read = async (key, day) => {
-        if (key === 'balances') balanceDates.push(day);
-        return fixtures[key];
-      };
-      await act(async () => renderer.update(React.createElement(QueryScreen, { Screen })));
-      assert.ok(texts().includes('Lunch'));
-      assert.equal(balanceDates.length, 2);
-      assert.equal(balanceDates[1], balanceDates[0] + 1);
-    },
-  );
-  await t.test(
-    'Accounts retry shows its loading fallback while the new read is pending',
-    async () => {
-      state.accountsError = true;
-      await act(async () => {
-        resetQueryClient();
-        renderer = create(React.createElement(QueryScreen, { Screen: HomeScreen }));
-      });
-      let finishAccounts;
-      state.accountsRead = () =>
-        new Promise((resolve) => {
-          finishAccounts = resolve;
-        });
-      state.read = async (key) => fixtures[key];
-      const retry = renderer.root
-        .findAllByType('Pressable')
-        .find((n) => n.findAllByType('Text').some((t) => t.children.join('') === 'Retry'));
-      await act(async () => retry.props.onPress());
-      assert.equal(renderer.root.findByType('HomeAccountPickerSkeleton').props.animated, true);
-      assert.ok(renderer.root.findAllByType('Skeleton').length > 0);
-      assert.ok(!texts().includes('Couldn’t load Home'));
-      await act(async () => finishAccounts([]));
-      assert.equal(renderer.root.findByType('HomeAccountPicker').props.selectedId, null);
-    },
-  );
-  await t.test('Home reads SQLite offline and waits for the whole financial snapshot', async () => {
-    const wasOnline = onlineManager.isOnline();
-    onlineManager.setOnline(false);
-    try {
-      let finishBalances;
-      state.read = (key) =>
-        key === 'balances'
-          ? new Promise((resolve) => {
-              finishBalances = resolve;
-            })
-          : Promise.resolve(fixtures[key]);
-      const Screen = HomeScreen;
-      await act(async () => {
-        resetQueryClient();
-        renderer = create(React.createElement(QueryScreen, { Screen }));
-      });
-      assert.ok(finishBalances, 'local reads must run even when offline');
-      assert.ok(renderer.root.findAllByType('Skeleton').length > 0);
-      assert.ok(!texts().includes('Lunch'), 'activity must wait for balances');
-      await act(async () => finishBalances(fixtures.balances));
-      assert.ok(texts().includes('Lunch'));
-    } finally {
-      onlineManager.setOnline(wasOnline);
-    }
-  });
-  await t.test(
-    'Home retains its initial Account when favorite changes on another screen',
-    async () => {
-      state.accountItems = [
-        { id: 1, name: 'Cash', currencyCode: 'USD', isFavorite: 1 },
-        { id: 2, name: 'Bank', currencyCode: 'USD', isFavorite: 0 },
-      ];
-      state.read = async (key) => fixtures[key];
-      const Screen = HomeScreen;
-      await act(async () => {
-        resetQueryClient();
-        renderer = create(React.createElement(QueryScreen, { Screen }));
-      });
-      state.accountItems = state.accountItems.map((a) => ({
-        ...a,
-        isFavorite: a.id === 2 ? 1 : 0,
-      }));
-      await act(async () => notifyDataChanged());
-      assert.equal(renderer.root.findByType('HomeAccountPicker').props.selectedId, 1);
-      assert.equal(
-        renderer.root.findByType('HomeAccountPicker').props.accounts.find((a) => a.id === 2)
-          .isFavorite,
-        1,
-        'Accounts refreshed without changing the scope',
-      );
-    },
-  );
-  await t.test(
-    'Home cache isolates Accounts and local dates and reuses the same fresh snapshot',
-    async () => {
-      resetQueryClient();
-      const { homeSnapshotQuery } = await import('./queries.ts');
-      const calls = [];
-      state.read = async (key, scope) => {
-        calls.push([key, scope]);
-        return fixtures[key];
-      };
-      const firstDay = new Date(2026, 10, 6, 23, 59);
-      const sameDay = new Date(2026, 10, 6, 9);
-      const nextDay = new Date(2026, 10, 7, 0, 1);
-      await queryClient.fetchQuery({ ...homeSnapshotQuery(1, firstDay), staleTime: Infinity });
-      await queryClient.fetchQuery({ ...homeSnapshotQuery(1, sameDay), staleTime: Infinity });
-      assert.equal(calls.filter(([key]) => key === 'home').length, 1);
-      await queryClient.fetchQuery({ ...homeSnapshotQuery(2, firstDay), staleTime: Infinity });
-      await queryClient.fetchQuery({ ...homeSnapshotQuery(2, nextDay), staleTime: Infinity });
-      assert.deepEqual(
-        calls.filter(([key]) => key === 'home').map(([, id]) => id),
-        [1, 2, 2],
-      );
-      const cutoffs = calls.filter(([key]) => key === 'balances').map(([, day]) => day);
-      assert.equal(cutoffs[2], cutoffs[0] + 1, 'next local date changes the balance cutoff');
-      assert.equal(
-        queryClient.getQueryCache().getAll().length,
-        3,
-        'three independent snapshots are cached',
-      );
-    },
-  );
-  await t.test(
-    'Home keeps its initial Account after backgrounding despite a changed favorite',
-    async () => {
-      state.accountItems = [
-        { id: 1, name: 'Cash', currencyCode: 'BDT', isFavorite: 1 },
-        { id: 2, name: 'Bank', currencyCode: 'BDT', isFavorite: 0 },
-      ];
-      state.read = async (key) => fixtures[key];
-      await act(async () => {
-        resetQueryClient();
-        renderer = create(React.createElement(QueryScreen, { Screen: HomeScreen }));
-      });
-      const picker = () => renderer.root.findByType('HomeAccountPicker');
-      assert.equal(picker().props.selectedId, 1);
-      state.accountItems = state.accountItems.map((a) => ({
-        ...a,
-        isFavorite: a.id === 2 ? 1 : 0,
-      }));
-      await act(async () => {
-        state.lifecycle('background');
-        state.lifecycle('active');
-      });
-      assert.equal(picker().props.selectedId, 1);
-    },
-  );
-  await t.test(
-    'Home keeps its Account when foreground Accounts refresh fails and is retried',
-    async () => {
-      state.accountItems = [
-        { id: 1, name: 'Cash', currencyCode: 'BDT', isFavorite: 1 },
-        { id: 2, name: 'Bank', currencyCode: 'BDT', isFavorite: 0 },
-      ];
-      state.read = async (key) => fixtures[key];
-      await act(async () => {
-        resetQueryClient();
-        renderer = create(React.createElement(QueryScreen, { Screen: HomeScreen }));
-      });
-      const picker = () => renderer.root.findByType('HomeAccountPicker');
-      state.accountItems = state.accountItems.map((a) => ({
-        ...a,
-        isFavorite: a.id === 2 ? 1 : 0,
-      }));
-      state.accountsError = true;
-      await queryClient.invalidateQueries({ queryKey: ['home'], refetchType: 'none' });
-      await act(async () => {
-        state.lifecycle('background');
-        state.lifecycle('active');
-      });
-      assert.equal(picker().props.error, true);
-      delete state.accountsError;
-      await act(async () => picker().props.onRetry());
-      assert.equal(picker().props.selectedId, 1);
-    },
-  );
-  await t.test(
-    'Home allows explicit selection while a foreground Accounts refresh fails',
-    async () => {
-      state.accountItems = [
-        { id: 1, name: 'Cash', currencyCode: 'BDT', isFavorite: 1 },
-        { id: 2, name: 'Bank', currencyCode: 'BDT', isFavorite: 0 },
-      ];
-      state.read = async (key) => fixtures[key];
-      await act(async () => {
-        resetQueryClient();
-        renderer = create(React.createElement(QueryScreen, { Screen: HomeScreen }));
-      });
-      const picker = () => renderer.root.findByType('HomeAccountPicker');
-      state.accountItems = state.accountItems.map((a) => ({
-        ...a,
-        isFavorite: a.id === 2 ? 1 : 0,
-      }));
-      state.accountsError = true;
-      await queryClient.invalidateQueries({ queryKey: ['home'], refetchType: 'none' });
-      await act(async () => {
-        state.lifecycle('background');
-        state.lifecycle('active');
-      });
-      await act(async () => picker().props.onSelect(null));
-      delete state.accountsError;
-      await act(async () => picker().props.onRetry());
-      assert.equal(picker().props.selectedId, null);
-    },
-  );
-  await t.test('committed writes refresh retained Home content without navigation', async () => {
-    const Screen = HomeScreen;
-    const initial = [];
-    state.read = (key) => new Promise((resolve) => initial.push(() => resolve(fixtures[key])));
-    await act(async () => {
-      resetQueryClient();
-      renderer = create(React.createElement(QueryScreen, { Screen }));
-    });
-    assert.ok(renderer.root.findAllByType('Skeleton').length > 0, 'Home uses first-load skeletons');
-    await act(async () => initial.forEach((resolve) => resolve()));
-    const before = texts();
-    const pending = [];
-    const updated = {
-      ...fixtures,
-      home: { ...fixtures.home, rows: [] },
-      balances: [],
-    };
-    state.read = (key) => new Promise((resolve) => pending.push(() => resolve(updated[key])));
-    await act(async () => notifyDataChanged());
-    assert.ok(pending.length > 0, 'committed writes refresh Home');
-    assert.deepEqual(texts(), before, 'loaded content must not disappear during a refresh');
-    assert.equal(renderer.root.findByType('HomeAccountPicker').props.loading, false);
+    await mount();
+    assert.ok(cardTexts('All accounts').includes('Couldn’t load this card'));
+    reads();
+    await act(async () => button('Period, November').props.onPress());
+    await act(async () => button('This year').props.onPress());
+    assert.ok(cardTexts('All accounts').includes('Spent ৳60.00'));
+    await act(async () => button('This month').props.onPress());
     assert.ok(
-      renderer.root
-        .findAllByType('Pressable')
-        .filter((n) => n.props.accessibilityLabel?.startsWith('Lunch'))
-        .every((n) => n.props.disabled === false),
-      'same-Account Transactions remain active',
+      cardTexts('All accounts').includes('Spent ৳60.00'),
+      'the return to the failed range fetches it again',
     );
-    assert.equal(
-      renderer.root.findAllByType('ActivityIndicator').length,
-      0,
-      'refresh must not insert a spinner that shifts content',
-    );
-    await act(async () => pending.forEach((resolve) => resolve()));
-    assert.notDeepEqual(
-      texts(),
-      before,
-      'fresh results, including empty results, replace the previous content',
-    );
-    const empty = texts();
-    pending.length = 0;
+  });
+
+  await t.test(
+    'a failed refresh keeps the cached deck and shows the notice until Retry succeeds',
+    async () => {
+      reads();
+      await mount();
+      reads({
+        deck: () => {
+          throw Error('unavailable');
+        },
+      });
+      await act(async () => notifyDataChanged());
+      assert.ok(has('Couldn’t refresh accounts'));
+      assert.ok(
+        !renderer.root
+          .findByType('ScrollView')
+          .findAllByType('Text')
+          .some((n) => textOf(n) === 'Couldn’t refresh accounts'),
+        'the notice stays under the title and does not scroll',
+      );
+      assert.ok(cardTexts('Cash').includes('৳1,000.00'), 'the cached balances stay');
+      assert.ok(has('Lunch 0'));
+      assert.equal(
+        renderer.root.findAllByType('ActivityIndicator').length,
+        0,
+        'no refresh spinner',
+      );
+      reads({
+        deck: () =>
+          deck([account(1, 'Cash', 1, 250000), account(2, 'Bank'), account(3, 'Savings')]),
+      });
+      await act(async () => button('Retry refresh').props.onPress());
+      assert.ok(!has('Couldn’t refresh accounts'));
+      assert.ok(cardTexts('Cash').includes('৳2,500.00'));
+    },
+  );
+
+  await t.test('a balance at rest rolls, and a scrubbed value does not', async () => {
+    reads();
+    await mount();
+    const amount = () =>
+      card('Cash')
+        .findAllByType('Text')
+        .find((n) => n.props.style?.fontSize === 28);
+    assert.equal(textOf(amount()), '৳1,000.00');
+    assert.equal(amount().props.rolling, true);
+    const chart = card('Cash').findByType('TrendChart');
+    await act(async () => chart.props.onScrub(0));
+    assert.equal(amount().props.rolling, undefined, 'the scrubbed value is still');
+    await act(async () => chart.props.onScrub(null));
+    assert.equal(amount().props.rolling, true);
+  });
+
+  await t.test('the notice stays while Retry runs and goes after a refresh succeeds', async () => {
+    reads();
+    await mount();
+    reads({
+      deck: () => {
+        throw Error('unavailable');
+      },
+    });
     await act(async () => notifyDataChanged());
-    assert.deepEqual(texts(), empty, 'an already empty screen stays stable during refresh too');
-    assert.equal(renderer.root.findAllByType('ActivityIndicator').length, 0);
-    await act(async () => pending.forEach((resolve) => resolve()));
+    const { calls } = pending('deck');
+    await act(async () => button('Retry refresh').props.onPress());
+    assert.ok(has('Couldn’t refresh accounts'), 'the notice stays while Retry runs');
+    await act(async () => calls[0].reject(Error('still unavailable')));
+    assert.ok(has('Couldn’t refresh accounts'));
+    reads();
+    await act(async () => button('Retry refresh').props.onPress());
+    assert.ok(!has('Couldn’t refresh accounts'));
+  });
+
+  await t.test(
+    'the deck stays on the Account in view when the order of the cards changes',
+    async () => {
+      reads();
+      await mount();
+      await swipeTo(2);
+      const before = deckList();
+      assert.equal(before.props.data[2].card.account.name, 'Bank');
+      const savingsUsed = { ...account(3, 'Savings'), lastUsedDay: 20000 };
+      reads({ deck: () => deck([account(1, 'Cash', 1), account(2, 'Bank'), savingsUsed]) });
+      await act(async () => notifyDataChanged());
+      assert.equal(title().props.accessibilityLabel, 'Bank, choose account');
+      assert.notEqual(deckList(), before, 'a new order mounts a new deck');
+      assert.equal(deckList().props.data[3].card.account.name, 'Bank');
+      assert.equal(deckList().props.initialScrollIndex, 3, 'the new deck opens on Bank');
+      reads({ deck: () => deck([account(1, 'Cash', 1), savingsUsed]) });
+      await act(async () => notifyDataChanged());
+      assert.equal(
+        title().props.accessibilityLabel,
+        'All accounts, choose account',
+        'a deleted Account falls back to the first card',
+      );
+      assert.equal(deckList().props.initialScrollIndex, 0);
+    },
+  );
+
+  await t.test('a cold deck failure offers Retry for the whole screen', async () => {
+    let fail = true;
+    reads({
+      deck: () => {
+        if (fail) throw Error('unavailable');
+        return deck();
+      },
+    });
+    await mount();
+    assert.ok(has('Couldn’t load Home'));
+    assert.equal(button('Add transaction').props.disabled, true);
+    fail = false;
+    await act(async () => retries()[0].props.onPress());
+    assert.equal(title().props.accessibilityLabel, 'All accounts, choose account');
+  });
+
+  await t.test('one Account gets one Pace card, no dots, and an Add an account card', async () => {
+    reads({ deck: () => deck([account(7, 'Cash', 1)]) });
+    await mount();
+    assert.equal(title().props.accessibilityLabel, 'Cash, choose account');
+    assert.ok(cardTexts('Cash').includes('Spent ৳60.00'));
+    assert.equal(card('All accounts'), undefined);
+    assert.ok(
+      !renderer.root
+        .findAllByType('View')
+        .some((n) => n.props.accessibilityLabel?.startsWith('Card ')),
+    );
+    const add = renderer.root
+      .findAllByType('Pressable')
+      .find((n) => n.findAllByType('Text').some((x) => x.children.join('') === '+ Add an account'));
+    await act(async () => add.props.onPress());
+    assert.deepEqual(state.pushed, ['/accounts']);
+  });
+
+  await t.test('Quick add uses the Account in view, or the favorite on All accounts', async () => {
+    reads();
+    await mount();
+    await act(async () => button('Add transaction').props.onPress());
+    await swipeTo(2);
+    await act(async () => button('Add transaction').props.onPress());
+    assert.deepEqual(
+      state.pushed.map((to) => to.params),
+      [{ accountId: '1' }, { accountId: '2' }],
+    );
+  });
+
+  await t.test('a refresh keeps loaded content without skeletons or spinners', async () => {
+    reads();
+    await mount();
+    const before = texts();
+    const { calls } = pending('list');
+    await act(async () => notifyDataChanged());
+    assert.ok(calls.length > 0, 'committed writes refresh Home');
+    assert.deepEqual(texts(), before);
+    assert.equal(renderer.root.findAllByType('Skeleton').length, 0);
+    assert.equal(button('Lunch 0, Cash').props.disabled, false);
+    await act(async () => calls.forEach((call) => call.resolve({ rows: [], dailySummaries: [] })));
+    assert.ok(has('No transactions yet. Add one to get started.'));
   });
 });

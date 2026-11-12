@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { homeBalances } from './balances.ts';
 
-test('homeBalances scopes to the selected account', () => {
+test('homeBalances scopes to the selected Account', () => {
   const rows = [
     { id: 1, currencyCode: 'BDT', balanceMinor: 500 },
     { id: 2, currencyCode: 'BDT', balanceMinor: -200 },
