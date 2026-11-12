@@ -9,7 +9,7 @@ import { periodBack, type ListPeriod, type ListRow, type PeriodRows } from './li
 const listRead = `SELECT t.id, t.type, t.amountMinor, t.date, t.accountId, t.transferAccountId,
   a.name AS accountName, destination.name AS transferAccountName, a.currencyCode,
   c.name AS categoryName, parent.name AS parentCategoryName,
-  COALESCE(NULLIF(c.iconKey, ''), NULLIF(parent.iconKey, '')) AS categoryIcon,
+  COALESCE(NULLIF(c.iconKey, ''), NULLIF(parent.iconKey, '')) AS categoryEmoji,
   t.note, t.excludeFromReport, lending.kind AS lendingKind, person.name AS personName
   FROM transactions t JOIN accounts a ON a.id = t.accountId
   LEFT JOIN accounts destination ON destination.id = t.transferAccountId

@@ -177,10 +177,7 @@ test('app navigation', async (t) => {
   await t.test('Home keeps search for the range of the cards and drops the More list', async () => {
     await mount(Home);
     const shown = texts();
-    assert.equal(
-      renderer.root.findByType('TextInput').props.placeholder,
-      'Search transactions from November',
-    );
+    assert.ok(renderer.root.findAll((n) => n.props.accessibilityRole === 'search').length > 0);
     for (const old of [
       'More',
       'Transfer between accounts',

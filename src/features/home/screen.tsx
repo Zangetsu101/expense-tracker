@@ -8,6 +8,7 @@ import {
   useSuspenseQuery,
 } from '@tanstack/react-query';
 import { ErrorBoundary } from '@/components/query-error-boundary';
+import { accountParams } from '@/lib/account-selection';
 import { defaultCurrencyCode } from '@/lib/currency';
 import { epochDay } from '@/lib/database';
 import { QueryTimeContext } from '@/lib/query-time';
@@ -75,7 +76,7 @@ function Home({ reset }: { reset: () => void }) {
   const addTransaction = () =>
     router.push({
       pathname: '/quick-add',
-      params: quickAddAccountId === null ? {} : { accountId: String(quickAddAccountId) },
+      params: accountParams(quickAddAccountId),
     });
   const context: CardContext = {
     accounts: deck.accounts,
@@ -97,8 +98,7 @@ function Home({ reset }: { reset: () => void }) {
       accountsReady
     >
       <TransactionList
-        // A Pace card counts every Account, so its list does too. With one Account they are the same rows.
-        scope={cards[index].face === 'pace' ? null : scope}
+        scope={cards[index]}
         scopeName={name}
         setting={setting}
         now={now}

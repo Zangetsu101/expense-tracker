@@ -1,7 +1,8 @@
 import { formatMoney, transactionTitle, type LendingLabel } from '@/lib/transaction-format';
+import type { DeckCard } from './deck.ts';
 import { homePeriod, shortDay, type PeriodSetting } from './period.ts';
 
-/** A Transaction in the list under the deck. `categoryIcon` is the emoji of its Category, or of the parent Category. */
+/** A Transaction in the list under the deck. `categoryEmoji` is the emoji of its Category, or of the parent Category. */
 export type ListRow = LendingLabel & {
   id: number;
   type: 'EXPENSE' | 'INCOME' | 'TRANSFER';
@@ -14,13 +15,21 @@ export type ListRow = LendingLabel & {
   currencyCode: string;
   categoryName: string | null;
   parentCategoryName: string | null;
-  categoryIcon: string | null;
+  categoryEmoji: string | null;
   note: string | null;
   excludeFromReport: number;
 };
 
-/** The Account in view, or `null` for All accounts. */
-export type Scope = number | null;
+/**
+ * The card in view. Its Account (`null` for All accounts) sets which rows show.
+ * Its face sets the rule for the totals: Pace counts spending, Trend the change of the balance.
+ * It picks from each kind of card, so that a Trend card still has an Account.
+ */
+export type ListScope = DeckCard extends infer Card
+  ? Card extends DeckCard
+    ? Pick<Card, 'face' | 'accountId'>
+    : never
+  : never;
 export type Tone = 'normal' | 'income' | 'muted';
 export type TotalPart = { text: string; tone: Tone };
 export type RowIcon = { kind: 'transfer' } | { kind: 'category'; text: string };
@@ -50,34 +59,42 @@ export type ListSection = {
 };
 
 /** On All accounts a Transfer shows its route. On one Account it says where the money went. */
-function transferFace(row: ListRow, scope: Scope): Pick<RowView, 'title' | 'amount' | 'tone'> {
+function transferFace(
+  row: ListRow,
+  accountId: number | null,
+): Pick<RowView, 'title' | 'amount' | 'tone'> {
   const amount = formatMoney('TRANSFER', row.amountMinor, row.currencyCode);
-  if (scope === null)
+  if (accountId === null)
     return { title: `${row.accountName} → ${row.transferAccountName}`, amount, tone: 'muted' };
-  if (row.transferAccountId === scope)
+  if (row.transferAccountId === accountId)
     return { title: `From ${row.accountName}`, amount: `+${amount}`, tone: 'income' };
   return { title: `To ${row.transferAccountName}`, amount: `−${amount}`, tone: 'normal' };
 }
 
-export function rowView(row: ListRow, scope: Scope): RowView {
+/** On a Pace card, a grey amount is not in the day total. Only All accounts names the Account of a row. */
+export function rowView(row: ListRow, scope: ListScope): RowView {
   if (row.type === 'TRANSFER')
     return {
-      ...transferFace(row, scope),
+      ...transferFace(row, scope.accountId),
       detail: row.note || 'Transfer',
       icon: { kind: 'transfer' },
     };
-  const allAccounts = scope === null;
   const title = transactionTitle(row);
-  const detail = allAccounts ? [row.accountName, row.note].filter(Boolean).join(' · ') : row.note;
+  const detail =
+    scope.accountId === null ? [row.accountName, row.note].filter(Boolean).join(' · ') : row.note;
   return {
     title,
     detail: detail || null,
     amount: formatMoney(row.type, row.amountMinor, row.currencyCode),
     tone:
-      allAccounts && row.excludeFromReport ? 'muted' : row.type === 'INCOME' ? 'income' : 'normal',
+      scope.face === 'pace' && row.excludeFromReport
+        ? 'muted'
+        : row.type === 'INCOME'
+          ? 'income'
+          : 'normal',
     icon: {
       kind: 'category',
-      text: row.categoryIcon || [...(row.categoryName ?? title)][0].toLocaleUpperCase(),
+      text: row.categoryEmoji || [...(row.categoryName ?? title)][0].toLocaleUpperCase(),
     },
   };
 }
@@ -129,8 +146,8 @@ function balanceTotals(rows: readonly ListRow[], accountId: number): TotalPart[]
 }
 
 /** Totals by the rule of the card above the list. */
-export function listTotals(rows: readonly ListRow[], scope: Scope): TotalPart[] {
-  return scope === null ? paceTotals(rows) : balanceTotals(rows, scope);
+export function listTotals(rows: readonly ListRow[], scope: ListScope): TotalPart[] {
+  return scope.face === 'pace' ? paceTotals(rows) : balanceTotals(rows, scope.accountId);
 }
 
 /** One section for each day, newest day first. In a day, the rows keep their order. */
@@ -148,7 +165,7 @@ function daySections(rows: readonly ListRow[], totals: (rows: ListRow[]) => Tota
 }
 
 /** The first period is the range of the cards. Each older period starts with a divider. */
-export function listSections(periods: readonly PeriodRows[], scope: Scope): ListSection[] {
+export function listSections(periods: readonly PeriodRows[], scope: ListScope): ListSection[] {
   return periods.flatMap(({ period, rows }, index) => {
     const head: ListSection[] =
       index === 0
@@ -246,4 +263,9 @@ export function periodBack(setting: PeriodSetting, today: number, steps: number)
     period = { start: older.start, end, label };
   }
   return period;
+}
+
+/** The index in the section of the row of the Transaction `id`, or -1. */
+export function rowIndex(section: ListSection, id: number): number {
+  return section.data.findIndex((item) => item.kind === 'row' && item.row.id === id);
 }

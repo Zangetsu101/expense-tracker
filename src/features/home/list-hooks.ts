@@ -2,10 +2,15 @@ import { useCallback, useEffect, useEffectEvent, useRef, useState, type RefObjec
 import type { SectionList, ViewToken } from 'react-native';
 import { subscribeDataChanges, type SavedTransaction } from '@/lib/data-changes';
 import type { DeckAccount } from './deck.ts';
-import type { ListItem, ListSection } from './list.ts';
+import { rowIndex, type ListItem, type ListSection } from './list.ts';
 import { shortDay } from './period.ts';
 
 const snackbarTime = 6000;
+/**
+ * About the time of an animated scroll, so that the row slides in after the list stops.
+ * React Native gives no reliable event when `scrollToLocation` ends.
+ */
+const scrollTime = 300;
 
 /** The search text and whether it covers all dates. A new `key` (another card or range) starts an empty search. */
 export function useScopedSearch(key: string) {
@@ -33,12 +38,12 @@ type Paging = {
 };
 
 /**
- * Follows the Transactions that Quick add saves. A new row on screen slides in.
+ * Follows the Transactions that a write adds (Quick add, a Transfer, a lending entry). A new row on screen slides in.
  * Any other row gets a snackbar. Its "Show" swipes to the Account, loads older
  * periods until the row is in the list, scrolls to the row, and slides it in.
  */
 export function useSavedRow({
-  scope,
+  accountId,
   sections,
   loadedFrom,
   searching,
@@ -48,7 +53,8 @@ export function useSavedRow({
   onShowAccount,
   onShow,
 }: {
-  scope: number | null;
+  /** The Account in view, or `null` for All accounts. */
+  accountId: number | null;
   sections: ListSection[];
   /** The start of the oldest period in the list. */
   loadedFrom: number;
@@ -77,23 +83,31 @@ export function useSavedRow({
     },
     [],
   );
-  const slide = (id: number) => setAnimate((old) => ({ id, key: (old?.key ?? 0) + 1 }));
+  const slide = useCallback(
+    (id: number) => setAnimate((old) => ({ id, key: (old?.key ?? 0) + 1 })),
+    [],
+  );
 
   const onSaved = useEffectEvent((saved: SavedTransaction) => {
-    const inScope = scope === null || saved.accountIds.includes(scope);
+    const inScope = accountId === null || saved.accountIds.includes(accountId);
     const { newest, oldest, keys } = visible.current;
-    const top = sections.length > 0 && keys.has(sections[0].key);
-    const onScreen = saved.date >= oldest && (saved.date <= newest || top);
+    // An empty list has its top in view: the first row goes there.
+    const top = sections.length === 0 || keys.has(sections[0].key);
+    const noDayInView = oldest === Infinity;
+    const onScreen = (top || saved.date <= newest) && (noDayInView || saved.date >= oldest);
     if (inScope && !searching && saved.date >= loadedFrom && onScreen) {
       slide(saved.id);
       return;
     }
-    const accountId = inScope ? null : saved.accountIds[0];
+    const other = inScope ? null : saved.accountIds[0];
     const where =
-      accountId === null
+      other === null
         ? shortDay(saved.date)
-        : (accounts.find((account) => account.id === accountId)?.name ?? 'another account');
-    setSnack({ text: `Saved to ${where}`, target: { id: saved.id, date: saved.date, accountId } });
+        : (accounts.find((account) => account.id === other)?.name ?? 'another Account');
+    setSnack({
+      text: `Saved to ${where}`,
+      target: { id: saved.id, date: saved.date, accountId: other },
+    });
   });
   useEffect(() => subscribeDataChanges((saved) => saved && onSaved(saved)), []);
   useEffect(() => {
@@ -107,16 +121,15 @@ export function useSavedRow({
     onShow();
     if (snack.target.accountId !== null) onShowAccount(snack.target.accountId);
     setTarget(snack.target);
-    slide(snack.target.id);
   };
 
   const inTargetScope =
-    target !== null && (target.accountId === null || target.accountId === scope);
+    target !== null && (target.accountId === null || target.accountId === accountId);
   const sectionIndex = target
-    ? sections.findIndex((section) =>
-        section.data.some((item) => item.kind === 'row' && item.row.id === target.id),
-      )
+    ? sections.findIndex((section) => rowIndex(section, target.id) !== -1)
     : -1;
+  const slideTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(slideTimer.current), []);
   const { ready, hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage } = paging;
   useEffect(() => {
     if (!target || target === scrolled.current || !ready || !inTargetScope || searching) return;
@@ -126,10 +139,9 @@ export function useSavedRow({
     }
     if (sectionIndex === -1) return;
     scrolled.current = target;
-    const itemIndex = sections[sectionIndex].data.findIndex(
-      (item) => item.kind === 'row' && item.row.id === target.id,
-    );
+    const itemIndex = rowIndex(sections[sectionIndex], target.id);
     listRef.current?.scrollToLocation({ sectionIndex, itemIndex, viewPosition: 0.4 });
+    slideTimer.current = setTimeout(() => slide(target.id), scrollTime);
   }, [
     target,
     ready,
@@ -143,6 +155,7 @@ export function useSavedRow({
     isFetchNextPageError,
     fetchNextPage,
     listRef,
+    slide,
   ]);
 
   return { animate, snack: snack?.text ?? null, show, onViewableItemsChanged };

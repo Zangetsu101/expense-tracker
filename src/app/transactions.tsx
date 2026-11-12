@@ -91,13 +91,13 @@ function Choice({
 export default function TransactionsScreen() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ accountId?: string; query?: string }>();
-  const opening = (): SearchFilters => ({
+  const filtersFromParams = (): SearchFilters => ({
     ...initialFilters,
     query: params.query ?? '',
     accountId: parseAccountId(params.accountId) ?? null,
   });
-  const [filters, setFilters] = useState(opening);
-  const [draft, setDraft] = useState(opening);
+  const [filters, setFilters] = useState(filtersFromParams);
+  const [draft, setDraft] = useState(filtersFromParams);
   const [open, setOpen] = useState(false);
   const [categoryQuery, setCategoryQuery] = useState('');
   const [categoryWidth, setCategoryWidth] = useState(0);

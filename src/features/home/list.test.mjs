@@ -27,6 +27,10 @@ const day = (y, m, d) => Math.floor(Date.UTC(y, m - 1, d) / 86400000);
 const today = day(2026, 11, 12);
 const cash = 1;
 const card = 2;
+/** The card in view: All accounts, the card of one Account in a deck, or the only Account. */
+const allAccounts = { face: 'pace', accountId: null };
+const trend = (accountId) => ({ face: 'trend', accountId });
+const onlyAccount = { face: 'pace', accountId: cash };
 const row = (patch = {}) => ({
   id: 1,
   type: 'EXPENSE',
@@ -39,7 +43,7 @@ const row = (patch = {}) => ({
   currencyCode: 'BDT',
   categoryName: 'Restaurants',
   parentCategoryName: 'Food',
-  categoryIcon: '🍔',
+  categoryEmoji: '🍔',
   note: null,
   excludeFromReport: 0,
   ...patch,
@@ -52,12 +56,12 @@ const transfer = (patch = {}) =>
     transferAccountName: 'Card',
     categoryName: null,
     parentCategoryName: null,
-    categoryIcon: null,
+    categoryEmoji: null,
     ...patch,
   });
 
-test('a row on All accounts names the Category, then the account and the note', () => {
-  assert.deepEqual(rowView(row({ note: 'Lunch with Rahim' }), null), {
+test('a row on All accounts names the Category, then the Account and the note', () => {
+  assert.deepEqual(rowView(row({ note: 'Lunch with Rahim' }), allAccounts), {
     title: 'Restaurants',
     detail: 'Cash · Lunch with Rahim',
     amount: '−৳450.00',
@@ -66,53 +70,62 @@ test('a row on All accounts names the Category, then the account and the note', 
   });
 });
 
-test('a row on one account shows only the note, or no second line', () => {
-  assert.equal(rowView(row({ note: 'Lunch' }), cash).detail, 'Lunch');
-  assert.equal(rowView(row(), cash).detail, null);
+test('a row on one Account shows only the note, or no second line', () => {
+  assert.equal(rowView(row({ note: 'Lunch' }), trend(cash)).detail, 'Lunch');
+  assert.equal(rowView(row(), trend(cash)).detail, null);
 });
 
 test('a row with no emoji shows the first letter of its Category', () => {
-  assert.deepEqual(rowView(row({ categoryIcon: null, categoryName: 'rent' }), null).icon, {
+  assert.deepEqual(rowView(row({ categoryEmoji: null, categoryName: 'rent' }), allAccounts).icon, {
     kind: 'category',
     text: 'R',
   });
 });
 
-test('Income is green, and a row excluded from reports is grey only on All accounts', () => {
-  assert.equal(rowView(row({ type: 'INCOME' }), null).tone, 'income');
-  assert.equal(rowView(row({ type: 'INCOME' }), null).amount, '+৳450.00');
+test('Income is green, and a row excluded from reports is grey only on a Pace card', () => {
+  assert.equal(rowView(row({ type: 'INCOME' }), allAccounts).tone, 'income');
+  assert.equal(rowView(row({ type: 'INCOME' }), allAccounts).amount, '+৳450.00');
   const excluded = row({ excludeFromReport: 1 });
-  assert.equal(rowView(excluded, null).tone, 'muted');
-  assert.equal(rowView(excluded, null).amount, '−৳450.00', 'the sign stays');
-  assert.equal(rowView(excluded, cash).tone, 'normal');
+  assert.equal(rowView(excluded, allAccounts).tone, 'muted');
+  assert.equal(rowView(excluded, allAccounts).amount, '−৳450.00', 'the sign stays');
+  assert.equal(rowView(excluded, trend(cash)).tone, 'normal');
 });
 
 test('a lending row keeps its title and the icon of its Category', () => {
-  const view = rowView(row({ lendingKind: 'LEND', personName: 'Rahim' }), null);
+  const view = rowView(row({ lendingKind: 'LEND', personName: 'Rahim' }), allAccounts);
   assert.equal(view.title, 'Lent to Rahim');
   assert.deepEqual(view.icon, { kind: 'category', text: '🍔' });
 });
 
 test('a Transfer on All accounts shows its route and a grey amount with no sign', () => {
-  assert.deepEqual(rowView(transfer(), null), {
+  assert.deepEqual(rowView(transfer(), allAccounts), {
     title: 'Cash → Card',
     detail: 'Transfer',
     amount: '৳450.00',
     tone: 'muted',
     icon: { kind: 'transfer' },
   });
-  assert.equal(rowView(transfer({ note: 'Bill' }), null).detail, 'Bill');
+  assert.equal(rowView(transfer({ note: 'Bill' }), allAccounts).detail, 'Bill');
 });
 
-test('a Transfer on one account says where the money went or came from', () => {
-  const out = rowView(transfer(), cash);
+test('a Transfer on one Account says where the money went or came from', () => {
+  const out = rowView(transfer(), trend(cash));
   assert.equal(out.title, 'To Card');
   assert.equal(out.amount, '−৳450.00');
   assert.equal(out.tone, 'normal');
-  const incoming = rowView(transfer(), card);
+  const incoming = rowView(transfer(), trend(card));
   assert.equal(incoming.title, 'From Cash');
   assert.equal(incoming.amount, '+৳450.00');
   assert.equal(incoming.tone, 'income');
+});
+
+test('the only Account uses the Pace rule but does not repeat its name', () => {
+  assert.equal(rowView(row({ note: 'Lunch' }), onlyAccount).detail, 'Lunch');
+  assert.equal(rowView(row({ excludeFromReport: 1 }), onlyAccount).tone, 'muted');
+  assert.deepEqual(listTotals([row(), row({ type: 'INCOME', amountMinor: 100 })], onlyAccount), [
+    { text: 'Spent ৳450.00', tone: 'muted' },
+    { text: '+৳1.00', tone: 'income' },
+  ]);
 });
 
 test('totals on All accounts count reportable spending and income for each currency', () => {
@@ -123,22 +136,22 @@ test('totals on All accounts count reportable spending and income for each curre
     row({ amountMinor: 7000, excludeFromReport: 1 }),
     transfer({ amountMinor: 30000 }),
   ];
-  assert.deepEqual(listTotals(rows, null), [
+  assert.deepEqual(listTotals(rows, allAccounts), [
     { text: 'Spent ৳900.00 $12.00', tone: 'muted' },
     { text: '+৳50.00', tone: 'income' },
   ]);
-  assert.deepEqual(listTotals([transfer()], null), [], 'a day of Transfers has no total');
+  assert.deepEqual(listTotals([transfer()], allAccounts), [], 'a day of Transfers has no total');
 });
 
-test('totals on one account are the change of its balance, with Transfers and excluded rows', () => {
+test('totals on one Account are the change of its balance, with Transfers and excluded rows', () => {
   const rows = [
     row({ amountMinor: 1000 }),
     row({ amountMinor: 500, excludeFromReport: 1 }),
     row({ type: 'INCOME', amountMinor: 300 }),
     transfer({ amountMinor: 2000 }),
   ];
-  assert.deepEqual(listTotals(rows, cash), [{ text: '−৳32.00', tone: 'muted' }]);
-  assert.deepEqual(listTotals([transfer({ amountMinor: 2000 })], card), [
+  assert.deepEqual(listTotals(rows, trend(cash)), [{ text: '−৳32.00', tone: 'muted' }]);
+  assert.deepEqual(listTotals([transfer({ amountMinor: 2000 })], trend(card)), [
     { text: '+৳20.00', tone: 'income' },
   ]);
 });
@@ -151,7 +164,7 @@ test('sections group rows by day, and older periods start with a divider', () =>
       { period: november, rows: [row({ id: 3 }), row({ id: 2 }), row({ id: 1, date: today - 2 })] },
       { period: october, rows: [row({ id: 0, date: day(2026, 10, 20) })] },
     ],
-    null,
+    allAccounts,
   );
   assert.deepEqual(
     sections.map((s) => [s.date, s.data.map((item) => item.row?.id ?? item.kind)]),
@@ -178,7 +191,7 @@ test('an empty period says so, and an empty older period has no change', () => {
       { period: november, rows: [] },
       { period: october, rows: [] },
     ],
-    null,
+    allAccounts,
   );
   assert.deepEqual(
     sections.flatMap((s) => s.data),
@@ -190,7 +203,7 @@ test('an empty period says so, and an empty older period has no change', () => {
   );
 });
 
-test('search matches the note, the Category, its parent, the accounts and the person', () => {
+test('search matches the note, the Category, its parent, the Accounts and the person', () => {
   assert.ok(matchesSearch(row({ note: 'Lunch with RAHIM' }), ' rahim '));
   assert.ok(matchesSearch(row(), 'food'), 'the parent Category');
   assert.ok(matchesSearch(row(), 'cash'));

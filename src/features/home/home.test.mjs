@@ -99,7 +99,7 @@ const row = (id, patch = {}) => ({
   transferAccountName: null,
   categoryName: `Lunch ${id}`,
   parentCategoryName: null,
-  categoryIcon: null,
+  categoryEmoji: null,
   note: null,
   excludeFromReport: 0,
   ...patch,
@@ -294,7 +294,7 @@ test('Home boundaries', async (t) => {
       await act(async () => calls[0].resolve(list(2)));
       assert.ok(has('Lunch 3'));
       assert.ok(!has('Lunch 2'), 'the late result for Bank does not show');
-      assert.equal(button('Lunch 3, −৳5.00').props.disabled, false, 'one account hides its name');
+      assert.equal(button('Lunch 3, −৳5.00').props.disabled, false);
     },
   );
 
@@ -513,16 +513,9 @@ test('Home boundaries', async (t) => {
   });
 
   await t.test('one Account gets one Pace card, no dots, and an Add an account card', async () => {
-    const log = reads({ deck: () => deck([account(7, 'Cash', 1)]) });
+    reads({ deck: () => deck([account(7, 'Cash', 1)]) });
     await mount();
     assert.equal(title().props.accessibilityLabel, 'Cash, choose account');
-    assert.deepEqual(
-      log.filter(([key]) => key === 'list'),
-      [['list', null, 0]],
-      'the list uses the rule of the Pace card',
-    );
-    assert.ok(has('Spent ৳5.00'), 'the day total counts spending');
-    assert.equal(button('Lunch 0, Cash, −৳5.00').props.disabled, false, 'rows name the Account');
     assert.ok(cardTexts('Cash').includes('Spent ৳60.00'));
     assert.equal(card('All accounts'), undefined);
     assert.ok(

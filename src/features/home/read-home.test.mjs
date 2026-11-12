@@ -154,12 +154,12 @@ test('a row has the emoji of its Category, or of the parent Category', async () 
   const rows = (await homeListPage(1, month, day(2025, 1, 20), 0)).periods[0].rows;
   const row = (id) => rows.find((r) => r.id === id);
   assert.deepEqual(
-    [row(20).categoryIcon, row(20).categoryName, row(20).parentCategoryName],
+    [row(20).categoryEmoji, row(20).categoryName, row(20).parentCategoryName],
     ['🍽', 'Restaurants', 'Eating out'],
   );
-  assert.equal(row(21).categoryIcon, '☕');
-  assert.equal(row(22).categoryIcon, null, 'an empty emoji is no emoji');
-  assert.equal(row(1).categoryIcon, null);
+  assert.equal(row(21).categoryEmoji, '☕');
+  assert.equal(row(22).categoryEmoji, null, 'an empty emoji is no emoji');
+  assert.equal(row(1).categoryEmoji, null);
 });
 
 test('the list joins all lending kinds to saved people without duplicating ordinary rows or changing reports', async () => {

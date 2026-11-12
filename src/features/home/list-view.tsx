@@ -9,7 +9,7 @@ import {
   rowView,
   type ListRow,
   type RowIcon,
-  type Scope,
+  type ListScope,
   type TotalPart,
 } from './list.ts';
 
@@ -86,7 +86,7 @@ export function TransactionRow({
   onPress,
 }: {
   row: ListRow;
-  scope: Scope;
+  scope: ListScope;
   query: string;
   disabled: boolean;
   entering?: Entering;

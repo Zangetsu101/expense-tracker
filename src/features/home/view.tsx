@@ -1,4 +1,5 @@
 import { BackupAttentionBanner } from '@/components/backup-attention-banner';
+import { accountParams } from '@/lib/account-selection';
 import { type ReactNode } from 'react';
 import { Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -61,7 +62,7 @@ export function HomeLayout({
         onPress={() =>
           router.push({
             pathname: '/quick-add',
-            params: quickAddAccountId === null ? {} : { accountId: String(quickAddAccountId) },
+            params: accountParams(quickAddAccountId),
           })
         }
         disabled={!accountsReady}

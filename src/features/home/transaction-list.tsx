@@ -9,6 +9,7 @@ import Animated, {
   useReducedMotion,
 } from 'react-native-reanimated';
 import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { accountParams } from '@/lib/account-selection';
 import { epochDay } from '@/lib/database';
 import { theme } from '@/theme';
 import type { DeckAccount } from './deck.ts';
@@ -18,7 +19,9 @@ import {
   periodBack,
   searchPlaceholder,
   searchSections,
+  rowIndex,
   type ListItem,
+  type ListScope,
   type ListSection,
 } from './list.ts';
 import {
@@ -50,6 +53,20 @@ function MovingCell({ onLayout, style, children }: CellRendererProps<ListItem>) 
   );
 }
 
+/** Old rows stay at 40% while the rows for a new card or search load. They cannot be opened. */
+function Dimmed({ muted, children }: { muted: boolean; children: ReactNode }) {
+  return (
+    <View
+      style={{ paddingHorizontal: gutter, opacity: muted ? 0.4 : 1 }}
+      pointerEvents={muted ? 'none' : 'auto'}
+      accessibilityElementsHidden={muted}
+      importantForAccessibility={muted ? 'no-hide-descendants' : 'auto'}
+    >
+      {children}
+    </View>
+  );
+}
+
 /**
  * The Transactions of the Account in view in the range of the cards, newest
  * first, grouped by day. `header` scrolls above the list.
@@ -65,7 +82,7 @@ export function TransactionList({
   onAdd,
 }: {
   header: ReactElement;
-  scope: number | null;
+  scope: ListScope;
   scopeName: string;
   setting: PeriodSetting;
   now: Date;
@@ -74,6 +91,7 @@ export function TransactionList({
   onAdd: () => void;
 }) {
   const today = epochDay(now);
+  const { accountId } = scope;
   const listRef = useRef<SectionList<ListItem, ListSection>>(null);
   const reduceMotion = useReducedMotion();
   const list = useInfiniteQuery({
@@ -85,21 +103,24 @@ export function TransactionList({
   const shownScope = list.data ? list.data.pages[0].scope : scope;
   const loadedFrom = periods.at(-1)?.period.start ?? today + 1;
 
-  const search = useScopedSearch(`${scope}:${periodKey(setting)}`);
+  const search = useScopedSearch(`${accountId}:${periodKey(setting)}`);
   const query = useDeferredValue(search.text);
   const searching = query.trim() !== '';
-  const wide = useQuery({
-    ...homeSearchQuery(scope, query, now),
+  const allDatesSearch = useQuery({
+    ...homeSearchQuery(accountId, query, now),
     enabled: searching && search.allDates,
   });
-  const wideRows = searching && search.allDates ? wide.data : undefined;
+  const allDatesRows = searching && search.allDates ? allDatesSearch.data : undefined;
   const rangeRows = periods[0]?.rows.filter((row) => matchesSearch(row, query)) ?? [];
-  const sections = !searching
-    ? listSections(periods, shownScope)
-    : searchSections(wideRows ?? rangeRows);
+  const hasAny = firstDay !== null;
+  const sections = !hasAny
+    ? []
+    : !searching
+      ? listSections(periods, shownScope)
+      : searchSections(allDatesRows ?? rangeRows);
   const muted = list.isPlaceholderData || search.text !== query;
   const saved = useSavedRow({
-    scope,
+    accountId,
     sections,
     loadedFrom,
     searching,
@@ -111,7 +132,6 @@ export function TransactionList({
   });
 
   const entering = reduceMotion ? fadeIn : slideIn;
-  const hasAny = firstDay !== null;
   const nextStep = list.data?.pages.at(-1)?.next ?? null;
 
   let footer: ReactNode = null;
@@ -124,9 +144,11 @@ export function TransactionList({
   else if (!hasAny)
     footer = (
       <EmptyList
-        title={scope === null ? 'No transactions yet' : `No transactions in ${scopeName} yet`}
+        title={
+          scope.face === 'pace' ? 'No transactions yet' : `No transactions in ${scopeName} yet`
+        }
         body={
-          scope === null
+          scope.face === 'pace'
             ? 'Your spending and income show here, by day. Tap + to add the first one.'
             : null
         }
@@ -135,7 +157,7 @@ export function TransactionList({
     );
   else if (searching) {
     const empty = sections.length === 0;
-    footer = wideRows ? (
+    footer = allDatesRows ? (
       empty && <ListMessage text={`No transactions match “${query.trim()}”.`} />
     ) : (
       <>
@@ -143,9 +165,9 @@ export function TransactionList({
         <ListEnd
           text={`Showing matches in ${periods[0].period.label}.`}
           action="Search all dates"
-          loading={search.allDates && wide.isFetching}
-          failed={search.allDates && wide.isError ? 'Couldn’t search all dates' : null}
-          onAction={() => (search.allDates ? void wide.refetch() : search.widen())}
+          loading={search.allDates && allDatesSearch.isFetching}
+          failed={search.allDates && allDatesSearch.isError ? 'Couldn’t search all dates' : null}
+          onAction={() => (search.allDates ? void allDatesSearch.refetch() : search.widen())}
         />
       </>
     );
@@ -198,7 +220,7 @@ export function TransactionList({
                     router.push({
                       pathname: '/transactions',
                       params: {
-                        ...(scope === null ? {} : { accountId: String(scope) }),
+                        ...accountParams(accountId),
                         ...(search.text.trim() ? { query: search.text.trim() } : {}),
                       },
                     })
@@ -215,33 +237,20 @@ export function TransactionList({
         }
         renderSectionHeader={({ section }) =>
           section.date === null ? null : (
-            <View
-              style={{ paddingHorizontal: gutter, opacity: muted ? 0.4 : 1 }}
-              accessibilityElementsHidden={muted}
-              importantForAccessibility={muted ? 'no-hide-descendants' : 'auto'}
-            >
+            <Dimmed muted={muted}>
               <DayHeader
                 date={section.date}
                 totals={section.totals}
                 now={now}
                 entering={
-                  section.data.some(
-                    (item) => item.kind === 'row' && item.row.id === saved.animate?.id,
-                  )
-                    ? entering
-                    : undefined
+                  saved.animate && rowIndex(section, saved.animate.id) !== -1 ? entering : undefined
                 }
               />
-            </View>
+            </Dimmed>
           )
         }
         renderItem={({ item }) => (
-          <View
-            style={{ paddingHorizontal: gutter, opacity: muted ? 0.4 : 1 }}
-            pointerEvents={muted ? 'none' : 'auto'}
-            accessibilityElementsHidden={muted}
-            importantForAccessibility={muted ? 'no-hide-descendants' : 'auto'}
-          >
+          <Dimmed muted={muted}>
             {item.kind === 'row' ? (
               <TransactionRow
                 row={item.row}
@@ -261,7 +270,7 @@ export function TransactionList({
             ) : (
               <ListMessage text={item.text} />
             )}
-          </View>
+          </Dimmed>
         )}
         ListFooterComponent={<View style={{ paddingHorizontal: gutter }}>{footer}</View>}
       />

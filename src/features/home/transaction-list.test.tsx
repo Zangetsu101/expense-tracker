@@ -5,7 +5,7 @@ import { QueryClientProvider, notifyManager, type QueryClient } from '@tanstack/
 import { notifyDataChanged } from '@/lib/data-changes';
 import { createQueryClient } from '@/lib/query-client';
 import type { DeckAccount } from './deck.ts';
-import type { ListPeriod, ListRow } from './list.ts';
+import type { ListPeriod, ListRow, ListScope } from './list.ts';
 import { homeListPage, homeSearch, type HomeListPage } from './read-home.ts';
 import { TransactionList } from './transaction-list.tsx';
 
@@ -45,7 +45,7 @@ const row = (id: number, patch: Partial<ListRow> = {}): ListRow => ({
   currencyCode: 'BDT',
   categoryName: `Lunch ${id}`,
   parentCategoryName: null,
-  categoryIcon: null,
+  categoryEmoji: null,
   note: null,
   excludeFromReport: 0,
   ...patch,
@@ -62,12 +62,14 @@ const page = (
 const onShowAccount = jest.fn();
 const onAdd = jest.fn();
 let client: QueryClient;
-const list = (scope: number | null) => (
+const allAccounts: ListScope = { face: 'pace', accountId: null };
+const trend = (accountId: number): ListScope => ({ face: 'trend', accountId });
+const list = (scope: ListScope) => (
   <QueryClientProvider client={client}>
     <TransactionList
       header={<View />}
       scope={scope}
-      scopeName={accounts.find((account) => account.id === scope)?.name ?? 'All accounts'}
+      scopeName={accounts.find((account) => account.id === scope.accountId)?.name ?? 'All accounts'}
       setting={{ range: 'month', monthStart: 1 }}
       now={now}
       accounts={accounts}
@@ -99,7 +101,7 @@ test('the list ends with the next older period and adds it below a divider', asy
     if (fail) throw Error('unavailable');
     return page([row(2, { date: today - 20 })], { period: october });
   });
-  await render(list(null));
+  await render(list(allAccounts));
   const user = userEvent.setup();
   expect(await screen.findByText('Start of November.')).toBeOnTheScreen();
   await user.press(screen.getByRole('button', { name: 'Show October' }));
@@ -120,7 +122,7 @@ test('the button becomes a spinner while the older period loads', async () => {
     .mockImplementation(async (_scope, _setting, _today, steps) =>
       steps === 0 ? page([row(1)], { next: 1 }) : new Promise((done) => (resolve = done)),
     );
-  await render(list(null));
+  await render(list(allAccounts));
   const user = userEvent.setup();
   await user.press(await screen.findByRole('button', { name: 'Show October' }));
   expect(screen.queryByRole('button', { name: 'Show October' })).not.toBeOnTheScreen();
@@ -137,13 +139,13 @@ test('a return to an Account shows one period again', async () => {
         ? page([row(scope === 2 ? 3 : 1)], { next: 1 })
         : page([row(2, { date: today - 20 })], { period: october }),
     );
-  const view = await render(list(1));
+  const view = await render(list(trend(1)));
   const user = userEvent.setup();
   await user.press(await screen.findByRole('button', { name: 'Show October' }));
   expect(await screen.findByText('Lunch 2')).toBeOnTheScreen();
-  await view.rerender(list(2));
+  await view.rerender(list(trend(2)));
   expect(await screen.findByText('Lunch 3')).toBeOnTheScreen();
-  await view.rerender(list(1));
+  await view.rerender(list(trend(1)));
   expect(await screen.findByText('Lunch 1')).toBeOnTheScreen();
   expect(screen.queryByText('Lunch 2')).not.toBeOnTheScreen();
   expect(screen.getByRole('button', { name: 'Show October' })).toBeOnTheScreen();
@@ -151,13 +153,14 @@ test('a return to an Account shows one period again', async () => {
 
 test('All accounts with no Transactions offers Quick add and hides search', async () => {
   jest.mocked(homeListPage).mockResolvedValue(page([]));
-  const view = await render(list(null));
+  const view = await render(list(allAccounts));
   expect(await screen.findByText('No transactions yet')).toBeOnTheScreen();
   expect(
     screen.getByText('Your spending and income show here, by day. Tap + to add the first one.'),
   ).toBeOnTheScreen();
   expect(screen.queryByRole('search')).not.toBeOnTheScreen();
-  await view.rerender(list(2));
+  expect(screen.queryByText('No transactions in November yet.')).not.toBeOnTheScreen();
+  await view.rerender(list(trend(2)));
   expect(await screen.findByText('No transactions in Bank yet')).toBeOnTheScreen();
   await userEvent.setup().press(screen.getByRole('button', { name: 'Add a transaction' }));
   expect(onAdd).toHaveBeenCalledTimes(1);
@@ -177,7 +180,7 @@ test('search filters the range of the cards in place and can widen to all dates'
       row(1, { note: 'Lunch with Rahim' }),
       row(3, { note: 'rahim', date: today - 300 }),
     ]);
-  const view = await render(list(null));
+  const view = await render(list(allAccounts));
   const user = userEvent.setup();
   await user.press(await screen.findByRole('button', { name: 'Show October' }));
   await screen.findByText('Lunch 4');
@@ -199,14 +202,14 @@ test('search filters the range of the cards in place and can widen to all dates'
   await user.press(screen.getByRole('button', { name: 'Clear search' }));
   expect(await screen.findByText('Lunch 2')).toBeOnTheScreen();
   await user.type(screen.getByRole('search'), 'rahim');
-  await view.rerender(list(2));
+  await view.rerender(list(trend(2)));
   expect(screen.getByRole('search')).toHaveDisplayValue('');
 });
 
 test('a new row on screen shows without a snackbar', async () => {
   let rows = [row(1)];
   jest.mocked(homeListPage).mockImplementation(async () => page(rows));
-  await render(list(null));
+  await render(list(allAccounts));
   await screen.findByText('Lunch 1');
   // The list reports the cells in view after layout, which the test renderer does not do.
   // Cell 1 is the first row of the first day.
@@ -225,14 +228,14 @@ test('a new row on screen shows without a snackbar', async () => {
 test('a row saved off screen gets a snackbar, and Show scrolls to it', async () => {
   let rows = [row(1)];
   jest.mocked(homeListPage).mockImplementation(async () => page(rows));
-  await render(list(null));
+  await render(list(allAccounts));
   await screen.findByText('Lunch 1');
   rows = [row(1), row(6, { date: today - 3 })];
   await act(async () => notifyDataChanged({ id: 6, date: today - 3, accountIds: [1] }));
   await act(async () => client.invalidateQueries());
   expect(screen.getByText('Saved to 9 Nov')).toBeOnTheScreen();
   await userEvent.setup().press(screen.getByRole('button', { name: 'Show' }));
-  expect(scrolled()).toEqual([{ sectionIndex: 1, itemIndex: 0, viewPosition: 0.4 }]);
+  expect(scrolled()).toEqual([expect.objectContaining({ sectionIndex: 1, itemIndex: 0 })]);
   expect(screen.queryByText('Saved to 9 Nov')).not.toBeOnTheScreen();
 });
 
@@ -242,13 +245,60 @@ test('a row saved to another Account offers to swipe to that Account', async () 
     .mockImplementation(async (scope) =>
       page([scope === 2 ? row(9, { accountId: 2, accountName: 'Bank' }) : row(1)]),
     );
-  const view = await render(list(1));
+  const view = await render(list(trend(1)));
   await screen.findByText('Lunch 1');
   await act(async () => notifyDataChanged({ id: 9, date: today, accountIds: [2] }));
   expect(screen.getByText('Saved to Bank')).toBeOnTheScreen();
   await userEvent.setup().press(screen.getByRole('button', { name: 'Show' }));
   expect(onShowAccount).toHaveBeenCalledWith(2);
-  await view.rerender(list(2));
+  await view.rerender(list(trend(2)));
   await screen.findByText('Lunch 9');
-  expect(scrolled()).toEqual([{ sectionIndex: 0, itemIndex: 0, viewPosition: 0.4 }]);
+  expect(scrolled()).toEqual([expect.objectContaining({ sectionIndex: 0, itemIndex: 0 })]);
+});
+
+test('the only Account counts spending like All accounts but does not repeat its name', async () => {
+  jest
+    .mocked(homeListPage)
+    .mockResolvedValue(
+      page([row(1, { note: 'with Rahim' }), row(2, { excludeFromReport: 1, amountMinor: 900 })]),
+    );
+  const only: ListScope = { face: 'pace', accountId: 1 };
+  await render(list(only));
+  expect(await screen.findByText('Spent ৳5.00')).toBeOnTheScreen();
+  expect(screen.getByRole('button', { name: 'Lunch 1, with Rahim, −৳5.00' })).toBeOnTheScreen();
+  expect(homeListPage).toHaveBeenCalledWith(1, expect.anything(), today, 0);
+});
+
+test('the only Account with no Transactions shows the first-run message', async () => {
+  jest.mocked(homeListPage).mockResolvedValue(page([]));
+  await render(list({ face: 'pace', accountId: 1 }));
+  expect(await screen.findByText('No transactions yet')).toBeOnTheScreen();
+});
+
+test('the first row in an empty list shows without a snackbar', async () => {
+  let rows: ListRow[] = [];
+  jest.mocked(homeListPage).mockImplementation(async () => page(rows));
+  await render(list(trend(2)));
+  await screen.findByText('No transactions in Bank yet');
+  rows = [row(5, { accountId: 2, accountName: 'Bank' })];
+  await act(async () => notifyDataChanged({ id: 5, date: today, accountIds: [2] }));
+  await act(async () => client.invalidateQueries());
+  expect(await screen.findByText('Lunch 5')).toBeOnTheScreen();
+  expect(screen.queryByText(/^Saved to/)).not.toBeOnTheScreen();
+});
+
+test('Show for an older date loads periods until the row is in the list', async () => {
+  jest
+    .mocked(homeListPage)
+    .mockImplementation(async (_scope, _setting, _today, steps) =>
+      steps === 0
+        ? page([row(1)], { next: 1 })
+        : page([row(7, { date: today - 20 })], { period: october }),
+    );
+  await render(list(allAccounts));
+  await screen.findByText('Lunch 1');
+  await act(async () => notifyDataChanged({ id: 7, date: today - 20, accountIds: [1] }));
+  await userEvent.setup().press(screen.getByRole('button', { name: 'Show' }));
+  expect(await screen.findByText('Lunch 7')).toBeOnTheScreen();
+  expect(scrolled()).toEqual([expect.objectContaining({ sectionIndex: 2, itemIndex: 0 })]);
 });

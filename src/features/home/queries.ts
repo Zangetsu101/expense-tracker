@@ -1,6 +1,7 @@
 import { infiniteQueryOptions, queryOptions, type QueryClient } from '@tanstack/react-query';
 import { epochDay } from '@/lib/database';
 import { homeDeckData, homeListPage, homePace, homeSearch, homeTrend } from './read-home.ts';
+import type { ListScope } from './list.ts';
 import { homePeriod, periodKey, type PeriodSetting } from './period.ts';
 
 const homeQueryKey = ['home'] as const;
@@ -43,13 +44,13 @@ export function homePaceQuery(accountId: number | null, setting: PeriodSetting, 
 }
 
 /** The list under the deck: one page for the range of the cards, then one page for each older period. */
-export function homeListQuery(accountId: number | null, setting: PeriodSetting, now: Date) {
+export function homeListQuery(scope: ListScope, setting: PeriodSetting, now: Date) {
   const today = epochDay(now);
   return infiniteQueryOptions({
-    queryKey: [...homeQueryKey, 'list', accountId, periodKey(setting), today],
+    queryKey: [...homeQueryKey, 'list', scope.accountId, scope.face, periodKey(setting), today],
     queryFn: async ({ pageParam }) => ({
-      ...(await homeListPage(accountId, setting, today, pageParam)),
-      scope: accountId,
+      ...(await homeListPage(scope.accountId, setting, today, pageParam)),
+      scope,
     }),
     // A return to a card or a range shows one period again.
     gcTime: 0,
