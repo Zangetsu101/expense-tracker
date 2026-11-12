@@ -532,7 +532,7 @@ test('Home boundaries', async (t) => {
     const before = texts();
     const { calls } = pending('list');
     await act(async () => void queryClient.invalidateQueries());
-    assert.ok(calls.length > 0, 'committed writes refresh Home');
+    assert.ok(calls.length > 0, 'the refresh reads Home again');
     assert.deepEqual(texts(), before);
     assert.equal(renderer.root.findAllByType('Skeleton').length, 0);
     assert.equal(button('Lunch 0, Cash').props.disabled, false);

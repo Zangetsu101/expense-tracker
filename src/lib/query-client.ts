@@ -15,9 +15,10 @@ export function createQueryClient() {
     // Each committed write makes all queries read again. Thus all writes of the screens
     // must go through useMutation. This runs before the onSuccess of the mutation itself,
     // so the queries already fetch when the mutation is no longer pending.
+    // A mutation that changes no data that a query reads again sets meta.refresh to false.
     mutationCache: new MutationCache({
-      onSuccess: (result) => {
-        if (committed(result)) void client.invalidateQueries();
+      onSuccess: (result, _variables, _onMutateResult, mutation) => {
+        if (mutation.meta?.refresh !== false && committed(result)) void client.invalidateQueries();
       },
     }),
     defaultOptions: {

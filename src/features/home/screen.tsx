@@ -64,6 +64,8 @@ function Home({ reset }: { reset: () => void }) {
   const deckRef = useRef<FlatList<DeckItem>>(null);
   const savePeriod = useMutation({
     mutationFn: savePeriodSetting,
+    // The range is the only data that changes, and the cached deck gets it here.
+    meta: { refresh: false },
     onSuccess: (_, saved) => cachePeriodSetting(client, now, saved),
   });
 
