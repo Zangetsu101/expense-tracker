@@ -1,8 +1,7 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect } from 'react';
 import { Text, View, type TextStyle } from 'react-native';
 import Animated, {
   Easing,
-  FadeInUp,
   ReduceMotion,
   useAnimatedStyle,
   useSharedValue,
@@ -64,42 +63,4 @@ export function RollingNumber({ value, style }: { value: string; style: TextStyl
       </View>
     </View>
   );
-}
-
-/**
- * Returns a function that tells if a row is new since the last change of the
- * same list. On the first render, and when `listKey` changes, no row is new.
- * The previous ids are kept in state, so React Compiler can cache the result.
- */
-export function useNewItems<T>(ids: readonly T[], listKey: unknown) {
-  const signature = ids.join(',');
-  const [seen, setSeen] = useState({
-    key: listKey,
-    signature,
-    ids: new Set(ids),
-    fresh: new Set<T>(),
-  });
-  if (seen.key !== listKey || seen.signature !== signature) {
-    const sameList = seen.key === listKey;
-    setSeen({
-      key: listKey,
-      signature,
-      ids: new Set(ids),
-      fresh: new Set(sameList ? ids.filter((id) => !seen.ids.has(id)) : []),
-    });
-  }
-  return (id: T) => seen.fresh.has(id);
-}
-
-// The row starts above its place and slides down into it. The delay lets the
-// add sheet close first, because the row mounts while the sheet still covers it.
-const enter = FadeInUp.withInitialValues({ opacity: 0, transform: [{ translateY: -60 }] })
-  .delay(300)
-  .duration(400)
-  .easing(Easing.out(Easing.cubic))
-  .reduceMotion(ReduceMotion.System);
-
-/** Slides and fades the children in on mount when `animate` is true. */
-export function EnterView({ animate, children }: { animate: boolean; children: ReactNode }) {
-  return <Animated.View entering={animate ? enter : undefined}>{children}</Animated.View>;
 }

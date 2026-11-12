@@ -54,6 +54,7 @@ export async function addTransfer(input: TransferInput & { date?: Date; tagText?
   const tags = input.tagText?.trim() ? parseQuickAddTags(input.tagText) : [];
   validateTransfer(input);
   const db = await database();
+  let id = 0;
   await db.withExclusiveTransactionAsync(async (tx) => {
     await requireSameCurrency(tx, input);
     const result = await tx.runAsync(
@@ -67,9 +68,14 @@ export async function addTransfer(input: TransferInput & { date?: Date; tagText?
         input.note?.trim() || null,
       ],
     );
-    await addTransactionTags(tx, result.lastInsertRowId, tags);
+    id = result.lastInsertRowId;
+    await addTransactionTags(tx, id, tags);
   });
-  notifyDataChanged();
+  notifyDataChanged({
+    id,
+    date: epochDay(date),
+    accountIds: [input.fromAccountId, input.toAccountId],
+  });
 }
 
 export async function loadTransfer(id: number): Promise<EditableTransfer | null> {

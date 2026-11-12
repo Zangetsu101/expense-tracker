@@ -17,21 +17,26 @@ const mocks = {
   'react-native': `import React from 'react';
     export const View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator';
     export const FlatList=p=>React.createElement('FlatList',p,p.data.map((item,index)=>React.createElement(React.Fragment,{key:p.keyExtractor(item)},p.renderItem({item,index}))));
+    export const SectionList=p=>React.createElement('SectionList',p,p.ListHeaderComponent,p.sections.map((section)=>React.createElement(React.Fragment,{key:section.key},p.renderSectionHeader({section}),section.data.map((item,index)=>React.createElement(React.Fragment,{key:p.keyExtractor(item,index)},p.renderItem({item,index,section}))))),p.ListFooterComponent);
     export const AppState={currentState:'active',addEventListener:(_,fn)=>{globalThis.__homeScreenTest.lifecycle=fn;return {remove(){}}}};
     export const Platform={OS:'android'}; export const useWindowDimensions=()=>({width:400,height:800});`,
-  'react-native-reanimated': `export default {View:'AnimatedView'}; export const FadeInDown={},FadeOutUp={},LinearTransition={};`,
+  'react-native-reanimated': `const chain=new Proxy({},{get:()=>()=>chain});
+    export default {View:'AnimatedView'}; export const FadeInDown=chain,FadeOutUp=chain,FadeIn=chain,SlideInRight=chain,LinearTransition=chain;
+    export const ReduceMotion={System:'system'},Easing={out:x=>x,cubic:x=>x}; export const useReducedMotion=()=>false;
+    export const useSharedValue=value=>({get:()=>value,set(){}}),useAnimatedStyle=()=>({}),withTiming=value=>value;`,
   './trend-chart.tsx': `export const TrendChart='TrendChart';`,
-  'expo-router': `export const Stack={Screen:({options})=>options.headerTitle?options.headerTitle():null}; export const router={push(to){globalThis.__homeScreenTest.pushed.push(to)}};`,
+  'expo-router': `export const useIsFocused=()=>true,useFocusEffect=()=>{}; export const Stack={Screen:({options})=>options.headerTitle?options.headerTitle():null}; export const router={push(to){globalThis.__homeScreenTest.pushed.push(to)}};`,
   'expo-status-bar': `export const StatusBar=()=>null;`,
   'expo-symbols': `export const SymbolView='SymbolView';`,
-  '@/components/motion': `import React from 'react'; export const RollingNumber=({value,style})=>React.createElement('Text',{style,rolling:true},value); export const EnterView=({children})=>children; export const useNewItems=()=>()=>false;`,
+  '@/components/motion': `import React from 'react'; export const RollingNumber=({value,style})=>React.createElement('Text',{style,rolling:true},value);`,
   '@/components/backup-attention-banner': `export const BackupAttentionBanner=()=>null;`,
   '@/components/loading': `export const Skeleton='Skeleton'; export const Shimmer='Shimmer';`,
   '@/components/app-sheet': `export const AppSheet='AppSheet';`,
   '@/lib/database': `export const epochDay=d=>Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/86400000);`,
   './read-home.ts': `const r=(...a)=>globalThis.__homeScreenTest.read(...a);
     export const homeDeckData=today=>r('deck',today); export const homeTrend=(id,start,today)=>r('trend',id,start,today);
-    export const homePace=(id)=>r('pace',id); export const homeData=id=>r('list',id);
+    export const homePace=(id)=>r('pace',id); export const homeListPage=(id,setting,today,steps)=>r('list',id,steps);
+    export const homeSearch=()=>[];
     export const savePeriodSetting=setting=>r('save',setting);`,
 };
 const hooks = registerHooks({
@@ -82,7 +87,7 @@ const deck = (accounts = threeAccounts, period = { range: 'month', monthStart: 1
   displayRate: null,
   period,
 });
-const row = (id, name) => ({
+const row = (id, patch = {}) => ({
   id,
   type: 'EXPENSE',
   date: 20000,
@@ -90,11 +95,22 @@ const row = (id, name) => ({
   currencyCode: 'BDT',
   accountId: 1,
   transferAccountId: null,
-  accountName: name,
+  accountName: 'Cash',
   transferAccountName: null,
   categoryName: `Lunch ${id}`,
+  parentCategoryName: null,
+  categoryEmoji: null,
+  note: null,
+  excludeFromReport: 0,
+  ...patch,
 });
-const list = (id) => ({ rows: [row(id ?? 0, 'Cash')], dailySummaries: [] });
+/** A page of the list with one period and no older Transactions. */
+const page = (rows) => ({
+  periods: [{ period: { start: 19990, end: 20001, label: 'November' }, rows }],
+  firstDay: rows.length ? 19990 : null,
+  next: null,
+});
+const list = (id) => page([row(id ?? 0)]);
 const pace = [{ currencyCode: 'BDT', spentMinor: 6000, sameMinor: 5000, previousMinor: 9000 }];
 const ready = {
   deck: () => deck(),
@@ -191,7 +207,7 @@ test('Home boundaries', async (t) => {
   });
 
   await t.test(
-    'first load shows skeletons, starts the list with the deck, and opens on All accounts',
+    'first load shows skeletons, reads the list for the saved range, and opens on All accounts',
     async () => {
       const { calls, log } = pending('deck');
       await mount();
@@ -199,22 +215,18 @@ test('Home boundaries', async (t) => {
       assert.equal(title(), undefined, 'no title button before the deck loads');
       assert.equal(button('Add transaction').props.disabled, true);
       assert.deepEqual(
-        log.map(([key, id]) => [key, id]),
-        [
-          ['list', null],
-          ['deck', log[1][1]],
-        ],
-        'the list read starts at the same time as the deck read',
+        log.map(([key]) => key),
+        ['deck'],
       );
       await act(async () => calls[0].resolve(deck()));
       assert.equal(title().props.accessibilityLabel, 'All accounts, choose account');
       assert.ok(has('Lunch 0'));
       assert.ok(cardTexts('All accounts').includes('Spent ৳60.00'));
       assert.ok(cardTexts('Cash').some((text) => text.startsWith('+৳1.00 since ')));
-      assert.equal(
-        log.filter(([key]) => key === 'list').length,
-        1,
-        'the prefetched list is reused',
+      assert.deepEqual(
+        log.filter(([key]) => key === 'list'),
+        [['list', null, 0]],
+        'one read for the range of the cards',
       );
       assert.equal(button('Card 1 of 4'), undefined);
       assert.ok(
@@ -266,9 +278,12 @@ test('Home boundaries', async (t) => {
         'Bank, choose account',
         'the title changes at once',
       );
-      assert.ok(button('Search Bank'));
       assert.ok(has('Lunch 0'), 'the old rows stay');
-      assert.equal(button('Lunch 0, Cash').props.disabled, true, 'old rows cannot be opened');
+      assert.equal(
+        button('Lunch 0, Cash, −৳5.00').props.disabled,
+        true,
+        'old rows cannot be opened',
+      );
       await pickAccount('Savings');
       assert.equal(title().props.accessibilityLabel, 'Savings, choose account');
       assert.deepEqual(
@@ -279,7 +294,7 @@ test('Home boundaries', async (t) => {
       await act(async () => calls[0].resolve(list(2)));
       assert.ok(has('Lunch 3'));
       assert.ok(!has('Lunch 2'), 'the late result for Bank does not show');
-      assert.equal(button('Lunch 3, Cash').props.disabled, false);
+      assert.equal(button('Lunch 3, −৳5.00').props.disabled, false);
     },
   );
 
@@ -398,7 +413,7 @@ test('Home boundaries', async (t) => {
       assert.ok(has('Couldn’t refresh accounts'));
       assert.ok(
         !renderer.root
-          .findByType('ScrollView')
+          .findByType('SectionList')
           .findAllByType('Text')
           .some((n) => textOf(n) === 'Couldn’t refresh accounts'),
         'the notice stays under the title and does not scroll',
@@ -536,8 +551,8 @@ test('Home boundaries', async (t) => {
     assert.ok(calls.length > 0, 'committed writes refresh Home');
     assert.deepEqual(texts(), before);
     assert.equal(renderer.root.findAllByType('Skeleton').length, 0);
-    assert.equal(button('Lunch 0, Cash').props.disabled, false);
-    await act(async () => calls.forEach((call) => call.resolve({ rows: [], dailySummaries: [] })));
-    assert.ok(has('No transactions yet. Add one to get started.'));
+    assert.equal(button('Lunch 0, Cash, −৳5.00').props.disabled, false);
+    await act(async () => calls.forEach((call) => call.resolve(page([]))));
+    assert.ok(has('No transactions yet'));
   });
 });

@@ -1,14 +1,14 @@
 import { use, useDeferredValue, useRef, useState, type ReactNode } from 'react';
-import { FlatList, ScrollView, Text, View, useWindowDimensions } from 'react-native';
+import { FlatList, Text, View, useWindowDimensions } from 'react-native';
 import { router } from 'expo-router';
 import {
   QueryErrorResetBoundary,
   useMutation,
-  usePrefetchQuery,
   useQueryClient,
   useSuspenseQuery,
 } from '@tanstack/react-query';
 import { QueryBoundary } from '@/components/query-error-boundary';
+import { accountParams } from '@/lib/account-selection';
 import { defaultCurrencyCode } from '@/lib/currency';
 import { epochDay } from '@/lib/database';
 import { QueryTimeContext } from '@/lib/query-time';
@@ -26,31 +26,12 @@ import { PeriodSheet } from './period-sheet.tsx';
 import { homePeriod, periodKey, type PeriodSetting } from './period.ts';
 import { cachePeriodSetting, homeDeckQuery, homeListQuery } from './queries.ts';
 import { savePeriodSetting } from './read-home.ts';
-import {
-  ActivityError,
-  ActivityList,
-  ActivitySkeleton,
-  HomeLayout,
-  RefreshNotice,
-  SearchField,
-} from './view.tsx';
+import { HomeActivity } from './home-activity.tsx';
+import { ActivitySkeleton, HomeLayout, RefreshNotice } from './view.tsx';
 import { theme } from '@/theme';
 
 const pageGutter = 20;
 const cardPeek = 44;
-
-function ActivityContent({
-  accountId,
-  now,
-  muted,
-}: {
-  accountId: number | null;
-  now: Date;
-  muted: boolean;
-}) {
-  const { data } = useSuspenseQuery(homeListQuery(accountId, now));
-  return <ActivityList list={data} muted={muted} />;
-}
 
 function Home({ reset }: { reset: () => void }) {
   const now = useDeferredValue(use(QueryTimeContext));
@@ -70,7 +51,6 @@ function Home({ reset }: { reset: () => void }) {
   const index = cardIndex(cards, selected);
   const deckOrderKey = cards.map((card) => card.accountId).join();
   const scope = cards[index].accountId;
-  const shownScope = useDeferredValue(scope);
   const shownSetting = useDeferredValue(setting);
   const favorite = deck.accounts.find((account) => account.isFavorite) ?? deck.accounts[0];
   const today = epochDay(now);
@@ -81,13 +61,27 @@ function Home({ reset }: { reset: () => void }) {
     if (accountId === scope) return;
     // A failed read for this scope must fetch again when the deck returns to it.
     reset();
+    void client.prefetchInfiniteQuery(
+      homeListQuery(cards[cardIndex(cards, accountId)], setting, now),
+    );
     setSelected(accountId);
   };
   const changePeriod = (next: PeriodSetting) => {
     reset();
+    void client.prefetchInfiniteQuery(homeListQuery(cards[index], next, now));
     setSetting(next);
     savePeriod.mutate(next);
   };
+  const showAccount = (accountId: number | null) => {
+    selectScope(accountId);
+    deckRef.current?.scrollToIndex({ index: cardIndex(cards, accountId), animated: true });
+  };
+  const quickAddAccountId = scope ?? favorite?.id ?? null;
+  const addTransaction = () =>
+    router.push({
+      pathname: '/quick-add',
+      params: accountParams(quickAddAccountId),
+    });
   const context: CardContext = {
     accounts: deck.accounts,
     displayRate: deck.displayRate,
@@ -104,44 +98,32 @@ function Home({ reset }: { reset: () => void }) {
     <HomeLayout
       title={<HomeTitle name={name} onPress={() => setSheet('accounts')} />}
       notice={<RefreshNotice failed={!!error} onRetry={() => void refetch()} />}
-      quickAddAccountId={scope ?? favorite?.id ?? null}
+      quickAddAccountId={quickAddAccountId}
       accountsReady
     >
-      <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={{ paddingBottom: 100 }}
-      >
-        <View style={{ gap: 8 }}>
-          <Deck
-            key={deckOrderKey}
-            initialIndex={index}
-            cards={cards}
-            context={context}
-            listRef={deckRef}
-            onScopeChange={selectScope}
-            onAddAccount={() => router.push('/accounts')}
-          />
-          <PageDots count={cards.length} index={index} />
-          <View style={{ paddingHorizontal: pageGutter, paddingTop: 6 }}>
-            <SearchField accountId={scope} name={scope === null ? 'all transactions' : name} />
-            <QueryBoundary
-              reset={reset}
-              resetKey={`${shownScope}:${today}`}
-              pending={<ActivitySkeleton />}
-              error={(retry) => <ActivityError retry={retry} />}
-            >
-              {/* A new reader for each scope: TanStack Query does not fetch again when a
-                  mounted reader switches to a failed query, even after reset(). */}
-              <ActivityContent
-                key={String(shownScope)}
-                accountId={shownScope}
-                now={now}
-                muted={scope !== shownScope}
-              />
-            </QueryBoundary>
+      <HomeActivity
+        scope={cards[index]}
+        scopeName={name}
+        setting={setting}
+        now={now}
+        accounts={deck.accounts}
+        onShowAccount={showAccount}
+        onAdd={addTransaction}
+        header={
+          <View style={{ gap: 8 }}>
+            <Deck
+              key={deckOrderKey}
+              initialIndex={index}
+              cards={cards}
+              context={context}
+              listRef={deckRef}
+              onScopeChange={selectScope}
+              onAddAccount={() => router.push('/accounts')}
+            />
+            <PageDots count={cards.length} index={index} />
           </View>
-        </View>
-      </ScrollView>
+        }
+      />
       {sheet === 'period' && (
         <PeriodSheet
           setting={setting}
@@ -156,11 +138,7 @@ function Home({ reset }: { reset: () => void }) {
           selectedId={scope}
           onSelect={(accountId) => {
             setSheet(null);
-            selectScope(accountId);
-            deckRef.current?.scrollToIndex({
-              index: cardIndex(cards, accountId),
-              animated: true,
-            });
+            showAccount(accountId);
           }}
           onAddAccount={() => {
             setSheet(null);
@@ -202,8 +180,6 @@ export function HomeScreenError({ retry }: { retry: () => void }) {
 }
 
 export default function HomeScreen() {
-  // Home always opens on All accounts, so its list can load while the deck loads.
-  usePrefetchQuery(homeListQuery(null, use(QueryTimeContext)));
   return (
     <QueryErrorResetBoundary>
       {({ reset }) => (

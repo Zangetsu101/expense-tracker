@@ -4,53 +4,75 @@ import { getDisplayRate } from '@/lib/display-rate-store';
 import type { DeckAccount } from './deck.ts';
 import type { PaceRow } from './pace.ts';
 import { parsePeriodSetting, type HomePeriod, type PeriodSetting } from './period.ts';
-import type { MonthlySummary } from '@/lib/reports';
-import type { TransactionRow } from '@/lib/database';
-import type { LendingLabel } from '@/lib/transaction-format';
+import { periodBack, type ListPeriod, type ListRow, type PeriodRows } from './list.ts';
 
-export type HomeTransaction = TransactionRow &
-  LendingLabel & {
-    accountId: number;
-    transferAccountId: number | null;
-    currencyCode: string;
-    transferAccountName: string | null;
-  };
+const listRead = `SELECT t.id, t.type, t.amountMinor, t.date, t.accountId, t.transferAccountId,
+  a.name AS accountName, destination.name AS transferAccountName, a.currencyCode,
+  c.name AS categoryName, parent.name AS parentCategoryName,
+  COALESCE(NULLIF(c.iconKey, ''), NULLIF(parent.iconKey, '')) AS categoryEmoji,
+  t.note, t.excludeFromReport, lending.kind AS lendingKind, person.name AS personName
+  FROM transactions t JOIN accounts a ON a.id = t.accountId
+  LEFT JOIN accounts destination ON destination.id = t.transferAccountId
+  LEFT JOIN categories c ON c.id = t.categoryId
+  LEFT JOIN categories parent ON parent.id = c.parentId
+  LEFT JOIN lending_entries lending ON lending.transactionId = t.id
+  LEFT JOIN people person ON person.id = lending.personId`;
+const listOrder = 'ORDER BY t.date DESC, t.id DESC';
+const scopeFilter = (accountId: number | null) =>
+  accountId === null
+    ? { sql: '1', params: [] }
+    : { sql: '(t.accountId = ? OR t.transferAccountId = ?)', params: [accountId, accountId] };
 
-export type DailySummary = MonthlySummary & { date: number };
+export type HomeListPage = {
+  periods: PeriodRows[];
+  /** The date of the oldest Transaction in scope, or `null` when the scope has none. */
+  firstDay: number | null;
+  /** The steps back to the next older period, or `null` when no older Transactions exist. */
+  next: number | null;
+};
 
-export async function homeData(accountId: number | null = null): Promise<{
-  rows: HomeTransaction[];
-  dailySummaries: DailySummary[];
-}> {
+/**
+ * Reads the period `steps` back from the range of the cards. When the range of
+ * the cards has no Transactions but older ones exist, the page also has the period before it.
+ */
+export async function homeListPage(
+  accountId: number | null,
+  setting: PeriodSetting,
+  today: number,
+  steps: number,
+): Promise<HomeListPage> {
   const db = await database();
-  const rows = await db.getAllAsync<HomeTransaction>(
-    `SELECT t.id, t.type, t.amountMinor, t.date, t.accountId, t.transferAccountId, a.name AS accountName,
-      a.currencyCode, c.name AS categoryName, t.note, destination.name AS transferAccountName,
-      lending.kind AS lendingKind, person.name AS personName
-      FROM transactions t JOIN accounts a ON a.id = t.accountId
-      LEFT JOIN accounts destination ON destination.id = t.transferAccountId
-      LEFT JOIN categories c ON c.id = t.categoryId
-      LEFT JOIN lending_entries lending ON lending.transactionId = t.id
-      LEFT JOIN people person ON person.id = lending.personId
-      ${accountId === null ? '' : 'WHERE (t.accountId = ? OR t.transferAccountId = ?)'}
-      ORDER BY t.date DESC, t.id DESC LIMIT 50`,
-    accountId === null ? [] : [accountId, accountId],
+  const scope = scopeFilter(accountId);
+  const first = await db.getFirstAsync<{ firstDay: number | null }>(
+    `SELECT MIN(t.date) AS firstDay FROM transactions t WHERE ${scope.sql}`,
+    scope.params,
   );
-  const dates = [...new Set(rows.map((row) => row.date))];
-  const dailySummaries =
-    dates.length === 0
-      ? []
-      : await db.getAllAsync<DailySummary>(
-          `SELECT t.date, a.currencyCode,
-    SUM(CASE WHEN t.type = 'INCOME' THEN t.amountMinor ELSE 0 END) AS incomeMinor,
-    SUM(CASE WHEN t.type = 'EXPENSE' THEN t.amountMinor ELSE 0 END) AS expenseMinor
-    FROM transactions t JOIN accounts a ON a.id = t.accountId
-    WHERE t.date IN (${dates.map(() => '?').join(',')})
-    ${accountId === null ? '' : 'AND t.accountId = ?'}
-    GROUP BY t.date, a.currencyCode ORDER BY t.date DESC, a.currencyCode`,
-          accountId === null ? dates : [...dates, accountId],
-        );
-  return { rows, dailySummaries };
+  const firstDay = first?.firstDay ?? null;
+  const olderExists = (period: ListPeriod) => firstDay !== null && firstDay < period.start;
+  const periods: PeriodRows[] = [];
+  for (let step = steps; ; step++) {
+    const period = periodBack(setting, today, step);
+    const rows = await db.getAllAsync<ListRow>(
+      `${listRead} WHERE ${scope.sql} AND t.date >= ? AND t.date < ? ${listOrder}`,
+      [...scope.params, period.start, period.end],
+    );
+    periods.push({ period, rows });
+    if (step > 0 || rows.length || !olderExists(period)) break;
+  }
+  const last = periods.at(-1)!;
+  return { periods, firstDay, next: olderExists(last.period) ? steps + periods.length : null };
+}
+
+/** Transactions in scope on any date that match the search. LIKE ignores case only for ASCII letters. */
+export async function homeSearch(accountId: number | null, query: string): Promise<ListRow[]> {
+  const db = await database();
+  const scope = scopeFilter(accountId);
+  const like = `%${query.trim().replace(/[\\%_]/g, '\\$&')}%`;
+  const fields = ['t.note', 'c.name', 'parent.name', 'a.name', 'destination.name', 'person.name'];
+  return db.getAllAsync<ListRow>(
+    `${listRead} WHERE ${scope.sql} AND (${fields.map((field) => `${field} LIKE ? ESCAPE '\\'`).join(' OR ')}) ${listOrder}`,
+    [...scope.params, ...fields.map(() => like)],
+  );
 }
 
 const periodSettingKey = 'homePeriod';

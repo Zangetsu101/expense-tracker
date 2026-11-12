@@ -6,7 +6,7 @@ import { searchTransactions, type SearchFilters, type SearchRow } from '@/lib/tr
 import { renderWithQueries } from '@/test/render-with-queries';
 import { TransactionSearchScreen } from './index';
 
-const mockParams: { accountId?: string } = {};
+const mockParams: { accountId?: string; query?: string } = {};
 jest.mock('expo-router', () => ({
   Link: ({ children }: { children: React.ReactNode }) => children,
   useLocalSearchParams: () => mockParams,
@@ -29,6 +29,7 @@ const food: ManagedCategory = {
   type: 'EXPENSE',
   parentId: null,
   parentName: null,
+  emoji: null,
   needsReview: 0,
 };
 const row = (id: number, note: string): SearchRow => ({
@@ -49,6 +50,7 @@ const receipt = (note: string) => `View receipt for expense transaction, ${note}
 
 beforeEach(() => {
   delete mockParams.accountId;
+  delete mockParams.query;
   jest.mocked(listAccounts).mockReset().mockResolvedValue([cash, bank]);
   jest.mocked(listManagedCategories).mockReset().mockResolvedValue([food]);
   jest.mocked(searchTransactions).mockReset();
@@ -235,6 +237,19 @@ describe('a change of search text', () => {
     await act(async () => reads[2].read.resolve([row(1, 'Row 1')]));
     expect(await screen.findByRole('button', { name: receipt('Row 1') })).toBeOnTheScreen();
   });
+});
+
+test('opens with the search and the Account that Home passes', async () => {
+  mockParams.accountId = '2';
+  mockParams.query = 'rahim';
+  jest.mocked(searchTransactions).mockResolvedValue([row(1, 'Lunch with Rahim')]);
+  await renderScreen();
+  await waitFor(() =>
+    expect(searchTransactions).toHaveBeenCalledWith(
+      expect.objectContaining({ accountId: 2, query: 'rahim' }),
+      0,
+    ),
+  );
 });
 
 describe('active filter chips', () => {

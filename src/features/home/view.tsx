@@ -1,14 +1,12 @@
 import { BackupAttentionBanner } from '@/components/backup-attention-banner';
+import { accountParams } from '@/lib/account-selection';
 import { type ReactNode } from 'react';
 import { Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Pressable, Text, View } from 'react-native';
 import Animated, { FadeInDown, FadeOutUp, LinearTransition } from 'react-native-reanimated';
 import { SymbolView } from 'expo-symbols';
-import { formatActivityDay, formatMoney, transactionTitle } from '@/lib/transaction-format';
 import { Skeleton } from '@/components/loading';
-import { EnterView, useNewItems } from '@/components/motion';
-import type { HomeList } from './queries.ts';
 import { RetryButton } from './cards.tsx';
 import { theme } from '@/theme';
 
@@ -64,7 +62,7 @@ export function HomeLayout({
         onPress={() =>
           router.push({
             pathname: '/quick-add',
-            params: quickAddAccountId === null ? {} : { accountId: String(quickAddAccountId) },
+            params: accountParams(quickAddAccountId),
           })
         }
         disabled={!accountsReady}
@@ -95,8 +93,15 @@ export function HomeLayout({
   );
 }
 
-/** Shows only after a refresh of the cached deck failed. It slides in under the title and out again, and it does not scroll. */
-export function RefreshNotice({ failed, onRetry }: { failed: boolean; onRetry: () => void }) {
+export function RefreshNotice({
+  failed,
+  onRetry,
+  message = 'Couldn’t refresh accounts',
+}: {
+  failed: boolean;
+  onRetry: () => void;
+  message?: string;
+}) {
   if (!failed) return null;
   return (
     <Animated.View
@@ -115,7 +120,7 @@ export function RefreshNotice({ failed, onRetry }: { failed: boolean; onRetry: (
       }}
     >
       <Text accessibilityRole="alert" style={{ color: colors.warning, flex: 1 }}>
-        Couldn’t refresh accounts
+        {message}
       </Text>
       <Pressable
         accessibilityRole="button"
@@ -126,180 +131,6 @@ export function RefreshNotice({ failed, onRetry }: { failed: boolean; onRetry: (
         <Text style={{ color: colors.accent, fontWeight: '700' }}>Retry</Text>
       </Pressable>
     </Animated.View>
-  );
-}
-
-/** Opens search for the Account in view. It changes at once when the deck moves. */
-export function SearchField({ accountId, name }: { accountId: number | null; name: string }) {
-  return (
-    <Pressable
-      accessibilityRole="search"
-      accessibilityLabel={`Search ${name}`}
-      onPress={() =>
-        router.push({
-          pathname: '/transactions',
-          params: accountId === null ? {} : { accountId: String(accountId) },
-        })
-      }
-      style={{
-        minHeight: 48,
-        borderRadius: 24,
-        backgroundColor: colors.surface,
-        paddingHorizontal: 16,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 10,
-      }}
-    >
-      <SymbolView
-        name={{ ios: 'magnifyingglass', android: 'search' }}
-        size={20}
-        tintColor={colors.muted}
-      />
-      <Text style={{ color: colors.muted, fontSize: 15 }}>Search {name}</Text>
-    </Pressable>
-  );
-}
-
-export function ActivityList({ list, muted = false }: { list: HomeList; muted?: boolean }) {
-  const { accountId, rows, dailySummaries } = list;
-  const isNew = useNewItems(
-    rows.map((row) => row.id),
-    accountId,
-  );
-  return (
-    <View
-      pointerEvents={muted ? 'none' : 'auto'}
-      accessibilityElementsHidden={muted}
-      importantForAccessibility={muted ? 'no-hide-descendants' : 'auto'}
-      style={{ opacity: muted ? 0.4 : 1 }}
-    >
-      {rows.length === 0 && (
-        <Text style={{ color: colors.muted, paddingVertical: 16 }}>
-          {accountId === null
-            ? 'No transactions yet. Add one to get started.'
-            : 'No transactions in this account yet.'}
-        </Text>
-      )}
-      {rows.map((item, index) => {
-        const title = transactionTitle(item);
-        const scopedTransfer = item.type === 'TRANSFER' && accountId !== null;
-        const incoming = scopedTransfer && item.transferAccountId === accountId;
-        const detail = scopedTransfer
-          ? incoming
-            ? `Received from ${item.accountName}`
-            : `Sent to ${item.transferAccountName}`
-          : `${item.accountName}${item.transferAccountName ? ` → ${item.transferAccountName}` : ''}`;
-        const displayAmount = scopedTransfer
-          ? `${incoming ? '+' : '−'}${formatMoney('TRANSFER', item.amountMinor, item.currencyCode)}`
-          : formatMoney(item.type, item.amountMinor, item.currencyCode);
-        return (
-          <EnterView key={item.id} animate={isNew(item.id)}>
-            {(index === 0 || rows[index - 1].date !== item.date) && (
-              <View
-                style={{
-                  flexDirection: 'row',
-                  flexWrap: 'wrap',
-                  justifyContent: 'space-between',
-                  alignItems: 'baseline',
-                  gap: 8,
-                  paddingTop: 16,
-                  paddingBottom: 4,
-                }}
-              >
-                <Text style={{ color: colors.muted, fontWeight: '700' }}>
-                  {formatActivityDay(item.date)}
-                </Text>
-                <View style={{ flexShrink: 1, gap: 4 }}>
-                  {dailySummaries
-                    .filter(
-                      (summary) =>
-                        summary.date === item.date &&
-                        (summary.expenseMinor !== 0 || summary.incomeMinor !== 0),
-                    )
-                    .map((summary) => (
-                      <View
-                        key={summary.currencyCode}
-                        style={{
-                          flexDirection: 'row',
-                          flexWrap: 'wrap',
-                          justifyContent: 'flex-end',
-                          gap: 12,
-                        }}
-                      >
-                        {summary.expenseMinor !== 0 && (
-                          <Text
-                            selectable
-                            style={{
-                              color: colors.muted,
-                              fontSize: 12,
-                              fontVariant: ['tabular-nums'],
-                            }}
-                          >
-                            Spent{' '}
-                            {formatMoney('TRANSFER', summary.expenseMinor, summary.currencyCode)}
-                          </Text>
-                        )}
-                        {summary.incomeMinor !== 0 && (
-                          <Text
-                            selectable
-                            style={{
-                              color: colors.accent,
-                              fontSize: 12,
-                              fontVariant: ['tabular-nums'],
-                            }}
-                          >
-                            Earned{' '}
-                            {formatMoney('TRANSFER', summary.incomeMinor, summary.currencyCode)}
-                          </Text>
-                        )}
-                      </View>
-                    ))}
-                </View>
-              </View>
-            )}
-            <Pressable
-              disabled={muted}
-              accessibilityState={{ disabled: muted }}
-              onPress={() =>
-                router.push({ pathname: '/transaction/[id]', params: { id: String(item.id) } })
-              }
-              accessibilityRole="button"
-              accessibilityLabel={`${title}, ${item.accountName}`}
-              style={({ pressed }) => ({
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 12,
-                paddingVertical: 16,
-                borderBottomWidth: 1,
-                borderBottomColor: colors.line,
-                opacity: pressed ? 0.6 : 1,
-              })}
-            >
-              <View style={{ flex: 1, gap: 4 }}>
-                <Text selectable style={{ color: colors.text, fontSize: 16, fontWeight: '600' }}>
-                  {title}
-                </Text>
-                <Text selectable style={{ color: colors.muted }}>
-                  {detail}
-                  {item.note ? ` · ${item.note}` : ''}
-                </Text>
-              </View>
-              <Text
-                selectable
-                style={{
-                  color: item.type === 'INCOME' || incoming ? colors.accent : colors.text,
-                  fontWeight: '700',
-                  fontVariant: ['tabular-nums'],
-                }}
-              >
-                {displayAmount}
-              </Text>
-            </Pressable>
-          </EnterView>
-        );
-      })}
-    </View>
   );
 }
 

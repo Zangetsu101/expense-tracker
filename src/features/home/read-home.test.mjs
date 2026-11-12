@@ -44,7 +44,7 @@ registerHooks({
   },
 });
 const { database, epochDay } = await import('../../lib/database.ts');
-const { homeData, homePace, homeDeckData, homeTrend, savePeriodSetting } =
+const { homeListPage, homePace, homeDeckData, homeSearch, homeTrend, savePeriodSetting } =
   await import('./read-home.ts');
 const { transactionTitle } = await import('../../lib/transaction-format.ts');
 await database();
@@ -66,115 +66,138 @@ const add = (id, type, amount, date, account, excluded = 0, destination = null) 
     )
     .run(id, type, amount, date, account, type === 'EXPENSE' ? 1 : null, excluded, destination);
 
-test('Home reads recent activity and keeps reportable monthly totals separate by Currency', async () => {
+const month = { range: 'month', monthStart: 1 };
+const ids = (page) => page.periods.map(({ period, rows }) => [period.label, rows.map((r) => r.id)]);
+/** Replaces all Transactions with six in January 2025, one in November 2024, and none in December. */
+function seedList() {
+  sqlite.exec(`DELETE FROM lending_entries; DELETE FROM people; DELETE FROM transactions;
+    DELETE FROM categories WHERE id > 1`);
   add(1, 'EXPENSE', 12000, day(2025, 1, 3), 1);
   add(2, 'INCOME', 500, day(2025, 1, 4), 2);
-  add(3, 'TRANSFER', 100, day(2025, 1, 5), 1, 0, 1);
-  add(4, 'EXPENSE', 200, day(2025, 1, 6), 2, 1);
-  add(5, 'EXPENSE', 900, day(2024, 12, 31), 2);
-  const result = await homeData();
+  add(3, 'TRANSFER', 100, day(2025, 1, 5), 1, 0, 2);
+  add(4, 'EXPENSE', 200, day(2025, 1, 5), 2, 1);
+  add(5, 'EXPENSE', 900, day(2024, 11, 30), 2);
+  add(6, 'EXPENSE', 900, day(2025, 1, 21), 1);
+}
+/** Adds a lending Transaction for Sam. */
+function lend(id, kind, type) {
+  sqlite.exec("INSERT OR IGNORE INTO people (id, name) VALUES (1, 'Sam')");
+  add(id, type, 10000, day(2025, 1, 10), 1, 1);
+  sqlite.prepare('UPDATE transactions SET categoryId = NULL WHERE id = ?').run(id);
+  sqlite
+    .prepare(
+      'INSERT INTO lending_entries (personId, kind, transactionId, currencyCode, amountMinor, date) VALUES (1, ?, ?, ?, ?, ?)',
+    )
+    .run(kind, id, 'BDT', 10000, day(2025, 1, 10));
+}
+
+test('the list reads the range of the cards and says where older Transactions start', async () => {
+  seedList();
+  const today = day(2025, 1, 20);
+  const page = await homeListPage(null, month, today, 0);
+  assert.deepEqual(ids(page), [['January', [4, 3, 2, 1]]], 'a future Transaction does not show');
+  assert.equal(page.firstDay, day(2024, 11, 30));
+  assert.equal(page.next, 1);
+  const transfer = page.periods[0].rows.find((row) => row.id === 3);
   assert.deepEqual(
-    result.rows.map(({ id, currencyCode, transferAccountName }) => ({
-      id,
-      currencyCode,
-      transferAccountName,
-    })),
-    [
-      { id: 4, currencyCode: 'USD', transferAccountName: null },
-      { id: 3, currencyCode: 'BDT', transferAccountName: 'Cash' },
-      { id: 2, currencyCode: 'USD', transferAccountName: null },
-      { id: 1, currencyCode: 'BDT', transferAccountName: null },
-      { id: 5, currencyCode: 'USD', transferAccountName: null },
-    ],
+    [transfer.accountName, transfer.transferAccountName, transfer.currencyCode],
+    ['Cash', 'Bank', 'BDT'],
   );
+  assert.equal(page.periods[0].rows.find((row) => row.id === 4).excludeFromReport, 1);
+  const older = await homeListPage(null, month, today, 1);
+  assert.deepEqual(ids(older), [['December 2024', []]], 'an empty older period still shows');
+  assert.equal(older.next, 2);
+  const oldest = await homeListPage(null, month, today, 2);
+  assert.deepEqual(ids(oldest), [['November 2024', [5]]]);
+  assert.equal(oldest.next, null, 'no Transactions are older');
 });
 
-test('Home joins all lending kinds to saved people without duplicating ordinary rows or changing reports', async () => {
-  const before = await homeData();
+test('an empty range of the cards also reads the period before it', async () => {
+  seedList();
+  const page = await homeListPage(null, month, day(2025, 2, 1), 0);
+  assert.deepEqual(ids(page), [
+    ['February', []],
+    ['January', [6, 4, 3, 2, 1]],
+  ]);
+  assert.equal(page.next, 2);
+  const none = await homeListPage(999, month, day(2025, 2, 1), 0);
+  assert.deepEqual(none, {
+    periods: [{ period: none.periods[0].period, rows: [] }],
+    firstDay: null,
+    next: null,
+  });
+});
+
+test('Account scope includes either side of a Transfer', async () => {
+  seedList();
+  const today = day(2025, 1, 20);
+  const bank = await homeListPage(2, month, today, 0);
+  assert.deepEqual(ids(bank), [['January', [4, 3, 2]]]);
+  const cash = await homeListPage(1, month, today, 0);
+  assert.deepEqual(ids(cash), [['January', [3, 1]]]);
+  assert.equal(cash.next, null);
+});
+
+test('a row has the emoji of its Category, or of the parent Category', async () => {
+  seedList();
+  sqlite.exec(`INSERT INTO categories (id, name, type, parentId, iconKey) VALUES
+    (2, 'Eating out', 'EXPENSE', NULL, '🍽'), (3, 'Restaurants', 'EXPENSE', 2, NULL),
+    (4, 'Cafes', 'EXPENSE', 2, '☕'), (5, 'Empty', 'EXPENSE', NULL, '')`);
+  for (const [id, category] of [
+    [20, 3],
+    [21, 4],
+    [22, 5],
+  ]) {
+    add(id, 'EXPENSE', 100, day(2025, 1, 6), 1);
+    sqlite.prepare('UPDATE transactions SET categoryId = ? WHERE id = ?').run(category, id);
+  }
+  const rows = (await homeListPage(1, month, day(2025, 1, 20), 0)).periods[0].rows;
+  const row = (id) => rows.find((r) => r.id === id);
+  assert.deepEqual(
+    [row(20).categoryEmoji, row(20).categoryName, row(20).parentCategoryName],
+    ['🍽', 'Restaurants', 'Eating out'],
+  );
+  assert.equal(row(21).categoryEmoji, '☕');
+  assert.equal(row(22).categoryEmoji, null, 'an empty emoji is no emoji');
+  assert.equal(row(1).categoryEmoji, null);
+});
+
+test('the list joins all lending kinds to saved people without duplicating ordinary rows or changing reports', async () => {
+  seedList();
+  const read = async () => (await homeListPage(null, month, day(2025, 1, 20), 0)).periods[0].rows;
+  const before = await read();
   const paceBefore = await homePace(null, january);
-  sqlite.exec("INSERT INTO people (id, name) VALUES (1, 'Sam')");
   const movements = [
     ['LEND', 'EXPENSE', 'Lent to Sam'],
     ['BORROW', 'INCOME', 'Borrowed from Sam'],
     ['RECEIVE_REPAYMENT', 'INCOME', 'Repayment from Sam'],
     ['REPAY', 'EXPENSE', 'Repaid to Sam'],
   ];
-  for (const [index, [kind, type]] of movements.entries()) {
-    const id = 10 + index;
-    add(id, type, 10000, day(2025, 1, 10), 1, 1);
-    sqlite.prepare('UPDATE transactions SET categoryId = NULL WHERE id = ?').run(id);
-    sqlite
-      .prepare(
-        'INSERT INTO lending_entries (personId, kind, transactionId, currencyCode, amountMinor, date) VALUES (1, ?, ?, ?, ?, ?)',
-      )
-      .run(kind, id, 'BDT', 10000, day(2025, 1, 10));
-  }
-  const after = await homeData();
+  for (const [index, [kind, type]] of movements.entries()) lend(10 + index, kind, type);
+  const after = await read();
   assert.deepEqual(await homePace(null, january), paceBefore, 'lending stays out of Pace');
-  assert.equal(after.rows.length, before.rows.length + 4);
+  assert.equal(after.length, before.length + 4);
   assert.deepEqual(
-    after.rows.filter((row) => row.id >= 10).map(transactionTitle),
+    after.filter((row) => row.id >= 10).map(transactionTitle),
     movements.toReversed().map((movement) => movement[2]),
   );
-  assert.equal(after.rows.find((row) => row.id === 1).lendingKind, null);
+  assert.equal(after.find((row) => row.id === 1).lendingKind, null);
 });
 
-test('Account scope includes either Transfer side and filters activity before the 50-row limit', async () => {
-  sqlite.exec("INSERT INTO accounts (id, name, currencyCode) VALUES (3, 'Mobile', 'BDT')");
-  add(100, 'TRANSFER', 4000, day(2025, 1, 12), 1, 0, 3);
-  add(101, 'EXPENSE', 300, day(2025, 1, 13), 3);
-  add(102, 'INCOME', 700, day(2025, 1, 14), 3);
-  add(103, 'EXPENSE', 999, day(2025, 1, 15), 3, 1);
-  for (let id = 200; id < 255; id++) add(id, 'EXPENSE', 10, day(2025, 1, 16), 2);
-  const mobile = await homeData(3);
-  assert.deepEqual(
-    mobile.rows.map((row) => row.id),
-    [103, 102, 101, 100],
-  );
-  assert.equal(mobile.rows.at(-1).accountId, 1);
-  assert.equal(mobile.rows.at(-1).transferAccountId, 3);
-  const cash = await homeData(1);
-  assert.ok(cash.rows.some((row) => row.id === 100));
-  assert.ok(cash.rows.every((row) => row.accountId === 1 || row.transferAccountId === 1));
-  assert.deepEqual(
-    mobile.dailySummaries.find((summary) => summary.date === day(2025, 1, 13)),
-    { date: day(2025, 1, 13), currencyCode: 'BDT', incomeMinor: 0, expenseMinor: 300 },
-  );
-  const empty = await homeData(999);
-  assert.deepEqual(empty, { rows: [], dailySummaries: [] });
-});
-
-test('All accounts keeps each Transfer once', async () => {
-  const result = await homeData();
-  assert.equal(result.rows.length, 50);
-  const earlier = await homeData(3);
-  assert.equal(earlier.rows.filter((row) => row.id === 100).length, 1);
-  sqlite.exec('DELETE FROM transactions WHERE id >= 200');
-  const all = await homeData();
-  assert.equal(all.rows.filter((row) => row.id === 100).length, 1);
-});
-
-test('daily totals include the whole day beyond the activity limit, separate currencies and omit transfers', async () => {
-  const date = day(2026, 1, 1);
-  for (let id = 300; id < 355; id++) add(id, 'EXPENSE', 100, date, 1);
-  add(355, 'INCOME', 800, date, 1);
-  add(356, 'EXPENSE', 200, date, 1, 1);
-  add(357, 'INCOME', 300, date, 2);
-  add(358, 'TRANSFER', 999, date, 1, 0, 1);
-  const scoped = await homeData(1);
-  assert.deepEqual(scoped.dailySummaries[0], {
-    date,
-    currencyCode: 'BDT',
-    incomeMinor: 800,
-    expenseMinor: 5700,
-  });
-  assert.ok(scoped.dailySummaries.every((summary) => summary.currencyCode === 'BDT'));
-  const result = await homeData();
-  assert.equal(result.rows.length, 50);
-  assert.deepEqual(result.dailySummaries, [
-    { date, currencyCode: 'BDT', incomeMinor: 800, expenseMinor: 5700 },
-    { date, currencyCode: 'USD', incomeMinor: 300, expenseMinor: 0 },
-  ]);
+test('search on all dates matches the note, the Categories, the Accounts and the person', async () => {
+  seedList();
+  lend(10, 'LEND', 'EXPENSE');
+  sqlite.prepare("UPDATE transactions SET note = 'Lunch 100% with Rahim' WHERE id = 1").run();
+  const found = async (accountId, query) =>
+    (await homeSearch(accountId, query)).map((row) => row.id);
+  assert.deepEqual(await found(null, ' rahim '), [1]);
+  assert.deepEqual(await found(null, '100%'), [1]);
+  assert.deepEqual(await found(null, '%'), [1], 'a % in the search is a plain character');
+  assert.deepEqual(await found(null, 'food'), [6, 4, 1, 5], 'the Category');
+  assert.deepEqual(await found(2, 'cash'), [3], 'the other side of a Transfer');
+  assert.deepEqual(await found(null, 'sam'), [10]);
+  assert.deepEqual(await found(1, 'bank'), [3]);
+  assert.deepEqual(await found(2, 'rahim'), []);
 });
 
 test('the deck read gives balances as of today, the last day of use, and saved settings', async () => {

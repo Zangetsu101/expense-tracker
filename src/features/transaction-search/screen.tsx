@@ -97,9 +97,10 @@ function FilterOptionsSection(props: {
 }
 
 function TransactionSearch({ reset }: { reset: () => void }) {
-  const params = useLocalSearchParams<{ accountId?: string }>();
+  const params = useLocalSearchParams<{ accountId?: string; query?: string }>();
   const [filters, setFilters] = useState<SearchFilters>(() => ({
     ...initialFilters,
+    query: params.query ?? '',
     accountId: parseAccountId(params.accountId) ?? null,
   }));
   const [draft, setDraft] = useState(filters);

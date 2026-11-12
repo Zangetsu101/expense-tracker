@@ -5,7 +5,7 @@ import { registerHooks, stripTypeScriptTypes } from 'node:module';
 
 const db = new DatabaseSync(':memory:');
 db.exec(
-  'CREATE TABLE categories (id INTEGER PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, parentId INTEGER REFERENCES categories(id), needsReview INTEGER NOT NULL DEFAULT 0)',
+  'CREATE TABLE categories (id INTEGER PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, parentId INTEGER REFERENCES categories(id), iconKey TEXT, needsReview INTEGER NOT NULL DEFAULT 0)',
 );
 const adapter = {
   runAsync: async (sql, params) => db.prepare(sql).run(...params),
@@ -49,7 +49,7 @@ registerHooks({
 });
 const {
   createCategory,
-  renameCategory,
+  updateCategory,
   listManagedCategories,
   listCategoriesByRecentUse,
   markCategoryReviewed,
@@ -97,26 +97,26 @@ test('creates descendants at any depth and validates failed writes without alter
   assert.deepEqual(await listManagedCategories(), before);
 });
 
-test('rename changes only the name and preserves descendants, type, and review status', async () => {
+test('update changes only the name and preserves descendants, type, and review status', async () => {
   const before = await listManagedCategories();
   const category = before.find((category) => category.name === 'Food');
   db.prepare('UPDATE categories SET needsReview = 1 WHERE id = ?').run(category.id);
-  await renameCategory(category.id, ' Dining ');
+  await updateCategory(category.id, ' Dining ');
   const renamed = (await listManagedCategories()).find((item) => item.id === category.id);
   assert.deepEqual({ ...renamed }, { ...category, name: 'Dining', needsReview: 1 });
   const child = (await listManagedCategories()).find((item) => item.name === 'Weekly groceries');
   assert.equal(child.parentId, category.id);
   assert.equal(child.parentName, 'Dining');
-  await renameCategory(category.id, 'DINING');
+  await updateCategory(category.id, 'DINING');
   assert.equal(
     (await listManagedCategories()).find((item) => item.id === category.id).name,
     'DINING',
   );
-  await renameCategory(category.id, 'Food');
+  await updateCategory(category.id, 'Food');
   db.prepare('UPDATE categories SET needsReview = 0 WHERE id = ?').run(category.id);
 });
 
-test('rename validates names and IDs and rejects same-type duplicates without changing data', async () => {
+test('update validates names and IDs and rejects same-type duplicates without changing data', async () => {
   const before = await listManagedCategories();
   for (const [id, name] of [
     [2, ' '],
@@ -127,14 +127,36 @@ test('rename validates names and IDs and rejects same-type duplicates without ch
     [1.5, 'Bad ID'],
     [NaN, 'Bad ID'],
   ])
-    await assert.rejects(renameCategory(id, name));
+    await assert.rejects(updateCategory(id, name));
   assert.deepEqual(await listManagedCategories(), before);
-  await renameCategory(3, 'Food');
+  await updateCategory(3, 'Food');
   assert.equal((await listManagedCategories()).find((item) => item.id === 3).type, 'INCOME');
-  await renameCategory(3, "o'brien");
-  await renameCategory(2, 'x'.repeat(100));
+  await updateCategory(3, "o'brien");
+  await updateCategory(2, 'x'.repeat(100));
   assert.equal((await listManagedCategories()).find((item) => item.id === 2).name.length, 100);
-  await renameCategory(2, 'Food');
+  await updateCategory(2, 'Food');
+});
+
+test('a Category keeps an emoji that create and update set, and an empty emoji is none', async () => {
+  await createCategory({ name: 'Coffee', type: 'EXPENSE', emoji: ' ☕ ' });
+  const coffee = (await listManagedCategories()).find((item) => item.name === 'Coffee');
+  assert.equal(coffee.emoji, '☕');
+  await updateCategory(coffee.id, 'Cafes');
+  assert.equal(
+    (await listManagedCategories()).find((item) => item.id === coffee.id).emoji,
+    '☕',
+    'an update without an emoji keeps the emoji',
+  );
+  await updateCategory(coffee.id, 'Cafes', '👨‍👩‍👧‍👦');
+  assert.equal((await listManagedCategories()).find((item) => item.id === coffee.id).emoji, '👨‍👩‍👧‍👦');
+  await updateCategory(coffee.id, 'Cafes', '  ');
+  assert.equal((await listManagedCategories()).find((item) => item.id === coffee.id).emoji, null);
+  await assert.rejects(
+    updateCategory(coffee.id, 'Cafes', 'x'.repeat(17)),
+    /characters or fewer for the emoji/,
+  );
+  await assert.rejects(createCategory({ name: 'Tea', type: 'EXPENSE', emoji: 'x'.repeat(17) }));
+  db.prepare('DELETE FROM categories WHERE id = ?').run(coffee.id);
 });
 
 test('review clears only the selected pending category', async () => {

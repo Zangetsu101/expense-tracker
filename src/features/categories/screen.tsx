@@ -3,7 +3,7 @@ import { QueryBoundary } from '@/components/query-error-boundary';
 import { CategoryBrowser } from '@/components/category-browser';
 import {
   createCategory,
-  renameCategory,
+  updateCategory,
   type CreateCategoryInput,
   type ManagedCategory,
 } from '@/lib/categories';
@@ -11,7 +11,7 @@ import { managedCategoriesQuery } from './queries.ts';
 import { CategoriesError, CategoriesLayout, CategoriesSkeleton, RefreshAlert } from './view.tsx';
 
 async function save(input: CreateCategoryInput, editing?: ManagedCategory) {
-  if (editing) await renameCategory(editing.id, input.name);
+  if (editing) await updateCategory(editing.id, input.name, input.emoji);
   else await createCategory(input);
 }
 

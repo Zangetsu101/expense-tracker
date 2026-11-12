@@ -3,3 +3,8 @@ export function parseAccountId(value: string | string[] | undefined): number | u
   const id = Number(value);
   return Number.isSafeInteger(id) ? id : undefined;
 }
+
+/** Route params that name an Account, or no params for All accounts. */
+export function accountParams(accountId: number | null): { accountId?: string } {
+  return accountId === null ? {} : { accountId: String(accountId) };
+}

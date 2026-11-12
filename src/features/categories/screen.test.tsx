@@ -15,7 +15,7 @@ jest.mock('@/components/app-sheet', () => {
 jest.mock('@/lib/categories', () => ({
   listManagedCategories: jest.fn(),
   createCategory: jest.fn(),
-  renameCategory: jest.fn(),
+  updateCategory: jest.fn(),
 }));
 
 const category = (id: number, name: string, type: ManagedCategory['type']): ManagedCategory => ({
@@ -24,6 +24,7 @@ const category = (id: number, name: string, type: ManagedCategory['type']): Mana
   type,
   parentId: null,
   parentName: null,
+  emoji: null,
   needsReview: 0,
 });
 const lunch = category(1, 'Lunch', 'EXPENSE');
