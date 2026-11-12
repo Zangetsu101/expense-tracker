@@ -1,7 +1,6 @@
 import { Suspense, use, useDeferredValue, useRef, useState, type ReactNode } from 'react';
 import { FlatList, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { router } from 'expo-router';
-import Animated, { LinearTransition } from 'react-native-reanimated';
 import {
   QueryErrorResetBoundary,
   useMutation,
@@ -104,6 +103,7 @@ function Home({ reset }: { reset: () => void }) {
   return (
     <HomeLayout
       title={<HomeTitle name={name} onPress={() => setSheet('accounts')} />}
+      notice={<RefreshNotice failed={!!error} onRetry={() => void refetch()} />}
       quickAddAccountId={scope ?? favorite?.id ?? null}
       accountsReady
     >
@@ -111,8 +111,7 @@ function Home({ reset }: { reset: () => void }) {
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={{ paddingBottom: 100 }}
       >
-        <RefreshNotice failed={!!error} onRetry={() => void refetch()} />
-        <Animated.View layout={LinearTransition} style={{ gap: 8 }}>
+        <View style={{ gap: 8 }}>
           <Deck
             key={deckOrderKey}
             initialIndex={index}
@@ -142,7 +141,7 @@ function Home({ reset }: { reset: () => void }) {
               </Suspense>
             </ErrorBoundary>
           </View>
-        </Animated.View>
+        </View>
       </ScrollView>
       {sheet === 'period' && (
         <PeriodSheet

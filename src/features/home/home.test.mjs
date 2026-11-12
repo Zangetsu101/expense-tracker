@@ -397,6 +397,13 @@ test('Home boundaries', async (t) => {
       });
       await act(async () => notifyDataChanged());
       assert.ok(has('Couldn’t refresh accounts'));
+      assert.ok(
+        !renderer.root
+          .findByType('ScrollView')
+          .findAllByType('Text')
+          .some((n) => textOf(n) === 'Couldn’t refresh accounts'),
+        'the notice stays under the title and does not scroll',
+      );
       assert.ok(cardTexts('Cash').includes('৳1,000.00'), 'the cached balances stay');
       assert.ok(has('Lunch 0'));
       assert.equal(

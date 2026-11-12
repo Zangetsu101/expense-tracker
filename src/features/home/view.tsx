@@ -3,7 +3,7 @@ import { type ReactNode } from 'react';
 import { Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Pressable, Text, View } from 'react-native';
-import Animated, { FadeInDown, FadeOutUp } from 'react-native-reanimated';
+import Animated, { FadeInDown, FadeOutUp, LinearTransition } from 'react-native-reanimated';
 import { SymbolView } from 'expo-symbols';
 import { formatActivityDay, formatMoney, transactionTitle } from '@/lib/transaction-format';
 import { Skeleton } from '@/components/loading';
@@ -16,11 +16,14 @@ const colors = theme.colors;
 
 export function HomeLayout({
   title,
+  notice,
   quickAddAccountId,
   accountsReady,
   children,
 }: {
   title?: ReactNode;
+  /** Stays under the title while the page scrolls. */
+  notice?: ReactNode;
   quickAddAccountId: number | null;
   accountsReady: boolean;
   children: ReactNode;
@@ -52,8 +55,11 @@ export function HomeLayout({
         }}
       />
       <StatusBar style="light" />
+      {notice}
       <BackupAttentionBanner />
-      {children}
+      <Animated.View layout={LinearTransition} style={{ flex: 1 }}>
+        {children}
+      </Animated.View>
       <Pressable
         onPress={() =>
           router.push({
@@ -89,7 +95,7 @@ export function HomeLayout({
   );
 }
 
-/** Shows only after a refresh of the cached deck failed. It slides in under the title and out again. */
+/** Shows only after a refresh of the cached deck failed. It slides in under the title and out again, and it does not scroll. */
 export function RefreshNotice({ failed, onRetry }: { failed: boolean; onRetry: () => void }) {
   if (!failed) return null;
   return (
@@ -98,7 +104,7 @@ export function RefreshNotice({ failed, onRetry }: { failed: boolean; onRetry: (
       exiting={FadeOutUp}
       style={{
         marginHorizontal: 20,
-        marginBottom: 10,
+        marginVertical: 8,
         paddingLeft: 14,
         paddingRight: 6,
         borderRadius: 12,
