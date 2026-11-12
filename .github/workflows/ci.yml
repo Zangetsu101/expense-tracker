@@ -32,7 +32,19 @@ jobs:
           node-version: '22'
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Typecheck, lint, formatting, tests, and backup fixtures
+      # The native fingerprint check compares with the file at the release tag of
+      # this version. The checkout has no tags, so fetch only that tag if it exists.
+      - name: Fetch the release tag of the app version
+        run: |
+          tag="v$(node -p "require('./app.json').expo.version")"
+          status=0
+          git ls-remote --exit-code --tags origin "refs/tags/$tag" > /dev/null || status=$?
+          if [ "$status" -eq 0 ]; then
+            git fetch --no-tags --depth=1 origin "+refs/tags/$tag:refs/tags/$tag"
+          elif [ "$status" -ne 2 ]; then
+            exit "$status"
+          fi
+      - name: Typecheck, lint, formatting, tests, backup fixtures, and native fingerprint
         run: pnpm check
 
   publish:
