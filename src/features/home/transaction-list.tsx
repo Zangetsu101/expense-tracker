@@ -1,4 +1,4 @@
-import { Children, isValidElement, type ReactNode, type Ref } from 'react';
+import type { ReactNode, Ref } from 'react';
 import { SectionList, View, type CellRendererProps, type SectionListProps } from 'react-native';
 import Animated, {
   FadeIn,
@@ -41,18 +41,34 @@ function Dimmed({ muted, children }: { muted: boolean; children: ReactNode }) {
 
 type TransactionListProps = Pick<
   SectionListProps<ListItem, ListSection>,
-  | 'sections'
-  | 'renderItem'
-  | 'renderSectionHeader'
-  | 'onViewableItemsChanged'
-  | 'onScrollToIndexFailed'
+  'sections' | 'onViewableItemsChanged' | 'onScrollToIndexFailed'
 > & {
   ref?: Ref<SectionList<ListItem, ListSection>>;
-  children: ReactNode;
+  header: ReactNode;
+  footer: ReactNode;
+  scope: ListScope;
+  now: Date;
+  query: string;
+  muted: boolean;
+  slidingId: number | null;
+  phase: (id: number) => SlidePhase | undefined;
+  onOpen: (id: number) => void;
 };
 
-export function TransactionList({ children, ref, ...props }: TransactionListProps) {
-  const slots = Children.toArray(children).filter(isValidElement);
+export function TransactionList({
+  ref,
+  header,
+  footer,
+  scope,
+  now,
+  query,
+  muted,
+  slidingId,
+  phase,
+  onOpen,
+  ...props
+}: TransactionListProps) {
+  const reduceMotion = useReducedMotion();
   return (
     <SectionList
       {...props}
@@ -65,88 +81,44 @@ export function TransactionList({ children, ref, ...props }: TransactionListProp
       contentContainerStyle={{ paddingBottom: 100 }}
       CellRendererComponent={MovingCell}
       viewabilityConfig={viewabilityConfig}
-      ListHeaderComponent={slots.find((slot) => slot.type === TransactionList.Header)}
-      ListFooterComponent={slots.find((slot) => slot.type === TransactionList.Footer)}
+      ListHeaderComponent={<View style={{ gap: 8 }}>{header}</View>}
+      ListFooterComponent={<Dimmed muted={muted}>{footer}</Dimmed>}
+      renderSectionHeader={({ section }) =>
+        section.date === null ? null : (
+          <Dimmed muted={muted}>
+            <DayHeader
+              date={section.date}
+              totals={section.totals}
+              now={now}
+              entering={
+                slidingId !== null && rowIndex(section, slidingId) !== -1
+                  ? reduceMotion
+                    ? headerFadeIn
+                    : headerSlideIn
+                  : undefined
+              }
+            />
+          </Dimmed>
+        )
+      }
+      renderItem={({ item }) => (
+        <Dimmed muted={muted}>
+          {item.kind === 'row' ? (
+            <TransactionRow
+              row={item.row}
+              scope={scope}
+              query={query}
+              disabled={muted}
+              slide={phase(item.row.id)}
+              onPress={() => onOpen(item.row.id)}
+            />
+          ) : item.kind === 'divider' ? (
+            <PeriodDivider label={item.label} totals={item.totals} />
+          ) : (
+            <ListMessage text={item.text} />
+          )}
+        </Dimmed>
+      )}
     />
   );
 }
-
-TransactionList.Header = function TransactionListHeader({ children }: { children: ReactNode }) {
-  return <View style={{ gap: 8 }}>{children}</View>;
-};
-
-TransactionList.Footer = function TransactionListFooter({
-  muted,
-  children,
-}: {
-  muted: boolean;
-  children: ReactNode;
-}) {
-  return <Dimmed muted={muted}>{children}</Dimmed>;
-};
-
-TransactionList.DayHeader = function TransactionListDayHeader({
-  section,
-  now,
-  muted,
-  slidingId,
-}: {
-  section: ListSection;
-  now: Date;
-  muted: boolean;
-  slidingId: number | null;
-}) {
-  const reduceMotion = useReducedMotion();
-  if (section.date === null) return null;
-  return (
-    <Dimmed muted={muted}>
-      <DayHeader
-        date={section.date}
-        totals={section.totals}
-        now={now}
-        entering={
-          slidingId !== null && rowIndex(section, slidingId) !== -1
-            ? reduceMotion
-              ? headerFadeIn
-              : headerSlideIn
-            : undefined
-        }
-      />
-    </Dimmed>
-  );
-};
-
-TransactionList.Item = function TransactionListItem({
-  item,
-  scope,
-  query,
-  muted,
-  slide,
-  onOpen,
-}: {
-  item: ListItem;
-  scope: ListScope;
-  query: string;
-  muted: boolean;
-  slide?: SlidePhase;
-  onOpen: (id: number) => void;
-}) {
-  return (
-    <Dimmed muted={muted}>
-      {item.kind === 'row' ? (
-        <TransactionRow
-          row={item.row}
-          scope={scope}
-          query={query}
-          disabled={muted}
-          slide={slide}
-          onPress={() => onOpen(item.row.id)}
-        />
-      ) : item.kind === 'divider' ? (
-        <PeriodDivider label={item.label} totals={item.totals} />
-      ) : (
-        <ListMessage text={item.text} />
-      )}
-    </Dimmed>
-  );
-};

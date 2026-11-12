@@ -77,19 +77,13 @@ export function HomeActivity(props: HomeActivityProps) {
         reset={reset}
         resetKey={shown.key}
         pending={
-          <ActivityFallback>
-            <TransactionList.Header>{header}</TransactionList.Header>
-            <ActivityFallback.Content>
-              <ActivitySkeleton />
-            </ActivityFallback.Content>
+          <ActivityFallback header={header}>
+            <ActivitySkeleton />
           </ActivityFallback>
         }
         error={(retry) => (
-          <ActivityFallback>
-            <TransactionList.Header>{header}</TransactionList.Header>
-            <ActivityFallback.Content>
-              <ActivityError retry={retry} />
-            </ActivityFallback.Content>
+          <ActivityFallback header={header}>
+            <ActivityError retry={retry} />
           </ActivityFallback>
         )}
       >
@@ -109,20 +103,17 @@ export function HomeActivity(props: HomeActivityProps) {
   );
 }
 
-function ActivityFallback({ children }: { children: ReactNode }) {
+function ActivityFallback({ header, children }: { header: ReactNode; children: ReactNode }) {
   return (
     <ScrollView
       contentInsetAdjustmentBehavior="automatic"
       contentContainerStyle={{ paddingBottom: 100 }}
     >
-      {children}
+      <View style={{ gap: 8 }}>{header}</View>
+      <View style={{ paddingHorizontal: gutter }}>{children}</View>
     </ScrollView>
   );
 }
-
-ActivityFallback.Content = function ActivityFallbackContent({ children }: { children: ReactNode }) {
-  return <View style={{ paddingHorizontal: gutter }}>{children}</View>;
-};
 
 function ActivityResults({
   header,
@@ -228,45 +219,33 @@ function ActivityResults({
       sections={sections}
       onViewableItemsChanged={saved.onViewableItemsChanged}
       onScrollToIndexFailed={saved.onScrollToIndexFailed}
-      renderSectionHeader={({ section }) => (
-        <TransactionList.DayHeader
-          section={section}
-          now={now}
-          muted={muted}
-          slidingId={saved.slidingId}
-        />
-      )}
-      renderItem={({ item }) => (
-        <TransactionList.Item
-          item={item}
-          scope={shownScope}
-          query={searching ? query : ''}
-          muted={muted}
-          slide={item.kind === 'row' ? saved.phase(item.row.id) : undefined}
-          onOpen={(id) =>
-            router.push({ pathname: '/transaction/[id]', params: { id: String(id) } })
-          }
-        />
-      )}
-    >
-      <TransactionList.Header>
-        {hasAny ? searchHeader : header}
-        <RefreshNotice
-          failed={!!list.error && !list.isFetching && !list.isFetchNextPageError}
-          onRetry={() => void list.refetch()}
-          message="Couldn’t refresh account activity"
-        />
-        {hasAny && (
-          <View style={{ paddingHorizontal: gutter }}>
-            {searching && resultCount > 0 && (
-              <Text style={{ color: theme.colors.muted, fontSize: 13, paddingTop: 12 }}>
-                {resultCount} {resultCount === 1 ? 'result' : 'results'}
-              </Text>
-            )}
-          </View>
-        )}
-      </TransactionList.Header>
-      <TransactionList.Footer muted={muted}>{footer}</TransactionList.Footer>
-    </TransactionList>
+      scope={shownScope}
+      now={now}
+      query={searching ? query : ''}
+      muted={muted}
+      slidingId={saved.slidingId}
+      phase={saved.phase}
+      onOpen={(id) => router.push({ pathname: '/transaction/[id]', params: { id: String(id) } })}
+      header={
+        <>
+          {hasAny ? searchHeader : header}
+          <RefreshNotice
+            failed={!!list.error && !list.isFetching && !list.isFetchNextPageError}
+            onRetry={() => void list.refetch()}
+            message="Couldn’t refresh account activity"
+          />
+          {hasAny && (
+            <View style={{ paddingHorizontal: gutter }}>
+              {searching && resultCount > 0 && (
+                <Text style={{ color: theme.colors.muted, fontSize: 13, paddingTop: 12 }}>
+                  {resultCount} {resultCount === 1 ? 'result' : 'results'}
+                </Text>
+              )}
+            </View>
+          )}
+        </>
+      }
+      footer={footer}
+    />
   );
 }
