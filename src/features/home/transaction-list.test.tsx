@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, userEvent } from '@testing-library/react-native';
 import { router } from 'expo-router';
-import { SectionList, View } from 'react-native';
+import { SectionList, StyleSheet, View } from 'react-native';
 import { QueryClientProvider, notifyManager, type QueryClient } from '@tanstack/react-query';
 import { notifyDataChanged } from '@/lib/data-changes';
 import { createQueryClient } from '@/lib/query-client';
@@ -9,7 +9,12 @@ import type { ListPeriod, ListRow, ListScope } from './list.ts';
 import { homeListPage, homeSearch, type HomeListPage } from './read-home.ts';
 import { TransactionList } from './transaction-list.tsx';
 
-jest.mock('expo-router', () => ({ router: { push: jest.fn() } }));
+let mockFocused = true;
+jest.mock('expo-router', () => ({
+  router: { push: jest.fn() },
+  useIsFocused: () => mockFocused,
+  useFocusEffect: () => {},
+}));
 jest.mock('expo-symbols', () => ({ SymbolView: () => null }));
 jest.mock('react-native-worklets', () => jest.requireActual('react-native-worklets/src/mock'));
 jest.mock('react-native-reanimated', () => ({
@@ -78,6 +83,26 @@ const list = (scope: ListScope) => (
     />
   </QueryClientProvider>
 );
+/**
+ * The list reports the cells in view after layout, which the test renderer does not do.
+ * A cell index counts the header of each day too: cell 1 is the first row of the first day.
+ */
+async function reportInView(cells: [index: number, row: ListRow][]) {
+  const tokens = cells.map(([index, inView]) => ({
+    item: { kind: 'row', row: inView },
+    key: String(inView.id),
+    index,
+    isViewable: true,
+  }));
+  await fireEvent(screen.getByText(`Lunch ${cells[0][1].id}`), 'viewableItemsChanged', {
+    viewableItems: tokens,
+    changed: tokens,
+  });
+}
+/** How far right of its place the row is: 0 in place, the screen width while it is hidden. */
+const shift = (name: string) =>
+  StyleSheet.flatten(screen.getByRole('button', { name }).parent?.props.style)?.transform?.[0]
+    ?.translateX;
 const scrolled = () =>
   jest.mocked(SectionList.prototype.scrollToLocation).mock.calls.map(([to]) => to);
 
@@ -86,10 +111,12 @@ beforeAll(() => notifyManager.setScheduler(queueMicrotask));
 afterAll(() => notifyManager.setScheduler((callback) => setTimeout(callback, 0)));
 beforeEach(() => {
   jest.resetAllMocks();
+  mockFocused = true;
   client = createQueryClient();
   jest.spyOn(SectionList.prototype, 'scrollToLocation').mockImplementation(() => {});
 });
 afterEach(() => {
+  jest.useRealTimers();
   client.clear();
   jest.restoreAllMocks();
 });
@@ -206,23 +233,58 @@ test('search filters the range of the cards in place and can widen to all dates'
   expect(screen.getByRole('search')).toHaveDisplayValue('');
 });
 
-test('a new row on screen shows without a snackbar', async () => {
+test('a new row on screen waits until the list shows it, then slides in', async () => {
   let rows = [row(1)];
   jest.mocked(homeListPage).mockImplementation(async () => page(rows));
   await render(list(allAccounts));
   await screen.findByText('Lunch 1');
-  // The list reports the cells in view after layout, which the test renderer does not do.
-  // Cell 1 is the first row of the first day.
-  const cell = { item: { kind: 'row', row: row(1) }, key: '1', index: 1, isViewable: true };
-  await fireEvent(screen.getByText('Lunch 1'), 'viewableItemsChanged', {
-    viewableItems: [cell],
-    changed: [cell],
-  });
+  await reportInView([[1, row(1)]]);
   rows = [row(5), row(1)];
   await act(async () => notifyDataChanged({ id: 5, date: today, accountIds: [1] }));
   await act(async () => client.invalidateQueries());
-  expect(await screen.findByText('Lunch 5')).toBeOnTheScreen();
+  await screen.findByText('Lunch 5');
   expect(screen.queryByText(/^Saved to/)).not.toBeOnTheScreen();
+  expect(shift('Lunch 5, Cash, −৳5.00')).toBeGreaterThan(0);
+  expect(shift('Lunch 1, Cash, −৳5.00')).toBe(0);
+  await reportInView([
+    [1, row(5)],
+    [2, row(1)],
+  ]);
+  expect(shift('Lunch 5, Cash, −৳5.00')).toBe(0);
+});
+
+test('a row in view waits for Home to have focus again', async () => {
+  let rows = [row(1)];
+  jest.mocked(homeListPage).mockImplementation(async () => page(rows));
+  const view = await render(list(allAccounts));
+  await screen.findByText('Lunch 1');
+  await reportInView([[1, row(1)]]);
+  mockFocused = false;
+  rows = [row(5), row(1)];
+  await act(async () => notifyDataChanged({ id: 5, date: today, accountIds: [1] }));
+  await act(async () => client.invalidateQueries());
+  await screen.findByText('Lunch 5');
+  await reportInView([[1, row(5)]]);
+  expect(shift('Lunch 5, Cash, −৳5.00')).toBeGreaterThan(0);
+  mockFocused = true;
+  await view.rerender(list(allAccounts));
+  expect(shift('Lunch 5, Cash, −৳5.00')).toBe(0);
+});
+
+test('a row that never comes into view shows after a while', async () => {
+  let rows = [row(1)];
+  jest.mocked(homeListPage).mockImplementation(async () => page(rows));
+  await render(list(allAccounts));
+  await screen.findByText('Lunch 1');
+  await reportInView([[1, row(1)]]);
+  jest.useFakeTimers();
+  rows = [row(5), row(1)];
+  await act(async () => notifyDataChanged({ id: 5, date: today, accountIds: [1] }));
+  await act(async () => client.invalidateQueries());
+  expect(shift('Lunch 5, Cash, −৳5.00')).toBeGreaterThan(0);
+  await act(async () => jest.advanceTimersByTime(4000));
+  expect(shift('Lunch 5, Cash, −৳5.00')).toBe(0);
+  jest.useRealTimers();
 });
 
 test('a row saved off screen gets a snackbar, and Show scrolls to it', async () => {
@@ -301,4 +363,26 @@ test('Show for an older date loads periods until the row is in the list', async 
   await userEvent.setup().press(screen.getByRole('button', { name: 'Show' }));
   expect(await screen.findByText('Lunch 7')).toBeOnTheScreen();
   expect(scrolled()).toEqual([expect.objectContaining({ sectionIndex: 2, itemIndex: 0 })]);
+});
+
+test('a scroll to a row that is not rendered yet scrolls near it and tries once more', async () => {
+  let rows = [row(1)];
+  jest.mocked(homeListPage).mockImplementation(async () => page(rows));
+  await render(list(allAccounts));
+  await screen.findByText('Lunch 1');
+  rows = [row(1), row(6, { date: today - 3 })];
+  await act(async () => notifyDataChanged({ id: 6, date: today - 3, accountIds: [1] }));
+  await act(async () => client.invalidateQueries());
+  jest.useFakeTimers();
+  await userEvent
+    .setup({ advanceTimers: jest.advanceTimersByTime })
+    .press(screen.getByRole('button', { name: 'Show' }));
+  await fireEvent(screen.getByText('Lunch 1'), 'scrollToIndexFailed', {
+    index: 3,
+    highestMeasuredFrameIndex: 1,
+    averageItemLength: 68,
+  });
+  await act(async () => jest.advanceTimersByTime(100));
+  const tries = [expect.objectContaining({ sectionIndex: 1, itemIndex: 0 })];
+  expect(scrolled()).toEqual([...tries, ...tries]);
 });

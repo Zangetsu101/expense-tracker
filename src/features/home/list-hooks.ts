@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useEffectEvent, useRef, useState, type RefObject } from 'react';
 import type { SectionList, ViewToken } from 'react-native';
+import { useFocusEffect, useIsFocused } from 'expo-router';
 import { subscribeDataChanges, type SavedTransaction } from '@/lib/data-changes';
 import type { DeckAccount } from './deck.ts';
 import { rowIndex, type ListItem, type ListSection } from './list.ts';
 import { shortDay } from './period.ts';
 
 const snackbarTime = 6000;
-/**
- * About the time of an animated scroll, so that the row slides in after the list stops.
- * React Native gives no reliable event when `scrollToLocation` ends.
- */
-const scrollTime = 300;
+/** A row that does not come into view in this time shows anyway, so that it never stays hidden. */
+const slideWait = 4000;
+
+/** How a saved row moves: `hidden` until it is in view and Home has focus, then `play`. */
+export type SlidePhase = 'hidden' | 'play';
 
 /** The search text and whether it covers all dates. A new `key` (another card or range) starts an empty search. */
 export function useScopedSearch(key: string) {
@@ -40,7 +41,8 @@ type Paging = {
 /**
  * Follows the Transactions that a write adds (Quick add, a Transfer, a lending entry). A new row on screen slides in.
  * Any other row gets a snackbar. Its "Show" swipes to the Account, loads older
- * periods until the row is in the list, scrolls to the row, and slides it in.
+ * periods until the row is in the list, and scrolls to the row. The row stays
+ * hidden until the list reports it in view and Home has focus, then it slides in.
  */
 export function useSavedRow({
   accountId,
@@ -65,14 +67,33 @@ export function useSavedRow({
   onShowAccount: (accountId: number) => void;
   onShow: () => void;
 }) {
-  // A new `key` mounts the row again, so that its slide plays again.
-  const [animate, setAnimate] = useState<{ id: number; key: number } | null>(null);
+  const focused = useIsFocused();
+  const [slide, setSlide] = useState<{ id: number; seen: boolean } | null>(null);
+  const pending = useRef<number | null>(null);
+  const slideTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [snack, setSnack] = useState<{ text: string; target: Target } | null>(null);
   const [target, setTarget] = useState<Target | null>(null);
   const scrolled = useRef<Target | null>(null);
+  // The place of the last scroll, kept for one more try when the row was not rendered yet.
+  const retry = useRef<{ sectionIndex: number; itemIndex: number } | null>(null);
+  const retryTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const visible = useRef({ newest: -Infinity, oldest: Infinity, keys: new Set<string>() });
+  const see = useCallback((id: number) => {
+    pending.current = null;
+    clearTimeout(slideTimer.current);
+    setSlide((old) => (old?.id === id ? { id, seen: true } : old));
+  }, []);
   const onViewableItemsChanged = useCallback(
     ({ viewableItems }: { viewableItems: ViewToken[] }) => {
+      const id = pending.current;
+      if (
+        id !== null &&
+        viewableItems.some((token) => {
+          const item = token.item as ListItem;
+          return item.kind === 'row' && item.row.id === id;
+        })
+      )
+        see(id);
       const shown = viewableItems.map((token) => token.section as ListSection);
       const dates = shown.flatMap((section) => (section.date === null ? [] : [section.date]));
       visible.current = {
@@ -81,12 +102,26 @@ export function useSavedRow({
         keys: new Set(shown.map((section) => section.key)),
       };
     },
+    [see],
+  );
+  const hide = useCallback(
+    (id: number) => {
+      pending.current = id;
+      setSlide({ id, seen: false });
+      clearTimeout(slideTimer.current);
+      slideTimer.current = setTimeout(() => see(id), slideWait);
+    },
+    [see],
+  );
+  useEffect(
+    () => () => {
+      clearTimeout(slideTimer.current);
+      clearTimeout(retryTimer.current);
+    },
     [],
   );
-  const slide = useCallback(
-    (id: number) => setAnimate((old) => ({ id, key: (old?.key ?? 0) + 1 })),
-    [],
-  );
+  // A slide that played is done. Without this, the row would hide again when Home loses focus.
+  useFocusEffect(useCallback(() => () => setSlide((old) => (old?.seen ? null : old)), []));
 
   const onSaved = useEffectEvent((saved: SavedTransaction) => {
     const inScope = accountId === null || saved.accountIds.includes(accountId);
@@ -96,7 +131,7 @@ export function useSavedRow({
     const noDayInView = oldest === Infinity;
     const onScreen = (top || saved.date <= newest) && (noDayInView || saved.date >= oldest);
     if (inScope && !searching && saved.date >= loadedFrom && onScreen) {
-      slide(saved.id);
+      hide(saved.id);
       return;
     }
     const other = inScope ? null : saved.accountIds[0];
@@ -121,6 +156,7 @@ export function useSavedRow({
     onShow();
     if (snack.target.accountId !== null) onShowAccount(snack.target.accountId);
     setTarget(snack.target);
+    hide(snack.target.id);
   };
 
   const inTargetScope =
@@ -128,8 +164,6 @@ export function useSavedRow({
   const sectionIndex = target
     ? sections.findIndex((section) => rowIndex(section, target.id) !== -1)
     : -1;
-  const slideTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  useEffect(() => () => clearTimeout(slideTimer.current), []);
   const { ready, hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage } = paging;
   useEffect(() => {
     if (!target || target === scrolled.current || !ready || !inTargetScope || searching) return;
@@ -139,9 +173,8 @@ export function useSavedRow({
     }
     if (sectionIndex === -1) return;
     scrolled.current = target;
-    const itemIndex = rowIndex(sections[sectionIndex], target.id);
-    listRef.current?.scrollToLocation({ sectionIndex, itemIndex, viewPosition: 0.4 });
-    slideTimer.current = setTimeout(() => slide(target.id), scrollTime);
+    retry.current = { sectionIndex, itemIndex: rowIndex(sections[sectionIndex], target.id) };
+    listRef.current?.scrollToLocation({ ...retry.current, viewPosition: 0.4 });
   }, [
     target,
     ready,
@@ -155,8 +188,34 @@ export function useSavedRow({
     isFetchNextPageError,
     fetchNextPage,
     listRef,
-    slide,
   ]);
 
-  return { animate, snack: snack?.text ?? null, show, onViewableItemsChanged };
+  // The list cannot scroll to a row that it has not rendered. It scrolls near the
+  // row first, so that the row renders, and then tries the exact place once more.
+  const onScrollToIndexFailed = useCallback(
+    (info: { index: number; averageItemLength: number }) => {
+      listRef.current
+        ?.getScrollResponder()
+        ?.scrollTo({ y: info.averageItemLength * info.index, animated: false });
+      const location = retry.current;
+      retry.current = null;
+      if (location)
+        retryTimer.current = setTimeout(
+          () => listRef.current?.scrollToLocation({ ...location, viewPosition: 0.4 }),
+          100,
+        );
+    },
+    [listRef],
+  );
+
+  const phase = (id: number): SlidePhase | undefined =>
+    slide?.id !== id ? undefined : slide.seen && focused ? 'play' : 'hidden';
+  return {
+    phase,
+    slidingId: slide?.id ?? null,
+    snack: snack?.text ?? null,
+    show,
+    onViewableItemsChanged,
+    onScrollToIndexFailed,
+  };
 }

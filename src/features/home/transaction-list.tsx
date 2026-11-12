@@ -40,9 +40,12 @@ import { homeListQuery, homeSearchQuery } from './queries.ts';
 import { ActivityError, ActivitySkeleton } from './view.tsx';
 
 const gutter = 20;
+/** A row counts as in view when half of it shows, so that a slide does not start at its edge. */
+const viewabilityConfig = { itemVisiblePercentThreshold: 50 };
 const rowMove = LinearTransition.duration(200).reduceMotion(ReduceMotion.System);
-const slideIn = SlideInRight.duration(250).delay(300);
-const fadeIn = FadeIn.duration(200).delay(300);
+// The header of a new day comes in with its first row.
+const headerSlideIn = SlideInRight.duration(250);
+const headerFadeIn = FadeIn.duration(250);
 
 /** Moves each cell to its new place when the list adds a row above it. */
 function MovingCell({ onLayout, style, children }: CellRendererProps<ListItem>) {
@@ -131,7 +134,7 @@ export function TransactionList({
     onShow: () => search.change(''),
   });
 
-  const entering = reduceMotion ? fadeIn : slideIn;
+  const headerEntering = reduceMotion ? headerFadeIn : headerSlideIn;
   const nextStep = list.data?.pages.at(-1)?.next ?? null;
 
   let footer: ReactNode = null;
@@ -191,22 +194,15 @@ export function TransactionList({
         ref={listRef}
         sections={sections}
         keyExtractor={(item, index) =>
-          item.kind !== 'row'
-            ? `${item.kind}${index}`
-            : item.row.id === saved.animate?.id
-              ? `${item.row.id}:${saved.animate.key}`
-              : String(item.row.id)
+          item.kind === 'row' ? String(item.row.id) : `${item.kind}${index}`
         }
         stickySectionHeadersEnabled
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={{ paddingBottom: 100 }}
         CellRendererComponent={MovingCell}
+        viewabilityConfig={viewabilityConfig}
         onViewableItemsChanged={saved.onViewableItemsChanged}
-        onScrollToIndexFailed={(info) =>
-          listRef.current
-            ?.getScrollResponder()
-            ?.scrollTo({ y: info.averageItemLength * info.index, animated: true })
-        }
+        onScrollToIndexFailed={saved.onScrollToIndexFailed}
         ListHeaderComponent={
           <View style={{ gap: 8 }}>
             {header}
@@ -243,7 +239,9 @@ export function TransactionList({
                 totals={section.totals}
                 now={now}
                 entering={
-                  saved.animate && rowIndex(section, saved.animate.id) !== -1 ? entering : undefined
+                  saved.slidingId !== null && rowIndex(section, saved.slidingId) !== -1
+                    ? headerEntering
+                    : undefined
                 }
               />
             </Dimmed>
@@ -257,7 +255,7 @@ export function TransactionList({
                 scope={shownScope}
                 query={searching ? query : ''}
                 disabled={muted}
-                entering={item.row.id === saved.animate?.id ? entering : undefined}
+                slide={saved.phase(item.row.id)}
                 onPress={() =>
                   router.push({
                     pathname: '/transaction/[id]',

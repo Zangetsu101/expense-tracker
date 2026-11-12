@@ -1,6 +1,19 @@
-import { type ComponentProps } from 'react';
-import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
-import Animated from 'react-native-reanimated';
+import { useEffect, type ComponentProps } from 'react';
+import {
+  ActivityIndicator,
+  Pressable,
+  Text,
+  TextInput,
+  View,
+  useWindowDimensions,
+} from 'react-native';
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import { SymbolView } from 'expo-symbols';
 import { formatActivityDay } from '@/lib/transaction-format';
 import { theme } from '@/theme';
@@ -12,6 +25,7 @@ import {
   type ListScope,
   type TotalPart,
 } from './list.ts';
+import type { SlidePhase } from './list-hooks.ts';
 
 const colors = theme.colors;
 const toneColor = { normal: colors.text, income: colors.accent, muted: colors.muted } as const;
@@ -77,24 +91,46 @@ function Icon({ icon }: { icon: RowIcon }) {
   );
 }
 
+const slideIn = { duration: 250, easing: Easing.out(Easing.cubic) };
+
+/**
+ * A hidden row keeps its place but sits beyond the right edge. On `play` it
+ * slides in. With reduce motion on, it fades in instead.
+ */
+function useSlide(phase: SlidePhase | undefined) {
+  const { width } = useWindowDimensions();
+  const reduceMotion = useReducedMotion();
+  const away = useSharedValue(phase === 'hidden' ? 1 : 0);
+  useEffect(() => {
+    if (phase === 'hidden') away.set(1);
+    else away.set(withTiming(0, slideIn));
+  }, [phase, away]);
+  return useAnimatedStyle(() =>
+    reduceMotion
+      ? { opacity: 1 - away.get() }
+      : { transform: [{ translateX: away.get() * width }] },
+  );
+}
+
 export function TransactionRow({
   row,
   scope,
   query,
   disabled,
-  entering,
+  slide,
   onPress,
 }: {
   row: ListRow;
   scope: ListScope;
   query: string;
   disabled: boolean;
-  entering?: Entering;
+  slide?: SlidePhase;
   onPress: () => void;
 }) {
   const view = rowView(row, scope);
+  const slideStyle = useSlide(slide);
   return (
-    <Animated.View entering={entering}>
+    <Animated.View style={slideStyle}>
       <Pressable
         disabled={disabled}
         accessibilityState={{ disabled }}

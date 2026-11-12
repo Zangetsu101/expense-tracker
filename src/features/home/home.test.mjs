@@ -23,9 +23,10 @@ const mocks = {
     export const Platform={OS:'android'}; export const useWindowDimensions=()=>({width:400,height:800});`,
   'react-native-reanimated': `const chain=new Proxy({},{get:()=>()=>chain});
     export default {View:'AnimatedView'}; export const FadeInDown=chain,FadeOutUp=chain,FadeIn=chain,SlideInRight=chain,LinearTransition=chain;
-    export const ReduceMotion={System:'system'}; export const useReducedMotion=()=>false;`,
+    export const ReduceMotion={System:'system'},Easing={out:x=>x,cubic:x=>x}; export const useReducedMotion=()=>false;
+    export const useSharedValue=value=>({get:()=>value,set(){}}),useAnimatedStyle=()=>({}),withTiming=value=>value;`,
   './trend-chart.tsx': `export const TrendChart='TrendChart';`,
-  'expo-router': `export const Stack={Screen:({options})=>options.headerTitle?options.headerTitle():null}; export const router={push(to){globalThis.__homeScreenTest.pushed.push(to)}};`,
+  'expo-router': `export const useIsFocused=()=>true,useFocusEffect=()=>{}; export const Stack={Screen:({options})=>options.headerTitle?options.headerTitle():null}; export const router={push(to){globalThis.__homeScreenTest.pushed.push(to)}};`,
   'expo-status-bar': `export const StatusBar=()=>null;`,
   'expo-symbols': `export const SymbolView='SymbolView';`,
   '@/components/motion': `import React from 'react'; export const RollingNumber=({value,style})=>React.createElement('Text',{style,rolling:true},value);`,
