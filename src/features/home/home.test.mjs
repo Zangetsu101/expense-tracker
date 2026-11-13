@@ -348,6 +348,7 @@ test('Home boundaries', async (t) => {
       const { calls, log } = pending('pace');
       await act(async () => button('Period, November').props.onPress());
       await act(async () => button('This week').props.onPress());
+      assert.equal(renderer.root.findAllByType('AppSheet').length, 0, 'selection closes the sheet');
       const pill = renderer.root
         .findAllByType('Pressable')
         .find((n) => n.props.accessibilityLabel?.startsWith('Period, Week of'));
@@ -392,6 +393,12 @@ test('Home boundaries', async (t) => {
     await act(async () => button('Period, November').props.onPress());
     await act(async () => button('This year').props.onPress());
     assert.ok(cardTexts('All accounts').includes('Spent ৳60.00'));
+    await act(async () =>
+      renderer.root
+        .findAllByType('Pressable')
+        .find((n) => n.props.accessibilityLabel?.startsWith('Period,'))
+        .props.onPress(),
+    );
     await act(async () => button('This month').props.onPress());
     assert.ok(
       cardTexts('All accounts').includes('Spent ৳60.00'),
