@@ -14,6 +14,8 @@ const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const root = new URL('../../../', import.meta.url);
 const mocks = {
+  'react-native-worklets': `export const scheduleOnUI=()=>{};`,
+  './list-dimming.ts': `export const updateListDimming=()=>{};`,
   'react-native': `import React from 'react';
     export const View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator';
     export const FlatList=p=>React.createElement('FlatList',p,p.data.map((item,index)=>React.createElement(React.Fragment,{key:p.keyExtractor(item)},p.renderItem({item,index}))));
@@ -21,7 +23,7 @@ const mocks = {
     export const AppState={currentState:'active',addEventListener:(_,fn)=>{globalThis.__homeScreenTest.lifecycle=fn;return {remove(){}}}};
     export const Platform={OS:'android'}; export const useWindowDimensions=()=>({width:400,height:800});`,
   'react-native-reanimated': `const chain=new Proxy({},{get:()=>()=>chain});
-    export default {View:'AnimatedView'}; export const FadeInDown=chain,FadeOutUp=chain,FadeIn=chain,SlideInRight=chain,LinearTransition=chain;
+    export const cancelAnimation=()=>{}; export default {View:'AnimatedView'}; export const FadeInDown=chain,FadeOutUp=chain,FadeIn=chain,SlideInRight=chain,LinearTransition=chain;
     export const ReduceMotion={System:'system'},Easing={out:x=>x,cubic:x=>x}; export const useReducedMotion=()=>false;
     export const useSharedValue=value=>({get:()=>value,set(){}}),useAnimatedStyle=()=>({}),withTiming=value=>value;`,
   './trend-chart.tsx': `export const TrendChart='TrendChart';`,
