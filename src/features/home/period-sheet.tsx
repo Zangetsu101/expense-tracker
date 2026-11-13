@@ -50,7 +50,10 @@ export function PeriodSheet({
               accessibilityRole="radio"
               accessibilityLabel={item.label}
               accessibilityState={{ checked: selected }}
-              onPress={() => onChange({ ...setting, range: item.range })}
+              onPress={() => {
+                onChange({ ...setting, range: item.range });
+                onDismiss();
+              }}
               style={{
                 minHeight: 54,
                 flexDirection: 'row',
