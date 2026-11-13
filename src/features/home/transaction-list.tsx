@@ -1,4 +1,4 @@
-import type { ReactNode, Ref } from 'react';
+import { useEffect, useState, type ReactNode, type Ref } from 'react';
 import { SectionList, View, type CellRendererProps, type SectionListProps } from 'react-native';
 import Animated, {
   FadeIn,
@@ -26,25 +26,43 @@ function MovingCell({ onLayout, style, children }: CellRendererProps<ListItem>) 
   );
 }
 
-const dimming = { from: { opacity: 1 }, to: { opacity: 0.4 } };
+const dimDelay = 100;
+const minimumDimTime = 400;
 
-function Dimmed({ muted, children }: { muted: boolean; children: ReactNode }) {
+function useListDimming(pending: boolean) {
+  const [dimmedAt, setDimmedAt] = useState<number | null>(null);
+  useEffect(() => {
+    if (pending && dimmedAt === null) {
+      const timer = setTimeout(() => setDimmedAt(Date.now()), dimDelay);
+      return () => clearTimeout(timer);
+    }
+    if (!pending && dimmedAt !== null) {
+      const remaining = Math.max(0, minimumDimTime - (Date.now() - dimmedAt));
+      const timer = setTimeout(() => setDimmedAt(null), remaining);
+      return () => clearTimeout(timer);
+    }
+  }, [pending, dimmedAt]);
+  return dimmedAt !== null;
+}
+
+function Dimmed({
+  muted,
+  dimmed,
+  children,
+}: {
+  muted: boolean;
+  dimmed: boolean;
+  children: ReactNode;
+}) {
   return (
-    <Animated.View
-      style={{
-        paddingHorizontal: gutter,
-        opacity: 1,
-        animationName: muted ? dimming : 'none',
-        animationDelay: 200,
-        animationDuration: 1,
-        animationFillMode: 'both',
-      }}
+    <View
+      style={{ paddingHorizontal: gutter, opacity: dimmed ? 0.4 : 1 }}
       pointerEvents={muted ? 'none' : 'auto'}
       accessibilityElementsHidden={muted}
       importantForAccessibility={muted ? 'no-hide-descendants' : 'auto'}
     >
       {children}
-    </Animated.View>
+    </View>
   );
 }
 
@@ -78,6 +96,7 @@ export function TransactionList({
   ...props
 }: TransactionListProps) {
   const reduceMotion = useReducedMotion();
+  const dimmed = useListDimming(muted);
   return (
     <SectionList
       {...props}
@@ -91,10 +110,14 @@ export function TransactionList({
       CellRendererComponent={MovingCell}
       viewabilityConfig={viewabilityConfig}
       ListHeaderComponent={<View style={{ gap: 8 }}>{header}</View>}
-      ListFooterComponent={<Dimmed muted={muted}>{footer}</Dimmed>}
+      ListFooterComponent={
+        <Dimmed muted={muted} dimmed={dimmed}>
+          {footer}
+        </Dimmed>
+      }
       renderSectionHeader={({ section }) =>
         section.date === null ? null : (
-          <Dimmed muted={muted}>
+          <Dimmed muted={muted} dimmed={dimmed}>
             <DayHeader
               date={section.date}
               totals={section.totals}
@@ -111,7 +134,7 @@ export function TransactionList({
         )
       }
       renderItem={({ item }) => (
-        <Dimmed muted={muted}>
+        <Dimmed muted={muted} dimmed={dimmed}>
           {item.kind === 'row' ? (
             <TransactionRow
               row={item.row}
