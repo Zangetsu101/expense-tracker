@@ -32,6 +32,14 @@ explicit; extract shared render helpers when repeated provider setup justifies o
   `act` and automatic cleanup. Use explicit `act` for external callbacks or
   controlled promise resolutions that update rendered state.
 
+## Console output
+
+A passing run prints no React errors. [`src/test/setup.ts`](../src/test/setup.ts) does
+not log an error that an error boundary catches, and it gives TanStack Query results
+to React inside `act`. Assert the error fallback on the screen. Do not replace
+`console.error` in a test, because that also hides `act` warnings. When a test leaves
+a read pending, clear the query client inside `act` in the teardown.
+
 ## Native interactions
 
 Keep platform mocks local until multiple tests need them. Preserve rendered

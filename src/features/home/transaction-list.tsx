@@ -1,6 +1,11 @@
-import type { ReactNode, Ref } from 'react';
+import { useEffect, type ReactNode, type Ref } from 'react';
 import { SectionList, View, type CellRendererProps, type SectionListProps } from 'react-native';
+import { useAnimationClock } from '@/components/animation-clock';
 import Animated, {
+  useAnimatedReaction,
+  useSharedValue,
+  useAnimatedStyle,
+  type SharedValue,
   FadeIn,
   LinearTransition,
   ReduceMotion,
@@ -10,6 +15,7 @@ import Animated, {
 import { rowIndex, type ListItem, type ListScope, type ListSection } from './list.ts';
 import { DayHeader, ListMessage, PeriodDivider, TransactionRow } from './list-view.tsx';
 import type { SlidePhase } from './list-hooks.ts';
+import { type ListDimming, updateListDimming } from './list-dimming.ts';
 
 const gutter = 20;
 /** A row counts as in view when half of it shows, so that a slide does not start at its edge. */
@@ -26,16 +32,47 @@ function MovingCell({ onLayout, style, children }: CellRendererProps<ListItem>) 
   );
 }
 
-function Dimmed({ muted, children }: { muted: boolean; children: ReactNode }) {
+function useListDimming(pending: boolean) {
+  const clock = useAnimationClock();
+  const pendingOnUI = useSharedValue(pending);
+  const timing = useSharedValue<ListDimming>({ pendingSince: null, dimmedSince: null });
+  const opacity = useSharedValue(1);
+  useEffect(() => {
+    pendingOnUI.set(pending);
+  }, [pending, pendingOnUI]);
+  useAnimatedReaction(
+    () => ({ now: clock.get(), pending: pendingOnUI.get() }),
+    ({ now, pending }) => {
+      const previous = timing.get();
+      const next = updateListDimming(previous, pending, now);
+      if (next !== previous) timing.set(next);
+      if (next.dimmedSince !== previous.dimmedSince) {
+        opacity.set(next.dimmedSince === null ? 1 : 0.4);
+      }
+    },
+  );
+  return opacity;
+}
+
+function Dimmed({
+  muted,
+  opacity,
+  children,
+}: {
+  muted: boolean;
+  opacity: SharedValue<number>;
+  children: ReactNode;
+}) {
+  const dimming = useAnimatedStyle(() => ({ opacity: opacity.get() }));
   return (
-    <View
-      style={{ paddingHorizontal: gutter, opacity: muted ? 0.4 : 1 }}
+    <Animated.View
+      style={[{ paddingHorizontal: gutter }, dimming]}
       pointerEvents={muted ? 'none' : 'auto'}
       accessibilityElementsHidden={muted}
       importantForAccessibility={muted ? 'no-hide-descendants' : 'auto'}
     >
       {children}
-    </View>
+    </Animated.View>
   );
 }
 
@@ -69,6 +106,7 @@ export function TransactionList({
   ...props
 }: TransactionListProps) {
   const reduceMotion = useReducedMotion();
+  const opacity = useListDimming(muted);
   return (
     <SectionList
       {...props}
@@ -82,10 +120,14 @@ export function TransactionList({
       CellRendererComponent={MovingCell}
       viewabilityConfig={viewabilityConfig}
       ListHeaderComponent={<View style={{ gap: 8 }}>{header}</View>}
-      ListFooterComponent={<Dimmed muted={muted}>{footer}</Dimmed>}
+      ListFooterComponent={
+        <Dimmed muted={muted} opacity={opacity}>
+          {footer}
+        </Dimmed>
+      }
       renderSectionHeader={({ section }) =>
         section.date === null ? null : (
-          <Dimmed muted={muted}>
+          <Dimmed muted={muted} opacity={opacity}>
             <DayHeader
               date={section.date}
               totals={section.totals}
@@ -102,7 +144,7 @@ export function TransactionList({
         )
       }
       renderItem={({ item }) => (
-        <Dimmed muted={muted}>
+        <Dimmed muted={muted} opacity={opacity}>
           {item.kind === 'row' ? (
             <TransactionRow
               row={item.row}

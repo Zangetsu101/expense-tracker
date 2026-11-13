@@ -13,6 +13,7 @@ import { createQueryClient } from '@/lib/query-client';
 import type { DeckAccount } from './deck.ts';
 import type { ListPeriod, ListRow, ListScope } from './list.ts';
 import { homeListPage, homeSearch, type HomeListPage } from './read-home.ts';
+import { AnimationClockProvider } from '@/components/animation-clock';
 import { HomeActivity } from './home-activity.tsx';
 import { homeListQuery } from './queries.ts';
 import type { PeriodSetting } from './period.ts';
@@ -32,6 +33,7 @@ jest.mock('react-native-worklets', () => jest.requireActual('react-native-workle
 jest.mock('react-native-reanimated', () => ({
   ...jest.requireActual('react-native-reanimated/mock'),
   useReducedMotion: () => false,
+  useTimestamp: () => jest.requireActual('react-native-reanimated/mock').useSharedValue(0),
 }));
 jest.mock('./read-home.ts', () => ({ homeListPage: jest.fn(), homeSearch: jest.fn() }));
 
@@ -86,16 +88,20 @@ function ListContent({
   setting?: PeriodSetting;
 }) {
   return (
-    <HomeActivity
-      header={header}
-      scope={scope}
-      scopeName={accounts.find((account) => account.id === scope.accountId)?.name ?? 'All accounts'}
-      setting={setting}
-      now={now}
-      accounts={accounts}
-      onShowAccount={onSelect}
-      onAdd={onAdd}
-    />
+    <AnimationClockProvider>
+      <HomeActivity
+        header={header}
+        scope={scope}
+        scopeName={
+          accounts.find((account) => account.id === scope.accountId)?.name ?? 'All accounts'
+        }
+        setting={setting}
+        now={now}
+        accounts={accounts}
+        onShowAccount={onSelect}
+        onAdd={onAdd}
+      />
+    </AnimationClockProvider>
   );
 }
 const list = (scope: ListScope, header = <View />) => (
@@ -199,7 +205,9 @@ beforeEach(() => {
 afterEach(async () => {
   await cleanup();
   jest.useRealTimers();
-  client.clear();
+  // The clear cancels a read that is still pending. React then gets a result for the
+  // suspended list, and that must occur inside `act`.
+  await act(async () => client.clear());
   jest.restoreAllMocks();
 });
 
@@ -556,7 +564,6 @@ test('an account change hides old rows from actions until its period arrives', a
 });
 
 test('initial failure retries locally and preserves the search text', async () => {
-  jest.spyOn(console, 'error').mockImplementation(() => {});
   jest
     .mocked(homeListPage)
     .mockRejectedValueOnce(Error('disk unavailable'))
@@ -571,7 +578,6 @@ test('initial failure retries locally and preserves the search text', async () =
 });
 
 test('returning to an Account whose first read failed tries it again', async () => {
-  jest.spyOn(console, 'error').mockImplementation(() => {});
   let failed = true;
   jest.mocked(homeListPage).mockImplementation(async (account) => {
     if (account === 1 && failed) throw Error('disk unavailable');
@@ -589,7 +595,6 @@ test('returning to an Account whose first read failed tries it again', async () 
 
 test('Show retains its saved-row target through an Account load failure and retry', async () => {
   const user = userEvent.setup();
-  jest.spyOn(console, 'error').mockImplementation(() => {});
   let failed = true;
   jest.mocked(homeListPage).mockImplementation(async (account) => {
     if (account === 2 && failed) throw Error('disk unavailable');
@@ -632,7 +637,6 @@ test.each(['pending', 'failed'] as const)(
   'a save while the list is %s still offers Show and navigates to its Account',
   async (status) => {
     const user = userEvent.setup();
-    jest.spyOn(console, 'error').mockImplementation(() => {});
     jest.mocked(homeListPage).mockImplementation(async (account) => {
       if (account === 1) {
         if (status === 'failed') throw Error('disk unavailable');

@@ -14,12 +14,13 @@ const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const root = new URL('../../', import.meta.url);
 const mocks = {
+  '@/components/animation-clock': `export const AnimationClockProvider=({children})=>children,useAnimationClock=()=>({get:()=>0});`,
   '@expo/ui': `import React from 'react';export const Host='Host',Column='Column',Text='Text';export const Button=({label,onPress,children})=>React.createElement('Pressable',{accessibilityLabel:label,onPress},children);export const BottomSheet=({isPresented,children})=>isPresented?React.createElement('BottomSheet',null,children):null;`,
   '@/lib/drive-backup-adapter': `export const driveBackups={status:async()=>({status:'disconnected'})};`,
   '@/lib/backup-background-task': `export const reconcileBackupTask=async()=>null,subscribeBackupSchedule=()=>()=>{},withBackupChangeNotice=(operation)=>operation(),runScheduledBackup=async()=>{};`,
   '@/lib/category-prediction-history': `export const listCategoryEvidence=async()=>[];`,
   'expo-haptics': `export const AndroidHaptics={Keyboard_Tap:'keyboard'},ImpactFeedbackStyle={Light:'light'}; export const performAndroidHapticsAsync=async()=>{},impactAsync=async()=>{};`,
-  'react-native-reanimated': `import {useRef} from 'react'; export default {View:'AnimatedView'}; export const Easing={out:x=>x,cubic:x=>x},ReduceMotion={System:'system'}; const builder={delay:()=>builder,duration:()=>builder,easing:()=>builder,withInitialValues:()=>builder,reduceMotion:()=>builder}; export const FadeInUp=builder,FadeIn=builder,SlideInRight=builder,FadeInDown={},FadeOutUp={},LinearTransition=builder; export const useReducedMotion=()=>false; export const useSharedValue=value=>{const v=useRef({value}).current;v.get??=()=>v.value;v.set??=x=>{v.value=x};return v},useAnimatedStyle=fn=>fn(),withTiming=value=>value;`,
+  'react-native-reanimated': `import {useRef} from 'react'; export const useAnimatedReaction=()=>{}; export default {View:'AnimatedView'}; export const Easing={out:x=>x,cubic:x=>x},ReduceMotion={System:'system'}; const builder={delay:()=>builder,duration:()=>builder,easing:()=>builder,withInitialValues:()=>builder,reduceMotion:()=>builder}; export const FadeInUp=builder,FadeIn=builder,SlideInRight=builder,FadeInDown={},FadeOutUp={},LinearTransition=builder; export const useReducedMotion=()=>false; export const useSharedValue=value=>{const v=useRef({value}).current;v.get??=()=>v.value;v.set??=x=>{v.value=x};return v},useAnimatedStyle=fn=>fn(),withTiming=value=>value;`,
   '@/components/loading': `export const Skeleton='Skeleton',Shimmer='Shimmer';`,
   '@/components/backup-attention-banner': `export const BackupAttentionBanner=()=>null;`,
   './trend-chart.tsx': `export const TrendChart='TrendChart';`,

@@ -86,7 +86,7 @@ export function HomeCard({
       accessibilityLabel={account?.name ?? 'All accounts'}
       style={{
         width,
-        height: cardHeight,
+        minHeight: cardHeight,
         borderRadius: 22,
         borderCurve: 'continuous',
         padding: cardPadding,
@@ -227,7 +227,7 @@ function CardBody({
       pointerEvents={stale ? 'none' : 'auto'}
       accessibilityElementsHidden={stale}
       importantForAccessibility={stale ? 'no-hide-descendants' : 'auto'}
-      style={{ flex: 1, justifyContent: 'flex-end', opacity: stale ? 0.4 : 1 }}
+      style={{ flexGrow: 1, flexShrink: 0, justifyContent: 'flex-end', opacity: stale ? 0.4 : 1 }}
     >
       <ErrorBoundary
         resetKey={periodKey(shownSetting)}
