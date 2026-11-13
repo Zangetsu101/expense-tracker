@@ -1,4 +1,4 @@
-import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
+import Constants from 'expo-constants';
 import { encodeBackup } from '@/lib/backup';
 import { backupStore } from '@/lib/backup-adapter';
 import { database } from '@/lib/database';
@@ -22,14 +22,27 @@ const noCredentialMessage = 'Google sign-in has no saved account for Expense Tra
 /** Google Play services reports CommonStatusCodes.NETWORK_ERROR when the phone is offline. */
 const playServicesNetworkError = '7';
 
-let configured = false;
-/** The background task starts JavaScript without the UI, so each entry point configures. */
-function google() {
-  if (!configured) {
-    GoogleSignin.configure({ scopes: [driveScope] });
-    configured = true;
-  }
-  return GoogleSignin;
+const expoGoMessage =
+  'Expo Go does not include Google sign-in. Use a development or release build for Drive backups.';
+
+type GoogleSignInModule = typeof import('@react-native-google-signin/google-signin');
+let googleSignIn: Promise<GoogleSignInModule> | undefined;
+/**
+ * Expo Go has no RNGoogleSignin native module, and the library looks for it when it loads.
+ * Thus the adapter loads the library only when a Drive operation starts.
+ * The background task starts JavaScript without the UI, so each entry point configures.
+ */
+function googleModule() {
+  if (Constants.executionEnvironment === 'storeClient')
+    return Promise.reject(new DriveError('other', expoGoMessage));
+  googleSignIn ??= import('@react-native-google-signin/google-signin').then((module) => {
+    module.GoogleSignin.configure({ scopes: [driveScope] });
+    return module;
+  });
+  return googleSignIn;
+}
+async function google() {
+  return (await googleModule()).GoogleSignin;
 }
 
 function codeOf(error: unknown) {
@@ -43,7 +56,7 @@ function signInFailure(error: unknown): DriveError {
 }
 
 async function accessToken() {
-  const signIn = google();
+  const signIn = await google();
   try {
     const silent = await signIn.signInSilently();
     if (silent.type === 'noSavedCredentialFound') throw new DriveError('auth', noCredentialMessage);
@@ -81,7 +94,7 @@ export const driveBackups = createDriveBackups({
     ]);
   },
   async signIn() {
-    const signIn = google();
+    const { GoogleSignin: signIn, statusCodes } = await googleModule();
     await signIn.hasPlayServices({ showPlayServicesUpdateDialog: true });
     // Sign out first so that the account chooser always opens. The Drive grant stays.
     await signIn.signOut();
@@ -97,12 +110,12 @@ export const driveBackups = createDriveBackups({
     }
   },
   signOut: async () => {
-    await google().signOut();
+    await (await google()).signOut();
   },
   drive: createGoogleDrive({
     accessToken,
     invalidate: async (token) => {
-      await google().clearCachedAccessToken(token);
+      await (await google()).clearCachedAccessToken(token);
     },
     fetch: (url, init) => fetch(url, init),
   }),
