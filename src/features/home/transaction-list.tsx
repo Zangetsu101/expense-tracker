@@ -26,16 +26,25 @@ function MovingCell({ onLayout, style, children }: CellRendererProps<ListItem>) 
   );
 }
 
+const dimming = { from: { opacity: 1 }, to: { opacity: 0.4 } };
+
 function Dimmed({ muted, children }: { muted: boolean; children: ReactNode }) {
   return (
-    <View
-      style={{ paddingHorizontal: gutter, opacity: muted ? 0.4 : 1 }}
+    <Animated.View
+      style={{
+        paddingHorizontal: gutter,
+        opacity: 1,
+        animationName: muted ? dimming : 'none',
+        animationDelay: 200,
+        animationDuration: 1,
+        animationFillMode: 'both',
+      }}
       pointerEvents={muted ? 'none' : 'auto'}
       accessibilityElementsHidden={muted}
       importantForAccessibility={muted ? 'no-hide-descendants' : 'auto'}
     >
       {children}
-    </View>
+    </Animated.View>
   );
 }
 
