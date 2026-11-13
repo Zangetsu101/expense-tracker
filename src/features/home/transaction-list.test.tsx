@@ -1,5 +1,6 @@
 import { cleanup, render, screen } from '@testing-library/react-native';
 import { Pressable, Text } from 'react-native';
+import { AnimationClockProvider } from '@/components/animation-clock';
 import { TransactionList } from './transaction-list.tsx';
 
 jest.mock('@react-native-google-signin/google-signin', () => ({
@@ -11,25 +12,28 @@ jest.mock('react-native-worklets', () => jest.requireActual('react-native-workle
 jest.mock('react-native-reanimated', () => ({
   ...jest.requireActual('react-native-reanimated/mock'),
   useReducedMotion: () => false,
+  useTimestamp: () => jest.requireActual('react-native-reanimated/mock').useSharedValue(0),
 }));
 
 const activity = (pending: boolean, label = 'Current results') => (
-  <TransactionList
-    sections={[]}
-    header={<Text>Account activity</Text>}
-    footer={
-      <Pressable accessibilityRole="button" accessibilityLabel={label}>
-        <Text>{label}</Text>
-      </Pressable>
-    }
-    scope={{ face: 'pace', accountId: null }}
-    now={new Date(2026, 10, 12)}
-    query=""
-    muted={pending}
-    slidingId={null}
-    phase={() => undefined}
-    onOpen={() => {}}
-  />
+  <AnimationClockProvider>
+    <TransactionList
+      sections={[]}
+      header={<Text>Account activity</Text>}
+      footer={
+        <Pressable accessibilityRole="button" accessibilityLabel={label}>
+          <Text>{label}</Text>
+        </Pressable>
+      }
+      scope={{ face: 'pace', accountId: null }}
+      now={new Date(2026, 10, 12)}
+      query=""
+      muted={pending}
+      slidingId={null}
+      phase={() => undefined}
+      onOpen={() => {}}
+    />
+  </AnimationClockProvider>
 );
 beforeEach(() => jest.useFakeTimers());
 afterEach(async () => {

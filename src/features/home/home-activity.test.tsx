@@ -13,6 +13,7 @@ import { createQueryClient } from '@/lib/query-client';
 import type { DeckAccount } from './deck.ts';
 import type { ListPeriod, ListRow, ListScope } from './list.ts';
 import { homeListPage, homeSearch, type HomeListPage } from './read-home.ts';
+import { AnimationClockProvider } from '@/components/animation-clock';
 import { HomeActivity } from './home-activity.tsx';
 import { homeListQuery } from './queries.ts';
 import type { PeriodSetting } from './period.ts';
@@ -32,6 +33,7 @@ jest.mock('react-native-worklets', () => jest.requireActual('react-native-workle
 jest.mock('react-native-reanimated', () => ({
   ...jest.requireActual('react-native-reanimated/mock'),
   useReducedMotion: () => false,
+  useTimestamp: () => jest.requireActual('react-native-reanimated/mock').useSharedValue(0),
 }));
 jest.mock('./read-home.ts', () => ({ homeListPage: jest.fn(), homeSearch: jest.fn() }));
 
@@ -86,16 +88,20 @@ function ListContent({
   setting?: PeriodSetting;
 }) {
   return (
-    <HomeActivity
-      header={header}
-      scope={scope}
-      scopeName={accounts.find((account) => account.id === scope.accountId)?.name ?? 'All accounts'}
-      setting={setting}
-      now={now}
-      accounts={accounts}
-      onShowAccount={onSelect}
-      onAdd={onAdd}
-    />
+    <AnimationClockProvider>
+      <HomeActivity
+        header={header}
+        scope={scope}
+        scopeName={
+          accounts.find((account) => account.id === scope.accountId)?.name ?? 'All accounts'
+        }
+        setting={setting}
+        now={now}
+        accounts={accounts}
+        onShowAccount={onSelect}
+        onAdd={onAdd}
+      />
+    </AnimationClockProvider>
   );
 }
 const list = (scope: ListScope, header = <View />) => (

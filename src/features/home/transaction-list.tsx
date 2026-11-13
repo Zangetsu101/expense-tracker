@@ -1,8 +1,8 @@
 import { useEffect, type ReactNode, type Ref } from 'react';
 import { SectionList, View, type CellRendererProps, type SectionListProps } from 'react-native';
-import { scheduleOnUI } from 'react-native-worklets';
+import { useAnimationClock } from '@/components/animation-clock';
 import Animated, {
-  cancelAnimation,
+  useAnimatedReaction,
   useSharedValue,
   useAnimatedStyle,
   type SharedValue,
@@ -15,7 +15,7 @@ import Animated, {
 import { rowIndex, type ListItem, type ListScope, type ListSection } from './list.ts';
 import { DayHeader, ListMessage, PeriodDivider, TransactionRow } from './list-view.tsx';
 import type { SlidePhase } from './list-hooks.ts';
-import { updateListDimming } from './list-dimming.ts';
+import { type ListDimming, updateListDimming } from './list-dimming.ts';
 
 const gutter = 20;
 /** A row counts as in view when half of it shows, so that a slide does not start at its edge. */
@@ -33,12 +33,24 @@ function MovingCell({ onLayout, style, children }: CellRendererProps<ListItem>) 
 }
 
 function useListDimming(pending: boolean) {
+  const clock = useAnimationClock();
+  const pendingOnUI = useSharedValue(pending);
+  const timing = useSharedValue<ListDimming>({ pendingSince: null, dimmedSince: null });
   const opacity = useSharedValue(1);
-  const dimmedAt = useSharedValue(0);
   useEffect(() => {
-    scheduleOnUI(updateListDimming, pending, opacity, dimmedAt);
-  }, [pending, opacity, dimmedAt]);
-  useEffect(() => () => cancelAnimation(opacity), [opacity]);
+    pendingOnUI.set(pending);
+  }, [pending, pendingOnUI]);
+  useAnimatedReaction(
+    () => ({ now: clock.get(), pending: pendingOnUI.get() }),
+    ({ now, pending }) => {
+      const previous = timing.get();
+      const next = updateListDimming(previous, pending, now);
+      if (next !== previous) timing.set(next);
+      if (next.dimmedSince !== previous.dimmedSince) {
+        opacity.set(next.dimmedSince === null ? 1 : 0.4);
+      }
+    },
+  );
   return opacity;
 }
 
