@@ -1,4 +1,5 @@
 import { createContext, use, type ReactNode } from 'react';
+// eslint-disable-next-line no-restricted-imports -- This provider owns the single app-wide frame clock.
 import { useTimestamp, type SharedValue } from 'react-native-reanimated';
 
 const AnimationClockContext = createContext<SharedValue<number> | null>(null);
