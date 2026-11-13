@@ -199,7 +199,9 @@ beforeEach(() => {
 afterEach(async () => {
   await cleanup();
   jest.useRealTimers();
-  client.clear();
+  // The clear cancels a read that is still pending. React then gets a result for the
+  // suspended list, and that must occur inside `act`.
+  await act(async () => client.clear());
   jest.restoreAllMocks();
 });
 
@@ -556,7 +558,6 @@ test('an account change hides old rows from actions until its period arrives', a
 });
 
 test('initial failure retries locally and preserves the search text', async () => {
-  jest.spyOn(console, 'error').mockImplementation(() => {});
   jest
     .mocked(homeListPage)
     .mockRejectedValueOnce(Error('disk unavailable'))
@@ -571,7 +572,6 @@ test('initial failure retries locally and preserves the search text', async () =
 });
 
 test('returning to an Account whose first read failed tries it again', async () => {
-  jest.spyOn(console, 'error').mockImplementation(() => {});
   let failed = true;
   jest.mocked(homeListPage).mockImplementation(async (account) => {
     if (account === 1 && failed) throw Error('disk unavailable');
@@ -589,7 +589,6 @@ test('returning to an Account whose first read failed tries it again', async () 
 
 test('Show retains its saved-row target through an Account load failure and retry', async () => {
   const user = userEvent.setup();
-  jest.spyOn(console, 'error').mockImplementation(() => {});
   let failed = true;
   jest.mocked(homeListPage).mockImplementation(async (account) => {
     if (account === 2 && failed) throw Error('disk unavailable');
@@ -632,7 +631,6 @@ test.each(['pending', 'failed'] as const)(
   'a save while the list is %s still offers Show and navigates to its Account',
   async (status) => {
     const user = userEvent.setup();
-    jest.spyOn(console, 'error').mockImplementation(() => {});
     jest.mocked(homeListPage).mockImplementation(async (account) => {
       if (account === 1) {
         if (status === 'failed') throw Error('disk unavailable');
