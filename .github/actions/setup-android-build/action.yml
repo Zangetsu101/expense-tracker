@@ -17,15 +17,17 @@ runs:
     # These files decide the generated Gradle files and the dependencies.
     # A successful job saves the cache when no entry has the same key. Each branch saves its own entries.
     # A run reads the entries of its branch and of main. Restore keys give a partial match after a key change.
-    # The cache holds only downloaded dependencies and Gradle files. The keystore stays in RUNNER_TEMP.
+    # The cache holds downloaded dependencies, Gradle files, and the Gradle build cache of the emulator build.
+    # The keystore stays in RUNNER_TEMP.
+    # v2: the emulator build started to write the Gradle build cache. An entry with a v1 key does not have it.
     - uses: actions/cache@v6.1.0
       with:
         path: |
           ~/.gradle/caches
           ~/.gradle/wrapper
-        key: gradle-${{ runner.os }}-${{ runner.arch }}-v1-${{ hashFiles('pnpm-lock.yaml', 'app.json', 'plugins/**', 'scripts/android-release.gradle') }}
+        key: gradle-${{ runner.os }}-${{ runner.arch }}-v2-${{ hashFiles('pnpm-lock.yaml', 'app.json', 'plugins/**', 'scripts/android-release.gradle') }}
         restore-keys: |
-          gradle-${{ runner.os }}-${{ runner.arch }}-v1-
+          gradle-${{ runner.os }}-${{ runner.arch }}-v2-
     # The runner image has these packages, but cold builds without this step were slower in the measurements of PR #17.
     # Measure again before you remove it.
     - uses: android-actions/setup-android@v4.0.4
