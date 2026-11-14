@@ -14,7 +14,7 @@ Single-context repo: read the root glossary and relevant ADRs. See `docs/agents/
 
 For test changes and reviews, read `docs/testing.md`.
 
-For emulator or physical-device walkthroughs, read `docs/device-testing.md`.
+For emulator or physical-device walkthroughs and Maestro flows, read `docs/device-testing.md`.
 
 ### Scratch folder
 
