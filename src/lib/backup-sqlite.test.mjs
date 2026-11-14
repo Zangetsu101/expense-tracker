@@ -397,3 +397,36 @@ test('snapshot reads every table in one transaction and restore preserves device
     schedule,
   );
 });
+
+test('credit-card settings and parent links survive backup; native backups clear them', async () => {
+  const original = await backupStore.snapshot();
+  const parent = original.accounts[0];
+  const cardId = Math.max(...original.accounts.map((a) => a.id)) + 1;
+  original.accounts.push({
+    id: cardId,
+    name: 'Backup card',
+    currencyCode: parent.currencyCode,
+    openingBalanceMinor: -1200,
+    isFavorite: false,
+  });
+  original.creditCards = [
+    { accountId: cardId, parentAccountId: parent.id, statementDay: 31, dueDay: 5 },
+  ];
+  await replaceDocument(decodeBackup(encodeBackup(original)));
+  const restored = await backupStore.snapshot();
+  assert.deepEqual(
+    restored.creditCards.map((card) => ({ ...card })),
+    original.creditCards,
+  );
+  assert.equal(restored.accounts.find((a) => a.id === cardId).openingBalanceMinor, -1200);
+  for (const creditCards of [
+    [{ ...original.creditCards[0], parentAccountId: cardId }],
+    [{ ...original.creditCards[0], statementDay: 32 }],
+    [{ ...original.creditCards[0], accountId: 99999 }],
+    [original.creditCards[0], original.creditCards[0]],
+  ])
+    assert.throws(() => decodeBackup(JSON.stringify({ ...original, creditCards })), /credit.card/);
+  delete original.creditCards;
+  await replaceDocument(decodeBackup(encodeBackup(original)));
+  assert.deepEqual((await backupStore.snapshot()).creditCards, []);
+});

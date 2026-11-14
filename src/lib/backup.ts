@@ -53,6 +53,12 @@ export interface BackupData {
   };
   /** Expo extension to native v1; absent from backups written by the native app. */
   moneyLoverImportRows?: { rowKey: string; transactionId: number }[];
+  creditCards?: {
+    accountId: number;
+    parentAccountId: number | null;
+    statementDay: number | null;
+    dueDay: number | null;
+  }[];
   people?: { id: number; name: string }[];
   lendingEntries?: {
     id: number;
@@ -183,6 +189,7 @@ export function decodeBackup(json: string): BackupData {
       keys.add(row.rowKey);
     }
   }
+  validateCreditCards(data);
   validateLending(data);
   const settings = (data.settings ?? {}) as BackupData['settings'];
   return {
@@ -198,6 +205,9 @@ export function decodeBackup(json: string): BackupData {
       favoriteAccountId: settings.favoriteAccountId ?? null,
       displayRate: settings.displayRate ?? null,
     },
+    ...(data.creditCards !== undefined
+      ? { creditCards: data.creditCards as BackupData['creditCards'] }
+      : {}),
     ...(data.people !== undefined ? { people: data.people as BackupData['people'] } : {}),
     ...(data.lendingEntries !== undefined
       ? { lendingEntries: data.lendingEntries as BackupData['lendingEntries'] }
@@ -206,6 +216,34 @@ export function decodeBackup(json: string): BackupData {
       ? { moneyLoverImportRows: data.moneyLoverImportRows as BackupData['moneyLoverImportRows'] }
       : {}),
   };
+}
+
+function validateCreditCards(data: Record<string, unknown>): void {
+  if (data.creditCards === undefined) return;
+  if (!Array.isArray(data.creditCards)) throw new Error('Invalid backup credit cards');
+  const cards = data.creditCards as NonNullable<BackupData['creditCards']>;
+  const accounts = (data.accounts ?? []) as BackupData['accounts'];
+  const ids = new Set<number>();
+  for (const card of cards) {
+    if (
+      !card ||
+      !Number.isSafeInteger(card.accountId) ||
+      !accounts.some((a) => a.id === card.accountId) ||
+      ids.has(card.accountId) ||
+      [card.statementDay, card.dueDay].some(
+        (day) => day !== null && (!Number.isInteger(day) || day < 1 || day > 31),
+      )
+    )
+      throw new Error('Invalid backup credit cards');
+    ids.add(card.accountId);
+  }
+  for (const card of cards) {
+    if (card.parentAccountId === null) continue;
+    const parent = accounts.find((a) => a.id === card.parentAccountId);
+    const account = accounts.find((a) => a.id === card.accountId)!;
+    if (!parent || ids.has(parent.id) || parent.currencyCode !== account.currencyCode)
+      throw new Error('Invalid backup credit-card parent');
+  }
 }
 
 function validateLending(data: Record<string, unknown>): void {

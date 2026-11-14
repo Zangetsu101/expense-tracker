@@ -1,9 +1,11 @@
+import type { CardBill } from '@/lib/credit-cards';
 export type DeckAccount = {
   id: number;
   name: string;
   currencyCode: string;
   isFavorite: number;
   balanceMinor: number;
+  bill?: CardBill;
   /** The local date of the newest Transaction in or out of the Account. */
   lastUsedDay: number | null;
 };

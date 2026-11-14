@@ -4,11 +4,13 @@ import { act, screen, userEvent, waitFor } from '@testing-library/react-native';
 import type { AppSheetProps } from '@/components/app-sheet';
 import {
   createAccount,
+  updateAccount,
   listManagedAccounts,
   setFavoriteAccount,
   type ManagedAccount,
 } from '@/lib/accounts';
 import { notifyDataChanged } from '@/lib/data-changes';
+import { creditCardBills } from '@/lib/credit-cards';
 import { epochDay } from '@/lib/database';
 import { QueryTimeContext } from '@/lib/query-time';
 import { accountBalances, type AccountBalance } from '@/lib/reports';
@@ -36,8 +38,10 @@ jest.mock('@/components/app-sheet', () => {
 jest.mock('@/lib/accounts', () => ({
   listManagedAccounts: jest.fn(),
   createAccount: jest.fn(),
+  updateAccount: jest.fn(),
   setFavoriteAccount: jest.fn(),
 }));
+jest.mock('@/lib/credit-cards', () => ({ creditCardBills: jest.fn(async () => []) }));
 jest.mock('@/lib/reports', () => ({ accountBalances: jest.fn() }));
 
 const cash: ManagedAccount = {
@@ -397,4 +401,84 @@ describe('a change of day', () => {
     expect(screen.getAllByText(/25\.00/)).toHaveLength(2);
     expect(screen.queryByText(/15\.00/)).not.toBeOnTheScreen();
   });
+});
+
+test('create a card with a parent, statement days and an opening amount owed', async () => {
+  const user = userEvent.setup();
+  jest.mocked(listManagedAccounts).mockResolvedValue([cash]);
+  jest.mocked(accountBalances).mockResolvedValue([balance(cash, 1500)]);
+  jest.mocked(createAccount).mockResolvedValue();
+  await renderScreen();
+  await screen.findByText('Accounts (1)');
+  await user.press(screen.getByRole('button', { name: 'Add account' }));
+  await user.press(screen.getByRole('radio', { name: 'Credit card' }));
+  await user.type(screen.getByLabelText('Account name'), 'Visa');
+  await user.type(screen.getByLabelText('Currency code'), 'USD');
+  await user.clear(screen.getByLabelText('Owed now'));
+  await user.type(screen.getByLabelText('Owed now'), '25.50');
+  await user.press(screen.getByRole('radio', { name: 'Cash' }));
+  await user.type(screen.getByLabelText('Statement day'), '20');
+  await user.type(screen.getByLabelText('Due day'), '5');
+  await user.press(screen.getByRole('button', { name: 'Create account' }));
+  await waitFor(() =>
+    expect(createAccount).toHaveBeenCalledWith(
+      expect.objectContaining({
+        isCreditCard: true,
+        parentAccountId: 1,
+        openingBalance: '-25.50',
+        statementDay: 20,
+        dueDay: 5,
+      }),
+    ),
+  );
+});
+
+test('convert an imported Account without changing its signed opening balance and rename it', async () => {
+  const user = userEvent.setup();
+  const imported = { ...bank, openingBalanceMinor: -2500 };
+  jest.mocked(listManagedAccounts).mockResolvedValue([cash, imported]);
+  jest.mocked(accountBalances).mockResolvedValue([balance(cash, 1500), balance(bank, -4000)]);
+  jest.mocked(updateAccount).mockResolvedValue();
+  await renderScreen();
+  await user.press(await screen.findByRole('button', { name: 'Edit Bank' }));
+  await user.press(screen.getByRole('radio', { name: 'Credit card' }));
+  expect(screen.getByLabelText('Opening amount owed')).toHaveDisplayValue('25');
+  await user.press(screen.getByRole('radio', { name: 'Credit card' }));
+  expect(screen.getByLabelText('Opening amount owed')).toHaveDisplayValue('25');
+  expect(screen.getByLabelText('Currency code')).toHaveProp('editable', false);
+  await user.clear(screen.getByLabelText('Account name'));
+  await user.type(screen.getByLabelText('Account name'), 'Visa');
+  await user.press(screen.getByRole('button', { name: 'Save account' }));
+  await waitFor(() =>
+    expect(updateAccount).toHaveBeenCalledWith(
+      2,
+      expect.objectContaining({ name: 'Visa', isCreditCard: true, openingBalance: '-25' }),
+    ),
+  );
+});
+
+test('separates card bills and credit from the money in other Accounts', async () => {
+  const card = {
+    ...bank,
+    card: { accountId: 2, parentAccountId: 1, statementDay: null, dueDay: null },
+  };
+  jest.mocked(listManagedAccounts).mockResolvedValue([cash, card]);
+  jest.mocked(accountBalances).mockResolvedValue([balance(cash, 1500), balance(card, -700)]);
+  jest.mocked(creditCardBills).mockResolvedValueOnce([
+    {
+      ...card.card,
+      billMinor: 700,
+      owedMinor: 700,
+      unbilledMinor: 0,
+      creditMinor: 0,
+      statementDate: null,
+      dueDate: null,
+      overdue: false,
+    },
+  ]);
+  await renderScreen();
+  expect(await screen.findByText('Bill · $7.00')).toBeOnTheScreen();
+  expect(screen.getByText('Bills to settle · $7.00')).toBeOnTheScreen();
+  expect(screen.getAllByText('$15.00')).toHaveLength(2);
+  expect(screen.queryByText('$8.00')).not.toBeOnTheScreen();
 });

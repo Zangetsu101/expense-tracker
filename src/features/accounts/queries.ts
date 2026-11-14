@@ -1,13 +1,18 @@
+import { creditCardBills } from '@/lib/credit-cards';
 import { queryOptions } from '@tanstack/react-query';
 import { listManagedAccounts } from '@/lib/accounts';
 import { accountBalances } from '@/lib/reports';
 
 async function readAccountsOverview(today: number) {
-  const [accounts, totals] = await Promise.all([listManagedAccounts(), accountBalances(today)]);
+  const [accounts, totals, bills] = await Promise.all([
+    listManagedAccounts(),
+    accountBalances(today),
+    creditCardBills(today),
+  ]);
   const balances = new Map(totals.map((row) => [row.id, row.balanceMinor]));
   if (accounts.some((account) => !balances.has(account.id)))
     throw new Error('Account balances unavailable.');
-  return { accounts, balances };
+  return { accounts, balances, bills };
 }
 
 export type AccountsOverview = Awaited<ReturnType<typeof readAccountsOverview>>;

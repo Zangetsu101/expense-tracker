@@ -18,6 +18,15 @@ A Transaction that moves money between two of the user's Accounts without changi
 A place money sits, such as cash, a bank account, or a credit card. MoneyLover calls this a “wallet.” An Account has one Currency.
 _Avoid_: Wallet
 
+**Credit Card**:
+An Account that tracks money owed to a card issuer. It may name another same-Currency Account as the default source for settlement.
+
+**Bill**:
+The amount owed at the most recent statement date, reduced by subsequent payments and refunds. Without a statement day, the Bill is all currently owed. Purchases after the statement are not billed yet.
+
+**Settlement**:
+A Transfer into a Credit Card that reduces what is owed, without adding spending.
+
 **Currency**:
 The denomination of an Account's money; Transactions in that Account use the same Currency.
 

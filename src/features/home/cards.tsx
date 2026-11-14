@@ -58,6 +58,8 @@ export type CardContext = {
   width: number;
   reset: () => void;
   onOpenPeriod: () => void;
+  onSettle: (account: DeckAccount) => void;
+  onBills: (accounts: DeckAccount[]) => void;
 };
 
 /** The balance on the day that a touch on the chart selects. */
@@ -76,7 +78,10 @@ export function HomeCard({
   const { accounts, displayRate, mainCurrency, period, stale, width } = context;
   const account = card.account;
   const summary = paceSummary({
-    balances: homeBalances(accounts, null),
+    balances: homeBalances(
+      accounts.filter((a) => !a.bill),
+      null,
+    ),
     pace: [],
     rate: displayRate,
     mainCurrency,
@@ -131,15 +136,104 @@ export function HomeCard({
           )}
         </Pressable>
       </View>
+      {!account && <Text style={{ color: c.muted, fontSize: 12 }}>In your accounts</Text>}
       {card.face === 'trend' && scrub !== null ? (
         <Amount minor={scrub} currency={card.account.currencyCode} still />
       ) : account ? (
-        <Amount minor={account.balanceMinor} currency={account.currencyCode} />
+        <Amount
+          minor={
+            account.bill ? account.bill.creditMinor || account.bill.billMinor : account.balanceMinor
+          }
+          currency={account.currencyCode}
+          credit={!!account.bill?.creditMinor}
+        />
       ) : (
         <AllBalance summary={summary} />
       )}
-      <CardBody card={card} context={context} onScrub={setScrub} />
+      {account?.bill ? (
+        <CreditCardBody account={account} onSettle={() => context.onSettle(account)} />
+      ) : (
+        <>
+          <BillTotal
+            accounts={accounts.filter(
+              (a) => a.bill && (account === null || a.bill.parentAccountId === account.id),
+            )}
+            context={context}
+          />
+          <CardBody card={card} context={context} onScrub={setScrub} />
+        </>
+      )}
     </View>
+  );
+}
+
+function CreditCardBody({ account, onSettle }: { account: DeckAccount; onSettle: () => void }) {
+  const bill = account.bill!;
+  return (
+    <View style={{ gap: 8 }}>
+      <Text style={{ color: bill.creditMinor ? c.accent : c.muted }}>
+        {bill.creditMinor
+          ? 'Credit'
+          : bill.statementDate === null
+            ? 'Bill to settle'
+            : `Statement ${shortDay(bill.statementDate)}`}
+      </Text>
+      {bill.dueDate !== null && bill.billMinor > 0 && (
+        <Text
+          style={{
+            color: bill.overdue ? c.warning : c.text,
+            fontWeight: bill.overdue ? '700' : '400',
+          }}
+        >
+          {bill.overdue ? 'Overdue' : 'Due'} {shortDay(bill.dueDate)}
+        </Text>
+      )}
+      {bill.unbilledMinor > 0 && (
+        <Text style={{ color: c.muted }}>
+          Not billed yet · {formatBalance(bill.unbilledMinor, account.currencyCode)}
+        </Text>
+      )}
+      {bill.owedMinor > 0 && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Settle ${account.name}`}
+          onPress={onSettle}
+          style={{ minHeight: 40, justifyContent: 'center' }}
+        >
+          <Text style={{ color: c.accent, fontWeight: '700' }}>Settle</Text>
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+function BillTotal({ accounts, context }: { accounts: DeckAccount[]; context: CardContext }) {
+  const bills = accounts.filter((a) => a.bill!.billMinor > 0);
+  if (!bills.length) return null;
+  const summary = paceSummary({
+    balances: bills.map((a) => ({ currencyCode: a.currencyCode, balanceMinor: a.bill!.billMinor })),
+    pace: [],
+    rate: context.displayRate,
+    mainCurrency: context.mainCurrency,
+  });
+  const total = summary.total
+    ? `${summary.rate ? '≈ ' : ''}${formatBalance(summary.total.amountMinor, summary.total.currencyCode)}`
+    : summary.parts.map((p) => formatBalance(p.balanceMinor, p.currencyCode)).join(' · ');
+  const due = bills
+    .flatMap((a) => (a.bill!.dueDate === null ? [] : [a.bill!.dueDate!]))
+    .sort((a, b) => a - b)[0];
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Bills to settle ${total}`}
+      onPress={() => (bills.length === 1 ? context.onSettle(bills[0]) : context.onBills(bills))}
+      style={{ minHeight: 44, justifyContent: 'center' }}
+    >
+      <Text style={{ color: c.warning, fontWeight: '700' }}>{total} bills to settle</Text>
+      {due !== undefined && (
+        <Text style={{ color: c.muted, fontSize: 12 }}>Next due {shortDay(due)}</Text>
+      )}
+    </Pressable>
   );
 }
 
@@ -159,16 +253,19 @@ function Amount({
   currency,
   prefix = '',
   still = false,
+  credit = false,
 }: {
   minor: number;
   currency: string;
   prefix?: string;
   still?: boolean;
+  credit?: boolean;
 }) {
   const value = `${prefix}${formatBalance(minor, currency)}`;
-  if (!still) return <RollingNumber value={value} style={amountStyle} />;
+  const style = credit ? { ...amountStyle, color: c.accent } : amountStyle;
+  if (!still) return <RollingNumber value={value} style={style} />;
   return (
-    <Text selectable numberOfLines={1} adjustsFontSizeToFit style={amountStyle}>
+    <Text selectable numberOfLines={1} adjustsFontSizeToFit style={style}>
       {value}
     </Text>
   );

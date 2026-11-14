@@ -1,5 +1,8 @@
+import { AppSheet } from '@/components/app-sheet';
+import { Bills } from './bills.tsx';
+import type { DeckAccount } from './deck';
 import { use, useDeferredValue, useRef, useState, type ReactNode } from 'react';
-import { FlatList, Text, View, useWindowDimensions } from 'react-native';
+import { FlatList, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { router } from 'expo-router';
 import {
   QueryErrorResetBoundary,
@@ -41,7 +44,7 @@ function Home({ reset }: { reset: () => void }) {
   const cards = deckCards(deck.accounts);
   const [selected, setSelected] = useState(() => cards[0].accountId);
   const [setting, setSetting] = useState(() => deck.period);
-  const [sheet, setSheet] = useState<'period' | 'accounts' | null>(null);
+  const [sheet, setSheet] = useState<'period' | 'accounts' | 'bills' | null>(null);
   const deckRef = useRef<FlatList<DeckItem>>(null);
   const savePeriod = useMutation({
     mutationFn: savePeriodSetting,
@@ -82,6 +85,24 @@ function Home({ reset }: { reset: () => void }) {
       pathname: '/quick-add',
       params: accountParams(quickAddAccountId),
     });
+  const [billAccounts, setBillAccounts] = useState<DeckAccount[]>([]);
+  const settle = (account: DeckAccount) => {
+    setSheet(null);
+    const source =
+      account.bill?.parentAccountId ??
+      deck.accounts.find(
+        (a) => !a.bill && a.id !== account.id && a.currencyCode === account.currencyCode,
+      )?.id;
+    router.push({
+      pathname: '/quick-add',
+      params: {
+        mode: 'TRANSFER',
+        accountId: source ? String(source) : '',
+        toId: String(account.id),
+        amountMinor: String(account.bill?.billMinor || account.bill?.owedMinor || ''),
+      },
+    });
+  };
   const context: CardContext = {
     accounts: deck.accounts,
     displayRate: deck.displayRate,
@@ -92,6 +113,11 @@ function Home({ reset }: { reset: () => void }) {
     stale: periodKey(setting) !== periodKey(shownSetting),
     width: width - pageGutter - cardPeek,
     reset,
+    onSettle: settle,
+    onBills: (accounts) => {
+      setBillAccounts(accounts);
+      setSheet('bills');
+    },
     onOpenPeriod: () => setSheet('period'),
   };
   return (
@@ -121,9 +147,17 @@ function Home({ reset }: { reset: () => void }) {
               onAddAccount={() => router.push('/accounts')}
             />
             <PageDots count={cards.length} index={index} />
+            {scope === null && <Bills accounts={deck.accounts} onSettle={settle} />}
           </View>
         }
       />
+      {sheet === 'bills' && (
+        <AppSheet pending={false} onDismiss={() => setSheet(null)}>
+          <ScrollView style={{ width, maxHeight: 500 }}>
+            <Bills accounts={billAccounts} onSettle={settle} />
+          </ScrollView>
+        </AppSheet>
+      )}
       {sheet === 'period' && (
         <PeriodSheet
           setting={setting}

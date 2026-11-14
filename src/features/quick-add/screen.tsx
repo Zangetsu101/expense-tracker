@@ -6,6 +6,8 @@ import { ChoicesSection } from './view.tsx';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight, useNavigation, usePreventRemove } from 'expo-router/react-navigation';
 import { Alert, KeyboardAvoidingView, Pressable, ScrollView, Text, View } from 'react-native';
+import { creditCardBills } from '@/lib/credit-cards';
+import { formatBalance } from '@/lib/transaction-format';
 import { epochDay } from '@/lib/database';
 import { addQuickTransaction } from '@/lib/quick-add-tags';
 import { addTransfer } from '@/lib/transfers';
@@ -101,18 +103,35 @@ export default function QuickAdd() {
 function QuickAddForm() {
   const client = useQueryClient();
   const accountsRead = useQuery({ ...accountsQuery(), enabled: false });
-  const [mode, setMode] = useState<Mode>('EXPENSE');
+  const params = useLocalSearchParams<{
+    accountId?: string;
+    mode?: string;
+    toId?: string;
+    amountMinor?: string;
+  }>();
+  const [mode, setMode] = useState<Mode>(params.mode === 'TRANSFER' ? 'TRANSFER' : 'EXPENSE');
+  const bills = useQuery({
+    queryKey: ['accounts', 'bills', epochDay(new Date())],
+    queryFn: () => creditCardBills(),
+    enabled: mode === 'TRANSFER',
+  });
+  const [preset, setPreset] = useState(() => {
+    const amount = Number(params.amountMinor);
+    return Number.isSafeInteger(amount) && amount > 0 ? amount : undefined;
+  });
+  const [amountKey, setAmountKey] = useState(0);
   const categoryMode = mode === 'EXPENSE' || mode === 'INCOME' ? mode : undefined;
   const categoryRead = useQuery({ ...categoriesQuery(categoryMode ?? 'EXPENSE'), enabled: false });
   const peopleRead = useQuery({ ...peopleQuery(), enabled: false });
   const accounts = accountsRead.data ?? [];
   const categories = categoryRead.data ?? [];
   const people = peopleRead.data?.people ?? [];
-  const params = useLocalSearchParams<{ accountId?: string }>();
   const headerHeight = useHeaderHeight();
-  const [amountMinor, setAmountMinor] = useState<number>();
+  const [amountMinor, setAmountMinor] = useState<number | undefined>(preset);
   const [accountId, setAccountId] = useState(() => parseAccountId(params.accountId));
-  const [toId, setToId] = useState<number>();
+  const [toId, setToId] = useState<number | undefined>(
+    () => parseAccountId(params.toId) ?? undefined,
+  );
   const [categoryIds, setCategoryIds] = useState<{
     EXPENSE?: number;
     INCOME?: number;
@@ -246,7 +265,14 @@ function QuickAddForm() {
   }
 
   return (
-    <AmountInput currency={account?.currencyCode} disabled={pending} onChange={setAmountMinor}>
+    <AmountInput
+      key={amountKey}
+      initialAmount={preset ? (preset / 100).toFixed(2) : ''}
+      initiallyOpen={!preset}
+      currency={account?.currencyCode}
+      disabled={pending}
+      onChange={setAmountMinor}
+    >
       {({ input, keypad, dismiss: dismissCalculator, editing }) => (
         <KeyboardAvoidingView
           style={{ flex: 1 }}
@@ -300,7 +326,15 @@ function QuickAddForm() {
                         disabled={pending}
                         onSelect={(id) => {
                           setAccountId(id);
-                          setToId(undefined);
+                          setToId((current) => {
+                            const source = readyAccounts.find((item) => item.id === id);
+                            const destination = readyAccounts.find((item) => item.id === current);
+                            return destination &&
+                              destination.id !== id &&
+                              destination.currencyCode === source?.currencyCode
+                              ? current
+                              : undefined;
+                          });
                           setError('');
                         }}
                       />
@@ -319,6 +353,45 @@ function QuickAddForm() {
                           disabled={pending}
                           onSelect={setToId}
                         />
+                        {bills.isError && (
+                          <>
+                            <Text accessibilityRole="alert" style={{ color: c.warning }}>
+                              Could not load card bills.
+                            </Text>
+                            <FormButton
+                              label="Retry card bills"
+                              variant="secondary"
+                              onPress={() => void bills.refetch()}
+                            />
+                          </>
+                        )}
+                        {bills.data
+                          ?.filter((bill) => bill.accountId === toId)
+                          .map((bill) => (
+                            <View
+                              key={bill.accountId}
+                              style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}
+                            >
+                              {[
+                                { label: 'Bill', amount: bill.billMinor },
+                                { label: 'All owed', amount: bill.owedMinor },
+                              ]
+                                .filter((choice) => choice.amount > 0)
+                                .map((choice) => (
+                                  <FormButton
+                                    key={choice.label}
+                                    label={`${choice.label} · ${formatBalance(choice.amount, account?.currencyCode ?? '')}`}
+                                    variant="secondary"
+                                    disabled={pending}
+                                    onPress={() => {
+                                      setPreset(choice.amount);
+                                      setAmountMinor(choice.amount);
+                                      setAmountKey((key) => key + 1);
+                                    }}
+                                  />
+                                ))}
+                            </View>
+                          ))}
                         {!destinations.length && (
                           <Text style={{ color: c.muted }}>
                             No other {account?.currencyCode ?? 'same-currency'} account. Create one

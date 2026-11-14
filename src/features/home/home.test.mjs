@@ -550,6 +550,70 @@ test('Home boundaries', async (t) => {
     );
   });
 
+  await t.test(
+    'cards separate bills from cash and Settle routes the parent and bill into Quick add',
+    async () => {
+      const visa = {
+        ...account(2, 'Visa', 0, -11000),
+        bill: {
+          accountId: 2,
+          parentAccountId: 1,
+          statementDay: 20,
+          dueDay: 5,
+          billMinor: 7000,
+          owedMinor: 11000,
+          unbilledMinor: 4000,
+          creditMinor: 0,
+          statementDate: 19990,
+          dueDate: 20005,
+          overdue: false,
+        },
+      };
+      reads({ deck: () => deck([account(1, 'Bank', 1, 30000), visa]) });
+      await mount();
+      assert.ok(cardTexts('All accounts').includes('৳300.00'));
+      assert.ok(cardTexts('Visa').includes('৳70.00'));
+      assert.ok(cardTexts('Visa').includes('Not billed yet · ৳40.00'));
+      assert.equal(card('Visa').findAllByType('TrendChart').length, 0);
+      await act(async () =>
+        card('Visa')
+          .findAllByType('Pressable')
+          .find((n) => n.props.accessibilityLabel === 'Settle Visa')
+          .props.onPress(),
+      );
+      assert.deepEqual(state.pushed.at(-1), {
+        pathname: '/quick-add',
+        params: { mode: 'TRANSFER', accountId: '1', toId: '2', amountMinor: '7000' },
+      });
+    },
+  );
+
+  await t.test(
+    'overpaid cards show credit, exclude it from cash totals and offer no settlement',
+    async () => {
+      const visa = {
+        ...account(2, 'Visa', 0, 5000),
+        bill: {
+          accountId: 2,
+          parentAccountId: 1,
+          billMinor: 0,
+          owedMinor: 0,
+          unbilledMinor: 0,
+          creditMinor: 5000,
+          statementDate: null,
+          dueDate: null,
+          overdue: false,
+        },
+      };
+      reads({ deck: () => deck([account(1, 'Bank', 1, 30000), visa]) });
+      await mount();
+      assert.ok(cardTexts('All accounts').includes('৳300.00'));
+      assert.ok(cardTexts('Visa').includes('Credit'));
+      assert.ok(cardTexts('Visa').includes('৳50.00'));
+      assert.equal(button('Settle Visa'), undefined);
+    },
+  );
+
   await t.test('a refresh keeps loaded content without skeletons or spinners', async () => {
     reads();
     await mount();

@@ -1,3 +1,4 @@
+import { creditCardBills } from '@/lib/credit-cards';
 import { database } from '@/lib/database';
 import type { DisplayRate } from '@/lib/display-rate';
 import { getDisplayRate } from '@/lib/display-rate-store';
@@ -104,7 +105,15 @@ export async function homeDeckData(today: number): Promise<{
       periodSettingKey,
     ]),
   ]);
-  return { accounts, displayRate, period: parsePeriodSetting(setting?.value) };
+  const bills = await creditCardBills(today);
+  return {
+    accounts: accounts.map((account) => ({
+      ...account,
+      bill: bills.find((bill) => bill.accountId === account.id),
+    })),
+    displayRate,
+    period: parsePeriodSetting(setting?.value),
+  };
 }
 
 export async function savePeriodSetting(setting: PeriodSetting): Promise<void> {
