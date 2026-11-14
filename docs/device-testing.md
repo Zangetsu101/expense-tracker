@@ -33,5 +33,10 @@ expense category, and the flow does not depend on a flow that ran before it. Use
 the `appId`; the script reads the value from the Expo config. Keep Google Drive actions out of
 the flows, because they need a real Google account.
 
+The **E2E** workflow (`.github/workflows/e2e.yml`) builds the APK and runs the flows on an
+emulator in GitHub Actions. It runs on a pull request that changes the app, the flows, or the
+build, and you can start it manually. It is not a required check. When a flow fails, the run
+has the artifact `e2e-output-<commit>` with the screenshot and the view hierarchy.
+
 A flow uses the hidden test keyboard, so it does not verify the keyboard layout. Use the
 walkthrough above for that.
