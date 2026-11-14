@@ -1,0 +1,73 @@
+name: E2E
+
+on:
+  pull_request:
+    paths:
+      - src/**
+      - e2e/**
+      - assets/**
+      - plugins/**
+      - app.json
+      - app.config.cjs
+      - index.js
+      - package.json
+      - pnpm-lock.yaml
+      - scripts/run-e2e.sh
+      - scripts/build-emulator-apk.sh
+      - scripts/emulator-apk-path.sh
+      - scripts/android-release.gradle
+      - .github/workflows/e2e.yml
+      - .github/actions/setup-android-build/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MAESTRO_VERSION: 2.12.1
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: ./.github/actions/setup-android-build
+      - name: Build isolated x86_64 APK with bundled JavaScript
+        run: pnpm android:apk:emulator
+      - name: Install Maestro
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "cli-$MAESTRO_VERSION" --repo mobile-dev-inc/maestro \
+            --pattern maestro.zip --dir "$RUNNER_TEMP"
+          unzip -q "$RUNNER_TEMP/maestro.zip" -d "$HOME"
+          echo "$HOME/maestro/bin" >> "$GITHUB_PATH"
+      # The emulator needs hardware acceleration. The runner has KVM, but the runner user cannot use it by default.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      # The API level, the image and the animation setting are the same as on the emulator where the flows were written.
+      - name: Run the Maestro flows on an emulator
+        uses: reactivecircus/android-emulator-runner@v2.38.0
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          disable-animations: false
+          script: pnpm test:e2e
+      - name: Upload the Maestro output of a failed run
+        if: failure()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: e2e-output-${{ github.sha }}
+          path: dist/e2e
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14

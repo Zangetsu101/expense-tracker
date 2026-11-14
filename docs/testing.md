@@ -48,6 +48,7 @@ buttons supplied to the native alert function.
 
 Use device checks for native gestures, focus behavior, animation timing, and visual
 layout; presentation mocks establish only the JavaScript behavior around them.
+For the Maestro flows in `e2e/`, see [`device-testing.md`](device-testing.md).
 
 ## Examples and compatibility
 

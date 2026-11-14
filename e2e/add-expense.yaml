@@ -1,0 +1,34 @@
+appId: ${APP_ID}
+name: Add an expense on a new install
+---
+- launchApp:
+    clearState: true
+# A slow emulator can show this Android dialog after a cold start. It covers the app.
+- runFlow:
+    when:
+      visible: System UI isn't responding
+    commands:
+      - tapOn: Wait
+- tapOn: Add transaction
+- assertVisible: From Cash
+
+- tapOn: '1'
+- tapOn: '2'
+- tapOn: '5'
+- tapOn: Done
+- assertVisible: 'Amount, 125\.00'
+
+- tapOn: Other
+- assertVisible: 'Selected: Other'
+
+- tapOn: Add a note
+- inputText: Lunch with the team
+- hideKeyboard
+
+- scrollUntilVisible:
+    element: Save
+    direction: DOWN
+- tapOn: Save
+
+- assertVisible: Add transaction
+- assertVisible: '.*Lunch with the team.*125\.00.*'
