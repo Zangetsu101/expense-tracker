@@ -14,6 +14,8 @@ Single-context repo: read the root glossary and relevant ADRs. See `docs/agents/
 
 For test changes and reviews, read `docs/testing.md`.
 
+For device verification, use temporary Maestro flows in Expo Go; read `docs/device-testing.md` for setup and execution.
+
 ### Scratch folder
 
 `.scratch/` holds local notes, specs and temporary scripts. Git ignores it, but `rg` searches it.
