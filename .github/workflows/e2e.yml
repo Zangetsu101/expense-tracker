@@ -61,7 +61,7 @@ jobs:
           CCACHE_COMPILERCHECK: '%compiler% --version'
         run: pnpm android:apk:emulator
       - name: Show the ccache statistics
-        run: ccache --show-stats
+        run: ccache --show-stats --verbose
       - name: Install Maestro
         env:
           GH_TOKEN: ${{ github.token }}
