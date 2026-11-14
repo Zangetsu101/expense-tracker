@@ -41,4 +41,15 @@ app_id=$(EXPENSE_TRACKER_BUILD_TARGET=emulator node -p \
 
 # Maestro sends usage data unless this variable is set.
 export MAESTRO_CLI_NO_ANALYTICS=1
-maestro test --debug-output dist/e2e -e APP_ID="$app_id" "${1:-e2e}"
+run_flows() {
+  rm -rf dist/e2e
+  maestro test --debug-output dist/e2e -e APP_ID="$app_id" "${1:-e2e}"
+}
+# adb can lose the connection to a new emulator for a moment, and Maestro then stops.
+# Run the flows one more time for that failure only. A failed assertion is not run again.
+if ! run_flows "$@"; then
+  grep -rqs 'device offline' dist/e2e || exit 1
+  echo 'adb lost the connection to the device. Running the flows one more time.' >&2
+  adb wait-for-device
+  run_flows "$@"
+fi
