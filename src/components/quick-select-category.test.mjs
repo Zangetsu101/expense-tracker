@@ -9,9 +9,9 @@ import ts from 'typescript';
 const previousAct = globalThis.IS_REACT_ACT_ENVIRONMENT;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const mocks = {
-  'react-native': `export const I18nManager={isRTL:false}; export const View='View',Text='Text',TextInput='TextInput',Pressable='Pressable';`,
+  'react-native': `export const useWindowDimensions=()=>({fontScale:1}); export const I18nManager={isRTL:false}; export const View='View',Text='Text',TextInput='TextInput',Pressable='Pressable';`,
   '@/theme': `export const theme={colors:{selected:'selected'}};`,
-  'react-native-reanimated': `import {useRef} from 'react'; export const ReduceMotion={System:'system'}; export const useSharedValue=value=>useRef({value,get(){return this.value},set(v){this.value=v}}).current; export const useAnimatedStyle=fn=>fn(); export const withTiming=value=>value; export default {createAnimatedComponent:()=> 'AnimatedPressable'};`,
+  'react-native-reanimated': `export const ReduceMotion={System:'system'},FadeOut={}; const builder={springify:()=>builder,dampingRatio:()=>builder,duration:()=>builder,reduceMotion:()=>builder}; export const LinearTransition=builder; export default {View:'AnimatedView'};`,
 };
 const hooks = registerHooks({
   resolve(specifier, context, next) {
@@ -58,19 +58,9 @@ async function mount(extra = {}) {
   await act(async () => {
     renderer = create(React.createElement(QuickSelectCategory, props));
   });
-  await act(async () => {
-    const views = renderer.root.findAllByType('View');
-    views.find((v) => v.props.onLayout).props.onLayout({ nativeEvent: { layout: { width: 200 } } });
-    const measurements = views.filter((v) => v.props.onLayout).slice(1);
-    [80, 100, 70, 110].forEach((width, i) =>
-      measurements[i].props.onLayout({
-        nativeEvent: { layout: { width, height: i === 1 ? 60 : 40 } },
-      }),
-    );
-  });
   return { renderer, props };
 }
-const chips = (renderer) => renderer.root.findAllByType('AnimatedPressable');
+const chips = (renderer) => renderer.root.findAllByType('Pressable');
 const labels = (renderer) => chips(renderer).map((c) => c.props.accessibilityLabel);
 
 test('native wrapping preserves visible order and mounted chips across row changes', async () => {
@@ -78,13 +68,6 @@ test('native wrapping preserves visible order and mounted chips across row chang
   try {
     assert.deepEqual(labels(renderer), ['Food', 'Travel', 'Coffee', 'Shopping']);
     const travel = chips(renderer)[1];
-    let parent = travel.parent;
-    while (parent.type !== 'View') parent = parent.parent;
-    assert.equal(parent.props.collapsable, false);
-    assert.equal(parent.props.style.flexWrap, 'wrap');
-    assert.equal(parent.props.style.gap, 8);
-    assert.equal(parent.props.style.paddingBottom, 0);
-    await act(async () => travel.props.onLayout({ nativeEvent: { layout: { x: 88, y: 0 } } }));
     await act(async () =>
       renderer.update(
         React.createElement(QuickSelectCategory, { ...props, orderedIds: [4, 3, 2, 1] }),
@@ -92,9 +75,10 @@ test('native wrapping preserves visible order and mounted chips across row chang
     );
     assert.deepEqual(labels(renderer), ['Shopping', 'Coffee', 'Travel', 'Food']);
     assert.equal(chips(renderer)[2], travel);
-    await act(async () => travel.props.onLayout({ nativeEvent: { layout: { x: 0, y: 48 } } }));
+    await act(async () =>
+      travel.parent.props.onLayout({ nativeEvent: { layout: { x: 0, y: 48 } } }),
+    );
     assert.equal(travel.props.accessibilityState.selected, true);
-    assert.deepEqual(travel.props.style[1].transform, [{ translateX: 0 }, { translateY: 0 }]);
   } finally {
     await act(async () => renderer.unmount());
   }
@@ -120,11 +104,6 @@ test('search, overflow, parent paths and selection retain their meaning after re
     assert.equal(selected, 3);
     await act(async () => renderer.root.findByType('TextInput').props.onChangeText('absent'));
     assert.equal(chips(renderer).length, 0);
-    assert.equal(
-      renderer.root.findAllByType('View').find((v) => v.props.collapsable === false).props.style
-        .paddingBottom,
-      8,
-    );
     assert.ok(
       renderer.root
         .findAllByType('Text')
@@ -138,19 +117,27 @@ test('search, overflow, parent paths and selection retain their meaning after re
 test('offscreen Categories do not affect visible row membership or selection', async () => {
   const { renderer } = await mount();
   try {
-    await act(async () =>
-      renderer.root
-        .findAllByType('View')
-        .find((v) => v.props.onLayout)
-        .props.onLayout({ nativeEvent: { layout: { width: 120 } } }),
-    );
-    assert.deepEqual(labels(renderer), ['Food', 'Travel']);
+    await act(async () => {
+      chips(renderer)[2].parent.props.onLayout({ nativeEvent: { layout: { y: 96 } } });
+      chips(renderer)[3].parent.props.onLayout({ nativeEvent: { layout: { y: 144 } } });
+    });
+    assert.deepEqual(labels(renderer), ['Food', 'Travel', 'Coffee', 'Shopping']);
+    assert.equal(chips(renderer)[2].props.disabled, true);
+    assert.equal(chips(renderer)[2].props.accessibilityElementsHidden, true);
+    assert.equal(chips(renderer)[3].props.importantForAccessibility, 'no-hide-descendants');
     assert.equal(chips(renderer)[1].props.accessibilityState.selected, true);
     assert.ok(
       renderer.root
         .findAllByType('Text')
         .some((t) => t.children.includes('Refine search to see more')),
     );
+    await act(async () => renderer.root.findByType('TextInput').props.onChangeText('coffee'));
+    await act(async () =>
+      chips(renderer)[0].parent.props.onLayout({ nativeEvent: { layout: { y: 0 } } }),
+    );
+    assert.deepEqual(labels(renderer), ['Coffee']);
+    assert.equal(chips(renderer)[0].props.disabled, false);
+    assert.equal(chips(renderer)[0].props.accessibilityElementsHidden, false);
   } finally {
     await act(async () => renderer.unmount());
   }

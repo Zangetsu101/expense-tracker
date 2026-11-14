@@ -512,7 +512,7 @@ function QuickAddForm() {
                   )}
                 </ChoicesSection>
               )}
-              <View style={{ gap: 12 }}>
+              <Animated.View layout={layoutTransition} style={{ gap: 12 }}>
                 <Label>Note · optional</Label>
                 <FormInput
                   accessibilityLabel="Note"
@@ -530,7 +530,7 @@ function QuickAddForm() {
                   editable={!pending}
                 />
                 <QuickAddDate value={date} onChange={setDate} disabled={pending} />
-              </View>
+              </Animated.View>
               {!!error && (
                 <Text selectable accessibilityRole="alert" style={{ color: c.warning }}>
                   {error}
