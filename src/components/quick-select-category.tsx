@@ -2,6 +2,7 @@ import { theme } from '@/theme';
 import { useState } from 'react';
 import { Pressable, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import Animated, { FadeOut, LinearTransition, ReduceMotion } from 'react-native-reanimated';
+import { useClippedChips } from './use-clipped-chips';
 import type { ManagedCategory } from '@/lib/categories';
 
 const ink = '#f2f4f0';
@@ -48,10 +49,10 @@ export function QuickSelectCategory({
   disabled = false,
 }: Props) {
   const [query, setQuery] = useState('');
-  const [clippedCategories, setClippedCategories] = useState<Set<number>>(() => new Set());
   const { fontScale } = useWindowDimensions();
   const chipHeight = 20 + 20 * fontScale;
   const maxHeight = chipHeight * 3 + 16;
+  const clipping = useClippedChips(maxHeight);
   const byId = new Map(categories.map((category) => [category.id, category]));
   const path = (category: ManagedCategory) => {
     const names = [category.name];
@@ -73,31 +74,19 @@ export function QuickSelectCategory({
         !!item && path(item).toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()),
     );
   const chip = (category: ManagedCategory) => {
-    const clipped = clippedCategories.has(category.id);
     return (
       <Animated.View
         key={category.id}
         layout={layoutTransition}
         exiting={FadeOut}
         style={{ maxWidth: '100%' }}
-        onLayout={({ nativeEvent: { layout } }) => {
-          const hidden = layout.y >= maxHeight;
-          setClippedCategories((old) => {
-            if (old.has(category.id) === hidden) return old;
-            const next = new Set(old);
-            if (hidden) next.add(category.id);
-            else next.delete(category.id);
-            return next;
-          });
-        }}
+        onLayout={clipping.onLayout(category.id)}
       >
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={path(category)}
           accessibilityState={{ selected: activeId === category.id, disabled }}
-          accessibilityElementsHidden={clipped}
-          importantForAccessibility={clipped ? 'no-hide-descendants' : 'auto'}
-          disabled={disabled || clipped}
+          {...clipping.accessibilityProps(category.id, disabled)}
           onPress={() => onSelect(category.id)}
           style={{
             paddingHorizontal: 13,
@@ -138,7 +127,8 @@ export function QuickSelectCategory({
           <Text style={{ color: muted, padding: 12 }}>No matching categories</Text>
         )}
         {active &&
-          (!matches.some((item) => item.id === active.id) || clippedCategories.has(active.id)) && (
+          (!matches.some((item) => item.id === active.id) ||
+            clipping.clippedIds.has(active.id)) && (
             <Text style={{ color: muted, paddingTop: 4 }}>Search its name to find its chip.</Text>
           )}
       </View>

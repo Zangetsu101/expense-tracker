@@ -19,22 +19,6 @@ export const layoutTransition = LinearTransition.springify()
   .duration(300)
   .reduceMotion(ReduceMotion.System);
 
-export function FormSection({
-  children,
-  label,
-  gap = 10,
-}: {
-  children: ReactNode;
-  label?: string;
-  gap?: number;
-}) {
-  return (
-    <Animated.View layout={layoutTransition} accessibilityLabel={label} style={{ gap }}>
-      {children}
-    </Animated.View>
-  );
-}
-
 export function AnimatedStack({
   children,
   gap = 18,
@@ -86,7 +70,7 @@ function ChoicesSkeleton({
   pendingLabel?: string;
 }) {
   return (
-    <FormSection label={`Loading ${label}`}>
+    <View accessibilityLabel={`Loading ${label}`} style={{ gap: 10 }}>
       {layout === 'categories' ? (
         <>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -107,7 +91,7 @@ function ChoicesSkeleton({
       ) : (
         <PillSkeletonRows height={48} borderRadius={14} columns={2} />
       )}
-    </FormSection>
+    </View>
   );
 }
 
@@ -133,10 +117,10 @@ function ReadyChoices<T, K extends QueryKey>({
 }) {
   const { data, error, isFetching, refetch } = useSuspenseQuery(options);
   return (
-    <FormSection>
+    <View style={{ gap: 10 }}>
       {children(data)}
       {!!error && !isFetching && <ChoicesError label={label} retry={() => void refetch()} />}
-    </FormSection>
+    </View>
   );
 }
 
@@ -157,9 +141,9 @@ export function ChoicesSection<T, K extends QueryKey>({
     <QueryBoundary
       pending={<ChoicesSkeleton label={label} layout={layout} pendingLabel={pendingLabel} />}
       error={(retry) => (
-        <FormSection>
+        <View style={{ gap: 10 }}>
           <ChoicesError label={label} retry={retry} />
-        </FormSection>
+        </View>
       )}
     >
       <ReadyChoices options={options} label={label}>

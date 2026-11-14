@@ -26,6 +26,7 @@ import { QuickSelectCategory } from '@/components/quick-select-category';
 import { AccountChoices, personBalanceSummary } from '@/components/entry-choices';
 import { FormButton, FormInput, JoinedChoice } from '@/components/form-controls';
 import { parseAccountId } from '@/lib/account-selection';
+import { useClippedChips } from '@/components/use-clipped-chips';
 import { theme } from '@/theme';
 
 const c = theme.colors;
@@ -128,10 +129,10 @@ function QuickAddForm() {
   }>({});
   const [personId, setPersonId] = useState<number>();
   const [query, setQuery] = useState('');
-  const [clippedPeople, setClippedPeople] = useState<Set<number>>(() => new Set());
   const { fontScale } = useWindowDimensions();
   const personChipHeight = 20 + 36 * fontScale;
   const peopleMaxHeight = personChipHeight * 2 + 8;
+  const peopleClipping = useClippedChips(peopleMaxHeight);
   const [action, setAction] = useState<PersonAction>('LEND');
   const [note, setNote] = useState('');
   const [tags, setTags] = useState('');
@@ -360,31 +361,19 @@ function QuickAddForm() {
                     {(readyPeople) => {
                       const personChip = (item: (typeof people)[number]) => {
                         const selected = item.id === personId;
-                        const clipped = clippedPeople.has(item.id);
                         return (
                           <Animated.View
                             key={item.id}
                             layout={layoutTransition}
                             exiting={FadeOut}
                             style={{ maxWidth: '100%' }}
-                            onLayout={(event) => {
-                              const hidden = event.nativeEvent.layout.y >= peopleMaxHeight;
-                              setClippedPeople((old) => {
-                                if (old.has(item.id) === hidden) return old;
-                                const next = new Set(old);
-                                if (hidden) next.add(item.id);
-                                else next.delete(item.id);
-                                return next;
-                              });
-                            }}
+                            onLayout={peopleClipping.onLayout(item.id)}
                           >
                             <Pressable
                               accessibilityRole="button"
                               accessibilityLabel={item.name}
                               accessibilityState={{ selected, disabled: pending }}
-                              accessibilityElementsHidden={clipped}
-                              importantForAccessibility={clipped ? 'no-hide-descendants' : 'auto'}
-                              disabled={pending || clipped}
+                              {...peopleClipping.accessibilityProps(item.id, pending)}
                               onPress={() => setPersonId(item.id)}
                               style={({ pressed }) => ({
                                 paddingHorizontal: 14,
