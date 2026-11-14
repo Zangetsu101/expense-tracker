@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { render, screen, userEvent, fireEvent } from '@testing-library/react-native';
 import type { ManagedCategory } from '@/lib/categories';
 import { QuickSelectCategory } from './quick-select-category';
@@ -53,18 +54,29 @@ test('ranked order changes preserve the selected Category', async () => {
 test('search matches parent paths and retains selection callbacks after reorder', async () => {
   const user = userEvent.setup();
   const onSelect = jest.fn();
-  const props = {
-    categories: categories.map((c) => (c.id === 3 ? { ...c, parentId: 1 } : c)),
-    selectedId: 2,
-    onSelect,
-  };
-  await render(<QuickSelectCategory {...props} />);
+  function Selection({ orderedIds }: { orderedIds?: number[] }) {
+    const [selectedId, setSelectedId] = useState(2);
+    return (
+      <QuickSelectCategory
+        categories={categories.map((c) => (c.id === 3 ? { ...c, parentId: 1 } : c))}
+        orderedIds={orderedIds}
+        selectedId={selectedId}
+        onSelect={(id) => {
+          setSelectedId(id);
+          onSelect(id);
+        }}
+      />
+    );
+  }
+  await render(<Selection />);
   await user.type(screen.getByLabelText('Search categories'), 'food');
   expect(names()).toEqual(['Food', 'Food › Coffee']);
-  await screen.rerender(<QuickSelectCategory {...props} orderedIds={[3, 4, 2, 1]} />);
+  await screen.rerender(<Selection orderedIds={[3, 4, 2, 1]} />);
   expect(names()).toEqual(['Food › Coffee', 'Food']);
   await user.press(screen.getByRole('button', { name: 'Food › Coffee' }));
   expect(onSelect).toHaveBeenCalledWith(3);
+  expect(screen.getByRole('button', { name: 'Food › Coffee', selected: true })).toBeOnTheScreen();
+  expect(screen.getByText('Selected: Food › Coffee')).toBeOnTheScreen();
   await user.clear(screen.getByLabelText('Search categories'));
   await user.type(screen.getByLabelText('Search categories'), 'absent');
   expect(screen.queryAllByRole('button')).toHaveLength(0);
