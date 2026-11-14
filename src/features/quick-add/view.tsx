@@ -1,10 +1,10 @@
-import { type ReactNode } from 'react';
+import { Children, type ReactNode } from 'react';
 import {
   useSuspenseQuery,
   type UseSuspenseQueryOptions,
   type QueryKey,
 } from '@tanstack/react-query';
-import { Text, View } from 'react-native';
+import { Text, View, type ViewProps } from 'react-native';
 import Animated, { LinearTransition, ReduceMotion } from 'react-native-reanimated';
 import { QueryBoundary } from '@/components/query-error-boundary';
 import { Skeleton } from '@/components/loading';
@@ -32,6 +32,23 @@ export function FormSection({
     <Animated.View layout={layoutTransition} accessibilityLabel={label} style={{ gap }}>
       {children}
     </Animated.View>
+  );
+}
+
+export function AnimatedStack({
+  children,
+  gap = 18,
+  style,
+  ...props
+}: ViewProps & { gap?: number }) {
+  return (
+    <View {...props} style={[{ gap }, style]}>
+      {Children.map(children, (child) =>
+        child == null || typeof child === 'boolean' ? null : (
+          <Animated.View layout={layoutTransition}>{child}</Animated.View>
+        ),
+      )}
+    </View>
   );
 }
 

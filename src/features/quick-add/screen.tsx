@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { categoriesQuery, peopleQuery, includeCreatedPerson } from './queries.ts';
 import { accountsQuery } from '@/lib/account-queries';
-import { ChoicesSection, FormSection, layoutTransition } from './view.tsx';
+import { ChoicesSection, AnimatedStack, layoutTransition } from './view.tsx';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight, useNavigation, usePreventRemove } from 'expo-router/react-navigation';
 import {
@@ -282,32 +282,31 @@ function QuickAddForm() {
             contentContainerStyle={{ padding: 22, gap: 18, paddingBottom: 48 }}
           >
             {input}
-            <View
-              style={{ gap: 18 }}
+            <AnimatedStack
               onTouchStart={() => {
                 dismissCalculator();
               }}
             >
-              <FormSection>
-                <JoinedChoice
-                  value={mode}
-                  options={modes}
-                  disabled={pending}
-                  onChange={(value) => {
-                    setMode(value);
-                    setError('');
-                  }}
-                />
-              </FormSection>
+              <JoinedChoice
+                key="mode"
+                value={mode}
+                options={modes}
+                disabled={pending}
+                onChange={(value) => {
+                  setMode(value);
+                  setError('');
+                }}
+              />
               <ChoicesSection
+                key="accounts"
                 options={accountsQuery()}
                 label="accounts"
                 layout="accounts"
                 pendingLabel={incoming ? 'Into' : 'From'}
               >
                 {(readyAccounts) => (
-                  <>
-                    <FormSection>
+                  <AnimatedStack gap={10}>
+                    <View style={{ gap: 10 }}>
                       <Label>{`${incoming ? 'Into' : 'From'} ${account?.name ?? 'an account'}`}</Label>
                       <AccountChoices
                         accounts={readyAccounts}
@@ -324,9 +323,9 @@ function QuickAddForm() {
                           Create an account in the Accounts tab before adding a transaction.
                         </Text>
                       )}
-                    </FormSection>
+                    </View>
                     {mode === 'TRANSFER' && (
-                      <FormSection>
+                      <View style={{ gap: 10 }}>
                         <Label>{`To ${destinations.find((item) => item.id === toId)?.name ?? 'another account'}`}</Label>
                         <AccountChoices
                           accounts={destinations}
@@ -340,14 +339,14 @@ function QuickAddForm() {
                             in Accounts or choose a different source.
                           </Text>
                         )}
-                      </FormSection>
+                      </View>
                     )}
-                  </>
+                  </AnimatedStack>
                 )}
               </ChoicesSection>
               {mode === 'PERSON' && (
-                <>
-                  <FormSection>
+                <AnimatedStack key="person">
+                  <View style={{ gap: 10 }}>
                     <Label>{`With ${person?.name ?? 'a person'}`}</Label>
                     <FormInput
                       accessibilityLabel="Search people"
@@ -356,7 +355,7 @@ function QuickAddForm() {
                       onChangeText={setQuery}
                       editable={!pending}
                     />
-                  </FormSection>
+                  </View>
                   <ChoicesSection options={peopleQuery()} label="people" layout="people">
                     {(readyPeople) => {
                       const personChip = (item: (typeof people)[number]) => {
@@ -428,7 +427,7 @@ function QuickAddForm() {
                         );
                       };
                       return (
-                        <View style={{ gap: 10 }}>
+                        <AnimatedStack gap={10}>
                           <Animated.View
                             layout={layoutTransition}
                             style={{
@@ -449,20 +448,18 @@ function QuickAddForm() {
                             </Text>
                           )}
                           {canCreatePerson && (
-                            <FormSection>
-                              <FormButton
-                                label={`Add “${query.trim()}”`}
-                                variant="secondary"
-                                disabled={pending}
-                                onPress={() => void addPerson()}
-                              />
-                            </FormSection>
+                            <FormButton
+                              label={`Add “${query.trim()}”`}
+                              variant="secondary"
+                              disabled={pending}
+                              onPress={() => void addPerson()}
+                            />
                           )}
-                        </View>
+                        </AnimatedStack>
                       );
                     }}
                   </ChoicesSection>
-                  <FormSection>
+                  <View style={{ gap: 10 }}>
                     <Label>What happened</Label>
                     <JoinedChoice<PersonAction>
                       value={action}
@@ -476,15 +473,13 @@ function QuickAddForm() {
                       disabled={pending}
                       onChange={setAction}
                     />
-                  </FormSection>
-                  <FormSection>
-                    <Text style={{ color: c.muted }}>
-                      {incoming ? 'Money into' : 'Money out of'}{' '}
-                      {account?.name ?? 'the selected account'}. Excluded from spending reports.
-                      Recorded person balances may be incomplete.
-                    </Text>
-                  </FormSection>
-                </>
+                  </View>
+                  <Text style={{ color: c.muted }}>
+                    {incoming ? 'Money into' : 'Money out of'}{' '}
+                    {account?.name ?? 'the selected account'}. Excluded from spending reports.
+                    Recorded person balances may be incomplete.
+                  </Text>
+                </AnimatedStack>
               )}
               {categoryMode && (
                 <ChoicesSection
@@ -512,7 +507,7 @@ function QuickAddForm() {
                   )}
                 </ChoicesSection>
               )}
-              <FormSection gap={12}>
+              <View key="details" style={{ gap: 12 }}>
                 <Label>Note · optional</Label>
                 <FormInput
                   accessibilityLabel="Note"
@@ -530,25 +525,22 @@ function QuickAddForm() {
                   editable={!pending}
                 />
                 <QuickAddDate value={date} onChange={setDate} disabled={pending} />
-              </FormSection>
+              </View>
               {!!error && (
-                <FormSection>
-                  <Text selectable accessibilityRole="alert" style={{ color: c.warning }}>
-                    {error}
-                  </Text>
-                </FormSection>
+                <Text key="error" selectable accessibilityRole="alert" style={{ color: c.warning }}>
+                  {error}
+                </Text>
               )}
-              <FormSection>
-                <FormButton
-                  label={saveLabel}
-                  loading={pending}
-                  disabled={!canSave || editing}
-                  onPress={() => {
-                    if (!editing) void save();
-                  }}
-                />
-              </FormSection>
-            </View>
+              <FormButton
+                key="save"
+                label={saveLabel}
+                loading={pending}
+                disabled={!canSave || editing}
+                onPress={() => {
+                  if (!editing) void save();
+                }}
+              />
+            </AnimatedStack>
           </ScrollView>
           {keypad}
         </KeyboardAvoidingView>
