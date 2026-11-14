@@ -5,7 +5,15 @@ import { accountsQuery } from '@/lib/account-queries';
 import { ChoicesSection } from './view.tsx';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight, useNavigation, usePreventRemove } from 'expo-router/react-navigation';
-import { Alert, KeyboardAvoidingView, Pressable, ScrollView, Text, View } from 'react-native';
+import {
+  Alert,
+  KeyboardAvoidingView,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+  useWindowDimensions,
+} from 'react-native';
 import { epochDay } from '@/lib/database';
 import { addQuickTransaction } from '@/lib/quick-add-tags';
 import { addTransfer } from '@/lib/transfers';
@@ -119,8 +127,10 @@ function QuickAddForm() {
   }>({});
   const [personId, setPersonId] = useState<number>();
   const [query, setQuery] = useState('');
-  const [peopleWidth, setPeopleWidth] = useState(0);
-  const [personWidths, setPersonWidths] = useState<Record<number, number>>({});
+  const [clippedPeople, setClippedPeople] = useState<Set<number>>(() => new Set());
+  const { fontScale } = useWindowDimensions();
+  const personChipHeight = 20 + 36 * fontScale;
+  const peopleMaxHeight = personChipHeight * 2 + 8;
   const [action, setAction] = useState<PersonAction>('LEND');
   const [note, setNote] = useState('');
   const [tags, setTags] = useState('');
@@ -149,20 +159,6 @@ function QuickAddForm() {
     (mode === 'PERSON' && (action === 'BORROW' || action === 'RECEIVE_REPAYMENT'));
   const search = query.trim().toLocaleLowerCase();
   const matches = people.filter((item) => item.name.toLocaleLowerCase().includes(search));
-  const visiblePeople: typeof matches = [];
-  let peopleRow = 0;
-  let usedPeopleWidth = 0;
-  for (const item of matches) {
-    const chipWidth = personWidths[item.id];
-    if (!peopleWidth || !chipWidth) continue;
-    if (usedPeopleWidth && usedPeopleWidth + 8 + chipWidth > peopleWidth) {
-      peopleRow++;
-      usedPeopleWidth = 0;
-    }
-    if (peopleRow > 1) break;
-    visiblePeople.push(item);
-    usedPeopleWidth += (usedPeopleWidth ? 8 : 0) + chipWidth;
-  }
   const canCreatePerson =
     !!search && !people.some((item) => item.name.toLocaleLowerCase() === search);
   const validAmount = amountMinor !== undefined;
@@ -362,19 +358,32 @@ function QuickAddForm() {
                     {(readyPeople) => {
                       const personChip = (item: (typeof people)[number]) => {
                         const selected = item.id === personId;
+                        const clipped = clippedPeople.has(item.id);
                         return (
                           <Pressable
                             key={item.id}
                             accessibilityRole="button"
                             accessibilityLabel={item.name}
                             accessibilityState={{ selected, disabled: pending }}
-                            disabled={pending}
+                            accessibilityElementsHidden={clipped}
+                            importantForAccessibility={clipped ? 'no-hide-descendants' : 'auto'}
+                            disabled={pending || clipped}
+                            onLayout={(event) => {
+                              const hidden = event.nativeEvent.layout.y >= peopleMaxHeight;
+                              setClippedPeople((old) => {
+                                if (old.has(item.id) === hidden) return old;
+                                const next = new Set(old);
+                                if (hidden) next.add(item.id);
+                                else next.delete(item.id);
+                                return next;
+                              });
+                            }}
                             onPress={() => setPersonId(item.id)}
                             style={({ pressed }) => ({
                               paddingHorizontal: 14,
                               paddingVertical: 8,
-                              minHeight: 48,
-                              maxWidth: peopleWidth || undefined,
+                              height: personChipHeight,
+                              maxWidth: '100%',
                               borderRadius: 14,
                               backgroundColor: selected ? c.selected : c.surface,
                               opacity: pending ? 0.45 : pressed ? 0.7 : 1,
@@ -382,18 +391,22 @@ function QuickAddForm() {
                             })}
                           >
                             <Text
+                              numberOfLines={1}
                               style={{
                                 color: c.text,
                                 fontSize: 15,
+                                lineHeight: 20,
                                 fontWeight: selected ? '700' : '500',
                               }}
                             >
                               {item.name}
                             </Text>
                             <Text
+                              numberOfLines={1}
                               style={{
                                 color: selected ? c.onSelected : c.muted,
                                 fontSize: 12,
+                                lineHeight: 16,
                               }}
                             >
                               {personBalanceSummary(
@@ -406,64 +419,39 @@ function QuickAddForm() {
                         );
                       };
                       return (
-                        <>
-                          <View style={{ gap: 10 }}>
-                            <View
-                              onLayout={(event) => setPeopleWidth(event.nativeEvent.layout.width)}
-                            >
-                              <View
-                                pointerEvents="none"
-                                accessibilityElementsHidden
-                                importantForAccessibility="no-hide-descendants"
-                                style={{
-                                  position: 'absolute',
-                                  opacity: 0,
-                                  flexDirection: 'row',
-                                  alignItems: 'flex-start',
-                                }}
-                              >
-                                {readyPeople.people.map((item) => (
-                                  <View
-                                    key={item.id}
-                                    onLayout={(event) => {
-                                      const measured = event.nativeEvent.layout.width;
-                                      setPersonWidths((old) =>
-                                        old[item.id] === measured
-                                          ? old
-                                          : { ...old, [item.id]: measured },
-                                      );
-                                    }}
-                                  >
-                                    {personChip(item)}
-                                  </View>
-                                ))}
-                              </View>
-                              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                                {visiblePeople.map(personChip)}
-                              </View>
-                            </View>
-                            {matches.length > visiblePeople.length && (
-                              <Text style={{ color: c.muted, fontSize: 12 }}>
-                                Refine search to see more
-                              </Text>
-                            )}
-                            {!matches.length && (
-                              <Text style={{ color: c.muted }}>
-                                {search
-                                  ? 'No matching people.'
-                                  : 'No saved people. Enter a name to add one.'}
-                              </Text>
-                            )}
-                            {canCreatePerson && (
-                              <FormButton
-                                label={`Add “${query.trim()}”`}
-                                variant="secondary"
-                                disabled={pending}
-                                onPress={() => void addPerson()}
-                              />
-                            )}
+                        <View style={{ gap: 10 }}>
+                          <View
+                            style={{
+                              maxHeight: peopleMaxHeight,
+                              overflow: 'hidden',
+                              flexDirection: 'row',
+                              flexWrap: 'wrap',
+                              gap: 8,
+                            }}
+                          >
+                            {matches.map(personChip)}
                           </View>
-                        </>
+                          {matches.some((item) => clippedPeople.has(item.id)) && (
+                            <Text style={{ color: c.muted, fontSize: 12 }}>
+                              Refine search to see more
+                            </Text>
+                          )}
+                          {!matches.length && (
+                            <Text style={{ color: c.muted }}>
+                              {search
+                                ? 'No matching people.'
+                                : 'No saved people. Enter a name to add one.'}
+                            </Text>
+                          )}
+                          {canCreatePerson && (
+                            <FormButton
+                              label={`Add “${query.trim()}”`}
+                              variant="secondary"
+                              disabled={pending}
+                              onPress={() => void addPerson()}
+                            />
+                          )}
+                        </View>
                       );
                     }}
                   </ChoicesSection>
