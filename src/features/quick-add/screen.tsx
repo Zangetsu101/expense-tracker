@@ -14,6 +14,7 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
+import Animated, { FadeOut, LinearTransition, ReduceMotion } from 'react-native-reanimated';
 import { epochDay } from '@/lib/database';
 import { addQuickTransaction } from '@/lib/quick-add-tags';
 import { addTransfer } from '@/lib/transfers';
@@ -27,7 +28,12 @@ import { FormButton, FormInput, JoinedChoice } from '@/components/form-controls'
 import { parseAccountId } from '@/lib/account-selection';
 import { theme } from '@/theme';
 
+const AnimatedFormButton = Animated.createAnimatedComponent(FormButton);
 const c = theme.colors;
+const layoutTransition = LinearTransition.springify()
+  .dampingRatio(2)
+  .duration(300)
+  .reduceMotion(ReduceMotion.System);
 type Mode = 'EXPENSE' | 'INCOME' | 'TRANSFER' | 'PERSON';
 type PersonAction = Extract<LendingKind, 'LEND' | 'BORROW' | 'RECEIVE_REPAYMENT' | 'REPAY'>;
 const modes = [
@@ -360,14 +366,11 @@ function QuickAddForm() {
                         const selected = item.id === personId;
                         const clipped = clippedPeople.has(item.id);
                         return (
-                          <Pressable
+                          <Animated.View
                             key={item.id}
-                            accessibilityRole="button"
-                            accessibilityLabel={item.name}
-                            accessibilityState={{ selected, disabled: pending }}
-                            accessibilityElementsHidden={clipped}
-                            importantForAccessibility={clipped ? 'no-hide-descendants' : 'auto'}
-                            disabled={pending || clipped}
+                            layout={layoutTransition}
+                            exiting={FadeOut}
+                            style={{ maxWidth: '100%' }}
                             onLayout={(event) => {
                               const hidden = event.nativeEvent.layout.y >= peopleMaxHeight;
                               setClippedPeople((old) => {
@@ -378,49 +381,59 @@ function QuickAddForm() {
                                 return next;
                               });
                             }}
-                            onPress={() => setPersonId(item.id)}
-                            style={({ pressed }) => ({
-                              paddingHorizontal: 14,
-                              paddingVertical: 8,
-                              height: personChipHeight,
-                              maxWidth: '100%',
-                              borderRadius: 14,
-                              backgroundColor: selected ? c.selected : c.surface,
-                              opacity: pending ? 0.45 : pressed ? 0.7 : 1,
-                              gap: 4,
-                            })}
                           >
-                            <Text
-                              numberOfLines={1}
-                              style={{
-                                color: c.text,
-                                fontSize: 15,
-                                lineHeight: 20,
-                                fontWeight: selected ? '700' : '500',
-                              }}
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel={item.name}
+                              accessibilityState={{ selected, disabled: pending }}
+                              accessibilityElementsHidden={clipped}
+                              importantForAccessibility={clipped ? 'no-hide-descendants' : 'auto'}
+                              disabled={pending || clipped}
+                              onPress={() => setPersonId(item.id)}
+                              style={({ pressed }) => ({
+                                paddingHorizontal: 14,
+                                paddingVertical: 8,
+                                height: personChipHeight,
+                                maxWidth: '100%',
+                                borderRadius: 14,
+                                backgroundColor: selected ? c.selected : c.surface,
+                                opacity: pending ? 0.45 : pressed ? 0.7 : 1,
+                                gap: 4,
+                              })}
                             >
-                              {item.name}
-                            </Text>
-                            <Text
-                              numberOfLines={1}
-                              style={{
-                                color: selected ? c.onSelected : c.muted,
-                                fontSize: 12,
-                                lineHeight: 16,
-                              }}
-                            >
-                              {personBalanceSummary(
-                                readyPeople.totals,
-                                item.id,
-                                account?.currencyCode ?? '',
-                              )}
-                            </Text>
-                          </Pressable>
+                              <Text
+                                numberOfLines={1}
+                                style={{
+                                  color: c.text,
+                                  fontSize: 15,
+                                  lineHeight: 20,
+                                  fontWeight: selected ? '700' : '500',
+                                }}
+                              >
+                                {item.name}
+                              </Text>
+                              <Text
+                                numberOfLines={1}
+                                style={{
+                                  color: selected ? c.onSelected : c.muted,
+                                  fontSize: 12,
+                                  lineHeight: 16,
+                                }}
+                              >
+                                {personBalanceSummary(
+                                  readyPeople.totals,
+                                  item.id,
+                                  account?.currencyCode ?? '',
+                                )}
+                              </Text>
+                            </Pressable>
+                          </Animated.View>
                         );
                       };
                       return (
                         <View style={{ gap: 10 }}>
-                          <View
+                          <Animated.View
+                            layout={layoutTransition}
                             style={{
                               maxHeight: peopleMaxHeight,
                               overflow: 'hidden',
@@ -430,12 +443,7 @@ function QuickAddForm() {
                             }}
                           >
                             {matches.map(personChip)}
-                          </View>
-                          {matches.some((item) => clippedPeople.has(item.id)) && (
-                            <Text style={{ color: c.muted, fontSize: 12 }}>
-                              Refine search to see more
-                            </Text>
-                          )}
+                          </Animated.View>
                           {!matches.length && (
                             <Text style={{ color: c.muted }}>
                               {search
@@ -444,7 +452,8 @@ function QuickAddForm() {
                             </Text>
                           )}
                           {canCreatePerson && (
-                            <FormButton
+                            <AnimatedFormButton
+                              layout={layoutTransition}
                               label={`Add “${query.trim()}”`}
                               variant="secondary"
                               disabled={pending}
