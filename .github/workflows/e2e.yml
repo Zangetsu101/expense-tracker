@@ -59,6 +59,8 @@ jobs:
           CMAKE_CXX_COMPILER_LAUNCHER: ccache
           # The default check uses the modification time of the compiler, which changes with each runner.
           CCACHE_COMPILERCHECK: '%compiler% --version'
+          # Some modules use a precompiled header. ccache does not cache those calls without this setting.
+          CCACHE_SLOPPINESS: pch_defines,time_macros
         run: pnpm android:apk:emulator
       - name: Show the ccache statistics
         run: ccache --show-stats --verbose
