@@ -1,8 +1,10 @@
 name: E2E
 
+# A pull request can read the caches of main, but not the caches of a different pull request.
+# The run on main saves the Gradle cache with the build cache, so the first run of a new pull request can use it.
 on:
   pull_request:
-    paths:
+    paths: &paths
       - src/**
       - e2e/**
       - assets/**
@@ -18,6 +20,9 @@ on:
       - scripts/android-release.gradle
       - .github/workflows/e2e.yml
       - .github/actions/setup-android-build/**
+  push:
+    branches: [main]
+    paths: *paths
   workflow_dispatch:
 
 permissions:
