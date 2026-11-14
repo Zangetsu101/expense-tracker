@@ -1,7 +1,8 @@
-import { screen, userEvent, waitFor, within } from '@testing-library/react-native';
+import { act, screen, userEvent, waitFor, within } from '@testing-library/react-native';
 import { router } from 'expo-router';
 import { listAccounts } from '@/lib/database';
-import { creditCardBills } from '@/lib/credit-cards';
+import { creditCardBills, type CardBill } from '@/lib/credit-cards';
+import { notifyDataChanged } from '@/lib/data-changes';
 import { addTransfer } from '@/lib/transfers';
 import { renderWithQueries } from '@/test/render-with-queries';
 import QuickAdd from './screen';
@@ -61,7 +62,9 @@ beforeEach(() => {
 
 test('Settle prefills Transfer and offers bill or all owed, paid from another Account', async () => {
   const user = userEvent.setup();
-  await renderWithQueries(<QuickAdd />);
+  await act(async () => {
+    await renderWithQueries(<QuickAdd />);
+  });
   expect(await screen.findByRole('radio', { name: 'Transfer' })).toBeChecked();
   expect(
     await screen.findByRole('button', { name: 'Visa, USD', selected: true }),
@@ -85,4 +88,72 @@ test('Settle prefills Transfer and offers bill or all owed, paid from another Ac
     ),
   );
   expect(router.back).toHaveBeenCalled();
+});
+
+test('bill loading leaves the draft usable and a late result respects the destination in view', async () => {
+  const user = userEvent.setup();
+  const ready = await creditCardBills();
+  const read = Promise.withResolvers<CardBill[]>();
+  jest.mocked(creditCardBills).mockReturnValueOnce(read.promise);
+  await act(async () => {
+    await renderWithQueries(<QuickAdd />);
+  });
+  expect(await screen.findByLabelText('Loading card bills')).toBeOnTheScreen();
+  await user.type(screen.getByLabelText('Note'), 'Keep my draft');
+  await user.press(
+    within(screen.getByLabelText('Transfer destination')).getByRole('button', {
+      name: 'Another bank, USD',
+    }),
+  );
+  await act(async () => read.resolve(ready));
+  await waitFor(() => expect(screen.queryByLabelText('Loading card bills')).not.toBeOnTheScreen());
+  expect(screen.queryByRole('button', { name: 'Bill · $7.00' })).not.toBeOnTheScreen();
+  expect(
+    within(screen.getByLabelText('Transfer destination')).getByRole('button', {
+      name: 'Another bank, USD',
+      selected: true,
+    }),
+  ).toBeOnTheScreen();
+  expect(screen.getByLabelText('Note')).toHaveDisplayValue('Keep my draft');
+  expect(screen.getByRole('button', { name: 'Amount' })).toHaveAccessibilityValue({ text: '7.00' });
+  await user.press(
+    within(screen.getByLabelText('Transfer destination')).getByRole('button', {
+      name: 'Visa, USD',
+    }),
+  );
+  expect(await screen.findByRole('button', { name: 'Bill · $7.00' })).toBeOnTheScreen();
+});
+
+test('retrying failed bills preserves the transaction draft and Account choices', async () => {
+  const user = userEvent.setup();
+  jest.mocked(creditCardBills).mockRejectedValueOnce(new Error('Read failed'));
+  await act(async () => {
+    await renderWithQueries(<QuickAdd />);
+  });
+  expect(await screen.findByText('Could not load card bills.')).toBeOnTheScreen();
+  await user.type(screen.getByLabelText('Note'), 'Keep through retry');
+  await user.press(screen.getByRole('button', { name: 'Retry card bills' }));
+  expect(await screen.findByRole('button', { name: 'Bill · $7.00' })).toBeOnTheScreen();
+  expect(screen.getByLabelText('Note')).toHaveDisplayValue('Keep through retry');
+  expect(screen.getByRole('button', { name: 'Amount' })).toHaveAccessibilityValue({ text: '7.00' });
+  expect(
+    within(screen.getByLabelText('Transfer destination')).getByRole('button', {
+      name: 'Visa, USD',
+      selected: true,
+    }),
+  ).toBeOnTheScreen();
+});
+
+test('a failed bill refresh keeps the cached choices and draft visible', async () => {
+  const user = userEvent.setup();
+  await act(async () => {
+    await renderWithQueries(<QuickAdd />);
+  });
+  await screen.findByRole('button', { name: 'Bill · $7.00' });
+  await user.type(screen.getByLabelText('Note'), 'Keep through refresh');
+  jest.mocked(creditCardBills).mockRejectedValueOnce(new Error('Refresh failed'));
+  await act(async () => notifyDataChanged());
+  expect(await screen.findByText('Could not load card bills.')).toBeOnTheScreen();
+  expect(screen.getByRole('button', { name: 'Bill · $7.00' })).toBeOnTheScreen();
+  expect(screen.getByLabelText('Note')).toHaveDisplayValue('Keep through refresh');
 });

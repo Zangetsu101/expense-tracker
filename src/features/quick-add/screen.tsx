@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { categoriesQuery, peopleQuery, includeCreatedPerson } from './queries.ts';
+import { categoriesQuery, peopleQuery, includeCreatedPerson, cardBillsQuery } from './queries.ts';
 import { accountsQuery } from '@/lib/account-queries';
 import { ChoicesSection, AnimatedStack, layoutTransition } from './view.tsx';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
@@ -15,7 +15,6 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import Animated, { FadeOut } from 'react-native-reanimated';
-import { creditCardBills } from '@/lib/credit-cards';
 import { formatBalance } from '@/lib/transaction-format';
 import { epochDay } from '@/lib/database';
 import { addQuickTransaction } from '@/lib/quick-add-tags';
@@ -120,11 +119,6 @@ function QuickAddForm() {
     amountMinor?: string;
   }>();
   const [mode, setMode] = useState<Mode>(params.mode === 'TRANSFER' ? 'TRANSFER' : 'EXPENSE');
-  const bills = useQuery({
-    queryKey: ['accounts', 'bills', epochDay(new Date())],
-    queryFn: () => creditCardBills(),
-    enabled: mode === 'TRANSFER',
-  });
   const [preset, setPreset] = useState(() => {
     const amount = Number(params.amountMinor);
     return Number.isSafeInteger(amount) && amount > 0 ? amount : undefined;
@@ -371,45 +365,41 @@ function QuickAddForm() {
                           disabled={pending}
                           onSelect={setToId}
                         />
-                        {bills.isError && (
-                          <>
-                            <Text accessibilityRole="alert" style={{ color: c.warning }}>
-                              Could not load card bills.
-                            </Text>
-                            <FormButton
-                              label="Retry card bills"
-                              variant="secondary"
-                              onPress={() => void bills.refetch()}
-                            />
-                          </>
-                        )}
-                        {bills.data
-                          ?.filter((bill) => bill.accountId === toId)
-                          .map((bill) => (
-                            <View
-                              key={bill.accountId}
-                              style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}
-                            >
-                              {[
-                                { label: 'Bill', amount: bill.billMinor },
-                                { label: 'All owed', amount: bill.owedMinor },
-                              ]
-                                .filter((choice) => choice.amount > 0)
-                                .map((choice) => (
-                                  <FormButton
-                                    key={choice.label}
-                                    label={`${choice.label} · ${formatBalance(choice.amount, account?.currencyCode ?? '')}`}
-                                    variant="secondary"
-                                    disabled={pending}
-                                    onPress={() => {
-                                      setPreset(choice.amount);
-                                      setAmountMinor(choice.amount);
-                                      setAmountKey((key) => key + 1);
-                                    }}
-                                  />
-                                ))}
-                            </View>
-                          ))}
+                        <ChoicesSection
+                          options={cardBillsQuery(epochDay(new Date()))}
+                          label="card bills"
+                          layout="bills"
+                        >
+                          {(bills) =>
+                            bills
+                              .filter((bill) => bill.accountId === toId)
+                              .map((bill) => (
+                                <View
+                                  key={bill.accountId}
+                                  style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}
+                                >
+                                  {[
+                                    { label: 'Bill', amount: bill.billMinor },
+                                    { label: 'All owed', amount: bill.owedMinor },
+                                  ]
+                                    .filter((choice) => choice.amount > 0)
+                                    .map((choice) => (
+                                      <FormButton
+                                        key={choice.label}
+                                        label={`${choice.label} · ${formatBalance(choice.amount, account?.currencyCode ?? '')}`}
+                                        variant="secondary"
+                                        disabled={pending}
+                                        onPress={() => {
+                                          setPreset(choice.amount);
+                                          setAmountMinor(choice.amount);
+                                          setAmountKey((key) => key + 1);
+                                        }}
+                                      />
+                                    ))}
+                                </View>
+                              ))
+                          }
+                        </ChoicesSection>
                         {!destinations.length && (
                           <Text style={{ color: c.muted }}>
                             No other {account?.currencyCode ?? 'same-currency'} account. Create one

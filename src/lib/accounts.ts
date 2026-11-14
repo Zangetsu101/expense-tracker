@@ -29,10 +29,12 @@ export function parseOpeningBalance(value: string): number {
 
 export async function listManagedAccounts(): Promise<ManagedAccount[]> {
   const db = await database();
-  const cards = await db.getAllAsync<CreditCardSettings>('SELECT * FROM credit_cards');
-  const accounts = await db.getAllAsync<ManagedAccount>(
-    'SELECT id, name, currencyCode, openingBalanceMinor, isFavorite FROM accounts ORDER BY isFavorite DESC, name COLLATE NOCASE, id',
-  );
+  const [cards, accounts] = await Promise.all([
+    db.getAllAsync<CreditCardSettings>('SELECT * FROM credit_cards'),
+    db.getAllAsync<ManagedAccount>(
+      'SELECT id, name, currencyCode, openingBalanceMinor, isFavorite FROM accounts ORDER BY isFavorite DESC, name COLLATE NOCASE, id',
+    ),
+  ]);
   return accounts.map((account) => ({
     ...account,
     card: cards.find((card) => card.accountId === account.id),
