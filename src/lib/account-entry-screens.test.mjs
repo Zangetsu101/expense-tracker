@@ -18,8 +18,8 @@ const mocks = {
   '@/components/loading': `export const Skeleton='Skeleton',Shimmer='Shimmer';`,
   'expo-symbols': `export const SymbolView='SymbolView';`,
   'expo-haptics': `export const AndroidHaptics={Keyboard_Tap:'keyboard'},ImpactFeedbackStyle={Light:'light'}; export const performAndroidHapticsAsync=async()=>{},impactAsync=async()=>{};`,
-  'react-native-reanimated': `import {useRef} from 'react'; export default {View:'AnimatedView'}; export const Easing={out:x=>x,cubic:x=>x},ReduceMotion={System:'system'}; export const useSharedValue=value=>useRef({value}).current,useAnimatedStyle=fn=>fn(),withTiming=value=>value;`,
-  'react-native': `export const BackHandler={addEventListener:(_,callback)=>{globalThis.__entryTest.backHandler=callback;return {remove(){globalThis.__entryTest.backHandler=undefined}}}}; export const Keyboard={dismiss() {globalThis.__entryTest.keyboardDismissed=true}}; export const KeyboardAvoidingView='KeyboardAvoidingView',View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator',FlatList='FlatList'; export const useWindowDimensions=()=>({width:390,height:844}); export const Alert={alert:(...args)=>globalThis.__entryTest.alert=args};`,
+  'react-native-reanimated': `import {useRef} from 'react'; export default {View:'AnimatedView',createAnimatedComponent:component=>component}; export const FadeOut={}; export const LinearTransition={springify(){return this},dampingRatio(){return this},duration(){return this},reduceMotion(){return this}}; export const Easing={out:x=>x,cubic:x=>x},ReduceMotion={System:'system'}; export const useSharedValue=value=>useRef({value}).current,useAnimatedStyle=fn=>fn(),withTiming=value=>value;`,
+  'react-native': `export const BackHandler={addEventListener:(_,callback)=>{globalThis.__entryTest.backHandler=callback;return {remove(){globalThis.__entryTest.backHandler=undefined}}}}; export const Keyboard={dismiss() {globalThis.__entryTest.keyboardDismissed=true}}; export const KeyboardAvoidingView='KeyboardAvoidingView',View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator',FlatList='FlatList'; export const useWindowDimensions=()=>({width:390,height:844,scale:1,fontScale:1}); export const Alert={alert:(...args)=>globalThis.__entryTest.alert=args};`,
   'expo-router': `import {useEffect} from 'react'; export const useFocusEffect=fn=>useEffect(fn,[fn]); export const useLocalSearchParams=()=>globalThis.__entryTest.params ?? {accountId:'1'}; export const router={back:()=>globalThis.__entryTest.back=true}; export const Stack={Screen:()=>null};`,
   'expo-router/react-navigation': `export const useHeaderHeight=()=>88; export const useNavigation=()=>({dispatch:action=>globalThis.__entryTest.dispatched=action}); export const usePreventRemove=(enabled,callback)=>{globalThis.__entryTest.removal={enabled,callback}};`,
   'react-native-safe-area-context': `export const useSafeAreaInsets=()=>({bottom:0});`,
@@ -271,6 +271,10 @@ test('Account entry screens', async (t) => {
     async () => {
       await mount(QuickAdd);
       await change('Amount', '12');
+      const keypadPanel = () =>
+        nodes('AnimatedView').find(
+          (node) => node.findAllByProps({ accessibilityLabel: 'Amount keypad' }).length > 0,
+        );
       const amountField = () =>
         nodes('Pressable').find((n) => n.props.accessibilityLabel === 'Amount');
       const key = async (label) => {
@@ -297,8 +301,8 @@ test('Account entry screens', async (t) => {
       assert.equal(amountField().props.accessibilityValue.text, '7');
       await key('Done');
       assert.equal(amountField().props.accessibilityValue.text, '7.00');
-      assert.equal(nodes('AnimatedView')[0].props.accessibilityElementsHidden, true);
-      assert.equal(nodes('AnimatedView')[0].props.pointerEvents, 'none');
+      assert.equal(keypadPanel().props.accessibilityElementsHidden, true);
+      assert.equal(keypadPanel().props.pointerEvents, 'none');
       await act(async () => amountField().props.onPress());
       await key('Clear calculation');
       await key('2');
@@ -320,8 +324,8 @@ test('Account entry screens', async (t) => {
       await key('4');
       await act(async () => assert.equal(state.backHandler(), true));
       assert.equal(amountField().props.accessibilityValue.text, '7.00');
-      assert.equal(nodes('AnimatedView')[0].props.accessibilityElementsHidden, true);
-      assert.equal(nodes('AnimatedView')[0].props.pointerEvents, 'none');
+      assert.equal(keypadPanel().props.accessibilityElementsHidden, true);
+      assert.equal(keypadPanel().props.pointerEvents, 'none');
       assert.equal(state.backHandler, undefined);
     },
   );

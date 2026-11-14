@@ -2,10 +2,19 @@ import { useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { categoriesQuery, peopleQuery, includeCreatedPerson } from './queries.ts';
 import { accountsQuery } from '@/lib/account-queries';
-import { ChoicesSection } from './view.tsx';
+import { ChoicesSection, AnimatedStack, layoutTransition } from './view.tsx';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight, useNavigation, usePreventRemove } from 'expo-router/react-navigation';
-import { Alert, KeyboardAvoidingView, Pressable, ScrollView, Text, View } from 'react-native';
+import {
+  Alert,
+  KeyboardAvoidingView,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+  useWindowDimensions,
+} from 'react-native';
+import Animated, { FadeOut } from 'react-native-reanimated';
 import { epochDay } from '@/lib/database';
 import { addQuickTransaction } from '@/lib/quick-add-tags';
 import { addTransfer } from '@/lib/transfers';
@@ -17,6 +26,7 @@ import { QuickSelectCategory } from '@/components/quick-select-category';
 import { AccountChoices, personBalanceSummary } from '@/components/entry-choices';
 import { FormButton, FormInput, JoinedChoice } from '@/components/form-controls';
 import { parseAccountId } from '@/lib/account-selection';
+import { useClippedChips } from '@/components/use-clipped-chips';
 import { theme } from '@/theme';
 
 const c = theme.colors;
@@ -119,6 +129,10 @@ function QuickAddForm() {
   }>({});
   const [personId, setPersonId] = useState<number>();
   const [query, setQuery] = useState('');
+  const { fontScale } = useWindowDimensions();
+  const personChipHeight = 20 + 36 * fontScale;
+  const peopleMaxHeight = personChipHeight * 2 + 8;
+  const peopleClipping = useClippedChips(peopleMaxHeight);
   const [action, setAction] = useState<PersonAction>('LEND');
   const [note, setNote] = useState('');
   const [tags, setTags] = useState('');
@@ -269,13 +283,13 @@ function QuickAddForm() {
             contentContainerStyle={{ padding: 22, gap: 18, paddingBottom: 48 }}
           >
             {input}
-            <View
-              style={{ gap: 18 }}
+            <AnimatedStack
               onTouchStart={() => {
                 dismissCalculator();
               }}
             >
               <JoinedChoice
+                key="mode"
                 value={mode}
                 options={modes}
                 disabled={pending}
@@ -285,13 +299,14 @@ function QuickAddForm() {
                 }}
               />
               <ChoicesSection
+                key="accounts"
                 options={accountsQuery()}
                 label="accounts"
                 layout="accounts"
                 pendingLabel={incoming ? 'Into' : 'From'}
               >
                 {(readyAccounts) => (
-                  <>
+                  <AnimatedStack gap={10}>
                     <View style={{ gap: 10 }}>
                       <Label>{`${incoming ? 'Into' : 'From'} ${account?.name ?? 'an account'}`}</Label>
                       <AccountChoices
@@ -327,11 +342,11 @@ function QuickAddForm() {
                         )}
                       </View>
                     )}
-                  </>
+                  </AnimatedStack>
                 )}
               </ChoicesSection>
               {mode === 'PERSON' && (
-                <>
+                <AnimatedStack key="person">
                   <View style={{ gap: 10 }}>
                     <Label>{`With ${person?.name ?? 'a person'}`}</Label>
                     <FormInput
@@ -343,56 +358,77 @@ function QuickAddForm() {
                     />
                   </View>
                   <ChoicesSection options={peopleQuery()} label="people" layout="people">
-                    {(readyPeople) => (
-                      <>
-                        <View style={{ gap: 10 }}>
-                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                            {matches.map((item) => {
-                              const selected = item.id === personId;
-                              return (
-                                <Pressable
-                                  key={item.id}
-                                  accessibilityRole="button"
-                                  accessibilityLabel={item.name}
-                                  accessibilityState={{ selected, disabled: pending }}
-                                  disabled={pending}
-                                  onPress={() => setPersonId(item.id)}
-                                  style={({ pressed }) => ({
-                                    paddingHorizontal: 14,
-                                    paddingVertical: 8,
-                                    minHeight: 48,
-                                    maxWidth: '100%',
-                                    borderRadius: 14,
-                                    backgroundColor: selected ? c.selected : c.surface,
-                                    opacity: pending ? 0.45 : pressed ? 0.7 : 1,
-                                    gap: 4,
-                                  })}
-                                >
-                                  <Text
-                                    style={{
-                                      color: c.text,
-                                      fontSize: 15,
-                                      fontWeight: selected ? '700' : '500',
-                                    }}
-                                  >
-                                    {item.name}
-                                  </Text>
-                                  <Text
-                                    style={{
-                                      color: selected ? c.onSelected : c.muted,
-                                      fontSize: 12,
-                                    }}
-                                  >
-                                    {personBalanceSummary(
-                                      readyPeople.totals,
-                                      item.id,
-                                      account?.currencyCode ?? '',
-                                    )}
-                                  </Text>
-                                </Pressable>
-                              );
-                            })}
-                          </View>
+                    {(readyPeople) => {
+                      const personChip = (item: (typeof people)[number]) => {
+                        const selected = item.id === personId;
+                        return (
+                          <Animated.View
+                            key={item.id}
+                            layout={layoutTransition}
+                            exiting={FadeOut}
+                            style={{ maxWidth: '100%' }}
+                            onLayout={peopleClipping.onLayout(item.id)}
+                          >
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel={item.name}
+                              accessibilityState={{ selected, disabled: pending }}
+                              {...peopleClipping.accessibilityProps(item.id, pending)}
+                              onPress={() => setPersonId(item.id)}
+                              style={({ pressed }) => ({
+                                paddingHorizontal: 14,
+                                paddingVertical: 8,
+                                height: personChipHeight,
+                                maxWidth: '100%',
+                                borderRadius: 14,
+                                backgroundColor: selected ? c.selected : c.surface,
+                                opacity: pending ? 0.45 : pressed ? 0.7 : 1,
+                                gap: 4,
+                              })}
+                            >
+                              <Text
+                                numberOfLines={1}
+                                style={{
+                                  color: c.text,
+                                  fontSize: 15,
+                                  lineHeight: 20,
+                                  fontWeight: selected ? '700' : '500',
+                                }}
+                              >
+                                {item.name}
+                              </Text>
+                              <Text
+                                numberOfLines={1}
+                                style={{
+                                  color: selected ? c.onSelected : c.muted,
+                                  fontSize: 12,
+                                  lineHeight: 16,
+                                }}
+                              >
+                                {personBalanceSummary(
+                                  readyPeople.totals,
+                                  item.id,
+                                  account?.currencyCode ?? '',
+                                )}
+                              </Text>
+                            </Pressable>
+                          </Animated.View>
+                        );
+                      };
+                      return (
+                        <AnimatedStack gap={10}>
+                          <Animated.View
+                            layout={layoutTransition}
+                            style={{
+                              maxHeight: peopleMaxHeight,
+                              overflow: 'hidden',
+                              flexDirection: 'row',
+                              flexWrap: 'wrap',
+                              gap: 8,
+                            }}
+                          >
+                            {matches.map(personChip)}
+                          </Animated.View>
                           {!matches.length && (
                             <Text style={{ color: c.muted }}>
                               {search
@@ -408,9 +444,9 @@ function QuickAddForm() {
                               onPress={() => void addPerson()}
                             />
                           )}
-                        </View>
-                      </>
-                    )}
+                        </AnimatedStack>
+                      );
+                    }}
                   </ChoicesSection>
                   <View style={{ gap: 10 }}>
                     <Label>What happened</Label>
@@ -432,7 +468,7 @@ function QuickAddForm() {
                     {account?.name ?? 'the selected account'}. Excluded from spending reports.
                     Recorded person balances may be incomplete.
                   </Text>
-                </>
+                </AnimatedStack>
               )}
               {categoryMode && (
                 <ChoicesSection
@@ -460,7 +496,7 @@ function QuickAddForm() {
                   )}
                 </ChoicesSection>
               )}
-              <View style={{ gap: 12 }}>
+              <View key="details" style={{ gap: 12 }}>
                 <Label>Note · optional</Label>
                 <FormInput
                   accessibilityLabel="Note"
@@ -480,11 +516,12 @@ function QuickAddForm() {
                 <QuickAddDate value={date} onChange={setDate} disabled={pending} />
               </View>
               {!!error && (
-                <Text selectable accessibilityRole="alert" style={{ color: c.warning }}>
+                <Text key="error" selectable accessibilityRole="alert" style={{ color: c.warning }}>
                   {error}
                 </Text>
               )}
               <FormButton
+                key="save"
                 label={saveLabel}
                 loading={pending}
                 disabled={!canSave || editing}
@@ -492,7 +529,7 @@ function QuickAddForm() {
                   if (!editing) void save();
                 }}
               />
-            </View>
+            </AnimatedStack>
           </ScrollView>
           {keypad}
         </KeyboardAvoidingView>
