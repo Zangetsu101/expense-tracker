@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { categoriesQuery, peopleQuery, includeCreatedPerson } from './queries.ts';
 import { accountsQuery } from '@/lib/account-queries';
-import { ChoicesSection } from './view.tsx';
+import { ChoicesSection, FormSection, layoutTransition } from './view.tsx';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight, useNavigation, usePreventRemove } from 'expo-router/react-navigation';
 import {
@@ -14,7 +14,7 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import Animated, { FadeOut, LinearTransition, ReduceMotion } from 'react-native-reanimated';
+import Animated, { FadeOut } from 'react-native-reanimated';
 import { epochDay } from '@/lib/database';
 import { addQuickTransaction } from '@/lib/quick-add-tags';
 import { addTransfer } from '@/lib/transfers';
@@ -28,12 +28,7 @@ import { FormButton, FormInput, JoinedChoice } from '@/components/form-controls'
 import { parseAccountId } from '@/lib/account-selection';
 import { theme } from '@/theme';
 
-const AnimatedFormButton = Animated.createAnimatedComponent(FormButton);
 const c = theme.colors;
-const layoutTransition = LinearTransition.springify()
-  .dampingRatio(2)
-  .duration(300)
-  .reduceMotion(ReduceMotion.System);
 type Mode = 'EXPENSE' | 'INCOME' | 'TRANSFER' | 'PERSON';
 type PersonAction = Extract<LendingKind, 'LEND' | 'BORROW' | 'RECEIVE_REPAYMENT' | 'REPAY'>;
 const modes = [
@@ -293,15 +288,17 @@ function QuickAddForm() {
                 dismissCalculator();
               }}
             >
-              <JoinedChoice
-                value={mode}
-                options={modes}
-                disabled={pending}
-                onChange={(value) => {
-                  setMode(value);
-                  setError('');
-                }}
-              />
+              <FormSection>
+                <JoinedChoice
+                  value={mode}
+                  options={modes}
+                  disabled={pending}
+                  onChange={(value) => {
+                    setMode(value);
+                    setError('');
+                  }}
+                />
+              </FormSection>
               <ChoicesSection
                 options={accountsQuery()}
                 label="accounts"
@@ -310,7 +307,7 @@ function QuickAddForm() {
               >
                 {(readyAccounts) => (
                   <>
-                    <View style={{ gap: 10 }}>
+                    <FormSection>
                       <Label>{`${incoming ? 'Into' : 'From'} ${account?.name ?? 'an account'}`}</Label>
                       <AccountChoices
                         accounts={readyAccounts}
@@ -327,9 +324,9 @@ function QuickAddForm() {
                           Create an account in the Accounts tab before adding a transaction.
                         </Text>
                       )}
-                    </View>
+                    </FormSection>
                     {mode === 'TRANSFER' && (
-                      <View style={{ gap: 10 }}>
+                      <FormSection>
                         <Label>{`To ${destinations.find((item) => item.id === toId)?.name ?? 'another account'}`}</Label>
                         <AccountChoices
                           accounts={destinations}
@@ -343,14 +340,14 @@ function QuickAddForm() {
                             in Accounts or choose a different source.
                           </Text>
                         )}
-                      </View>
+                      </FormSection>
                     )}
                   </>
                 )}
               </ChoicesSection>
               {mode === 'PERSON' && (
                 <>
-                  <View style={{ gap: 10 }}>
+                  <FormSection>
                     <Label>{`With ${person?.name ?? 'a person'}`}</Label>
                     <FormInput
                       accessibilityLabel="Search people"
@@ -359,7 +356,7 @@ function QuickAddForm() {
                       onChangeText={setQuery}
                       editable={!pending}
                     />
-                  </View>
+                  </FormSection>
                   <ChoicesSection options={peopleQuery()} label="people" layout="people">
                     {(readyPeople) => {
                       const personChip = (item: (typeof people)[number]) => {
@@ -452,19 +449,20 @@ function QuickAddForm() {
                             </Text>
                           )}
                           {canCreatePerson && (
-                            <AnimatedFormButton
-                              layout={layoutTransition}
-                              label={`Add “${query.trim()}”`}
-                              variant="secondary"
-                              disabled={pending}
-                              onPress={() => void addPerson()}
-                            />
+                            <FormSection>
+                              <FormButton
+                                label={`Add “${query.trim()}”`}
+                                variant="secondary"
+                                disabled={pending}
+                                onPress={() => void addPerson()}
+                              />
+                            </FormSection>
                           )}
                         </View>
                       );
                     }}
                   </ChoicesSection>
-                  <View style={{ gap: 10 }}>
+                  <FormSection>
                     <Label>What happened</Label>
                     <JoinedChoice<PersonAction>
                       value={action}
@@ -478,12 +476,14 @@ function QuickAddForm() {
                       disabled={pending}
                       onChange={setAction}
                     />
-                  </View>
-                  <Text style={{ color: c.muted }}>
-                    {incoming ? 'Money into' : 'Money out of'}{' '}
-                    {account?.name ?? 'the selected account'}. Excluded from spending reports.
-                    Recorded person balances may be incomplete.
-                  </Text>
+                  </FormSection>
+                  <FormSection>
+                    <Text style={{ color: c.muted }}>
+                      {incoming ? 'Money into' : 'Money out of'}{' '}
+                      {account?.name ?? 'the selected account'}. Excluded from spending reports.
+                      Recorded person balances may be incomplete.
+                    </Text>
+                  </FormSection>
                 </>
               )}
               {categoryMode && (
@@ -512,7 +512,7 @@ function QuickAddForm() {
                   )}
                 </ChoicesSection>
               )}
-              <Animated.View layout={layoutTransition} style={{ gap: 12 }}>
+              <FormSection gap={12}>
                 <Label>Note · optional</Label>
                 <FormInput
                   accessibilityLabel="Note"
@@ -530,20 +530,24 @@ function QuickAddForm() {
                   editable={!pending}
                 />
                 <QuickAddDate value={date} onChange={setDate} disabled={pending} />
-              </Animated.View>
+              </FormSection>
               {!!error && (
-                <Text selectable accessibilityRole="alert" style={{ color: c.warning }}>
-                  {error}
-                </Text>
+                <FormSection>
+                  <Text selectable accessibilityRole="alert" style={{ color: c.warning }}>
+                    {error}
+                  </Text>
+                </FormSection>
               )}
-              <FormButton
-                label={saveLabel}
-                loading={pending}
-                disabled={!canSave || editing}
-                onPress={() => {
-                  if (!editing) void save();
-                }}
-              />
+              <FormSection>
+                <FormButton
+                  label={saveLabel}
+                  loading={pending}
+                  disabled={!canSave || editing}
+                  onPress={() => {
+                    if (!editing) void save();
+                  }}
+                />
+              </FormSection>
             </View>
           </ScrollView>
           {keypad}

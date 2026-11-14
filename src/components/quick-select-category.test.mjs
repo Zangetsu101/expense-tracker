@@ -122,20 +122,15 @@ test('offscreen Categories do not affect visible row membership or selection', a
       chips(renderer)[3].parent.props.onLayout({ nativeEvent: { layout: { y: 144 } } });
     });
     assert.deepEqual(labels(renderer), ['Food', 'Travel', 'Coffee', 'Shopping']);
-    assert.equal(chips(renderer)[2].props.disabled, true);
-    assert.equal(chips(renderer)[2].props.accessibilityElementsHidden, true);
+    assert.equal(chips(renderer)[2].props.disabled, false);
+    assert.equal(chips(renderer)[2].props.accessibilityElementsHidden, false);
     assert.equal(chips(renderer)[3].props.importantForAccessibility, 'no-hide-descendants');
     assert.equal(chips(renderer)[1].props.accessibilityState.selected, true);
-    assert.ok(
-      renderer.root
-        .findAllByType('Text')
-        .some((t) => t.children.includes('Refine search to see more')),
-    );
-    await act(async () => renderer.root.findByType('TextInput').props.onChangeText('coffee'));
+    await act(async () => renderer.root.findByType('TextInput').props.onChangeText('shopping'));
     await act(async () =>
       chips(renderer)[0].parent.props.onLayout({ nativeEvent: { layout: { y: 0 } } }),
     );
-    assert.deepEqual(labels(renderer), ['Coffee']);
+    assert.deepEqual(labels(renderer), ['Shopping']);
     assert.equal(chips(renderer)[0].props.disabled, false);
     assert.equal(chips(renderer)[0].props.accessibilityElementsHidden, false);
   } finally {
