@@ -1,7 +1,13 @@
 import { use, useDeferredValue, useState } from 'react';
-import { useSuspenseQuery } from '@tanstack/react-query';
+import { useQuery, useSuspenseQuery } from '@tanstack/react-query';
 import { QueryBoundary } from '@/components/query-error-boundary';
-import { createAccount, setFavoriteAccount } from '@/lib/accounts';
+import {
+  createAccount,
+  reverseAmountSign,
+  updateAccount,
+  setFavoriteAccount,
+  type ManagedAccount,
+} from '@/lib/accounts';
 import { epochDay } from '@/lib/database';
 import { QueryTimeContext } from '@/lib/query-time';
 import { accountsOverviewQuery } from './queries.ts';
@@ -22,6 +28,7 @@ type Writes = {
   pending: boolean;
   favoriteError?: string;
   onAdd: () => void;
+  onEdit: (account: ManagedAccount) => void;
   onFavorite: (id: number) => void;
 };
 
@@ -37,6 +44,7 @@ function AccountsContent({ today, writes }: { today: number; writes: Writes }) {
         overview={data}
         disabled={writes.pending || isFetching}
         onFavorite={writes.onFavorite}
+        onEdit={writes.onEdit}
       />
     </>
   );
@@ -59,6 +67,10 @@ function AccountsSection({ writes }: { writes: Writes }) {
 const emptyForm: AccountForm = { name: '', currencyCode: '', openingBalance: '0' };
 
 export default function AccountsScreen() {
+  const overview = useQuery({
+    ...accountsOverviewQuery(epochDay(use(QueryTimeContext))),
+    enabled: false,
+  });
   const [form, setForm] = useState(emptyForm);
   const [sheet, setSheet] = useState(false);
   const [pending, setPending] = useState(false);
@@ -70,7 +82,14 @@ export default function AccountsScreen() {
     setPending(true);
     setFormError(undefined);
     try {
-      await createAccount(form);
+      const input = {
+        ...form,
+        openingBalance: form.isCreditCard
+          ? reverseAmountSign(form.openingBalance)
+          : form.openingBalance,
+      };
+      if (form.id) await updateAccount(form.id, input);
+      else await createAccount(input);
       setForm(emptyForm);
       setSheet(false);
     } catch (e) {
@@ -94,7 +113,24 @@ export default function AccountsScreen() {
   const writes: Writes = {
     pending,
     favoriteError,
+    onEdit: (account) => {
+      setForm({
+        id: account.id,
+        name: account.name,
+        currencyCode: account.currencyCode,
+        openingBalance: String(
+          (account.card ? -account.openingBalanceMinor : account.openingBalanceMinor) / 100,
+        ),
+        isCreditCard: !!account.card,
+        parentAccountId: account.card?.parentAccountId,
+        statementDay: account.card?.statementDay,
+        dueDay: account.card?.dueDay,
+      });
+      setFormError(undefined);
+      setSheet(true);
+    },
     onAdd: () => {
+      setForm(emptyForm);
       setFormError(undefined);
       setSheet(true);
     },
@@ -106,6 +142,7 @@ export default function AccountsScreen() {
       sheet={
         sheet && (
           <AddAccountSheet
+            accounts={overview.data?.accounts ?? []}
             form={form}
             onChange={setForm}
             pending={pending}

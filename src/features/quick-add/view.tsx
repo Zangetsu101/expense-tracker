@@ -12,7 +12,7 @@ import { FormButton } from '@/components/form-controls';
 import { theme } from '@/theme';
 import { CategorySearchInput } from '@/components/quick-select-category';
 
-type ChoicesLayout = 'accounts' | 'categories' | 'people';
+type ChoicesLayout = 'accounts' | 'categories' | 'people' | 'bills';
 
 export const layoutTransition = LinearTransition.springify()
   .dampingRatio(2)
@@ -71,7 +71,12 @@ function ChoicesSkeleton({
 }) {
   return (
     <View accessibilityLabel={`Loading ${label}`} style={{ gap: 10 }}>
-      {layout === 'categories' ? (
+      {layout === 'bills' ? (
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <Skeleton width={130} height={48} />
+          <Skeleton width={130} height={48} />
+        </View>
+      ) : layout === 'categories' ? (
         <>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <Text style={{ color: theme.colors.text }}>Selected:</Text>

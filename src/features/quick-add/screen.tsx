@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { categoriesQuery, peopleQuery, includeCreatedPerson } from './queries.ts';
+import { categoriesQuery, peopleQuery, includeCreatedPerson, cardBillsQuery } from './queries.ts';
 import { accountsQuery } from '@/lib/account-queries';
 import { ChoicesSection, AnimatedStack, layoutTransition } from './view.tsx';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
@@ -15,6 +15,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import Animated, { FadeOut } from 'react-native-reanimated';
+import { formatBalance } from '@/lib/transaction-format';
 import { epochDay } from '@/lib/database';
 import { addQuickTransaction } from '@/lib/quick-add-tags';
 import { addTransfer } from '@/lib/transfers';
@@ -111,18 +112,30 @@ export default function QuickAdd() {
 function QuickAddForm() {
   const client = useQueryClient();
   const accountsRead = useQuery({ ...accountsQuery(), enabled: false });
-  const [mode, setMode] = useState<Mode>('EXPENSE');
+  const params = useLocalSearchParams<{
+    accountId?: string;
+    mode?: string;
+    toId?: string;
+    amountMinor?: string;
+  }>();
+  const [mode, setMode] = useState<Mode>(params.mode === 'TRANSFER' ? 'TRANSFER' : 'EXPENSE');
+  const [preset, setPreset] = useState(() => {
+    const amount = Number(params.amountMinor);
+    return Number.isSafeInteger(amount) && amount > 0 ? amount : undefined;
+  });
+  const [amountKey, setAmountKey] = useState(0);
   const categoryMode = mode === 'EXPENSE' || mode === 'INCOME' ? mode : undefined;
   const categoryRead = useQuery({ ...categoriesQuery(categoryMode ?? 'EXPENSE'), enabled: false });
   const peopleRead = useQuery({ ...peopleQuery(), enabled: false });
   const accounts = accountsRead.data ?? [];
   const categories = categoryRead.data ?? [];
   const people = peopleRead.data?.people ?? [];
-  const params = useLocalSearchParams<{ accountId?: string }>();
   const headerHeight = useHeaderHeight();
-  const [amountMinor, setAmountMinor] = useState<number>();
+  const [amountMinor, setAmountMinor] = useState<number | undefined>(preset);
   const [accountId, setAccountId] = useState(() => parseAccountId(params.accountId));
-  const [toId, setToId] = useState<number>();
+  const [toId, setToId] = useState<number | undefined>(
+    () => parseAccountId(params.toId) ?? undefined,
+  );
   const [categoryIds, setCategoryIds] = useState<{
     EXPENSE?: number;
     INCOME?: number;
@@ -260,7 +273,14 @@ function QuickAddForm() {
   }
 
   return (
-    <AmountInput currency={account?.currencyCode} disabled={pending} onChange={setAmountMinor}>
+    <AmountInput
+      key={amountKey}
+      initialAmount={preset ? (preset / 100).toFixed(2) : ''}
+      initiallyOpen={!preset}
+      currency={account?.currencyCode}
+      disabled={pending}
+      onChange={setAmountMinor}
+    >
       {({ input, keypad, dismiss: dismissCalculator, editing }) => (
         <KeyboardAvoidingView
           style={{ flex: 1 }}
@@ -307,7 +327,10 @@ function QuickAddForm() {
               >
                 {(readyAccounts) => (
                   <AnimatedStack gap={10}>
-                    <View style={{ gap: 10 }}>
+                    <View
+                      accessibilityLabel={incoming ? 'Destination account' : 'Source account'}
+                      style={{ gap: 10 }}
+                    >
                       <Label>{`${incoming ? 'Into' : 'From'} ${account?.name ?? 'an account'}`}</Label>
                       <AccountChoices
                         accounts={readyAccounts}
@@ -315,7 +338,15 @@ function QuickAddForm() {
                         disabled={pending}
                         onSelect={(id) => {
                           setAccountId(id);
-                          setToId(undefined);
+                          setToId((current) => {
+                            const source = readyAccounts.find((item) => item.id === id);
+                            const destination = readyAccounts.find((item) => item.id === current);
+                            return destination &&
+                              destination.id !== id &&
+                              destination.currencyCode === source?.currencyCode
+                              ? current
+                              : undefined;
+                          });
                           setError('');
                         }}
                       />
@@ -326,7 +357,7 @@ function QuickAddForm() {
                       )}
                     </View>
                     {mode === 'TRANSFER' && (
-                      <View style={{ gap: 10 }}>
+                      <View accessibilityLabel="Transfer destination" style={{ gap: 10 }}>
                         <Label>{`To ${destinations.find((item) => item.id === toId)?.name ?? 'another account'}`}</Label>
                         <AccountChoices
                           accounts={destinations}
@@ -334,6 +365,41 @@ function QuickAddForm() {
                           disabled={pending}
                           onSelect={setToId}
                         />
+                        <ChoicesSection
+                          options={cardBillsQuery(epochDay(new Date()))}
+                          label="card bills"
+                          layout="bills"
+                        >
+                          {(bills) =>
+                            bills
+                              .filter((bill) => bill.accountId === toId)
+                              .map((bill) => (
+                                <View
+                                  key={bill.accountId}
+                                  style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}
+                                >
+                                  {[
+                                    { label: 'Bill', amount: bill.billMinor },
+                                    { label: 'All owed', amount: bill.owedMinor },
+                                  ]
+                                    .filter((choice) => choice.amount > 0)
+                                    .map((choice) => (
+                                      <FormButton
+                                        key={choice.label}
+                                        label={`${choice.label} · ${formatBalance(choice.amount, account?.currencyCode ?? '')}`}
+                                        variant="secondary"
+                                        disabled={pending}
+                                        onPress={() => {
+                                          setPreset(choice.amount);
+                                          setAmountMinor(choice.amount);
+                                          setAmountKey((key) => key + 1);
+                                        }}
+                                      />
+                                    ))}
+                                </View>
+                              ))
+                          }
+                        </ChoicesSection>
                         {!destinations.length && (
                           <Text style={{ color: c.muted }}>
                             No other {account?.currencyCode ?? 'same-currency'} account. Create one

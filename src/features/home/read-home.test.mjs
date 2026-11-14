@@ -266,3 +266,31 @@ test('Pace sums reportable Expenses for each Currency in three windows', async (
     { currencyCode: 'USD', spentMinor: 7, sameMinor: 0, previousMinor: 0 },
   ]);
 });
+
+test('the deck derives card bills from both Transfer legs and excludes future card purchases', async () => {
+  sqlite
+    .prepare(
+      'INSERT INTO accounts (id, name, currencyCode, openingBalanceMinor) VALUES (999, ?, ?, ?)',
+    )
+    .run('Visa', 'BDT', -1000);
+  sqlite
+    .prepare(
+      'INSERT INTO credit_cards (accountId, parentAccountId, statementDay, dueDay) VALUES (999, 1, 20, 5)',
+    )
+    .run();
+  add(100, 'EXPENSE', 250, day(2025, 1, 20), 999);
+  add(101, 'EXPENSE', 300, day(2025, 1, 21), 999);
+  add(102, 'TRANSFER', 500, day(2025, 1, 22), 1, 0, 999);
+  add(103, 'EXPENSE', 900, day(2025, 1, 25), 999);
+  const visa = (await homeDeckData(day(2025, 1, 23))).accounts.find((a) => a.id === 999);
+  assert.equal(visa.balanceMinor, -1050);
+  assert.equal(visa.bill.billMinor, 750);
+  assert.equal(visa.bill.unbilledMinor, 300);
+  assert.equal(visa.bill.parentAccountId, 1);
+  assert.equal(visa.bill.dueDate, day(2025, 2, 5));
+  sqlite.prepare('UPDATE transactions SET amountMinor = 150 WHERE id = 100').run();
+  assert.equal(
+    (await homeDeckData(day(2025, 1, 23))).accounts.find((a) => a.id === 999).bill.billMinor,
+    650,
+  );
+});

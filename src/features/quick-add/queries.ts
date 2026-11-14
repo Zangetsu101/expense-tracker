@@ -1,9 +1,17 @@
+import { creditCardBills } from '@/lib/credit-cards';
 import { queryOptions, type QueryClient } from '@tanstack/react-query';
 import { listCategoriesByRecentUse, type CategoryType } from '@/lib/categories';
 import { listPeople, listLendingTotals, type Person } from '@/lib/lending';
 import { listCategoryEvidence } from '@/lib/category-prediction-history';
 
 const quickAddKey = ['quick-add'] as const;
+
+export function cardBillsQuery(today: number) {
+  return queryOptions({
+    queryKey: ['accounts', 'bills', today],
+    queryFn: () => creditCardBills(today),
+  });
+}
 
 export function categoryEvidenceQuery(type: 'EXPENSE' | 'INCOME', currency: string) {
   return queryOptions({
