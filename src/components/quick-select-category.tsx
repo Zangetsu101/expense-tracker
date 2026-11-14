@@ -1,6 +1,14 @@
 import { theme } from '@/theme';
 import { useState } from 'react';
-import { Pressable, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import {
+  Pressable,
+  Text,
+  TextInput,
+  View,
+  useWindowDimensions,
+  type LayoutChangeEvent,
+  type PressableProps,
+} from 'react-native';
 import Animated, { FadeOut, LinearTransition, ReduceMotion } from 'react-native-reanimated';
 import { useClippedChips } from './use-clipped-chips';
 import type { ManagedCategory } from '@/lib/categories';
@@ -41,6 +49,54 @@ export function CategorySearchInput({
   );
 }
 
+function CategoryChip({
+  label,
+  selected,
+  height,
+  onLayout,
+  accessibilityProps,
+  onPress,
+}: {
+  label: string;
+  selected: boolean;
+  height: number;
+  onLayout: (event: LayoutChangeEvent) => void;
+  accessibilityProps: Pick<
+    PressableProps,
+    'disabled' | 'accessibilityElementsHidden' | 'importantForAccessibility'
+  >;
+  onPress: () => void;
+}) {
+  return (
+    <Animated.View
+      layout={layoutTransition}
+      exiting={FadeOut}
+      style={{ maxWidth: '100%' }}
+      onLayout={onLayout}
+    >
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        accessibilityState={{ selected, disabled: accessibilityProps.disabled ?? false }}
+        {...accessibilityProps}
+        onPress={onPress}
+        style={{
+          paddingHorizontal: 13,
+          paddingVertical: 10,
+          borderRadius: 12,
+          maxWidth: '100%',
+          height,
+          backgroundColor: selected ? theme.colors.selected : '#29343a',
+        }}
+      >
+        <Text numberOfLines={1} style={{ color: ink, lineHeight: 20 }}>
+          {label}
+        </Text>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
 export function QuickSelectCategory({
   categories,
   orderedIds,
@@ -73,37 +129,6 @@ export function QuickSelectCategory({
       (item): item is ManagedCategory =>
         !!item && path(item).toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()),
     );
-  const chip = (category: ManagedCategory) => {
-    return (
-      <Animated.View
-        key={category.id}
-        layout={layoutTransition}
-        exiting={FadeOut}
-        style={{ maxWidth: '100%' }}
-        onLayout={clipping.onLayout(category.id)}
-      >
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={path(category)}
-          accessibilityState={{ selected: activeId === category.id, disabled }}
-          {...clipping.accessibilityProps(category.id, disabled)}
-          onPress={() => onSelect(category.id)}
-          style={{
-            paddingHorizontal: 13,
-            paddingVertical: 10,
-            borderRadius: 12,
-            maxWidth: '100%',
-            height: chipHeight,
-            backgroundColor: activeId === category.id ? theme.colors.selected : '#29343a',
-          }}
-        >
-          <Text numberOfLines={1} style={{ color: ink, lineHeight: 20 }}>
-            {path(category)}
-          </Text>
-        </Pressable>
-      </Animated.View>
-    );
-  };
   return (
     <View style={{ gap: 10 }}>
       <Text selectable accessibilityLiveRegion="polite" style={{ color: ink }}>
@@ -121,7 +146,17 @@ export function QuickSelectCategory({
             gap: 8,
           }}
         >
-          {matches.map(chip)}
+          {matches.map((category) => (
+            <CategoryChip
+              key={category.id}
+              label={path(category)}
+              selected={activeId === category.id}
+              height={chipHeight}
+              onLayout={clipping.onLayout(category.id)}
+              accessibilityProps={clipping.accessibilityProps(category.id, disabled)}
+              onPress={() => onSelect(category.id)}
+            />
+          ))}
         </Animated.View>
         {matches.length === 0 && (
           <Text style={{ color: muted, padding: 12 }}>No matching categories</Text>
