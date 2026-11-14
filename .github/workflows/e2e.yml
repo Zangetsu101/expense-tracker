@@ -42,8 +42,26 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: ./.github/actions/setup-android-build
+      - name: Install ccache
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ccache
+      # The Gradle build cache cannot hold the output of the C++ tasks. ccache holds the compiled objects.
+      # The C++ sources come from node_modules, so the key uses the lockfile.
+      - uses: actions/cache@v6.1.0
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ runner.os }}-${{ runner.arch }}-v1-${{ hashFiles('pnpm-lock.yaml', 'app.json', 'plugins/**') }}
+          restore-keys: |
+            ccache-${{ runner.os }}-${{ runner.arch }}-v1-
       - name: Build isolated x86_64 APK with bundled JavaScript
+        env:
+          # CMake reads these variables and starts each compiler through ccache.
+          CMAKE_C_COMPILER_LAUNCHER: ccache
+          CMAKE_CXX_COMPILER_LAUNCHER: ccache
+          # The default check uses the modification time of the compiler, which changes with each runner.
+          CCACHE_COMPILERCHECK: '%compiler% --version'
         run: pnpm android:apk:emulator
+      - name: Show the ccache statistics
+        run: ccache --show-stats
       - name: Install Maestro
         env:
           GH_TOKEN: ${{ github.token }}
