@@ -14,6 +14,8 @@ Single-context repo: read the root glossary and relevant ADRs. See `docs/agents/
 
 For test changes and reviews, read `docs/testing.md`.
 
+For emulator or physical-device walkthroughs, read `docs/device-testing.md`.
+
 ### Scratch folder
 
 `.scratch/` holds local notes, specs and temporary scripts. Git ignores it, but `rg` searches it.
