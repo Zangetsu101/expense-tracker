@@ -318,7 +318,10 @@ function QuickAddForm() {
               >
                 {(readyAccounts) => (
                   <>
-                    <View style={{ gap: 10 }}>
+                    <View
+                      accessibilityLabel={incoming ? 'Destination account' : 'Source account'}
+                      style={{ gap: 10 }}
+                    >
                       <Label>{`${incoming ? 'Into' : 'From'} ${account?.name ?? 'an account'}`}</Label>
                       <AccountChoices
                         accounts={readyAccounts}
@@ -345,7 +348,7 @@ function QuickAddForm() {
                       )}
                     </View>
                     {mode === 'TRANSFER' && (
-                      <View style={{ gap: 10 }}>
+                      <View accessibilityLabel="Transfer destination" style={{ gap: 10 }}>
                         <Label>{`To ${destinations.find((item) => item.id === toId)?.name ?? 'another account'}`}</Label>
                         <AccountChoices
                           accounts={destinations}

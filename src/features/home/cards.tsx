@@ -7,11 +7,11 @@ import { Skeleton } from '@/components/loading';
 import { RollingNumber } from '@/components/motion';
 import { currencySymbol } from '@/lib/currency';
 import { formatActivityDay, formatBalance } from '@/lib/transaction-format';
-import type { DisplayRate } from '@/lib/display-rate';
+import { validDisplayRate, type DisplayRate } from '@/lib/display-rate';
 import { theme } from '@/theme';
 import { homeBalances } from './balances.ts';
 import { pageDots, type DeckAccount, type DeckCard } from './deck.ts';
-import { paceSummary } from './pace.ts';
+import { convertTo, paceSummary } from './pace.ts';
 import { periodKey, shortDay, type HomePeriod, type PeriodSetting } from './period.ts';
 import { homePaceQuery, homeTrendQuery } from './queries.ts';
 import { TrendChart } from './trend-chart.tsx';
@@ -155,6 +155,7 @@ export function HomeCard({
       ) : (
         <>
           <BillTotal
+            currency={account?.currencyCode ?? mainCurrency}
             accounts={accounts.filter(
               (a) => a.bill && (account === null || a.bill.parentAccountId === account.id),
             )}
@@ -207,18 +208,33 @@ function CreditCardBody({ account, onSettle }: { account: DeckAccount; onSettle:
   );
 }
 
-function BillTotal({ accounts, context }: { accounts: DeckAccount[]; context: CardContext }) {
+function BillTotal({
+  accounts,
+  context,
+  currency,
+}: {
+  accounts: DeckAccount[];
+  context: CardContext;
+  currency: string;
+}) {
   const bills = accounts.filter((a) => a.bill!.billMinor > 0);
   if (!bills.length) return null;
-  const summary = paceSummary({
-    balances: bills.map((a) => ({ currencyCode: a.currencyCode, balanceMinor: a.bill!.billMinor })),
-    pace: [],
-    rate: context.displayRate,
-    mainCurrency: context.mainCurrency,
-  });
-  const total = summary.total
-    ? `${summary.rate ? '≈ ' : ''}${formatBalance(summary.total.amountMinor, summary.total.currencyCode)}`
-    : summary.parts.map((p) => formatBalance(p.balanceMinor, p.currencyCode)).join(' · ');
+  const parts = homeBalances(
+    bills.map((a) => ({ id: a.id, currencyCode: a.currencyCode, balanceMinor: a.bill!.billMinor })),
+    null,
+  );
+  const rate =
+    context.displayRate && validDisplayRate(context.displayRate) ? context.displayRate : null;
+  const converted = convertTo(
+    parts.map((part) => ({ currencyCode: part.currencyCode, amountMinor: part.balanceMinor })),
+    rate,
+    currency,
+  );
+  const approximate = converted !== null && parts.some((part) => part.currencyCode !== currency);
+  const total =
+    converted !== null
+      ? `${approximate ? '≈ ' : ''}${formatBalance(converted, currency)}`
+      : parts.map((part) => formatBalance(part.balanceMinor, part.currencyCode)).join(' · ');
   const due = bills
     .flatMap((a) => (a.bill!.dueDate === null ? [] : [a.bill!.dueDate!]))
     .sort((a, b) => a - b)[0];

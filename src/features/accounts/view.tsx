@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { ManagedAccount } from '@/lib/accounts';
+import { reverseAmountSign, type ManagedAccount } from '@/lib/accounts';
 import { countLabel, formatBalance } from '@/lib/transaction-format';
 import { AppSheet } from '@/components/app-sheet';
 import { FormButton, FormInput, JoinedChoice } from '@/components/form-controls';
@@ -329,16 +329,13 @@ export function AddAccountSheet({
           disabled={pending}
           onChange={(value) => {
             if ((value === 'CARD') === !!form.isCreditCard) return;
-            const amount = form.openingBalance.trim();
             onChange({
               ...form,
               isCreditCard: value === 'CARD',
               parentAccountId: null,
               openingBalance: form.id
-                ? amount.startsWith('-')
-                  ? amount.slice(1)
-                  : `-${amount.replace(/^\+/, '')}`
-                : amount,
+                ? reverseAmountSign(form.openingBalance)
+                : form.openingBalance,
             });
           }}
         />

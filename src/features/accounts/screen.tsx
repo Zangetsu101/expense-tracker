@@ -3,6 +3,7 @@ import { useQuery, useSuspenseQuery } from '@tanstack/react-query';
 import { QueryBoundary } from '@/components/query-error-boundary';
 import {
   createAccount,
+  reverseAmountSign,
   updateAccount,
   setFavoriteAccount,
   type ManagedAccount,
@@ -84,9 +85,7 @@ export default function AccountsScreen() {
       const input = {
         ...form,
         openingBalance: form.isCreditCard
-          ? form.openingBalance.trim().startsWith('-')
-            ? form.openingBalance.trim().slice(1)
-            : `-${form.openingBalance.trim().replace(/^\+/, '')}`
+          ? reverseAmountSign(form.openingBalance)
           : form.openingBalance,
       };
       if (form.id) await updateAccount(form.id, input);

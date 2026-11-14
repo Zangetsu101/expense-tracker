@@ -11,6 +11,11 @@ export type ManagedAccount = {
   card?: CreditCardSettings;
 };
 
+export function reverseAmountSign(value: string): string {
+  const amount = value.trim();
+  return amount.startsWith('-') ? amount.slice(1) : `-${amount.replace(/^\+/, '')}`;
+}
+
 export function parseOpeningBalance(value: string): number {
   const text = value.trim();
   if (!/^[+-]?(?:\d+)(?:\.\d{1,2})?$/.test(text))

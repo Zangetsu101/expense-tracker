@@ -22,7 +22,6 @@ function monthDay(year: number, month: number, day: number) {
   return epochDay(new Date(year, month, Math.min(day, last)));
 }
 
-/** Statement-day purchases are included; later credits pay down that statement first. */
 export function calculateCardBill(
   settings: CreditCardSettings,
   openingBalanceMinor: number,

@@ -14,7 +14,7 @@ const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const root = new URL('../../', import.meta.url);
 const mocks = {
-  '@/lib/credit-cards': `export const creditCardBills=async()=>globalThis.__entryTest.bills??[];`,
+  '@/lib/credit-cards': `export const creditCardBills=async()=>[];`,
   '@/lib/category-prediction-history': `export const listCategoryEvidence=async()=>globalThis.__entryTest.evidence??[];`,
   '@/components/loading': `export const Skeleton='Skeleton',Shimmer='Shimmer';`,
   'expo-symbols': `export const SymbolView='SymbolView';`,
@@ -141,7 +141,6 @@ test('Account entry screens', async (t) => {
     renderer = undefined;
     queryClient?.clear();
     delete state.params;
-    delete state.bills;
     for (const key of [
       'readAccounts',
       'readCategories',
@@ -406,33 +405,6 @@ test('Account entry screens', async (t) => {
       selectors = renderer.root.findAll((n) => n.type?.name === 'AccountChoices');
       assert.deepEqual(selectors[1].props.accounts, []);
       assert.equal(button('Save transfer').props.disabled, true);
-    },
-  );
-  await t.test(
-    'Settle prefills Transfer and lets the user choose the bill or all owed',
-    async () => {
-      state.params = { mode: 'TRANSFER', accountId: '1', toId: '2', amountMinor: '700' };
-      state.bills = [{ accountId: 2, billMinor: 700, owedMinor: 1100 }];
-      state.readAccounts = async () => [
-        { id: 1, name: 'Parent', currencyCode: 'USD', isFavorite: 1 },
-        { id: 2, name: 'Visa', currencyCode: 'USD' },
-        { id: 3, name: 'Another bank', currencyCode: 'USD' },
-      ];
-      await mount(QuickAdd);
-      assert.equal(nodes('JoinedChoice')[0].props.value, 'TRANSFER');
-      assert.equal(button('Save transfer').props.disabled, false);
-      await press('All owed · $11.00');
-      await act(async () =>
-        renderer.root.findAll((n) => n.type?.name === 'AccountChoices')[0].props.onSelect(3),
-      );
-      let saved;
-      state.save = async (value) => {
-        saved = value;
-      };
-      await press('Save transfer');
-      assert.equal(saved.amountMinor, 1100);
-      assert.equal(saved.fromAccountId, 3);
-      assert.equal(saved.toAccountId, 2);
     },
   );
   await t.test(

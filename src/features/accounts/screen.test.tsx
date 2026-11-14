@@ -36,6 +36,8 @@ jest.mock('@/components/app-sheet', () => {
   };
 });
 jest.mock('@/lib/accounts', () => ({
+  reverseAmountSign:
+    jest.requireActual<typeof import('@/lib/accounts')>('@/lib/accounts').reverseAmountSign,
   listManagedAccounts: jest.fn(),
   createAccount: jest.fn(),
   updateAccount: jest.fn(),

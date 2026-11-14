@@ -153,7 +153,7 @@ function Home({ reset }: { reset: () => void }) {
       />
       {sheet === 'bills' && (
         <AppSheet pending={false} onDismiss={() => setSheet(null)}>
-          <ScrollView style={{ width, maxHeight: 500 }}>
+          <ScrollView accessibilityLabel="Bills to settle list" style={{ width, maxHeight: 500 }}>
             <Bills accounts={billAccounts} onSettle={settle} />
           </ScrollView>
         </AppSheet>
