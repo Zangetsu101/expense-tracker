@@ -9,7 +9,7 @@ import {
   type LayoutChangeEvent,
   type PressableProps,
 } from 'react-native';
-import Animated, { FadeOut, LinearTransition, ReduceMotion } from 'react-native-reanimated';
+import Animated, { LinearTransition, ReduceMotion } from 'react-native-reanimated';
 import { useClippedChips } from './use-clipped-chips';
 import type { ManagedCategory } from '@/lib/categories';
 
@@ -68,12 +68,7 @@ function CategoryChip({
   onPress: () => void;
 }) {
   return (
-    <Animated.View
-      layout={layoutTransition}
-      exiting={FadeOut}
-      style={{ maxWidth: '100%' }}
-      onLayout={onLayout}
-    >
+    <Animated.View layout={layoutTransition} style={{ maxWidth: '100%' }} onLayout={onLayout}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={label}

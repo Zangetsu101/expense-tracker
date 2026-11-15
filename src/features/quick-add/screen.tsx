@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { categoriesQuery, peopleQuery, includeCreatedPerson, cardBillsQuery } from './queries.ts';
 import { accountsQuery } from '@/lib/account-queries';
-import { ChoicesSection, AnimatedStack, layoutTransition } from './view.tsx';
+import { ChoicesSection, layoutTransition } from './view.tsx';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight, useNavigation, usePreventRemove } from 'expo-router/react-navigation';
 import {
@@ -14,7 +14,7 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import Animated, { FadeOut } from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
 import { formatBalance } from '@/lib/transaction-format';
 import { epochDay } from '@/lib/database';
 import { addQuickTransaction } from '@/lib/quick-add-tags';
@@ -30,6 +30,7 @@ import { parseAccountId } from '@/lib/account-selection';
 import { useClippedChips } from '@/components/use-clipped-chips';
 import { theme } from '@/theme';
 
+const AnimatedFormButton = Animated.createAnimatedComponent(FormButton);
 const c = theme.colors;
 type Mode = 'EXPENSE' | 'INCOME' | 'TRANSFER' | 'PERSON';
 type PersonAction = Extract<LendingKind, 'LEND' | 'BORROW' | 'RECEIVE_REPAYMENT' | 'REPAY'>;
@@ -303,7 +304,8 @@ function QuickAddForm() {
             contentContainerStyle={{ padding: 22, gap: 18, paddingBottom: 48 }}
           >
             {input}
-            <AnimatedStack
+            <View
+              style={{ gap: 18 }}
               onTouchStart={() => {
                 dismissCalculator();
               }}
@@ -326,7 +328,7 @@ function QuickAddForm() {
                 pendingLabel={incoming ? 'Into' : 'From'}
               >
                 {(readyAccounts) => (
-                  <AnimatedStack gap={10}>
+                  <View style={{ gap: 10 }}>
                     <View
                       accessibilityLabel={incoming ? 'Destination account' : 'Source account'}
                       style={{ gap: 10 }}
@@ -408,11 +410,11 @@ function QuickAddForm() {
                         )}
                       </View>
                     )}
-                  </AnimatedStack>
+                  </View>
                 )}
               </ChoicesSection>
               {mode === 'PERSON' && (
-                <AnimatedStack key="person">
+                <View key="person" style={{ gap: 18 }}>
                   <View style={{ gap: 10 }}>
                     <Label>{`With ${person?.name ?? 'a person'}`}</Label>
                     <FormInput
@@ -431,7 +433,6 @@ function QuickAddForm() {
                           <Animated.View
                             key={item.id}
                             layout={layoutTransition}
-                            exiting={FadeOut}
                             style={{ maxWidth: '100%' }}
                             onLayout={peopleClipping.onLayout(item.id)}
                           >
@@ -482,7 +483,7 @@ function QuickAddForm() {
                         );
                       };
                       return (
-                        <AnimatedStack gap={10}>
+                        <View style={{ gap: 10 }}>
                           <Animated.View
                             layout={layoutTransition}
                             style={{
@@ -503,14 +504,15 @@ function QuickAddForm() {
                             </Text>
                           )}
                           {canCreatePerson && (
-                            <FormButton
+                            <AnimatedFormButton
+                              layout={layoutTransition}
                               label={`Add “${query.trim()}”`}
                               variant="secondary"
                               disabled={pending}
                               onPress={() => void addPerson()}
                             />
                           )}
-                        </AnimatedStack>
+                        </View>
                       );
                     }}
                   </ChoicesSection>
@@ -534,7 +536,7 @@ function QuickAddForm() {
                     {account?.name ?? 'the selected account'}. Excluded from spending reports.
                     Recorded person balances may be incomplete.
                   </Text>
-                </AnimatedStack>
+                </View>
               )}
               {categoryMode && (
                 <ChoicesSection
@@ -562,7 +564,7 @@ function QuickAddForm() {
                   )}
                 </ChoicesSection>
               )}
-              <View key="details" style={{ gap: 12 }}>
+              <Animated.View key="details" style={{ gap: 12 }}>
                 <Label>Note · optional</Label>
                 <FormInput
                   accessibilityLabel="Note"
@@ -580,7 +582,7 @@ function QuickAddForm() {
                   editable={!pending}
                 />
                 <QuickAddDate value={date} onChange={setDate} disabled={pending} />
-              </View>
+              </Animated.View>
               {!!error && (
                 <Text key="error" selectable accessibilityRole="alert" style={{ color: c.warning }}>
                   {error}
@@ -595,7 +597,7 @@ function QuickAddForm() {
                   if (!editing) void save();
                 }}
               />
-            </AnimatedStack>
+            </View>
           </ScrollView>
           {keypad}
         </KeyboardAvoidingView>
