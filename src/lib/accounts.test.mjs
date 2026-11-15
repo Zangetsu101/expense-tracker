@@ -134,7 +134,7 @@ test('Account cache notification follows commit and excludes failed writes', asy
   }
 });
 
-test('cards keep same-currency non-card parents; imported Accounts can be renamed and converted', async () => {
+test('cards keep non-card parents across Currencies; imported Accounts can be renamed and converted', async () => {
   await createAccount({ name: 'Card parent', currencyCode: 'USD', openingBalance: '100' });
   const parent = (await listManagedAccounts()).find((a) => a.name === 'Card parent');
   await createAccount({
@@ -158,16 +158,13 @@ test('cards keep same-currency non-card parents; imported Accounts can be rename
     }),
     /Change the cards/,
   );
-  await assert.rejects(
-    createAccount({
-      name: 'Wrong currency',
-      currencyCode: 'BDT',
-      openingBalance: '0',
-      isCreditCard: true,
-      parentAccountId: parent.id,
-    }),
-    /same Currency/,
-  );
+  await createAccount({
+    name: 'Different Currency',
+    currencyCode: 'BDT',
+    openingBalance: '0',
+    isCreditCard: true,
+    parentAccountId: parent.id,
+  });
   await assert.rejects(
     createAccount({
       name: 'Card parent cycle',
@@ -176,7 +173,7 @@ test('cards keep same-currency non-card parents; imported Accounts can be rename
       isCreditCard: true,
       parentAccountId: card.id,
     }),
-    /same Currency/,
+    /non-card Account/,
   );
   await assert.rejects(
     createAccount({

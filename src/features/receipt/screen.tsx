@@ -4,7 +4,7 @@ import { Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight, useNavigation, usePreventRemove } from 'expo-router/react-navigation';
 import { Alert, BackHandler, KeyboardAvoidingView, Pressable, Text, View } from 'react-native';
 import { TransactionReceipt, TransferReceipt } from '@/components/transaction-receipt';
-import { TransferFormSection, type TransferDraft } from '@/features/transfer';
+import { TransferFormSection, type TransferDraft } from './transfer-edit';
 import { dateFromEpochDay, epochDay } from '@/lib/database';
 import type { LendingResult } from '@/lib/lending';
 import { formatLineItemAmount } from '@/lib/line-item-amount';
@@ -267,7 +267,10 @@ function EditTransferScreen({
   const [initial] = useState(() => ({
     fromId: transfer.fromAccountId,
     toId: transfer.toAccountId,
-    amount: formatLineItemAmount(transfer.amountMinor),
+    amountMinor: transfer.amountMinor,
+    receivedAmountMinor:
+      transfer.receivedAmountMinor ??
+      (transfer.currencyCode !== transfer.destinationCurrencyCode ? transfer.amountMinor : null),
     note: transfer.note ?? '',
     date: dateFromEpochDay(transfer.date),
   }));
@@ -275,12 +278,20 @@ function EditTransferScreen({
     (dirty: boolean) => onDirtyChange(dirty && !committed),
     [onDirtyChange, committed],
   );
-  const submit = async ({ amountMinor, fromAccountId, toAccountId, note, date }: TransferDraft) => {
+  const submit = async ({
+    amountMinor,
+    receivedAmountMinor,
+    fromAccountId,
+    toAccountId,
+    note,
+    date,
+  }: TransferDraft) => {
     onSavingChange(true);
     try {
       if (!committed) {
         await saveTransferEdit(transfer, {
           amountMinor,
+          receivedAmountMinor,
           fromAccountId,
           toAccountId,
           note,
@@ -296,8 +307,8 @@ function EditTransferScreen({
   return (
     <TransferFormSection
       initial={initial}
-      editDate
       fieldsLocked={committed || deleting}
+      deleting={deleting}
       submitLabel={committed ? 'Retry receipt' : 'Save changes'}
       onSubmit={submit}
       onDirtyChange={dirtyChange}

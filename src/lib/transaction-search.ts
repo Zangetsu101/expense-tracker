@@ -19,6 +19,9 @@ export type SearchFilters = {
 export type SearchRow = LendingLabel & {
   id: number;
   type: 'EXPENSE' | 'INCOME' | 'TRANSFER';
+  receivedAmountMinor?: number | null;
+  destinationCurrencyCode?: string | null;
+  transferAccountId?: number | null;
   amountMinor: number;
   date: number;
   note: string | null;
@@ -148,7 +151,7 @@ export function searchStatement(filters: SearchFilters, offset = 0, now = new Da
   }
   if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('Invalid offset');
   return {
-    sql: `SELECT t.id, t.type, t.amountMinor, t.date, t.note, a.name AS accountName, a.currencyCode, dest.name AS transferAccountName, c.name AS categoryName, (WITH RECURSIVE path(id, parentId, label) AS (
+    sql: `SELECT t.id, t.type, t.amountMinor, t.receivedAmountMinor, t.transferAccountId, dest.currencyCode AS destinationCurrencyCode, t.date, t.note, a.name AS accountName, a.currencyCode, dest.name AS transferAccountName, c.name AS categoryName, (WITH RECURSIVE path(id, parentId, label) AS (
         SELECT id, parentId, name FROM categories WHERE id = t.categoryId
         UNION ALL SELECT p.id, p.parentId, p.name || ' › ' || path.label FROM categories p JOIN path ON path.parentId = p.id
       ) SELECT label FROM path WHERE parentId IS NULL) AS categoryPath, lending.kind AS lendingKind, person.name AS personName

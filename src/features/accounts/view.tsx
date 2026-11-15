@@ -379,12 +379,7 @@ export function AddAccountSheet({
               options={[
                 { value: '', label: 'None' },
                 ...accounts
-                  .filter(
-                    (a) =>
-                      !a.card &&
-                      a.id !== form.id &&
-                      a.currencyCode === form.currencyCode.trim().toUpperCase(),
-                  )
+                  .filter((a) => !a.card && a.id !== form.id)
                   .map((a) => ({ value: String(a.id), label: a.name })),
               ]}
               disabled={pending}

@@ -93,8 +93,8 @@ async function saveAccount(input: AccountInput, id?: number): Promise<void> {
           'SELECT currencyCode FROM accounts WHERE id = ? AND id NOT IN (SELECT accountId FROM credit_cards)',
           [input.parentAccountId],
         );
-        if (!parent || input.parentAccountId === id || parent.currencyCode !== currencyCode)
-          throw new Error('Choose a non-card Account with the same Currency.');
+        if (!parent || input.parentAccountId === id)
+          throw new Error('Choose a different non-card Account.');
       }
     }
     let accountId = id;

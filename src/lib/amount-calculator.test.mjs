@@ -21,3 +21,9 @@ test('rejects incomplete, unsafe and non-arithmetic input', () => {
     assert.throws(() => calculateAmount(expression), expression);
   }
 });
+
+test('rate calculations retain four decimal places while money still rounds to cents', () => {
+  assert.equal(calculateAmount('1 ÷ 122', 4), '0.0082');
+  assert.equal(calculateAmount('1 ÷ 122'), '0.01');
+  assert.equal(calculateAmount('121.4567 × 2', 4), '242.9134');
+});

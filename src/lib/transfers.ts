@@ -6,6 +6,7 @@ import { addTransactionTags, parseQuickAddTags } from './tag-store';
 export type EditableTransfer = {
   id: number;
   type: 'TRANSFER';
+  receivedAmountMinor: number | null;
   amountMinor: number;
   date: number;
   fromAccountId: number;
@@ -13,10 +14,12 @@ export type EditableTransfer = {
   toAccountId: number;
   toAccountName: string;
   currencyCode: string;
+  destinationCurrencyCode: string;
   note: string | null;
 };
 
 type TransferInput = {
+  receivedAmountMinor?: number | null;
   amountMinor: number;
   fromAccountId: number;
   toAccountId: number;
@@ -37,14 +40,16 @@ function validateTransfer(input: TransferInput) {
   }
 }
 
-async function requireSameCurrency(tx: Pick<SQLiteDatabase, 'getAllAsync'>, input: TransferInput) {
+async function receivedAmount(tx: Pick<SQLiteDatabase, 'getAllAsync'>, input: TransferInput) {
   const accounts = await tx.getAllAsync<{ id: number; currencyCode: string }>(
     'SELECT id, currencyCode FROM accounts WHERE id IN (?, ?)',
     [input.fromAccountId, input.toAccountId],
   );
   if (accounts.length !== 2) throw new Error('Account not found.');
-  if (accounts[0].currencyCode !== accounts[1].currencyCode)
-    throw new Error('Transfers require accounts with the same currency.');
+  if (accounts[0].currencyCode === accounts[1].currencyCode) return null;
+  if (!Number.isSafeInteger(input.receivedAmountMinor) || (input.receivedAmountMinor ?? 0) <= 0)
+    throw new Error('Enter a positive amount received.');
+  return input.receivedAmountMinor!;
 }
 
 export async function addTransfer(input: TransferInput & { date?: Date; tagText?: string }) {
@@ -56,16 +61,17 @@ export async function addTransfer(input: TransferInput & { date?: Date; tagText?
   const db = await database();
   let id = 0;
   await db.withExclusiveTransactionAsync(async (tx) => {
-    await requireSameCurrency(tx, input);
+    const received = await receivedAmount(tx, input);
     const result = await tx.runAsync(
-      `INSERT INTO transactions (type, amountMinor, date, accountId, transferAccountId, categoryId, note)
-      VALUES ('TRANSFER', ?, ?, ?, ?, NULL, ?)`,
+      `INSERT INTO transactions (type, amountMinor, date, accountId, transferAccountId, categoryId, note, receivedAmountMinor)
+      VALUES ('TRANSFER', ?, ?, ?, ?, NULL, ?, ?)`,
       [
         input.amountMinor,
         epochDay(date),
         input.fromAccountId,
         input.toAccountId,
         input.note?.trim() || null,
+        received,
       ],
     );
     id = result.lastInsertRowId;
@@ -82,8 +88,8 @@ export async function loadTransfer(id: number): Promise<EditableTransfer | null>
   if (!Number.isSafeInteger(id) || id <= 0) throw new Error('Invalid transaction ID.');
   const db = await database();
   return db.getFirstAsync<EditableTransfer>(
-    `SELECT t.id, t.type, t.amountMinor, t.date, t.accountId AS fromAccountId, f.name AS fromAccountName,
-    t.transferAccountId AS toAccountId, d.name AS toAccountName, f.currencyCode, t.note
+    `SELECT t.id, t.type, t.amountMinor, t.receivedAmountMinor, t.date, t.accountId AS fromAccountId, f.name AS fromAccountName,
+    t.transferAccountId AS toAccountId, d.name AS toAccountName, f.currencyCode, d.currencyCode AS destinationCurrencyCode, t.note
     FROM transactions t JOIN accounts f ON f.id = t.accountId JOIN accounts d ON d.id = t.transferAccountId
     WHERE t.id = ? AND t.type = 'TRANSFER'`,
     [id],
@@ -98,22 +104,24 @@ export async function saveTransferEdit(
   if (!Number.isSafeInteger(input.date) || input.date < 0) throw new Error('Choose a valid date.');
   const db = await database();
   await db.withExclusiveTransactionAsync(async (tx) => {
-    await requireSameCurrency(tx, input);
+    const received = await receivedAmount(tx, input);
     const result = await tx.runAsync(
-      `UPDATE transactions SET amountMinor = ?, date = ?, accountId = ?, transferAccountId = ?, note = ?
-      WHERE id = ? AND type = 'TRANSFER' AND amountMinor = ? AND date = ? AND accountId = ? AND transferAccountId = ? AND note IS ?`,
+      `UPDATE transactions SET amountMinor = ?, date = ?, accountId = ?, transferAccountId = ?, note = ?, receivedAmountMinor = ?
+      WHERE id = ? AND type = 'TRANSFER' AND amountMinor = ? AND date = ? AND accountId = ? AND transferAccountId = ? AND note IS ? AND receivedAmountMinor IS ?`,
       [
         input.amountMinor,
         input.date,
         input.fromAccountId,
         input.toAccountId,
         input.note?.trim() || null,
+        received,
         original.id,
         original.amountMinor,
         original.date,
         original.fromAccountId,
         original.toAccountId,
         original.note,
+        original.receivedAmountMinor ?? null,
       ],
     );
     if (result.changes !== 1)

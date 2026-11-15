@@ -136,7 +136,9 @@ export function TransactionRow({
         accessibilityState={{ disabled }}
         onPress={onPress}
         accessibilityRole="button"
-        accessibilityLabel={[view.title, view.detail, view.amount].filter(Boolean).join(', ')}
+        accessibilityLabel={[view.title, view.detail, view.amount, view.otherAmount]
+          .filter(Boolean)
+          .join(', ')}
         style={({ pressed }) => ({
           flexDirection: 'row',
           alignItems: 'center',
@@ -159,15 +161,22 @@ export function TransactionRow({
             <Marked text={view.detail} query={query} style={{ color: colors.muted }} />
           )}
         </View>
-        <Text
-          style={{
-            color: toneColor[view.tone],
-            fontWeight: view.tone === 'muted' ? '600' : '700',
-            fontVariant: ['tabular-nums'],
-          }}
-        >
-          {view.amount}
-        </Text>
+        <View style={{ alignItems: 'flex-end', gap: 3 }}>
+          <Text
+            style={{
+              color: toneColor[view.tone],
+              fontWeight: view.tone === 'muted' ? '600' : '700',
+              fontVariant: ['tabular-nums'],
+            }}
+          >
+            {view.amount}
+          </Text>
+          {view.otherAmount && (
+            <Text style={{ color: colors.muted, fontSize: 12.5, fontVariant: ['tabular-nums'] }}>
+              {view.otherAmount}
+            </Text>
+          )}
+        </View>
       </Pressable>
     </Animated.View>
   );

@@ -222,7 +222,29 @@ function CountLine({ rows, hasMore }: { rows: SearchRow[]; hasMore: boolean }) {
   );
 }
 
-function ResultRow({ item, showDate }: { item: SearchRow; showDate: boolean }) {
+function ResultRow({
+  item,
+  showDate,
+  accountId,
+}: {
+  item: SearchRow;
+  showDate: boolean;
+  accountId: number | null;
+}) {
+  const into =
+    item.type === 'TRANSFER' && accountId != null && item.transferAccountId === accountId;
+  const main =
+    item.type === 'TRANSFER'
+      ? `${accountId == null ? '' : into ? '+' : '−'}${formatTransactionAmount('TRANSFER', into ? (item.receivedAmountMinor ?? item.amountMinor) : item.amountMinor, into ? (item.destinationCurrencyCode ?? item.currencyCode) : item.currencyCode)}`
+      : formatTransactionAmount(item.type, item.amountMinor, item.currencyCode);
+  const other =
+    item.destinationCurrencyCode && item.destinationCurrencyCode !== item.currencyCode
+      ? formatTransactionAmount(
+          'TRANSFER',
+          into ? item.amountMinor : (item.receivedAmountMinor ?? item.amountMinor),
+          into ? item.currencyCode : item.destinationCurrencyCode!,
+        )
+      : null;
   const title = item.lendingKind
     ? transactionTitle(item)
     : item.note?.trim() || transactionTitle(item);
@@ -258,16 +280,19 @@ function ResultRow({ item, showDate }: { item: SearchRow; showDate: boolean }) {
                 {item.type === 'TRANSFER' ? '⇄  ' : ''}
                 {title}
               </Text>
-              <Text
-                selectable
-                style={{
-                  color: item.type === 'INCOME' ? accent : ink,
-                  fontWeight: '700',
-                  fontVariant: ['tabular-nums'],
-                }}
-              >
-                {formatTransactionAmount(item.type, item.amountMinor, item.currencyCode)}
-              </Text>
+              <View style={{ alignItems: 'flex-end', gap: 3 }}>
+                <Text
+                  selectable
+                  style={{
+                    color: item.type === 'INCOME' ? accent : ink,
+                    fontWeight: '700',
+                    fontVariant: ['tabular-nums'],
+                  }}
+                >
+                  {main}
+                </Text>
+                {other && <Text style={{ color: muted, fontSize: 12.5 }}>{other}</Text>}
+              </View>
             </View>
             <Text style={{ color: muted, fontSize: 12 }}>{detail}</Text>
           </RowCard>
@@ -298,6 +323,7 @@ const listContent = { padding: 16, paddingTop: 14, paddingBottom: 24 };
 
 export function ResultsList({
   rows,
+  accountId = null,
   hasMore,
   muted: stale,
   alert,
@@ -305,6 +331,7 @@ export function ResultsList({
   onEndReached,
 }: {
   rows: SearchRow[];
+  accountId?: number | null;
   hasMore: boolean;
   muted: boolean;
   alert: ReactNode;
@@ -337,7 +364,11 @@ export function ResultsList({
           </Text>
         }
         renderItem={({ item, index }) => (
-          <ResultRow item={item} showDate={index === 0 || rows[index - 1].date !== item.date} />
+          <ResultRow
+            item={item}
+            accountId={accountId}
+            showDate={index === 0 || rows[index - 1].date !== item.date}
+          />
         )}
         onEndReached={onEndReached}
         onEndReachedThreshold={0.5}

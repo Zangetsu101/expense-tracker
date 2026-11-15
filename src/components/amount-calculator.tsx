@@ -37,20 +37,24 @@ export function AmountCalculator({
   onDone,
   open,
   bottomInset,
+  precision = 2,
+  replaceOnOpen = false,
 }: {
   value: string;
   onChange: (amount: string) => void;
   onDone: () => void;
   open: boolean;
   bottomInset: number;
+  precision?: number;
+  replaceOnOpen?: boolean;
 }) {
   const [error, setError] = useState('');
-  const [evaluated, setEvaluated] = useState(false);
+  const [evaluated, setEvaluated] = useState(replaceOnOpen);
   const [wasOpen, setWasOpen] = useState(open);
   if (wasOpen !== open) {
     setWasOpen(open);
     setError('');
-    setEvaluated(false);
+    setEvaluated(replaceOnOpen);
   }
   const [contentHeight, setContentHeight] = useState(0);
   const height = useSharedValue(0);
@@ -78,7 +82,7 @@ export function AmountCalculator({
     }
     if (key === '=') {
       try {
-        onChange(calculateAmount(value));
+        onChange(calculateAmount(value, precision));
         setEvaluated(true);
       } catch (cause) {
         setError((cause as Error).message);

@@ -1,5 +1,5 @@
 /** Evaluate basic arithmetic and round the final result to currency precision. */
-export function calculateAmount(expression: string): string {
+export function calculateAmount(expression: string, precision = 2): string {
   const source = expression
     .replace(/\s/g, '')
     .replaceAll('×', '*')
@@ -32,7 +32,7 @@ export function calculateAmount(expression: string): string {
     const right = term();
     value = operator === '+' ? value + right : value - right;
   }
-  const minor = Math.round((value + Number.EPSILON * Math.abs(value)) * 100);
+  const minor = Math.round((value + Number.EPSILON * Math.abs(value)) * 10 ** precision);
   if (!Number.isSafeInteger(minor)) throw new Error('Result is outside the supported range.');
-  return (minor / 100).toFixed(2);
+  return (minor / 10 ** precision).toFixed(precision);
 }

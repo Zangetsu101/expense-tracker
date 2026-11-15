@@ -1,16 +1,19 @@
-import { act, screen, userEvent, waitFor, within } from '@testing-library/react-native';
+import { act, cleanup, screen, userEvent, waitFor, within } from '@testing-library/react-native';
 import { router } from 'expo-router';
 import { listAccounts } from '@/lib/database';
 import { creditCardBills, type CardBill } from '@/lib/credit-cards';
 import { notifyDataChanged } from '@/lib/data-changes';
+import { loadFirstTransferRate } from '@/lib/transfer-rate-store';
 import { addTransfer } from '@/lib/transfers';
 import { renderWithQueries } from '@/test/render-with-queries';
 import QuickAdd from './screen';
 
+let mockParams: { mode?: string; accountId?: string; toId?: string; amountMinor?: string } = {};
+
 jest.mock('expo-router', () => ({
   router: { back: jest.fn() },
   Stack: { Screen: () => null },
-  useLocalSearchParams: () => ({ mode: 'TRANSFER', accountId: '1', toId: '2', amountMinor: '700' }),
+  useLocalSearchParams: () => mockParams,
 }));
 jest.mock('expo-router/react-navigation', () => ({
   useHeaderHeight: () => 0,
@@ -26,6 +29,7 @@ jest.mock('@/lib/database', () => ({
   listAccounts: jest.fn(),
 }));
 jest.mock('@/lib/credit-cards', () => ({ creditCardBills: jest.fn() }));
+jest.mock('@/lib/transfer-rate-store', () => ({ loadFirstTransferRate: jest.fn() }));
 jest.mock('@/lib/transfers', () => ({ addTransfer: jest.fn() }));
 jest.mock('@/lib/categories', () => ({ listCategoriesByRecentUse: jest.fn(async () => []) }));
 jest.mock('@/lib/lending', () => ({
@@ -34,9 +38,13 @@ jest.mock('@/lib/lending', () => ({
   createPerson: jest.fn(),
   saveLendingEntry: jest.fn(),
 }));
-jest.mock('@/lib/category-prediction-history', () => ({ listCategoryEvidence: jest.fn() }));
+jest.mock('@/lib/category-prediction-history', () => ({
+  listCategoryEvidence: jest.fn(async () => []),
+}));
 
 beforeEach(() => {
+  mockParams = { mode: 'TRANSFER', accountId: '1', toId: '2', amountMinor: '700' };
+  jest.mocked(loadFirstTransferRate).mockResolvedValue({ base: 'USD', quote: 'BDT', rate: 122 });
   jest.mocked(listAccounts).mockResolvedValue([
     { id: 1, name: 'Parent', currencyCode: 'USD', isFavorite: 1 },
     { id: 2, name: 'Visa', currencyCode: 'USD', isFavorite: 0 },
@@ -88,6 +96,7 @@ test('Settle prefills Transfer and offers bill or all owed, paid from another Ac
     ),
   );
   expect(router.back).toHaveBeenCalled();
+  await cleanup();
 });
 
 test('bill loading leaves the draft usable and a late result respects the destination in view', async () => {
@@ -122,6 +131,7 @@ test('bill loading leaves the draft usable and a late result respects the destin
     }),
   );
   expect(await screen.findByRole('button', { name: 'Bill · $7.00' })).toBeOnTheScreen();
+  await cleanup();
 });
 
 test('retrying failed bills preserves the transaction draft and Account choices', async () => {
@@ -142,6 +152,7 @@ test('retrying failed bills preserves the transaction draft and Account choices'
       selected: true,
     }),
   ).toBeOnTheScreen();
+  await cleanup();
 });
 
 test('a failed bill refresh keeps the cached choices and draft visible', async () => {
@@ -156,4 +167,172 @@ test('a failed bill refresh keeps the cached choices and draft visible', async (
   expect(await screen.findByText('Could not load card bills.')).toBeOnTheScreen();
   expect(screen.getByRole('button', { name: 'Bill · $7.00' })).toBeOnTheScreen();
   expect(screen.getByLabelText('Note')).toHaveDisplayValue('Keep through refresh');
+  await cleanup();
+});
+
+async function crossCurrencyAccounts() {
+  jest.mocked(listAccounts).mockResolvedValue([
+    { id: 1, name: 'Parent', currencyCode: 'BDT', isFavorite: 1 },
+    { id: 2, name: 'Visa', currencyCode: 'USD', isFavorite: 0 },
+    { id: 3, name: 'Another bank', currencyCode: 'BDT', isFavorite: 0 },
+    { id: 4, name: 'Wise', currencyCode: 'USD', isFavorite: 0 },
+  ]);
+  await act(async () => {
+    await renderWithQueries(<QuickAdd />);
+  });
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Save transfer' })).toBeEnabled());
+}
+async function enter(user: ReturnType<typeof userEvent.setup>, field: string, digits: string) {
+  await user.press(screen.getByRole('button', { name: field }));
+  await user.press(screen.getByRole('button', { name: 'Clear calculation' }));
+  for (const digit of digits) await user.press(screen.getByRole('button', { name: digit }));
+  await user.press(screen.getByRole('button', { name: 'Done' }));
+}
+test('a cross-Currency Settle starts with a typed received Bill, and rate edits change pays', async () => {
+  const user = userEvent.setup();
+  await crossCurrencyAccounts();
+  expect(screen.getByRole('button', { name: 'Visa receives' })).toHaveAccessibilityValue({
+    text: '7.00',
+  });
+  expect(screen.getByRole('button', { name: 'Parent pays' })).toHaveAccessibilityValue({
+    text: '854.00',
+  });
+  await enter(user, 'Rate', '125');
+  expect(screen.getByRole('button', { name: 'Parent pays' })).toHaveAccessibilityValue({
+    text: '875.00',
+  });
+  await user.press(screen.getByRole('button', { name: 'All owed · $11.00' }));
+  expect(screen.getByRole('button', { name: 'Visa receives' })).toHaveAccessibilityValue({
+    text: '11.00',
+  });
+  await user.press(screen.getByRole('button', { name: 'Save transfer' }));
+  expect(addTransfer).toHaveBeenCalledWith(
+    expect.objectContaining({ amountMinor: 137500, receivedAmountMinor: 1100 }),
+  );
+  await cleanup();
+});
+test('two typed amounts update the rate; changing source preserves receives and destination discards it', async () => {
+  const user = userEvent.setup();
+  await crossCurrencyAccounts();
+  await enter(user, 'Parent pays', '700');
+  expect(screen.getByRole('button', { name: 'Visa receives' })).toHaveAccessibilityValue({
+    text: '7.00',
+  });
+  expect(screen.getByText('100.00')).toBeOnTheScreen();
+  await enter(user, 'Visa receives', '10');
+  expect(screen.getByRole('button', { name: 'Parent pays' })).toHaveAccessibilityValue({
+    text: '700.00',
+  });
+  expect(screen.getByText('70.00')).toBeOnTheScreen();
+  await user.press(
+    within(screen.getByLabelText('Source account')).getByRole('button', {
+      name: 'Another bank, BDT',
+    }),
+  );
+  expect(screen.getByRole('button', { name: 'Visa receives' })).toHaveAccessibilityValue({
+    text: '10.00',
+  });
+  await user.press(
+    within(screen.getByLabelText('Transfer destination')).getByRole('button', {
+      name: 'Wise, USD',
+    }),
+  );
+  expect(screen.getByRole('button', { name: 'Wise receives' })).toHaveAccessibilityValue({
+    text: '5.74',
+  });
+  await user.press(screen.getByRole('button', { name: 'Save transfer' }));
+  expect(addTransfer).toHaveBeenCalledWith(
+    expect.objectContaining({
+      fromAccountId: 3,
+      toAccountId: 4,
+      amountMinor: 70000,
+      receivedAmountMinor: 574,
+    }),
+  );
+  await cleanup();
+});
+test('without a first rate a Settle cannot save until both amounts exist, and shows no historical hint', async () => {
+  const user = userEvent.setup();
+  jest
+    .mocked(loadFirstTransferRate)
+    .mockResolvedValue({ base: 'USD', quote: 'BDT', rate: undefined });
+  jest.mocked(listAccounts).mockResolvedValue([
+    { id: 1, name: 'Parent', currencyCode: 'BDT', isFavorite: 1 },
+    { id: 2, name: 'Visa', currencyCode: 'USD', isFavorite: 0 },
+  ]);
+  await act(async () => {
+    await renderWithQueries(<QuickAdd />);
+  });
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Parent pays' })).toBeEnabled());
+  expect(screen.getByRole('button', { name: 'Save transfer' })).toBeDisabled();
+  expect(screen.queryByText(/from \d/)).not.toBeOnTheScreen();
+  await enter(user, 'Parent pays', '854');
+  expect(screen.getByRole('button', { name: 'Save transfer' })).toBeEnabled();
+  expect(screen.getByText('122.00')).toBeOnTheScreen();
+  await cleanup();
+});
+
+test('a new Transfer keeps the entered amount and saves date and tags with a destination in another Currency', async () => {
+  const user = userEvent.setup();
+  mockParams = { accountId: '1' };
+  jest.mocked(loadFirstTransferRate).mockResolvedValue({ base: 'USD', quote: 'BDT', rate: 122 });
+  jest.mocked(listAccounts).mockResolvedValue([
+    { id: 1, name: 'Parent', currencyCode: 'BDT', isFavorite: 1 },
+    { id: 2, name: 'Visa', currencyCode: 'USD', isFavorite: 0 },
+  ]);
+  await act(async () => {
+    await renderWithQueries(<QuickAdd />);
+  });
+  await screen.findByRole('button', { name: 'Parent, BDT, favorite' });
+  await enter(user, 'Amount', '854');
+  await user.press(screen.getByRole('radio', { name: 'Transfer' }));
+  await user.press(
+    within(screen.getByLabelText('Transfer destination')).getByRole('button', {
+      name: 'Visa, USD',
+    }),
+  );
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Save transfer' })).toBeEnabled());
+  expect(screen.getByRole('button', { name: 'Visa receives' })).toHaveAccessibilityValue({
+    text: '7.00',
+  });
+  await user.type(screen.getByLabelText('Tags, separated by commas'), 'move');
+  await user.type(screen.getByLabelText('Note'), 'My transfer');
+  await user.press(screen.getByRole('button', { name: 'Save transfer' }));
+  expect(addTransfer).toHaveBeenCalledWith(
+    expect.objectContaining({
+      amountMinor: 85400,
+      receivedAmountMinor: 700,
+      fromAccountId: 1,
+      toAccountId: 2,
+      note: 'My transfer',
+      tagText: 'move',
+      date: expect.any(Date),
+    }),
+  );
+  await cleanup();
+});
+
+test('a historical first rate shows its date and an open draft keeps its amounts and direction through refresh', async () => {
+  const user = userEvent.setup();
+  jest
+    .mocked(loadFirstTransferRate)
+    .mockResolvedValue({ base: 'USD', quote: 'BDT', rate: 121.4, date: 20000 });
+  await crossCurrencyAccounts();
+  expect(screen.getByText(/\(from /)).toBeOnTheScreen();
+  expect(screen.getByText('1 USD =')).toBeOnTheScreen();
+  await enter(user, 'Parent pays', '840');
+  expect(screen.getByText('120.00')).toBeOnTheScreen();
+  jest.mocked(loadFirstTransferRate).mockResolvedValue({ base: 'BDT', quote: 'USD', rate: 0.01 });
+  await act(async () => notifyDataChanged());
+  await waitFor(() => expect(loadFirstTransferRate).toHaveBeenCalledTimes(2));
+  expect(screen.getByRole('button', { name: 'Parent pays' })).toHaveAccessibilityValue({
+    text: '840.00',
+  });
+  expect(screen.getByRole('button', { name: 'Visa receives' })).toHaveAccessibilityValue({
+    text: '7.00',
+  });
+  expect(screen.getByText('120.00')).toBeOnTheScreen();
+  expect(screen.getByText('1 USD =')).toBeOnTheScreen();
+  expect(screen.getByText(/\(from /)).toBeOnTheScreen();
+  await cleanup();
 });

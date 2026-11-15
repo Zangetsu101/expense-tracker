@@ -38,7 +38,7 @@ CREATE TABLE categories (id INTEGER PRIMARY KEY, name TEXT, type TEXT, parentId 
 CREATE TABLE transactions (id INTEGER PRIMARY KEY, type TEXT, amountMinor INTEGER, date INTEGER, note TEXT, accountId INTEGER, transferAccountId INTEGER, categoryId INTEGER);
 INSERT INTO accounts VALUES (1,'Cash','BDT'),(2,'Bank','BDT'),(3,'Dollar','USD');
 INSERT INTO categories VALUES (1,'Food','EXPENSE',NULL),(2,'Lunch','EXPENSE',1),(3,'Snacks','EXPENSE',2),(4,'Travel','EXPENSE',NULL),(5,'Food','INCOME',NULL),(6,'Refund','INCOME',5);
-INSERT INTO transactions VALUES (1,'EXPENSE',1200,20000,'coffee',1,NULL,1),(2,'TRANSFER',500,20001,'move',1,2,NULL),(3,'INCOME',800,20002,'bonus',2,NULL,NULL),(4,'EXPENSE',100,20000,'100%_literal',2,NULL,NULL),(5,'EXPENSE',1200,20003,'hosting',3,NULL,NULL);`);
+INSERT INTO transactions VALUES (1,'EXPENSE',1200,20000,'coffee',1,NULL,1),(2,'TRANSFER',500,20001,'move',1,2,NULL),(3,'INCOME',800,20002,'bonus',2,NULL,NULL),(4,'EXPENSE',100,20000,'100%_literal',2,NULL,NULL),(5,'EXPENSE',1200,20003,'hosting',3,NULL,NULL); ALTER TABLE transactions ADD COLUMN receivedAmountMinor INTEGER;`);
 const search = (patch = {}, offset = 0) => {
   const { sql, params } = searchStatement(
     { query: '', type: 'ALL', accountId: null, month: '', ...patch },
@@ -127,7 +127,7 @@ test('amount modes compare stored minor units across currencies without conversi
 
 test('nested category filters include only same-type descendants; text finds ancestor names and paths', () => {
   db.exec(
-    `INSERT INTO transactions VALUES (6,'EXPENSE',200,20004,'',1,NULL,2),(7,'EXPENSE',300,20005,'',1,NULL,3),(8,'EXPENSE',400,20006,'',1,NULL,4),(9,'INCOME',500,20007,'',1,NULL,6);`,
+    `INSERT INTO transactions (id, type, amountMinor, date, note, accountId, transferAccountId, categoryId) VALUES (6,'EXPENSE',200,20004,'',1,NULL,2),(7,'EXPENSE',300,20005,'',1,NULL,3),(8,'EXPENSE',400,20006,'',1,NULL,4),(9,'INCOME',500,20007,'',1,NULL,6);`,
   );
   assert.deepEqual(search({ categoryId: 1 }), [7, 6, 1]);
   assert.deepEqual(search({ categoryId: 2 }), [7, 6]);

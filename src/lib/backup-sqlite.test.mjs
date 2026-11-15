@@ -102,7 +102,25 @@ const { database } = await import('./database.ts');
 const { backupStore } = await import('./backup-adapter.ts');
 const { importMoneyLoverFile } = await import('./import-csv.ts');
 const { decodeBackup, encodeBackup, restoreBackup } = await import('./backup.ts');
+// Simulate a database written before received amounts existed.
+sql.exec(`PRAGMA foreign_keys = OFF; CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT NOT NULL, currencyCode TEXT NOT NULL, openingBalanceMinor INTEGER NOT NULL DEFAULT 0, isFavorite INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE transactions (id INTEGER PRIMARY KEY, type TEXT NOT NULL, amountMinor INTEGER NOT NULL CHECK(amountMinor > 0), date INTEGER NOT NULL, accountId INTEGER NOT NULL REFERENCES accounts(id), transferAccountId INTEGER REFERENCES accounts(id), categoryId INTEGER REFERENCES categories(id) ON DELETE SET NULL, note TEXT, excludeFromReport INTEGER NOT NULL DEFAULT 0, source TEXT NOT NULL DEFAULT 'MANUAL');
+INSERT INTO accounts (id, name, currencyCode) VALUES (1, 'Cash', 'BDT'), (2, 'Bank', 'BDT');
+INSERT INTO transactions (id, type, amountMinor, date, accountId, transferAccountId) VALUES (1, 'TRANSFER', 500, 20000, 1, 2);`);
 await database();
+test('opening an existing database adds received amounts without changing existing Transfer balances', async () => {
+  assert.equal(
+    sql.prepare('SELECT receivedAmountMinor FROM transactions WHERE id = 1').get()
+      .receivedAmountMinor,
+    null,
+  );
+  const { accountBalances } = await import('./reports.ts');
+  assert.deepEqual((await accountBalances(20000)).map((a) => [a.id, a.balanceMinor]).sort(), [
+    [1, -500],
+    [2, 500],
+  ]);
+  sql.exec('DELETE FROM transactions; DELETE FROM accounts');
+});
 
 const tables = [
   'accounts',
@@ -429,4 +447,68 @@ test('credit-card settings and parent links survive backup; native backups clear
   delete original.creditCards;
   await replaceDocument(decodeBackup(encodeBackup(original)));
   assert.deepEqual((await backupStore.snapshot()).creditCards, []);
+});
+
+test('received amounts and a cross-Currency card parent survive JSON backup and replacement; old backups still restore', async () => {
+  const data = decodeBackup(
+    readFileSync(new URL('../../scripts/fixtures/backup-v1.json', import.meta.url), 'utf8'),
+  );
+  data.accounts.push({
+    id: 2,
+    name: 'USD card',
+    currencyCode: 'USD',
+    openingBalanceMinor: -20000,
+    isFavorite: false,
+  });
+  data.transactions = [
+    {
+      ...data.transactions[0],
+      type: 'TRANSFER',
+      amountMinor: 1220000,
+      receivedAmountMinor: 10000,
+      transferAccountId: 2,
+      categoryId: null,
+    },
+  ];
+  data.creditCards = [{ accountId: 2, parentAccountId: 1, statementDay: null, dueDay: null }];
+  await backupStore.replace(decodeBackup(encodeBackup(data)));
+  const saved = await backupStore.snapshot();
+  assert.equal(saved.transactions[0].receivedAmountMinor, 10000);
+  assert.equal(saved.creditCards[0].parentAccountId, 1);
+  const { accountBalances } = await import('./reports.ts');
+  assert.equal((await accountBalances(99999)).find((a) => a.id === 2).balanceMinor, -10000);
+  delete data.transactions[0].receivedAmountMinor;
+  await backupStore.replace(decodeBackup(encodeBackup(data)));
+  assert.equal((await accountBalances(99999)).find((a) => a.id === 2).balanceMinor, 1200000);
+  assert.equal((await backupStore.snapshot()).transactions[0].receivedAmountMinor, undefined);
+});
+
+test('first-rate lookup finds the newest Transfer in either direction and gives Display Rate priority', async () => {
+  const { loadFirstTransferRate } = await import('./transfer-rate-store.ts');
+  const { saveDisplayRate } = await import('./display-rate-store.ts');
+  await saveDisplayRate(null);
+  sql.exec(`DELETE FROM credit_cards; DELETE FROM lending_entries; DELETE FROM transactions; DELETE FROM accounts;
+    INSERT INTO accounts (id, name, currencyCode) VALUES (1, 'BDT bank', 'BDT'), (2, 'USD bank', 'USD');`);
+  assert.deepEqual(await loadFirstTransferRate('BDT', 'USD'), {
+    base: 'USD',
+    quote: 'BDT',
+    rate: undefined,
+  });
+  sql.exec(`INSERT INTO transactions (id, type, amountMinor, receivedAmountMinor, date, accountId, transferAccountId) VALUES
+    (1, 'TRANSFER', 1200000, 10000, 20000, 1, 2),
+    (2, 'TRANSFER', 10000, 1214000, 20001, 2, 1),
+    (3, 'TRANSFER', 1220000, 10000, 20001, 1, 2),
+    (4, 'TRANSFER', 999, NULL, 20002, 1, 2);`);
+  assert.deepEqual(await loadFirstTransferRate('USD', 'BDT'), {
+    base: 'USD',
+    quote: 'BDT',
+    rate: 122,
+    date: 20001,
+  });
+  await saveDisplayRate({ base: 'BDT', quote: 'USD', rate: 0.0082 });
+  assert.deepEqual(await loadFirstTransferRate('USD', 'BDT'), {
+    base: 'BDT',
+    quote: 'USD',
+    rate: 0.0082,
+  });
 });

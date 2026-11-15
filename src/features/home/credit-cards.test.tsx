@@ -205,3 +205,19 @@ test('converts the total of foreign-currency bills using Display Rate', async ()
     within(all).getByRole('button', { name: 'Bills to settle ≈ ৳3,600.00' }),
   ).toBeOnTheScreen();
 });
+
+test('Settle keeps a parent in another Currency and passes the Bill in the card Currency', async () => {
+  const user = userEvent.setup();
+  jest.mocked(homeDeckData).mockResolvedValue({
+    accounts: [bank, { ...visa, currencyCode: 'USD' }],
+    displayRate: null,
+    period: { range: 'month', monthStart: 1 },
+  });
+  await renderHome();
+  const card = await screen.findByLabelText('Visa');
+  await user.press(within(card).getByRole('button', { name: 'Settle Visa' }));
+  expect(router.push).toHaveBeenCalledWith({
+    pathname: '/quick-add',
+    params: { mode: 'TRANSFER', accountId: '1', toId: '2', amountMinor: '7000' },
+  });
+});

@@ -14,6 +14,7 @@ const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const root = new URL('../../', import.meta.url);
 const mocks = {
+  '@/lib/transfer-rate-store': `export const loadFirstTransferRate=async (source,destination)=>({base:destination,quote:source,rate:undefined});`,
   '@/lib/credit-cards': `export const creditCardBills=async()=>[];`,
   '@/components/animation-clock': `export const AnimationClockProvider=({children})=>children,useAnimationClock=()=>({get:()=>0});`,
   '@expo/ui': `import React from 'react';export const Host='Host',Column='Column',Text='Text';export const Button=({label,onPress,children})=>React.createElement('Pressable',{accessibilityLabel:label,onPress},children);export const BottomSheet=({isPresented,children})=>isPresented?React.createElement('BottomSheet',null,children):null;`,

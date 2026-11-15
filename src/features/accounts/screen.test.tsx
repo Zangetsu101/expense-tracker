@@ -405,7 +405,7 @@ describe('a change of day', () => {
   });
 });
 
-test('create a card with a parent, statement days and an opening amount owed', async () => {
+test('create a card with a parent in another Currency, statement days and an opening amount owed', async () => {
   const user = userEvent.setup();
   jest.mocked(listManagedAccounts).mockResolvedValue([cash]);
   jest.mocked(accountBalances).mockResolvedValue([balance(cash, 1500)]);
@@ -415,7 +415,7 @@ test('create a card with a parent, statement days and an opening amount owed', a
   await user.press(screen.getByRole('button', { name: 'Add account' }));
   await user.press(screen.getByRole('radio', { name: 'Credit card' }));
   await user.type(screen.getByLabelText('Account name'), 'Visa');
-  await user.type(screen.getByLabelText('Currency code'), 'USD');
+  await user.type(screen.getByLabelText('Currency code'), 'BDT');
   await user.clear(screen.getByLabelText('Owed now'));
   await user.type(screen.getByLabelText('Owed now'), '25.50');
   await user.press(screen.getByRole('radio', { name: 'Cash' }));
@@ -425,6 +425,7 @@ test('create a card with a parent, statement days and an opening amount owed', a
   await waitFor(() =>
     expect(createAccount).toHaveBeenCalledWith(
       expect.objectContaining({
+        currencyCode: 'BDT',
         isCreditCard: true,
         parentAccountId: 1,
         openingBalance: '-25.50',

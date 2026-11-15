@@ -6,7 +6,7 @@ import { registerHooks, stripTypeScriptTypes } from 'node:module';
 const sqlite = new DatabaseSync(':memory:');
 sqlite.exec(`PRAGMA foreign_keys = ON;
 CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT NOT NULL DEFAULT '', currencyCode TEXT NOT NULL);
-CREATE TABLE transactions (id INTEGER PRIMARY KEY, type TEXT NOT NULL, amountMinor INTEGER NOT NULL CHECK(amountMinor > 0), date INTEGER NOT NULL, accountId INTEGER NOT NULL REFERENCES accounts(id), transferAccountId INTEGER REFERENCES accounts(id), categoryId INTEGER, note TEXT);
+CREATE TABLE transactions (id INTEGER PRIMARY KEY, type TEXT NOT NULL, amountMinor INTEGER NOT NULL CHECK(amountMinor > 0), date INTEGER NOT NULL, accountId INTEGER NOT NULL REFERENCES accounts(id), transferAccountId INTEGER REFERENCES accounts(id), categoryId INTEGER, note TEXT, receivedAmountMinor INTEGER CHECK(receivedAmountMinor > 0));
 CREATE TABLE tags (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
 CREATE TABLE transaction_tags (transactionId INTEGER REFERENCES transactions(id), tagId INTEGER REFERENCES tags(id));
 INSERT INTO accounts VALUES (1, 'Cash', 'BDT'), (2, 'Bank', 'BDT'), (3, 'Card', 'USD'), (4, 'Wallet', 'BDT');`);
@@ -150,6 +150,8 @@ test('loads a transfer with both account names and nothing else', async () => {
       toAccountId: 2,
       toAccountName: 'Bank',
       currencyCode: 'BDT',
+      destinationCurrencyCode: 'BDT',
+      receivedAmountMinor: null,
       note: 'move',
     },
   );
@@ -263,4 +265,58 @@ test('quick transfer keeps the chosen day and tags, and rejects invalid drafts a
   sqlite.exec('DROP TRIGGER fail_transfer_tags');
   assert.equal(count(), before);
   assert.equal(sqlite.prepare("SELECT count(*) AS n FROM tags WHERE name='Rollback'").get().n, 0);
+});
+
+test('a Transfer stores the paid and received amounts independently, and stale received amounts cannot overwrite edits', async () => {
+  await addTransfer({
+    amountMinor: 1220000,
+    receivedAmountMinor: 10000,
+    fromAccountId: 1,
+    toAccountId: 3,
+    note: 'FX',
+  });
+  const id = sqlite.prepare('SELECT MAX(id) AS id FROM transactions').get().id;
+  const original = await loadTransfer(id);
+  assert.equal(original.receivedAmountMinor, 10000);
+  assert.equal(original.destinationCurrencyCode, 'USD');
+  await saveTransferEdit(original, {
+    amountMinor: 1240000,
+    receivedAmountMinor: 10500,
+    fromAccountId: 1,
+    toAccountId: 3,
+    date: original.date,
+    note: 'FX',
+  });
+  assert.equal((await loadTransfer(id)).receivedAmountMinor, 10500);
+  await assert.rejects(
+    () =>
+      saveTransferEdit(original, {
+        amountMinor: 1240000,
+        receivedAmountMinor: 10600,
+        fromAccountId: 1,
+        toAccountId: 3,
+        date: original.date,
+        note: 'FX',
+      }),
+    /changed or removed/,
+  );
+  await saveTransferEdit(await loadTransfer(id), {
+    amountMinor: 100,
+    receivedAmountMinor: 200,
+    fromAccountId: 1,
+    toAccountId: 2,
+    date: original.date,
+    note: null,
+  });
+  assert.equal((await loadTransfer(id)).receivedAmountMinor, null);
+  for (const receivedAmountMinor of [undefined, 0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])
+    await assert.rejects(() =>
+      addTransfer({
+        amountMinor: 100,
+        receivedAmountMinor,
+        fromAccountId: 1,
+        toAccountId: 3,
+        note: null,
+      }),
+    );
 });

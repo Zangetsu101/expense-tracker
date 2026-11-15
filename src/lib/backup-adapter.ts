@@ -23,6 +23,7 @@ const columnsByTable: Record<string, readonly string[]> = {
     'id',
     'type',
     'amountMinor',
+    'receivedAmountMinor',
     'date',
     'accountId',
     'transferAccountId',
@@ -52,6 +53,7 @@ export const backupStore: BackupStore = {
           for (const field of boolFields)
             if (field in result) result[field] = Boolean(result[field]);
           if (table === 'transactions') {
+            if (result.receivedAmountMinor == null) delete result.receivedAmountMinor;
             result.dateEpochDay = result.date;
             delete result.date;
           }

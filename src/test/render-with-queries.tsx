@@ -1,13 +1,15 @@
 import type { ReactElement } from 'react';
 import { QueryClientProvider, type QueryClient } from '@tanstack/react-query';
-import { render } from '@testing-library/react-native';
+import { act, render } from '@testing-library/react-native';
 import { AppQueryLifecycle } from '@/components/app-queries';
 import { createQueryClient } from '@/lib/query-client';
 
 const clients: QueryClient[] = [];
 // Clear each cache after its test. If not, the cache timers keep Jest running.
-afterEach(() => {
-  for (const client of clients.splice(0)) client.clear();
+afterEach(async () => {
+  await act(async () => {
+    for (const client of clients.splice(0)) client.clear();
+  });
 });
 
 /**
