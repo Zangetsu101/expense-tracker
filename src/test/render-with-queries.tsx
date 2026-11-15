@@ -13,11 +13,10 @@ afterEach(async () => {
 });
 
 /**
- * Renders a screen with a new query client and the app query lifecycle.
+ * Renders a screen with the app query lifecycle, using a fresh client by default.
  * A call to notifyDataChanged() then refreshes the queries, as in the app.
  */
-export async function renderWithQueries(ui: ReactElement) {
-  const client = createQueryClient();
+export async function renderWithQueries(ui: ReactElement, client = createQueryClient()) {
   clients.push(client);
   const view = await render(
     <QueryClientProvider client={client}>

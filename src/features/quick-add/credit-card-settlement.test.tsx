@@ -2,13 +2,16 @@ import { act, cleanup, screen, userEvent, waitFor, within } from '@testing-libra
 import { notifyManager } from '@tanstack/react-query';
 import { AccessibilityInfo } from 'react-native';
 import { router } from 'expo-router';
-import { listAccounts } from '@/lib/database';
+import { epochDay, listAccounts } from '@/lib/database';
 import { creditCardBills, type CardBill } from '@/lib/credit-cards';
 import { notifyDataChanged } from '@/lib/data-changes';
 import { loadFirstTransferRate } from '@/lib/transfer-rate-store';
 import { addTransfer } from '@/lib/transfers';
 import { renderWithQueries } from '@/test/render-with-queries';
 import QuickAdd from './screen';
+import { createQueryClient } from '@/lib/query-client';
+import { accountsQuery } from '@/lib/account-queries';
+import { cardBillsQuery, categoriesQuery } from './queries';
 
 let mockParams: { mode?: string; accountId?: string; toId?: string; amountMinor?: string } = {};
 
@@ -64,9 +67,13 @@ jest.mock('@/lib/category-prediction-history', () => ({
 
 beforeAll(() => notifyManager.setScheduler(queueMicrotask));
 afterAll(() => notifyManager.setScheduler((callback) => setTimeout(callback, 0)));
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => {
+  jest.restoreAllMocks();
+  jest.useRealTimers();
+});
 
 beforeEach(() => {
+  jest.useFakeTimers();
   jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(true);
   mockParams = { mode: 'TRANSFER', accountId: '1', toId: '2', amountMinor: '700' };
   jest.mocked(loadFirstTransferRate).mockResolvedValue({ base: 'USD', quote: 'BDT', rate: 122 });
@@ -93,10 +100,22 @@ beforeEach(() => {
   jest.mocked(addTransfer).mockResolvedValue(undefined);
 });
 
+async function renderQuickAdd(deferBills = false) {
+  const client = createQueryClient();
+  client.setDefaultOptions({
+    queries: { ...client.getDefaultOptions().queries, staleTime: Infinity },
+  });
+  client.setQueryData(accountsQuery().queryKey, await listAccounts());
+  client.setQueryData(categoriesQuery('EXPENSE').queryKey, []);
+  if (!deferBills)
+    client.setQueryData(cardBillsQuery(epochDay(new Date())).queryKey, await creditCardBills());
+  return renderWithQueries(<QuickAdd />, client);
+}
+
 test('Settle prefills Transfer and offers bill or all owed, paid from another Account', async () => {
   const user = userEvent.setup();
   await act(async () => {
-    await renderWithQueries(<QuickAdd />);
+    await renderQuickAdd();
   });
   expect(await screen.findByRole('radio', { name: 'Transfer' })).toBeChecked();
   expect(
@@ -132,7 +151,7 @@ test('bill loading leaves the draft usable and a late result respects the destin
   const read = Promise.withResolvers<CardBill[]>();
   jest.mocked(creditCardBills).mockReturnValueOnce(read.promise);
   await act(async () => {
-    await renderWithQueries(<QuickAdd />);
+    await renderQuickAdd(true);
   });
   expect(await screen.findByLabelText('Loading card bills')).toBeOnTheScreen();
   await user.type(screen.getByLabelText('Note'), 'Keep my draft');
@@ -165,10 +184,12 @@ test('bill loading leaves the draft usable and a late result respects the destin
 
 test('retrying failed bills preserves the transaction draft and Account choices', async () => {
   const user = userEvent.setup();
-  jest.mocked(creditCardBills).mockRejectedValueOnce(new Error('Read failed'));
+  const read = Promise.withResolvers<CardBill[]>();
+  jest.mocked(creditCardBills).mockReturnValueOnce(read.promise);
   await act(async () => {
-    await renderWithQueries(<QuickAdd />);
+    await renderQuickAdd(true);
   });
+  await act(async () => read.reject(new Error('Read failed')));
   expect(await screen.findByText('Could not load card bills.')).toBeOnTheScreen();
   await user.type(screen.getByLabelText('Note'), 'Keep through retry');
   await user.press(screen.getByRole('button', { name: 'Retry card bills' }));
@@ -189,7 +210,7 @@ test('retrying failed bills preserves the transaction draft and Account choices'
 test('a failed bill refresh keeps the cached choices and draft visible', async () => {
   const user = userEvent.setup();
   await act(async () => {
-    await renderWithQueries(<QuickAdd />);
+    await renderQuickAdd();
   });
   await screen.findByRole('button', { name: 'Bill · $7.00' });
   await user.type(screen.getByLabelText('Note'), 'Keep through refresh');
@@ -211,7 +232,7 @@ async function crossCurrencyAccounts() {
     { id: 4, name: 'Wise', currencyCode: 'USD', isFavorite: 0 },
   ]);
   await act(async () => {
-    await renderWithQueries(<QuickAdd />);
+    await renderQuickAdd();
   });
   await waitFor(() => expect(screen.getByRole('button', { name: 'Save transfer' })).toBeEnabled());
 }
@@ -318,7 +339,7 @@ test('without a first rate a Settle cannot save until both amounts exist, and sh
     { id: 2, name: 'Visa', currencyCode: 'USD', isFavorite: 0 },
   ]);
   await act(async () => {
-    await renderWithQueries(<QuickAdd />);
+    await renderQuickAdd();
   });
   await waitFor(() => expect(screen.getByRole('button', { name: 'Parent pays' })).toBeEnabled());
   expect(screen.getByRole('button', { name: 'Save transfer' })).toBeDisabled();
@@ -340,7 +361,7 @@ test('a new Transfer keeps the entered amount and saves date and tags with a des
     { id: 2, name: 'Visa', currencyCode: 'USD', isFavorite: 0 },
   ]);
   await act(async () => {
-    await renderWithQueries(<QuickAdd />);
+    await renderQuickAdd();
   });
   await screen.findByRole('button', { name: 'Parent, BDT, favorite' });
   await enter(user, 'Amount', '854');
