@@ -103,6 +103,7 @@ function ReadyForm({
   }
   return (
     <TransferAmountInput
+      editingTransfer
       source={source}
       destination={destination}
       initialPaid={initial.amountMinor}

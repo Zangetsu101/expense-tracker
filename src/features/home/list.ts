@@ -1,4 +1,9 @@
-import { formatMoney, transactionTitle, type LendingLabel } from '@/lib/transaction-format';
+import {
+  formatMoney,
+  transferAmounts,
+  transactionTitle,
+  type LendingLabel,
+} from '@/lib/transaction-format';
 import type { DeckCard } from './deck.ts';
 import { homePeriod, shortDay, type PeriodSetting } from './period.ts';
 
@@ -65,17 +70,13 @@ export type ListSection = {
 function transferFace(
   row: ListRow,
   accountId: number | null,
-): Pick<RowView, 'title' | 'amount' | 'tone'> {
-  const amount = formatMoney('TRANSFER', row.amountMinor, row.currencyCode);
+): Pick<RowView, 'title' | 'amount' | 'otherAmount' | 'tone'> {
+  const amounts = transferAmounts(row, accountId);
   if (accountId === null)
-    return { title: `${row.accountName} → ${row.transferAccountName}`, amount, tone: 'muted' };
+    return { ...amounts, title: `${row.accountName} → ${row.transferAccountName}`, tone: 'muted' };
   if (row.transferAccountId === accountId)
-    return {
-      title: `From ${row.accountName}`,
-      amount: `+${formatMoney('TRANSFER', row.receivedAmountMinor ?? row.amountMinor, row.destinationCurrencyCode ?? row.currencyCode)}`,
-      tone: 'income',
-    };
-  return { title: `To ${row.transferAccountName}`, amount: `−${amount}`, tone: 'normal' };
+    return { ...amounts, title: `From ${row.accountName}`, tone: 'income' };
+  return { ...amounts, title: `To ${row.transferAccountName}`, tone: 'normal' };
 }
 
 /** On a Pace card, a grey amount is not in the day total. Only All accounts names the Account of a row. */
@@ -83,18 +84,6 @@ export function rowView(row: ListRow, scope: ListScope): RowView {
   if (row.type === 'TRANSFER')
     return {
       ...transferFace(row, scope.accountId),
-      ...(row.destinationCurrencyCode && row.destinationCurrencyCode !== row.currencyCode
-        ? {
-            otherAmount:
-              scope.accountId === row.transferAccountId
-                ? formatMoney('TRANSFER', row.amountMinor, row.currencyCode)
-                : formatMoney(
-                    'TRANSFER',
-                    row.receivedAmountMinor ?? row.amountMinor,
-                    row.destinationCurrencyCode,
-                  ),
-          }
-        : {}),
       detail: row.note || 'Transfer',
       icon: { kind: 'transfer' },
     };

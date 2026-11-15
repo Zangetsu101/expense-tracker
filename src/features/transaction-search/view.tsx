@@ -26,6 +26,7 @@ import {
   formatEpochDay,
   formatTransactionAmount,
   transactionTitle,
+  transferAmounts,
 } from '@/lib/transaction-format';
 
 const ink = '#edf1f4';
@@ -231,20 +232,11 @@ function ResultRow({
   showDate: boolean;
   accountId: number | null;
 }) {
-  const into =
-    item.type === 'TRANSFER' && accountId != null && item.transferAccountId === accountId;
+  const transfer =
+    item.type === 'TRANSFER' ? transferAmounts(item, accountId, formatTransactionAmount) : null;
   const main =
-    item.type === 'TRANSFER'
-      ? `${accountId == null ? '' : into ? '+' : '−'}${formatTransactionAmount('TRANSFER', into ? (item.receivedAmountMinor ?? item.amountMinor) : item.amountMinor, into ? (item.destinationCurrencyCode ?? item.currencyCode) : item.currencyCode)}`
-      : formatTransactionAmount(item.type, item.amountMinor, item.currencyCode);
-  const other =
-    item.destinationCurrencyCode && item.destinationCurrencyCode !== item.currencyCode
-      ? formatTransactionAmount(
-          'TRANSFER',
-          into ? item.amountMinor : (item.receivedAmountMinor ?? item.amountMinor),
-          into ? item.currencyCode : item.destinationCurrencyCode!,
-        )
-      : null;
+    transfer?.amount ?? formatTransactionAmount(item.type, item.amountMinor, item.currencyCode);
+  const other = transfer?.otherAmount;
   const title = item.lendingKind
     ? transactionTitle(item)
     : item.note?.trim() || transactionTitle(item);

@@ -21,6 +21,24 @@ jest.mock('expo-router/react-navigation', () => ({
   usePreventRemove: () => {},
 }));
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ bottom: 0 }) }));
+jest.mock('@expo/ui/community/datetime-picker', () => {
+  const { Pressable, Text } = jest.requireActual<typeof import('react-native')>('react-native');
+  return function MockDatePicker({
+    onValueChange,
+  }: {
+    onValueChange: (event: unknown, date: Date) => void;
+  }) {
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Choose 1 January 2020"
+        onPress={() => onValueChange({}, new Date(2020, 0, 1))}
+      >
+        <Text>1 January 2020</Text>
+      </Pressable>
+    );
+  };
+});
 jest.mock('expo-symbols', () => ({ SymbolView: () => null }));
 jest.mock('react-native-worklets', () => jest.requireActual('react-native-worklets/src/mock'));
 jest.mock('react-native-reanimated', () => jest.requireActual('react-native-reanimated/mock'));
@@ -297,6 +315,8 @@ test('a new Transfer keeps the entered amount and saves date and tags with a des
   });
   await user.type(screen.getByLabelText('Tags, separated by commas'), 'move');
   await user.type(screen.getByLabelText('Note'), 'My transfer');
+  await user.press(screen.getByRole('button', { name: 'Choose date…' }));
+  await user.press(screen.getByRole('button', { name: 'Choose 1 January 2020' }));
   await user.press(screen.getByRole('button', { name: 'Save transfer' }));
   expect(addTransfer).toHaveBeenCalledWith(
     expect.objectContaining({
@@ -306,7 +326,7 @@ test('a new Transfer keeps the entered amount and saves date and tags with a des
       toAccountId: 2,
       note: 'My transfer',
       tagText: 'move',
-      date: expect.any(Date),
+      date: new Date(2020, 0, 1, 12),
     }),
   );
   await cleanup();
@@ -333,6 +353,6 @@ test('a historical first rate shows its date and an open draft keeps its amounts
   });
   expect(screen.getByText('120.00')).toBeOnTheScreen();
   expect(screen.getByText('1 USD =')).toBeOnTheScreen();
-  expect(screen.getByText(/\(from /)).toBeOnTheScreen();
+  expect(screen.queryByText(/\(from /)).not.toBeOnTheScreen();
   await cleanup();
 });

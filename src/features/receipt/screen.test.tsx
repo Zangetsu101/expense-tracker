@@ -845,7 +845,9 @@ test('a cross-Currency receipt derives its rate and edit treats both saved amoun
   };
   jest.mocked(loadEditableTransaction).mockResolvedValue(null);
   jest.mocked(loadTransfer).mockResolvedValue(saved);
-  jest.mocked(loadFirstTransferRate).mockResolvedValue({ base: 'USD', quote: 'EUR', rate: 3 });
+  jest
+    .mocked(loadFirstTransferRate)
+    .mockResolvedValue({ base: 'USD', quote: 'EUR', rate: 2, date: 20000 });
   await renderScreen();
   expect(await screen.findByText('Transfer · USD → EUR')).toBeOnTheScreen();
   expect(screen.getByText('1 USD = 2.00 EUR')).toBeOnTheScreen();
@@ -853,6 +855,7 @@ test('a cross-Currency receipt derives its rate and edit treats both saved amoun
   await openEditor(user);
   await waitFor(() => expect(screen.getByRole('button', { name: 'Cash pays' })).toBeEnabled());
   expect(screen.getByText('2.00')).toBeOnTheScreen();
+  expect(screen.queryByText(/\(from /)).not.toBeOnTheScreen();
   await user.press(screen.getByRole('button', { name: 'Cash pays' }));
   await user.press(screen.getByRole('button', { name: '9' }));
   await user.press(screen.getByRole('button', { name: 'Done' }));

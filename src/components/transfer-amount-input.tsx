@@ -39,6 +39,7 @@ export function TransferAmountInput({
   initialReceived,
   receivedPreset,
   presetRevision = 0,
+  editingTransfer = false,
   disabled = false,
   onChange,
   children,
@@ -49,6 +50,7 @@ export function TransferAmountInput({
   initialReceived?: number;
   receivedPreset?: number;
   presetRevision?: number;
+  editingTransfer?: boolean;
   disabled?: boolean;
   onChange: (paid: number | undefined, received: number | undefined) => void;
   children: (slots: AmountSlots) => ReactNode;
@@ -226,6 +228,18 @@ export function TransferAmountInput({
     setFocus(field);
     setChanged(false);
   }
+  const historicalRate =
+    context.rate?.rate === undefined
+      ? undefined
+      : state.base === context.rate.base
+        ? context.rate.rate
+        : 1 / context.rate.rate;
+  const showHistoricalDate =
+    !editingTransfer &&
+    focus !== 'rate' &&
+    historicalRate !== undefined &&
+    state.rate !== undefined &&
+    Math.abs(state.rate - historicalRate) < 0.00005;
   const input = (
     <View style={{ gap: 10 }}>
       {cross && (
@@ -269,11 +283,14 @@ export function TransferAmountInput({
             </Text>
           </Pressable>
           <Text style={{ color: c.muted }}>{state.quote}</Text>
-          {context.rate && 'date' in context.rate && context.rate.date !== undefined && (
-            <Text
-              style={{ color: c.muted }}
-            >{`(from ${new Date(context.rate.date * 86400000).toLocaleDateString(undefined, { day: 'numeric', month: 'short', timeZone: 'UTC' })})`}</Text>
-          )}
+          {showHistoricalDate &&
+            context.rate &&
+            'date' in context.rate &&
+            context.rate.date !== undefined && (
+              <Text
+                style={{ color: c.muted }}
+              >{`(from ${new Date(context.rate.date * 86400000).toLocaleDateString(undefined, { day: 'numeric', month: 'short', timeZone: 'UTC' })})`}</Text>
+            )}
         </View>
       )}
       <TransferAmountField
