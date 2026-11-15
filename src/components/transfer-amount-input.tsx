@@ -102,6 +102,7 @@ export function TransferAmountInput({
       next.typed.receive = false;
     }
     if (cross) {
+      const paidWasTyped = next.typed.pay;
       const first = rateRead.data;
       const key = [source!.currencyCode, destination!.currencyCode].sort().join('/');
       const direction = directions[key] ??
@@ -134,6 +135,7 @@ export function TransferAmountInput({
         }
         next = applyTransferAmount(next, 'receive', next.receive, source!.currencyCode);
       } else next = applyTransferAmount(next, 'pay', next.pay, source!.currencyCode);
+      next.typed.pay = paidWasTyped;
     } else if (destination) {
       if (next.typed.receive && next.receive) next.pay = next.receive;
       if (

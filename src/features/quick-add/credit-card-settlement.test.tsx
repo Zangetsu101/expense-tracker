@@ -308,6 +308,10 @@ test('two typed amounts update the rate; changing source preserves receives and 
   expect(screen.getByRole('button', { name: 'Visa receives' })).toHaveAccessibilityValue({
     text: '10.00',
   });
+  await enter(user, 'Visa receives', '20');
+  expect(screen.getByRole('button', { name: 'Another bank pays' })).toHaveAccessibilityValue({
+    text: '700.00',
+  });
   await user.press(
     within(screen.getByLabelText('Transfer destination')).getByRole('button', {
       name: 'Wise, USD',
@@ -418,6 +422,26 @@ test('a historical first rate shows its date and an open draft keeps its amounts
   expect(screen.getByText('120.00')).toBeOnTheScreen();
   expect(screen.getByText('1 USD =')).toBeOnTheScreen();
   expect(screen.queryByText(/\(from /)).not.toBeOnTheScreen();
+  await act(async () => {
+    await cleanup();
+  });
+});
+
+test('after changing destination a rate edit keeps the calculated received amount', async () => {
+  const user = userEvent.setup();
+  await crossCurrencyAccounts();
+  await user.press(
+    within(screen.getByLabelText('Transfer destination')).getByRole('button', {
+      name: 'Wise, USD',
+    }),
+  );
+  await enter(user, 'Rate', '125');
+  expect(screen.getByRole('button', { name: 'Wise receives' })).toHaveAccessibilityValue({
+    text: '7.00',
+  });
+  expect(screen.getByRole('button', { name: 'Parent pays' })).toHaveAccessibilityValue({
+    text: '875.00',
+  });
   await act(async () => {
     await cleanup();
   });
