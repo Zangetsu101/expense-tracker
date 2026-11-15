@@ -124,6 +124,7 @@ function QuickAddForm() {
     const amount = Number(params.amountMinor);
     return Number.isSafeInteger(amount) && amount > 0 ? amount : undefined;
   });
+  const [entryAmount, setEntryAmount] = useState(preset);
   const [amountKey, setAmountKey] = useState(0);
   const categoryMode = mode === 'EXPENSE' || mode === 'INCOME' ? mode : undefined;
   const categoryRead = useQuery({ ...categoriesQuery(categoryMode ?? 'EXPENSE'), enabled: false });
@@ -289,8 +290,8 @@ function QuickAddForm() {
       receivedPreset={preset}
       presetRevision={amountKey}
       initialPaid={preset && cross ? undefined : amountMinor}
-      initialAmount={preset ? (preset / 100).toFixed(2) : ''}
-      initiallyOpen={!preset}
+      initialAmount={entryAmount ? (entryAmount / 100).toFixed(2) : ''}
+      initiallyOpen={!entryAmount}
       currency={account?.currencyCode}
       disabled={pending}
       onChange={mode === 'TRANSFER' ? onTransferAmounts : setAmountMinor}
@@ -328,6 +329,10 @@ function QuickAddForm() {
                 options={modes}
                 disabled={pending}
                 onChange={(value) => {
+                  if (mode === 'TRANSFER' && value !== 'TRANSFER') {
+                    setEntryAmount(amountMinor);
+                    setPreset(undefined);
+                  }
                   setMode(value);
                   setError('');
                 }}

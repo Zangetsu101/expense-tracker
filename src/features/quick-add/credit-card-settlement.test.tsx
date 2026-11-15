@@ -1,4 +1,6 @@
 import { act, cleanup, screen, userEvent, waitFor, within } from '@testing-library/react-native';
+import { notifyManager } from '@tanstack/react-query';
+import { AccessibilityInfo } from 'react-native';
 import { router } from 'expo-router';
 import { listAccounts } from '@/lib/database';
 import { creditCardBills, type CardBill } from '@/lib/credit-cards';
@@ -60,7 +62,12 @@ jest.mock('@/lib/category-prediction-history', () => ({
   listCategoryEvidence: jest.fn(async () => []),
 }));
 
+beforeAll(() => notifyManager.setScheduler(queueMicrotask));
+afterAll(() => notifyManager.setScheduler((callback) => setTimeout(callback, 0)));
+afterEach(() => jest.restoreAllMocks());
+
 beforeEach(() => {
+  jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(true);
   mockParams = { mode: 'TRANSFER', accountId: '1', toId: '2', amountMinor: '700' };
   jest.mocked(loadFirstTransferRate).mockResolvedValue({ base: 'USD', quote: 'BDT', rate: 122 });
   jest.mocked(listAccounts).mockResolvedValue([
@@ -114,7 +121,9 @@ test('Settle prefills Transfer and offers bill or all owed, paid from another Ac
     ),
   );
   expect(router.back).toHaveBeenCalled();
-  await cleanup();
+  await act(async () => {
+    await cleanup();
+  });
 });
 
 test('bill loading leaves the draft usable and a late result respects the destination in view', async () => {
@@ -149,7 +158,9 @@ test('bill loading leaves the draft usable and a late result respects the destin
     }),
   );
   expect(await screen.findByRole('button', { name: 'Bill · $7.00' })).toBeOnTheScreen();
-  await cleanup();
+  await act(async () => {
+    await cleanup();
+  });
 });
 
 test('retrying failed bills preserves the transaction draft and Account choices', async () => {
@@ -170,7 +181,9 @@ test('retrying failed bills preserves the transaction draft and Account choices'
       selected: true,
     }),
   ).toBeOnTheScreen();
-  await cleanup();
+  await act(async () => {
+    await cleanup();
+  });
 });
 
 test('a failed bill refresh keeps the cached choices and draft visible', async () => {
@@ -185,7 +198,9 @@ test('a failed bill refresh keeps the cached choices and draft visible', async (
   expect(await screen.findByText('Could not load card bills.')).toBeOnTheScreen();
   expect(screen.getByRole('button', { name: 'Bill · $7.00' })).toBeOnTheScreen();
   expect(screen.getByLabelText('Note')).toHaveDisplayValue('Keep through refresh');
-  await cleanup();
+  await act(async () => {
+    await cleanup();
+  });
 });
 
 async function crossCurrencyAccounts() {
@@ -227,7 +242,29 @@ test('a cross-Currency Settle starts with a typed received Bill, and rate edits 
   expect(addTransfer).toHaveBeenCalledWith(
     expect.objectContaining({ amountMinor: 137500, receivedAmountMinor: 1100 }),
   );
-  await cleanup();
+  await act(async () => {
+    await cleanup();
+  });
+});
+test('leaving Transfer mode keeps the amount paid in the single amount field', async () => {
+  const user = userEvent.setup();
+  await crossCurrencyAccounts();
+  await user.press(screen.getByRole('radio', { name: 'Expense' }));
+  expect(screen.getByRole('button', { name: 'Amount' })).toHaveAccessibilityValue({
+    text: '854.00',
+  });
+  await enter(user, 'Amount', '9');
+  await user.press(screen.getByRole('radio', { name: 'Transfer' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Save transfer' })).toBeEnabled());
+  expect(screen.getByRole('button', { name: 'Parent pays' })).toHaveAccessibilityValue({
+    text: '9.00',
+  });
+  expect(screen.getByRole('button', { name: 'Visa receives' })).toHaveAccessibilityValue({
+    text: '0.07',
+  });
+  await act(async () => {
+    await cleanup();
+  });
 });
 test('two typed amounts update the rate; changing source preserves receives and destination discards it', async () => {
   const user = userEvent.setup();
@@ -267,7 +304,9 @@ test('two typed amounts update the rate; changing source preserves receives and 
       receivedAmountMinor: 574,
     }),
   );
-  await cleanup();
+  await act(async () => {
+    await cleanup();
+  });
 });
 test('without a first rate a Settle cannot save until both amounts exist, and shows no historical hint', async () => {
   const user = userEvent.setup();
@@ -287,7 +326,9 @@ test('without a first rate a Settle cannot save until both amounts exist, and sh
   await enter(user, 'Parent pays', '854');
   expect(screen.getByRole('button', { name: 'Save transfer' })).toBeEnabled();
   expect(screen.getByText('122.00')).toBeOnTheScreen();
-  await cleanup();
+  await act(async () => {
+    await cleanup();
+  });
 });
 
 test('a new Transfer keeps the entered amount and saves date and tags with a destination in another Currency', async () => {
@@ -329,7 +370,9 @@ test('a new Transfer keeps the entered amount and saves date and tags with a des
       date: new Date(2020, 0, 1, 12),
     }),
   );
-  await cleanup();
+  await act(async () => {
+    await cleanup();
+  });
 });
 
 test('a historical first rate shows its date and an open draft keeps its amounts and direction through refresh', async () => {
@@ -354,5 +397,7 @@ test('a historical first rate shows its date and an open draft keeps its amounts
   expect(screen.getByText('120.00')).toBeOnTheScreen();
   expect(screen.getByText('1 USD =')).toBeOnTheScreen();
   expect(screen.queryByText(/\(from /)).not.toBeOnTheScreen();
-  await cleanup();
+  await act(async () => {
+    await cleanup();
+  });
 });
