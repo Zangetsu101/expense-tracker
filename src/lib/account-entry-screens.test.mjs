@@ -18,7 +18,6 @@ const mocks = {
   '@/lib/category-prediction-history': `export const listCategoryEvidence=async()=>globalThis.__entryTest.evidence??[];`,
   '@/components/loading': `export const Skeleton='Skeleton',Shimmer='Shimmer';`,
   'expo-symbols': `export const SymbolView='SymbolView';`,
-  // The keypad keys render as `Pressable` so that these tests find them like other buttons.
   'react-native-gesture-handler': `export const Touchable='Pressable';`,
   'expo-haptics': `export const AndroidHaptics={Keyboard_Tap:'keyboard'},ImpactFeedbackStyle={Light:'light'}; export const performAndroidHapticsAsync=async()=>{},impactAsync=async()=>{};`,
   'react-native-reanimated': `import {useRef} from 'react'; export default {View:'AnimatedView',createAnimatedComponent:component=>component}; export const FadeOut={}; export const LinearTransition={springify(){return this},dampingRatio(){return this},duration(){return this},reduceMotion(){return this}}; export const Easing={out:x=>x,cubic:x=>x},ReduceMotion={System:'system'}; export const useSharedValue=value=>useRef({value}).current,useAnimatedStyle=fn=>fn(),withTiming=value=>value;`,
@@ -99,7 +98,6 @@ async function change(label, value, finalize = true) {
         .find((n) => n.props.accessibilityLabel === 'Amount')
         .props.onPress(),
     );
-    // Replace the amount through the keypad keys, one key in each update.
     const keyLabels = {
       '+': 'Add',
       '-': 'Subtract',
