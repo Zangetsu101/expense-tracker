@@ -20,6 +20,8 @@ const mocks = {
   '@/lib/drive-backup-adapter': `export const driveBackups={status:async()=>({status:'disconnected'})};`,
   '@/lib/backup-background-task': `export const reconcileBackupTask=async()=>null,subscribeBackupSchedule=()=>()=>{},withBackupChangeNotice=(operation)=>operation(),runScheduledBackup=async()=>{};`,
   '@/lib/category-prediction-history': `export const listCategoryEvidence=async()=>[];`,
+  // The keypad keys render as `Pressable` so that these tests find them like other buttons.
+  'react-native-gesture-handler': `export const Touchable='Pressable';`,
   'expo-haptics': `export const AndroidHaptics={Keyboard_Tap:'keyboard'},ImpactFeedbackStyle={Light:'light'}; export const performAndroidHapticsAsync=async()=>{},impactAsync=async()=>{};`,
   'react-native-reanimated': `import {useRef} from 'react'; export const useAnimatedReaction=()=>{}; export default {View:'AnimatedView',createAnimatedComponent:component=>component}; export const Easing={out:x=>x,cubic:x=>x},ReduceMotion={System:'system'}; const builder={springify:()=>builder,dampingRatio:()=>builder,delay:()=>builder,duration:()=>builder,easing:()=>builder,withInitialValues:()=>builder,reduceMotion:()=>builder}; export const FadeInUp=builder,FadeIn=builder,SlideInRight=builder,FadeInDown={},FadeOutUp={},FadeOut=builder,LinearTransition=builder; export const useReducedMotion=()=>false; export const useSharedValue=value=>{const v=useRef({value}).current;v.get??=()=>v.value;v.set??=x=>{v.value=x};return v},useAnimatedStyle=fn=>fn(),withTiming=value=>value;`,
   '@/components/loading': `export const Skeleton='Skeleton',Shimmer='Shimmer';`,

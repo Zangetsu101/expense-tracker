@@ -9,6 +9,12 @@ jest.mock('react-native-reanimated/src/initializers', () => ({
   initializeReanimatedModule: jest.fn(),
 }));
 
+// Touchable dispatches native button events, which userEvent cannot synthesize.
+jest.mock('react-native-gesture-handler', () => ({
+  ...jest.requireActual('react-native-gesture-handler'),
+  Touchable: jest.requireActual('react-native').Pressable,
+}));
+
 // The test renderer logs each error that an error boundary catches, with the full React
 // fiber. A test for an error fallback asserts the fallback, so the log adds nothing.
 // React still logs an error that no boundary catches.

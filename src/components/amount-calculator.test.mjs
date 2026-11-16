@@ -10,9 +10,13 @@ const root = new URL('../../', import.meta.url);
 const hooks = registerHooks({
   resolve(specifier, context, next) {
     if (
-      ['react-native', 'react-native-reanimated', 'expo-haptics', 'expo-symbols'].includes(
-        specifier,
-      )
+      [
+        'react-native',
+        'react-native-gesture-handler',
+        'react-native-reanimated',
+        'expo-haptics',
+        'expo-symbols',
+      ].includes(specifier)
     )
       return { url: `calculator-mock:${specifier}`, shortCircuit: true };
     if (specifier.startsWith('@/'))
@@ -27,6 +31,7 @@ const hooks = registerHooks({
   load(url, context, next) {
     const mocks = {
       'calculator-mock:react-native': "export const Pressable='Pressable',Text='Text',View='View';",
+      'calculator-mock:react-native-gesture-handler': "export const Touchable='Touchable';",
       'calculator-mock:expo-symbols': "export const SymbolView='SymbolView';",
       'calculator-mock:react-native-reanimated': `import { useRef } from 'react';
         export default { View: 'AnimatedView' };
@@ -59,17 +64,15 @@ test('keypad remains usable without haptics and hides closed controls', async (t
   const previousOS = process.env.EXPO_OS;
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   let renderer;
-  let value = '12';
+  const keys = [];
   let done = 0;
   const render = async (open) =>
     act(async () => {
       const element = React.createElement(AmountCalculator, {
-        value,
+        error: '',
         open,
         bottomInset: 24,
-        onChange: (next) => {
-          value = next;
-        },
+        onKey: (pressed) => keys.push(pressed),
         onDone: () => done++,
       });
       if (renderer) renderer.update(element);
@@ -84,9 +87,9 @@ test('keypad remains usable without haptics and hides closed controls', async (t
     else process.env.EXPO_OS = previousOS;
   });
   const key = (label) =>
-    renderer.root
-      .findAllByType('Pressable')
-      .find((node) => node.props.accessibilityLabel === label);
+    renderer.root.find(
+      (node) => typeof node.type === 'string' && node.props.accessibilityLabel === label,
+    );
   for (const os of ['android', 'ios']) {
     process.env.EXPO_OS = os;
     await render(true);
@@ -94,10 +97,13 @@ test('keypad remains usable without haptics and hides closed controls', async (t
       key('3').props.onPressIn();
       key('3').props.onPress();
     });
-    assert.equal(value, os === 'android' ? '123' : '1233');
   }
+  assert.deepEqual(keys, ['3', '3']);
   await render(true);
-  await act(async () => key('Done').props.onPress());
+  await act(async () => {
+    key('Done').props.onPressIn();
+    key('Done').props.onPress();
+  });
   assert.equal(done, 1);
   await act(async () => key('Hide amount keypad').props.onPress());
   assert.equal(done, 2);
