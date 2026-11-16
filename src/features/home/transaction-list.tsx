@@ -1,5 +1,5 @@
-import { useEffect, type ReactNode, type Ref } from 'react';
-import { SectionList, View, type CellRendererProps, type SectionListProps } from 'react-native';
+import { useEffect, type ComponentProps, type ReactNode, type Ref } from 'react';
+import { SectionList, View, type SectionListProps } from 'react-native';
 import { useAnimationClock } from '@/components/animation-clock';
 import Animated, {
   useAnimatedReaction,
@@ -24,7 +24,11 @@ const rowMove = LinearTransition.duration(200).reduceMotion(ReduceMotion.System)
 const headerSlideIn = SlideInRight.duration(250);
 const headerFadeIn = FadeIn.duration(250);
 
-function MovingCell({ onLayout, style, children }: CellRendererProps<ListItem>) {
+function MovingCell({
+  onLayout,
+  style,
+  children,
+}: ComponentProps<NonNullable<SectionListProps<ListItem>['CellRendererComponent']>>) {
   return (
     <Animated.View layout={rowMove} onLayout={onLayout} style={style}>
       {children}

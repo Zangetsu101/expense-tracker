@@ -82,7 +82,7 @@ export function CandidatesView({
           <ReviewQueueAlert message="Could not refresh transfer candidates." retry={onRetry} />
         ) : candidates.length === 0 ? (
           <Text style={{ color: c.text }}>No transfer candidates to review.</Text>
-        ) : null
+        ) : undefined
       }
       renderItem={({ item }) => (
         <CandidateCard
