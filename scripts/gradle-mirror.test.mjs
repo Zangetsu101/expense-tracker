@@ -7,7 +7,7 @@ import { test } from 'node:test';
 
 const require = createRequire(import.meta.url);
 const withGradleMirror = require('../plugins/with-gradle-mirror.cjs');
-const template = `distributionUrl=https\\://services.gradle.org/distributions/gradle-9.3.1-bin.zip
+const template = `distributionUrl=https\\://services.gradle.org/distributions/gradle-9.4.1-bin.zip
 networkTimeout=10000
 validateDistributionUrl=true
 `;
@@ -37,10 +37,10 @@ test('prebuild pins the Huawei Gradle mirror and official checksum without chang
       const result = await read();
       assert.equal(
         result,
-        `distributionUrl=https\\://mirrors.huaweicloud.com/gradle/gradle-9.3.1-bin.zip
+        `distributionUrl=https\\://mirrors.huaweicloud.com/gradle/gradle-9.4.1-bin.zip
 networkTimeout=10000
 validateDistributionUrl=true
-distributionSha256Sum=b266d5ff6b90eada6dc3b20cb090e3731302e553a27c5d3e4df1f0d76beaff06
+distributionSha256Sum=2ab2958f2a1e51120c326cad6f385153bb11ee93b3c216c5fccebfdfbb7ec6cb
 `,
       );
       await apply();
@@ -50,7 +50,7 @@ distributionSha256Sum=b266d5ff6b90eada6dc3b20cb090e3731302e553a27c5d3e4df1f0d76b
 });
 
 test('prebuild refuses a Gradle version change until its mirror and checksum are reviewed', async () => {
-  const changed = template.replace('9.3.1', '9.4.0');
+  const changed = template.replace('9.4.1', '9.4.0');
   await fixture(changed, async (apply, read) => {
     await assert.rejects(apply(), /Gradle version changed/);
     assert.equal(await read(), changed);
