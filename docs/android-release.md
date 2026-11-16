@@ -112,7 +112,7 @@ pnpm install --frozen-lockfile
 )
 ```
 
-The command runs prebuild and the signed ARM64 release build. It does not run the repository checks, so run `pnpm check` first. It produces `dist/expense-tracker-<version>-arm64.apk` and its `.sha256` file. The `.sha256` file contains only the file name, so `sha256sum -c` works in the folder that contains both files. Both APK targets use Huawei Cloud’s Gradle 9.3.1 mirror, pinned to Gradle’s official SHA-256 checksum by `plugins/with-gradle-mirror.cjs`. When upgrading Expo’s generated Gradle version, update the mirror and checksum together. Native sources are generated: edit `app.json`, the signing plugin, or the signing Gradle script instead of `android/`.
+The command runs prebuild and the signed ARM64 release build. It does not run the repository checks, so run `pnpm check` first. It produces `dist/expense-tracker-<version>-arm64.apk` and its `.sha256` file. The `.sha256` file contains only the file name, so `sha256sum -c` works in the folder that contains both files. Both APK targets use Huawei Cloud’s Gradle 9.4.1 mirror, pinned to Gradle’s official SHA-256 checksum by `plugins/with-gradle-mirror.cjs`. When upgrading Expo’s generated Gradle version, update the mirror and checksum together. Native sources are generated: edit `app.json`, the signing plugin, or the signing Gradle script instead of `android/`.
 
 Verify the release certificate and install without clearing app data:
 
