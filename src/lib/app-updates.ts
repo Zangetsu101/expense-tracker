@@ -122,7 +122,7 @@ export function createUpdateController(supported: boolean, api: UpdateAPI, now =
 
 export function watchUpdateLifecycle(
   appState: {
-    currentState: string | null;
+    currentState: string | null | undefined;
     addEventListener: (
       event: 'change',
       callback: (state: string) => void,

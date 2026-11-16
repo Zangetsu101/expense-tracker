@@ -57,6 +57,6 @@ operations, retry, and native confirmation callbacks, see
 [`settings-data-actions.test.tsx`](../src/components/settings-data-actions.test.tsx).
 
 The `test-renderer` pin keeps its reconciler compatible with the app's React
-version: renderer 1.2 supports React 19.2, while renderer 1.3.1 requires React 19.3.
-Revisit the pin when upgrading React. Existing Node UI tests still use the separate
+version: renderer 1.3.1 supports React 19.3. Revisit the pin when upgrading React.
+Existing Node UI tests still use the separate
 `react-test-renderer` package.
