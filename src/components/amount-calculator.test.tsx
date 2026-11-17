@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, userEvent } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, userEvent } from '@testing-library/react-native';
 import * as Haptics from 'expo-haptics';
 import { withTiming } from 'react-native-reanimated';
 import { AmountCalculator } from './amount-calculator';
@@ -61,4 +61,44 @@ test('pixel rounding does not restart opening but content size changes resize th
   }
   await measure(360);
   expect(withTiming).toHaveBeenLastCalledWith(360, expect.any(Object));
+});
+
+test('holding backspace repeats until release, closing, or unmounting', async () => {
+  jest.useFakeTimers();
+  try {
+    const onKey = jest.fn();
+    const props = { error: '', bottomInset: 24, onKey, onDone: jest.fn() };
+    const { rerender, unmount } = await render(<AmountCalculator {...props} open />);
+    const hold = async () => {
+      await fireEvent(key('Backspace'), 'pressIn');
+      await fireEvent(key('Backspace'), 'longPress');
+      await act(() => jest.advanceTimersByTime(225));
+    };
+    await hold();
+    expect(onKey.mock.calls).toEqual(Array.from({ length: 4 }, () => ['⌫']));
+    await fireEvent(key('Backspace'), 'pressOut');
+    await fireEvent.press(key('Backspace'));
+    await act(() => jest.advanceTimersByTime(300));
+    expect(onKey).toHaveBeenCalledTimes(4);
+
+    await fireEvent(key('Backspace'), 'pressIn');
+    await fireEvent.press(key('Backspace'));
+    await fireEvent(key('Backspace'), 'pressOut');
+    expect(onKey).toHaveBeenCalledTimes(5);
+
+    await hold();
+    await rerender(<AmountCalculator {...props} open={false} />);
+    const callsAfterClosing = onKey.mock.calls.length;
+    await act(() => jest.advanceTimersByTime(300));
+    expect(onKey).toHaveBeenCalledTimes(callsAfterClosing);
+
+    await rerender(<AmountCalculator {...props} open />);
+    await hold();
+    await unmount();
+    const callsAfterUnmounting = onKey.mock.calls.length;
+    await act(() => jest.advanceTimersByTime(300));
+    expect(onKey).toHaveBeenCalledTimes(callsAfterUnmounting);
+  } finally {
+    jest.useRealTimers();
+  }
 });

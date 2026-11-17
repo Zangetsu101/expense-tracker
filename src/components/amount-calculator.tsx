@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { type ComponentProps, useEffect, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Touchable } from 'react-native-gesture-handler';
@@ -97,6 +97,8 @@ export function AmountCalculator({
               {row.map((key) =>
                 key === 'Done' ? (
                   <DoneKey key={key} onFeedback={feedback} onDone={onDone} />
+                ) : key === '⌫' ? (
+                  <BackspaceKey key={key} onFeedback={feedback} onKey={onKey} enabled={open} />
                 ) : (
                   <Key key={key} label={key} onFeedback={feedback} onKey={onKey} />
                 ),
@@ -143,7 +145,6 @@ const keyStyle = {
   borderRadius: 6,
 } as const;
 
-// Nonexclusive native keys allow overlapping presses from different fingers.
 function Key({
   label,
   onFeedback,
@@ -153,6 +154,62 @@ function Key({
   onFeedback: () => void;
   onKey: (key: string) => void;
 }) {
+  return <KeyButton label={label} onPressIn={onFeedback} onPress={() => onKey(label)} />;
+}
+
+function BackspaceKey({
+  enabled,
+  onFeedback,
+  onKey,
+}: {
+  enabled: boolean;
+  onFeedback: () => void;
+  onKey: (key: string) => void;
+}) {
+  const repeatTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const repeated = useRef(false);
+  const latestOnKey = useRef(onKey);
+  useEffect(() => {
+    latestOnKey.current = onKey;
+  }, [onKey]);
+  function stopRepeating() {
+    if (repeatTimer.current !== null) {
+      clearInterval(repeatTimer.current);
+      repeatTimer.current = null;
+    }
+  }
+  useEffect(() => {
+    if (!enabled) stopRepeating();
+    return stopRepeating;
+  }, [enabled]);
+  return (
+    <KeyButton
+      label="⌫"
+      onPressIn={() => {
+        repeated.current = false;
+        onFeedback();
+      }}
+      onLongPress={() => {
+        repeated.current = true;
+        latestOnKey.current('⌫');
+        repeatTimer.current = setInterval(() => latestOnKey.current('⌫'), 75);
+      }}
+      onPressOut={stopRepeating}
+      onPress={() => {
+        if (!repeated.current) onKey('⌫');
+      }}
+    />
+  );
+}
+
+// Nonexclusive native keys allow overlapping presses from different fingers.
+function KeyButton({
+  label,
+  ...handlers
+}: { label: string } & Pick<
+  ComponentProps<typeof Touchable>,
+  'onPress' | 'onPressIn' | 'onPressOut' | 'onLongPress'
+>) {
   const digit = /^[0-9.]$/.test(label);
   return (
     <Touchable
@@ -160,11 +217,10 @@ function Key({
       accessibilityRole="button"
       accessibilityLabel={labels[label] ?? label}
       exclusive={false}
-      onPressIn={onFeedback}
       underlayColor={c.line}
       activeUnderlayOpacity={1}
       animationDuration={0}
-      onPress={() => onKey(label)}
+      {...handlers}
       style={[keyStyle, { flex: 1, backgroundColor: digit ? c.raised : c.root }]}
     >
       <Text
