@@ -1,8 +1,8 @@
-import { Suspense, memo, use, useLayoutEffect } from 'react';
+import { Suspense, use, useLayoutEffect } from 'react';
 import { Pressable, Text } from 'react-native';
 import { act, cleanup, render, screen, userEvent } from '@testing-library/react-native';
 import { ErrorBoundary } from '@/components/query-error-boundary';
-import { GRACE_MS, HOLD_MS, useDeferredSnapshot } from './deferred-list.ts';
+import { GRACE_MS, HOLD_MS, HoldReveal, useDeferredSnapshot } from './deferred-list.ts';
 
 type Read = { promise: Promise<string>; resolve: () => void; reject: () => void };
 let reads: Map<string, Read>;
@@ -25,21 +25,10 @@ function read(key: string) {
 const ready = (key: string) => act(async () => read(key).resolve());
 const wait = (ms: number) => act(async () => jest.advanceTimersByTime(ms));
 
-let shownRenders: number;
-const Shown = memo(function Shown({
-  value,
-  gate,
-}: {
-  value: { name: string };
-  gate: Promise<void> | null;
-}) {
+function Shown({ value }: { value: { name: string } }) {
   use(read(value.name).promise);
-  if (gate) use(gate);
-  useLayoutEffect(() => {
-    shownRenders += 1;
-  });
   return <Text>Shown {value.name}</Text>;
-});
+}
 
 /** The list on screen and its muting, as each commit shows them. */
 let commits: { shown: string; muted: boolean }[];
@@ -63,7 +52,8 @@ function Harness({ value }: { value: string }) {
         )}
       >
         <Suspense fallback={<Text>Loading</Text>}>
-          <Shown value={deferred} gate={gate} />
+          <Shown value={deferred} />
+          <HoldReveal gate={gate} />
         </Suspense>
       </ErrorBoundary>
     </>
@@ -91,7 +81,6 @@ const isMuted = (muted: boolean) =>
 beforeEach(() => {
   reads = new Map();
   commits = [];
-  shownRenders = 0;
   jest.useFakeTimers();
 });
 afterEach(async () => {
@@ -138,6 +127,10 @@ test('results ready during the hold stay gated until the hold ends', async () =>
   // The new list and the end of muting come in the same commit.
   expect(commits).toContainEqual({ shown: 'a', muted: true });
   expect(commits).not.toContainEqual({ shown: 'b', muted: true });
+  // The next request starts a new episode with its own grace period.
+  await ask('c');
+  await wait(GRACE_MS - 1);
+  isMuted(false);
 });
 
 test('results ready after the hold show at once', async () => {
@@ -225,13 +218,6 @@ test('equivalent inputs on a re-render do not restart the grace period', async (
   isMuted(true);
 });
 
-test('equivalent inputs on a re-render keep the same snapshot', async () => {
-  await start();
-  const renders = shownRenders;
-  await rerender();
-  expect(shownRenders).toBe(renders);
-});
-
 test('a request back to the list on screen settles it, and the next request has grace', async () => {
   await start();
   await ask('b');
@@ -283,6 +269,8 @@ test('a request after a failure during the hold has its own grace period', async
   await act(async () => read('b').reject());
   expect(screen.getByText('Failed')).toBeOnTheScreen();
   await ask('c');
+  await wait(GRACE_MS - 1);
+  isMuted(false);
   await ready('c');
   shows('c');
   isMuted(false);

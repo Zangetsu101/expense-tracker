@@ -1,4 +1,4 @@
-import { use, useRef, type ReactElement, type ReactNode } from 'react';
+import { useRef, type ReactElement, type ReactNode } from 'react';
 import { ScrollView, Text, View, type SectionList } from 'react-native';
 import { router } from 'expo-router';
 import {
@@ -21,7 +21,7 @@ import {
 } from './list.ts';
 import { EmptyList, ListEnd, ListMessage, Snackbar } from './list-view.tsx';
 import { useSavedRow, useSavedRowState, useScopedSearch } from './list-hooks.ts';
-import { useDeferredTransactionList, type ListInputs } from './deferred-list.ts';
+import { HoldReveal, listKey, useDeferredListInputs, type ListInputs } from './deferred-list.ts';
 import { periodKey, type PeriodSetting } from './period.ts';
 import { homeListQuery, homeSearchQuery } from './queries.ts';
 import { ActivityError, ActivitySkeleton, RefreshNotice } from './view.tsx';
@@ -43,18 +43,18 @@ type HomeActivityProps = {
 
 export function HomeActivity(props: HomeActivityProps) {
   const { reset } = useQueryErrorResetBoundary();
-  const search = useScopedSearch(`${props.scope.accountId}:${periodKey(props.setting)}`);
-  const { deferred, stale, muted, gate } = useDeferredTransactionList({
+  const searchField = useScopedSearch(`${props.scope.accountId}:${periodKey(props.setting)}`);
+  const { deferred, stale, muted, gate } = useDeferredListInputs({
     scope: props.scope,
     setting: props.setting,
     now: props.now,
-    search: { text: search.text, allDates: search.allDates },
+    search: { text: searchField.text, allDates: searchField.allDates },
   });
   const savedState = useSavedRowState({
     accountId: props.scope.accountId,
     accounts: props.accounts,
     onShowAccount: props.onShowAccount,
-    onShow: () => search.change(''),
+    onShow: () => searchField.change(''),
   });
   const header = (
     <>
@@ -63,8 +63,8 @@ export function HomeActivity(props: HomeActivityProps) {
         accountId={props.scope.accountId}
         setting={props.setting}
         now={props.now}
-        value={search.text}
-        onChange={search.change}
+        value={searchField.text}
+        onChange={searchField.change}
       />
     </>
   );
@@ -72,9 +72,7 @@ export function HomeActivity(props: HomeActivityProps) {
     <>
       <QueryBoundary
         reset={reset}
-        resetKey={JSON.stringify(
-          homeListQuery(deferred.scope, deferred.setting, deferred.now).queryKey,
-        )}
+        resetKey={listKey(deferred)}
         pending={
           <ActivityFallback header={header}>
             <ActivitySkeleton />
@@ -87,18 +85,17 @@ export function HomeActivity(props: HomeActivityProps) {
         )}
       >
         <ActivityResults
-          {...props}
-          scope={deferred.scope}
-          setting={deferred.setting}
-          now={deferred.now}
-          shownSearch={deferred.search}
+          header={props.header}
+          scopeName={props.scopeName}
+          onAdd={props.onAdd}
+          inputs={deferred}
           stale={stale}
           muted={muted}
-          gate={gate}
-          search={search}
+          searchField={searchField}
           savedState={savedState}
           searchHeader={header}
         />
+        <HoldReveal gate={gate} />
       </QueryBoundary>
       {savedState.snack && <Snackbar text={savedState.snack.text} onShow={savedState.show} />}
     </>
@@ -119,39 +116,33 @@ function ActivityFallback({ header, children }: { header: ReactNode; children: R
 
 function ActivityResults({
   header,
-  scope,
   scopeName,
-  setting,
-  now,
   onAdd,
-  shownSearch,
+  inputs,
   stale,
   muted,
-  gate,
-  search,
+  searchField,
   savedState,
   searchHeader,
-}: HomeActivityProps & {
-  /** The search of the snapshot on screen. `search` is the field, which can be ahead of it. */
-  shownSearch: ListInputs['search'];
+}: Pick<HomeActivityProps, 'header' | 'scopeName' | 'onAdd'> & {
+  inputs: ListInputs;
   stale: boolean;
   muted: boolean;
-  gate: Promise<void> | null;
-  search: ReturnType<typeof useScopedSearch>;
+  searchField: ReturnType<typeof useScopedSearch>;
   savedState: ReturnType<typeof useSavedRowState>;
   searchHeader: ReactElement;
 }) {
+  const { scope, setting, now } = inputs;
   const today = epochDay(now);
   const { accountId } = scope;
   const listRef = useRef<SectionList<ListItem, ListSection>>(null);
   const list = useSuspenseInfiniteQuery(homeListQuery(scope, setting, now));
-  if (gate) use(gate);
   const periods = list.data.pages.flatMap((page) => page.periods);
   const firstDay = list.data.pages[0].firstDay;
   const shownScope = list.data.pages[0].scope;
   const loadedFrom = periods.at(-1)?.period.start ?? today + 1;
 
-  const { text: query, allDates } = shownSearch;
+  const { text: query, allDates } = inputs.search;
   const searching = query.trim() !== '';
   const allDatesSearch = useQuery({
     ...homeSearchQuery(accountId, query, now),
@@ -204,7 +195,7 @@ function ActivityResults({
           action="Search all dates"
           loading={allDates && allDatesSearch.isFetching}
           failed={allDates && allDatesSearch.isError ? 'Couldn’t search all dates' : null}
-          onAction={() => (allDates ? void allDatesSearch.refetch() : search.widen())}
+          onAction={() => (allDates ? void allDatesSearch.refetch() : searchField.widen())}
         />
       </>
     );

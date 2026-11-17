@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useRef, useState } from 'react';
+import { use, useDeferredValue, useEffect, useRef, useState } from 'react';
 import type { ListScope } from './list.ts';
 import type { PeriodSetting } from './period.ts';
 import { homeListQuery } from './queries.ts';
@@ -29,8 +29,7 @@ function startHold(from: string): Hold {
 
 /**
  * Defers `value` and times the muting of the snapshot on screen while a new one loads.
- * A new snapshot renders with `gate`. The render that shows it calls `use(gate)` after
- * its suspending reads, so that it does not replace a muted list before the hold ends.
+ * Give `gate` to a `HoldReveal` in the Suspense boundary that shows the snapshot.
  */
 export function useDeferredSnapshot<T>(value: T, key: string) {
   const [requested, setRequested] = useState({ key, value });
@@ -40,9 +39,8 @@ export function useDeferredSnapshot<T>(value: T, key: string) {
   const holdOfEarlierList = hold !== null && hold.from !== deferred.key;
   if (requested.key !== key) {
     setRequested({ key, value });
-    // A request back to the list on screen ends the episode. A hold for an earlier list
-    // ended when that list was replaced, for example by an error.
-    if (key === deferred.key || holdOfEarlierList) setHold(null);
+    const backToShown = key === deferred.key;
+    if (backToShown || holdOfEarlierList) setHold(null);
   }
   const stale = deferred.key !== requested.key;
   const grace = stale && hold === null;
@@ -75,6 +73,12 @@ export function useDeferredSnapshot<T>(value: T, key: string) {
   };
 }
 
+/** Keeps the Suspense boundary that it is in from showing a new snapshot before the hold ends. */
+export function HoldReveal({ gate }: { gate: Promise<void> | null }) {
+  if (gate) use(gate);
+  return null;
+}
+
 export type ListInputs = {
   scope: ListScope;
   setting: PeriodSetting;
@@ -82,13 +86,12 @@ export type ListInputs = {
   search: { text: string; allDates: boolean };
 };
 
+export function listKey({ scope, setting, now }: Omit<ListInputs, 'search'>) {
+  return JSON.stringify(homeListQuery(scope, setting, now).queryKey);
+}
+
 /** Defers the inputs of the Home list together, and times the muting of the list on screen. */
-export function useDeferredTransactionList(inputs: ListInputs) {
-  const { scope, setting, now, search } = inputs;
-  const key = JSON.stringify([
-    homeListQuery(scope, setting, now).queryKey,
-    search.text,
-    search.allDates,
-  ]);
+export function useDeferredListInputs(inputs: ListInputs) {
+  const key = JSON.stringify([listKey(inputs), inputs.search.text, inputs.search.allDates]);
   return useDeferredSnapshot(inputs, key);
 }

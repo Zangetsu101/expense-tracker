@@ -30,8 +30,7 @@ function MovingCell({
   );
 }
 
-/** A stale list does not take touches and is hidden from accessibility. A muted list is dim. */
-function Dimmed({
+function StaleContent({
   stale,
   muted,
   children,
@@ -100,13 +99,13 @@ export function TransactionList({
       viewabilityConfig={viewabilityConfig}
       ListHeaderComponent={<View style={{ gap: 8 }}>{header}</View>}
       ListFooterComponent={
-        <Dimmed stale={stale} muted={muted}>
+        <StaleContent stale={stale} muted={muted}>
           {footer}
-        </Dimmed>
+        </StaleContent>
       }
       renderSectionHeader={({ section }) =>
         section.date === null ? null : (
-          <Dimmed stale={stale} muted={muted}>
+          <StaleContent stale={stale} muted={muted}>
             <DayHeader
               date={section.date}
               totals={section.totals}
@@ -119,11 +118,11 @@ export function TransactionList({
                   : undefined
               }
             />
-          </Dimmed>
+          </StaleContent>
         )
       }
       renderItem={({ item }) => (
-        <Dimmed stale={stale} muted={muted}>
+        <StaleContent stale={stale} muted={muted}>
           {item.kind === 'row' ? (
             <TransactionRow
               row={item.row}
@@ -138,7 +137,7 @@ export function TransactionList({
           ) : (
             <ListMessage text={item.text} />
           )}
-        </Dimmed>
+        </StaleContent>
       )}
     />
   );
