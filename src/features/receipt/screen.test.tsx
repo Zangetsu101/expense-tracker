@@ -61,18 +61,8 @@ jest.mock('@/lib/transaction-edit', () => ({
 }));
 jest.mock('@/lib/transfers', () => ({ loadTransfer: jest.fn(), saveTransferEdit: jest.fn() }));
 jest.mock('@/lib/transaction-delete', () => ({ deleteTransaction: jest.fn() }));
-jest.mock('react-native-reanimated', () => {
-  const { View } = jest.requireActual<typeof import('react-native')>('react-native');
-  return {
-    __esModule: true,
-    default: { View },
-    Easing: { out: (easing: unknown) => easing, cubic: (value: number) => value },
-    ReduceMotion: { System: 'system' },
-    useSharedValue: <T,>(value: T) => ({ value }),
-    useAnimatedStyle: (style: () => object) => style(),
-    withTiming: <T,>(value: T) => value,
-  };
-});
+jest.mock('react-native-worklets', () => jest.requireActual('react-native-worklets/src/mock'));
+jest.mock('react-native-reanimated', () => jest.requireActual('react-native-reanimated/mock'));
 jest.mock('@/components/quick-add-date', () => {
   const { Pressable, Text } = jest.requireActual<typeof import('react-native')>('react-native');
   return {
