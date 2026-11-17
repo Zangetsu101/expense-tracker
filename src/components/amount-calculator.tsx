@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Touchable } from 'react-native-gesture-handler';
@@ -98,7 +98,7 @@ export function AmountCalculator({
                 key === 'Done' ? (
                   <DoneKey key={key} onFeedback={feedback} onDone={onDone} />
                 ) : (
-                  <Key key={key} label={key} onFeedback={feedback} onKey={onKey} />
+                  <Key key={key} label={key} onFeedback={feedback} onKey={onKey} enabled={open} />
                 ),
               )}
             </View>
@@ -146,25 +146,58 @@ const keyStyle = {
 // Nonexclusive native keys allow overlapping presses from different fingers.
 function Key({
   label,
+  enabled,
   onFeedback,
   onKey,
 }: {
   label: string;
+  enabled: boolean;
   onFeedback: () => void;
   onKey: (key: string) => void;
 }) {
   const digit = /^[0-9.]$/.test(label);
+  const repeatTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const repeated = useRef(false);
+  const latestOnKey = useRef(onKey);
+  useEffect(() => {
+    latestOnKey.current = onKey;
+  }, [onKey]);
+  function stopRepeating() {
+    if (repeatTimer.current !== null) {
+      clearInterval(repeatTimer.current);
+      repeatTimer.current = null;
+    }
+  }
+  useEffect(() => {
+    if (!enabled) stopRepeating();
+    return stopRepeating;
+  }, [enabled]);
   return (
     <Touchable
       accessible
       accessibilityRole="button"
       accessibilityLabel={labels[label] ?? label}
       exclusive={false}
-      onPressIn={onFeedback}
+      onPressIn={() => {
+        repeated.current = false;
+        onFeedback();
+      }}
+      onLongPress={
+        label === '⌫'
+          ? () => {
+              repeated.current = true;
+              latestOnKey.current(label);
+              repeatTimer.current = setInterval(() => latestOnKey.current(label), 75);
+            }
+          : undefined
+      }
+      onPressOut={stopRepeating}
       underlayColor={c.line}
       activeUnderlayOpacity={1}
       animationDuration={0}
-      onPress={() => onKey(label)}
+      onPress={() => {
+        if (!repeated.current) onKey(label);
+      }}
       style={[keyStyle, { flex: 1, backgroundColor: digit ? c.raised : c.root }]}
     >
       <Text
