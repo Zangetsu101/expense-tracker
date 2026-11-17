@@ -1,11 +1,6 @@
-import { useEffect, type ComponentProps, type ReactNode, type Ref } from 'react';
+import type { ComponentProps, ReactNode, Ref } from 'react';
 import { SectionList, View, type SectionListProps } from 'react-native';
-import { useAnimationClock } from '@/components/animation-clock';
 import Animated, {
-  useAnimatedReaction,
-  useSharedValue,
-  useAnimatedStyle,
-  type SharedValue,
   FadeIn,
   LinearTransition,
   ReduceMotion,
@@ -15,7 +10,6 @@ import Animated, {
 import { rowIndex, type ListItem, type ListScope, type ListSection } from './list.ts';
 import { DayHeader, ListMessage, PeriodDivider, TransactionRow } from './list-view.tsx';
 import type { SlidePhase } from './list-hooks.ts';
-import { type ListDimming, updateListDimming } from './list-dimming.ts';
 
 const gutter = 20;
 /** A row counts as in view when half of it shows, so that a slide does not start at its edge. */
@@ -36,47 +30,24 @@ function MovingCell({
   );
 }
 
-function useListDimming(pending: boolean) {
-  const clock = useAnimationClock();
-  const pendingOnUI = useSharedValue(pending);
-  const timing = useSharedValue<ListDimming>({ pendingSince: null, dimmedSince: null });
-  const opacity = useSharedValue(1);
-  useEffect(() => {
-    pendingOnUI.set(pending);
-  }, [pending, pendingOnUI]);
-  useAnimatedReaction(
-    () => ({ now: clock.get(), pending: pendingOnUI.get() }),
-    ({ now, pending }) => {
-      const previous = timing.get();
-      const next = updateListDimming(previous, pending, now);
-      if (next !== previous) timing.set(next);
-      if (next.dimmedSince !== previous.dimmedSince) {
-        opacity.set(next.dimmedSince === null ? 1 : 0.4);
-      }
-    },
-  );
-  return opacity;
-}
-
-function Dimmed({
+function StaleContent({
+  stale,
   muted,
-  opacity,
   children,
 }: {
+  stale: boolean;
   muted: boolean;
-  opacity: SharedValue<number>;
   children: ReactNode;
 }) {
-  const dimming = useAnimatedStyle(() => ({ opacity: opacity.get() }));
   return (
-    <Animated.View
-      style={[{ paddingHorizontal: gutter }, dimming]}
-      pointerEvents={muted ? 'none' : 'auto'}
-      accessibilityElementsHidden={muted}
-      importantForAccessibility={muted ? 'no-hide-descendants' : 'auto'}
+    <View
+      style={{ paddingHorizontal: gutter, opacity: muted ? 0.4 : 1 }}
+      pointerEvents={stale ? 'none' : 'auto'}
+      accessibilityElementsHidden={stale}
+      importantForAccessibility={stale ? 'no-hide-descendants' : 'auto'}
     >
       {children}
-    </Animated.View>
+    </View>
   );
 }
 
@@ -90,6 +61,9 @@ type TransactionListProps = Pick<
   scope: ListScope;
   now: Date;
   query: string;
+  /** The list on screen is not the requested list. */
+  stale: boolean;
+  /** The list on screen shows as dim while the requested list loads. */
   muted: boolean;
   slidingId: number | null;
   phase: (id: number) => SlidePhase | undefined;
@@ -103,6 +77,7 @@ export function TransactionList({
   scope,
   now,
   query,
+  stale,
   muted,
   slidingId,
   phase,
@@ -110,7 +85,6 @@ export function TransactionList({
   ...props
 }: TransactionListProps) {
   const reduceMotion = useReducedMotion();
-  const opacity = useListDimming(muted);
   return (
     <SectionList
       {...props}
@@ -125,13 +99,13 @@ export function TransactionList({
       viewabilityConfig={viewabilityConfig}
       ListHeaderComponent={<View style={{ gap: 8 }}>{header}</View>}
       ListFooterComponent={
-        <Dimmed muted={muted} opacity={opacity}>
+        <StaleContent stale={stale} muted={muted}>
           {footer}
-        </Dimmed>
+        </StaleContent>
       }
       renderSectionHeader={({ section }) =>
         section.date === null ? null : (
-          <Dimmed muted={muted} opacity={opacity}>
+          <StaleContent stale={stale} muted={muted}>
             <DayHeader
               date={section.date}
               totals={section.totals}
@@ -144,17 +118,17 @@ export function TransactionList({
                   : undefined
               }
             />
-          </Dimmed>
+          </StaleContent>
         )
       }
       renderItem={({ item }) => (
-        <Dimmed muted={muted} opacity={opacity}>
+        <StaleContent stale={stale} muted={muted}>
           {item.kind === 'row' ? (
             <TransactionRow
               row={item.row}
               scope={scope}
               query={query}
-              disabled={muted}
+              disabled={stale}
               slide={phase(item.row.id)}
               onPress={() => onOpen(item.row.id)}
             />
@@ -163,7 +137,7 @@ export function TransactionList({
           ) : (
             <ListMessage text={item.text} />
           )}
-        </Dimmed>
+        </StaleContent>
       )}
     />
   );
