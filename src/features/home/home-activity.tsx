@@ -1,4 +1,4 @@
-import { useDeferredValue, useMemo, useRef, type ReactElement, type ReactNode } from 'react';
+import { use, useRef, type ReactElement, type ReactNode } from 'react';
 import { ScrollView, Text, View, type SectionList } from 'react-native';
 import { router } from 'expo-router';
 import {
@@ -21,6 +21,7 @@ import {
 } from './list.ts';
 import { EmptyList, ListEnd, ListMessage, Snackbar } from './list-view.tsx';
 import { useSavedRow, useSavedRowState, useScopedSearch } from './list-hooks.ts';
+import { useDeferredTransactionList, type ListInputs } from './deferred-list.ts';
 import { periodKey, type PeriodSetting } from './period.ts';
 import { homeListQuery, homeSearchQuery } from './queries.ts';
 import { ActivityError, ActivitySkeleton, RefreshNotice } from './view.tsx';
@@ -42,17 +43,13 @@ type HomeActivityProps = {
 
 export function HomeActivity(props: HomeActivityProps) {
   const { reset } = useQueryErrorResetBoundary();
-  const requested = useMemo(
-    () => ({
-      key: JSON.stringify(homeListQuery(props.scope, props.setting, props.now).queryKey),
-      scope: props.scope,
-      setting: props.setting,
-      now: props.now,
-    }),
-    [props.scope, props.setting, props.now],
-  );
-  const shown = useDeferredValue(requested);
   const search = useScopedSearch(`${props.scope.accountId}:${periodKey(props.setting)}`);
+  const { deferred, stale, muted, gate } = useDeferredTransactionList({
+    scope: props.scope,
+    setting: props.setting,
+    now: props.now,
+    search: { text: search.text, allDates: search.allDates },
+  });
   const savedState = useSavedRowState({
     accountId: props.scope.accountId,
     accounts: props.accounts,
@@ -75,7 +72,9 @@ export function HomeActivity(props: HomeActivityProps) {
     <>
       <QueryBoundary
         reset={reset}
-        resetKey={shown.key}
+        resetKey={JSON.stringify(
+          homeListQuery(deferred.scope, deferred.setting, deferred.now).queryKey,
+        )}
         pending={
           <ActivityFallback header={header}>
             <ActivitySkeleton />
@@ -89,10 +88,13 @@ export function HomeActivity(props: HomeActivityProps) {
       >
         <ActivityResults
           {...props}
-          scope={shown.scope}
-          setting={shown.setting}
-          now={shown.now}
-          stale={shown.key !== requested.key}
+          scope={deferred.scope}
+          setting={deferred.setting}
+          now={deferred.now}
+          shownSearch={deferred.search}
+          stale={stale}
+          muted={muted}
+          gate={gate}
           search={search}
           savedState={savedState}
           searchHeader={header}
@@ -122,12 +124,19 @@ function ActivityResults({
   setting,
   now,
   onAdd,
+  shownSearch,
   stale,
+  muted,
+  gate,
   search,
   savedState,
   searchHeader,
 }: HomeActivityProps & {
+  /** The search of the snapshot on screen. `search` is the field, which can be ahead of it. */
+  shownSearch: ListInputs['search'];
   stale: boolean;
+  muted: boolean;
+  gate: Promise<void> | null;
   search: ReturnType<typeof useScopedSearch>;
   savedState: ReturnType<typeof useSavedRowState>;
   searchHeader: ReactElement;
@@ -136,18 +145,19 @@ function ActivityResults({
   const { accountId } = scope;
   const listRef = useRef<SectionList<ListItem, ListSection>>(null);
   const list = useSuspenseInfiniteQuery(homeListQuery(scope, setting, now));
+  if (gate) use(gate);
   const periods = list.data.pages.flatMap((page) => page.periods);
   const firstDay = list.data.pages[0].firstDay;
   const shownScope = list.data.pages[0].scope;
   const loadedFrom = periods.at(-1)?.period.start ?? today + 1;
 
-  const query = useDeferredValue(search.text);
+  const { text: query, allDates } = shownSearch;
   const searching = query.trim() !== '';
   const allDatesSearch = useQuery({
     ...homeSearchQuery(accountId, query, now),
-    enabled: searching && search.allDates,
+    enabled: searching && allDates,
   });
-  const allDatesRows = searching && search.allDates ? allDatesSearch.data : undefined;
+  const allDatesRows = searching && allDates ? allDatesSearch.data : undefined;
   const rangeRows = periods[0]?.rows.filter((row) => matchesSearch(row, query)) ?? [];
   const hasAny = firstDay !== null;
   const sections = !hasAny
@@ -155,7 +165,6 @@ function ActivityResults({
     : !searching
       ? listSections(periods, shownScope)
       : searchSections(allDatesRows ?? rangeRows);
-  const muted = stale || search.text !== query;
   const saved = useSavedRow({
     state: savedState,
     accountId,
@@ -193,9 +202,9 @@ function ActivityResults({
         <ListEnd
           text={`Showing matches in ${periods[0].period.label}.`}
           action="Search all dates"
-          loading={search.allDates && allDatesSearch.isFetching}
-          failed={search.allDates && allDatesSearch.isError ? 'Couldn’t search all dates' : null}
-          onAction={() => (search.allDates ? void allDatesSearch.refetch() : search.widen())}
+          loading={allDates && allDatesSearch.isFetching}
+          failed={allDates && allDatesSearch.isError ? 'Couldn’t search all dates' : null}
+          onAction={() => (allDates ? void allDatesSearch.refetch() : search.widen())}
         />
       </>
     );
@@ -222,6 +231,7 @@ function ActivityResults({
       scope={shownScope}
       now={now}
       query={searching ? query : ''}
+      stale={stale}
       muted={muted}
       slidingId={saved.slidingId}
       phase={saved.phase}

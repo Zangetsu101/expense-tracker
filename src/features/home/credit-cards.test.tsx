@@ -1,6 +1,5 @@
 import { screen, userEvent, within, waitFor } from '@testing-library/react-native';
 import { router } from 'expo-router';
-import { AnimationClockProvider } from '@/components/animation-clock';
 import { QueryTimeContext } from '@/lib/query-time';
 import { renderWithQueries } from '@/test/render-with-queries';
 import { homeDeckData, homeListPage, homePace, homeTrend } from './read-home';
@@ -34,7 +33,6 @@ jest.mock('react-native-worklets', () => jest.requireActual('react-native-workle
 jest.mock('react-native-reanimated', () => ({
   ...jest.requireActual('react-native-reanimated/mock'),
   useReducedMotion: () => false,
-  useTimestamp: () => jest.requireActual('react-native-reanimated/mock').useSharedValue(0),
 }));
 jest.mock('@/lib/drive-backup-adapter', () => ({
   driveBackups: { status: async () => ({ status: 'disconnected' }) },
@@ -96,9 +94,7 @@ beforeEach(() => {
 async function renderHome() {
   await renderWithQueries(
     <QueryTimeContext value={new Date(2026, 10, 14)}>
-      <AnimationClockProvider>
-        <HomeScreen />
-      </AnimationClockProvider>
+      <HomeScreen />
     </QueryTimeContext>,
   );
 }

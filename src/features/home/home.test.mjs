@@ -14,7 +14,6 @@ const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const root = new URL('../../../', import.meta.url);
 const mocks = {
-  '@/components/animation-clock': `export const AnimationClockProvider=({children})=>children,useAnimationClock=()=>({get:()=>0});`,
   'react-native': `import React from 'react';
     export const View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator';
     export const FlatList=p=>React.createElement('FlatList',p,p.data.map((item,index)=>React.createElement(React.Fragment,{key:p.keyExtractor(item)},p.renderItem({item,index}))));
@@ -269,9 +268,12 @@ test('Home boundaries', async (t) => {
 
   await t.test(
     'a scope change dims the old list at once and a late result cannot replace the new scope',
-    async () => {
+    async (st) => {
       reads();
       await mount();
+      // Stop the clock of the grace period, so that the result does not depend on the speed
+      // of the machine: the new list shows when its read resolves.
+      st.mock.timers.enable({ apis: ['setTimeout'] });
       const { calls } = pending('list');
       await swipeTo(2);
       assert.equal(
