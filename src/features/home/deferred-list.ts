@@ -9,10 +9,23 @@ export const GRACE_MS = 50;
 export const HOLD_MS = 500;
 
 /**
- * One mute episode. `from` is the key of the snapshot that was on screen when muting
- * began. `gate` resolves when the minimum hold ends, and is then `null`.
+ * A promise that holds the reveal of a new snapshot. `status` follows the protocol that
+ * `use` reads, so that a released gate does not suspend a render that reads it first.
  */
-type Hold = { from: string; gate: Promise<void> | null };
+type Gate = Promise<void> & { status?: 'fulfilled'; value?: undefined };
+
+/** One mute episode. `from` is the key of the snapshot that was on screen when muting began. */
+type Hold = { from: string; gate: Gate; release: () => void };
+
+function startHold(from: string): Hold {
+  let resolve = () => {};
+  const gate: Gate = new Promise<void>((done) => (resolve = done));
+  const release = () => {
+    gate.status = 'fulfilled';
+    resolve();
+  };
+  return { from, gate, release };
+}
 
 /**
  * Defers `value` and times the muting of the snapshot on screen while a new one loads.
@@ -24,11 +37,12 @@ export function useDeferredSnapshot<T>(value: T, key: string) {
   const [hold, setHold] = useState<Hold | null>(null);
   const deferred = useDeferredValue(requested);
   // An equivalent value from a re-render keeps the same object, so it is not a new request.
+  const holdOfEarlierList = hold !== null && hold.from !== deferred.key;
   if (requested.key !== key) {
     setRequested({ key, value });
     // A request back to the list on screen ends the episode. A hold for an earlier list
     // ended when that list was replaced, for example by an error.
-    if (key === deferred.key || hold?.from !== deferred.key) setHold(null);
+    if (key === deferred.key || holdOfEarlierList) setHold(null);
   }
   const stale = deferred.key !== requested.key;
   const grace = stale && hold === null;
@@ -40,23 +54,24 @@ export function useDeferredSnapshot<T>(value: T, key: string) {
     if (!grace) return;
     const from = deferred.key;
     const timer = setTimeout(() => {
-      let release = () => {};
-      const gate = new Promise<void>((resolve) => (release = resolve));
-      setHold({ from, gate });
-      holdTimer.current = setTimeout(() => {
-        release();
-        setHold((current) => (current?.gate === gate ? { from, gate: null } : current));
-      }, HOLD_MS);
+      const next = startHold(from);
+      setHold(next);
+      holdTimer.current = setTimeout(next.release, HOLD_MS);
     }, GRACE_MS);
     return () => clearTimeout(timer);
   }, [grace, deferred.key, requested.key]);
+
+  // For example, an error is on screen. A retry of it must not wait.
+  useEffect(() => {
+    if (holdOfEarlierList) hold.release();
+  }, [hold, holdOfEarlierList]);
 
   return {
     deferred: deferred.value,
     stale,
     muted: stale && hold !== null,
     // Only the render of a new snapshot waits. The snapshot on screen must not suspend.
-    gate: hold !== null && hold.from !== deferred.key ? hold.gate : null,
+    gate: holdOfEarlierList ? hold.gate : null,
   };
 }
 

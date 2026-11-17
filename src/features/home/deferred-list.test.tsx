@@ -1,6 +1,6 @@
 import { Suspense, memo, use, useLayoutEffect } from 'react';
-import { Text } from 'react-native';
-import { act, cleanup, render, screen } from '@testing-library/react-native';
+import { Pressable, Text } from 'react-native';
+import { act, cleanup, render, screen, userEvent } from '@testing-library/react-native';
 import { ErrorBoundary } from '@/components/query-error-boundary';
 import { GRACE_MS, HOLD_MS, useDeferredSnapshot } from './deferred-list.ts';
 
@@ -56,7 +56,11 @@ function Harness({ value }: { value: string }) {
       <ErrorBoundary
         resetKey={deferred.name}
         onReset={() => {}}
-        fallback={() => <Text>Failed</Text>}
+        fallback={(retry) => (
+          <Pressable accessibilityRole="button" onPress={retry}>
+            <Text>Failed</Text>
+          </Pressable>
+        )}
       >
         <Suspense fallback={<Text>Loading</Text>}>
           <Shown value={deferred} gate={gate} />
@@ -281,5 +285,19 @@ test('a request after a failure during the hold has its own grace period', async
   await ask('c');
   await ready('c');
   shows('c');
+  isMuted(false);
+});
+
+test('a retry after a failure during the hold shows the list without waiting', async () => {
+  await start();
+  await ask('b');
+  await wait(GRACE_MS);
+  await act(async () => read('b').reject());
+  // The next read of the key succeeds.
+  reads.delete('b');
+  read('b').resolve();
+  const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+  await user.press(screen.getByRole('button', { name: 'Failed' }));
+  shows('b');
   isMuted(false);
 });
