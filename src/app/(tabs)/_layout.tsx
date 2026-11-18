@@ -1,4 +1,4 @@
-import { NativeTabs } from 'expo-router/unstable-native-tabs';
+import { NativeTabs } from 'expo-router/native-tabs';
 import { appTabs } from '@/lib/app-navigation';
 import { theme } from '@/theme';
 

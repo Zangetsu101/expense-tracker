@@ -296,3 +296,19 @@ test('periodBack walks back one full period at a time', () => {
     label: 'Week of 31 Oct',
   });
 });
+
+test('a two-Currency Transfer shows the Account amount with the other below and totals the received amount', () => {
+  const movement = transfer({
+    amountMinor: 1220000,
+    receivedAmountMinor: 10000,
+    destinationCurrencyCode: 'USD',
+  });
+  const all = rowView(movement, allAccounts);
+  assert.equal(all.amount, '৳12,200.00');
+  assert.equal(all.otherAmount, '$100.00');
+  assert.equal(rowView(movement, trend(cash)).amount, '−৳12,200.00');
+  const into = rowView(movement, trend(card));
+  assert.equal(into.amount, '+$100.00');
+  assert.equal(into.otherAmount, '৳12,200.00');
+  assert.deepEqual(listTotals([movement], trend(card)), [{ text: '+$100.00', tone: 'income' }]);
+});

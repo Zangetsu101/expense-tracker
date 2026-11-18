@@ -1,5 +1,5 @@
-import type { ReactNode, Ref } from 'react';
-import { SectionList, View, type CellRendererProps, type SectionListProps } from 'react-native';
+import type { ComponentProps, ReactNode, Ref } from 'react';
+import { SectionList, View, type SectionListProps } from 'react-native';
 import Animated, {
   FadeIn,
   LinearTransition,
@@ -18,7 +18,11 @@ const rowMove = LinearTransition.duration(200).reduceMotion(ReduceMotion.System)
 const headerSlideIn = SlideInRight.duration(250);
 const headerFadeIn = FadeIn.duration(250);
 
-function MovingCell({ onLayout, style, children }: CellRendererProps<ListItem>) {
+function MovingCell({
+  onLayout,
+  style,
+  children,
+}: ComponentProps<NonNullable<SectionListProps<ListItem>['CellRendererComponent']>>) {
   return (
     <Animated.View layout={rowMove} onLayout={onLayout} style={style}>
       {children}
@@ -26,25 +30,24 @@ function MovingCell({ onLayout, style, children }: CellRendererProps<ListItem>) 
   );
 }
 
-const dimming = { from: { opacity: 1 }, to: { opacity: 0.4 } };
-
-function Dimmed({ muted, children }: { muted: boolean; children: ReactNode }) {
+function StaleContent({
+  stale,
+  muted,
+  children,
+}: {
+  stale: boolean;
+  muted: boolean;
+  children: ReactNode;
+}) {
   return (
-    <Animated.View
-      style={{
-        paddingHorizontal: gutter,
-        opacity: 1,
-        animationName: muted ? dimming : 'none',
-        animationDelay: 200,
-        animationDuration: 1,
-        animationFillMode: 'both',
-      }}
-      pointerEvents={muted ? 'none' : 'auto'}
-      accessibilityElementsHidden={muted}
-      importantForAccessibility={muted ? 'no-hide-descendants' : 'auto'}
+    <View
+      style={{ paddingHorizontal: gutter, opacity: muted ? 0.4 : 1 }}
+      pointerEvents={stale ? 'none' : 'auto'}
+      accessibilityElementsHidden={stale}
+      importantForAccessibility={stale ? 'no-hide-descendants' : 'auto'}
     >
       {children}
-    </Animated.View>
+    </View>
   );
 }
 
@@ -58,6 +61,9 @@ type TransactionListProps = Pick<
   scope: ListScope;
   now: Date;
   query: string;
+  /** The list on screen is not the requested list. */
+  stale: boolean;
+  /** The list on screen shows as dim while the requested list loads. */
   muted: boolean;
   slidingId: number | null;
   phase: (id: number) => SlidePhase | undefined;
@@ -71,6 +77,7 @@ export function TransactionList({
   scope,
   now,
   query,
+  stale,
   muted,
   slidingId,
   phase,
@@ -91,10 +98,14 @@ export function TransactionList({
       CellRendererComponent={MovingCell}
       viewabilityConfig={viewabilityConfig}
       ListHeaderComponent={<View style={{ gap: 8 }}>{header}</View>}
-      ListFooterComponent={<Dimmed muted={muted}>{footer}</Dimmed>}
+      ListFooterComponent={
+        <StaleContent stale={stale} muted={muted}>
+          {footer}
+        </StaleContent>
+      }
       renderSectionHeader={({ section }) =>
         section.date === null ? null : (
-          <Dimmed muted={muted}>
+          <StaleContent stale={stale} muted={muted}>
             <DayHeader
               date={section.date}
               totals={section.totals}
@@ -107,17 +118,17 @@ export function TransactionList({
                   : undefined
               }
             />
-          </Dimmed>
+          </StaleContent>
         )
       }
       renderItem={({ item }) => (
-        <Dimmed muted={muted}>
+        <StaleContent stale={stale} muted={muted}>
           {item.kind === 'row' ? (
             <TransactionRow
               row={item.row}
               scope={scope}
               query={query}
-              disabled={muted}
+              disabled={stale}
               slide={phase(item.row.id)}
               onPress={() => onOpen(item.row.id)}
             />
@@ -126,7 +137,7 @@ export function TransactionList({
           ) : (
             <ListMessage text={item.text} />
           )}
-        </Dimmed>
+        </StaleContent>
       )}
     />
   );

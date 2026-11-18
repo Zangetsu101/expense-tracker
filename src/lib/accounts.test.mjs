@@ -8,9 +8,15 @@ let failCommit = false;
 db.exec(
   'CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT NOT NULL, currencyCode TEXT NOT NULL, openingBalanceMinor INTEGER NOT NULL DEFAULT 0, isFavorite INTEGER NOT NULL DEFAULT 0)',
 );
+db.exec(
+  'CREATE TABLE credit_cards (accountId INTEGER PRIMARY KEY, parentAccountId INTEGER, statementDay INTEGER, dueDay INTEGER)',
+);
 const adapter = {
-  runAsync: async (sql, params) => db.prepare(sql).run(...params),
-  getAllAsync: async (sql) => db.prepare(sql).all(),
+  runAsync: async (sql, params) => {
+    const result = db.prepare(sql).run(...params);
+    return { ...result, lastInsertRowId: Number(result.lastInsertRowid) };
+  },
+  getAllAsync: async (sql, params = []) => db.prepare(sql).all(...params),
   getFirstAsync: async (sql, params) => db.prepare(sql).get(...params) ?? null,
   async withExclusiveTransactionAsync(callback) {
     db.exec('SAVEPOINT create_account');
@@ -50,8 +56,13 @@ registerHooks({
     return next(url, context);
   },
 });
-const { createAccount, listManagedAccounts, parseOpeningBalance, setFavoriteAccount } =
-  await import('./accounts.ts');
+const {
+  createAccount,
+  listManagedAccounts,
+  parseOpeningBalance,
+  setFavoriteAccount,
+  updateAccount,
+} = await import('./accounts.ts');
 
 test('opening balance parses exact minor units, including negative and zero', () => {
   assert.equal(parseOpeningBalance('-12.34'), -1234);
@@ -121,4 +132,73 @@ test('Account cache notification follows commit and excludes failed writes', asy
     failCommit = false;
     unsubscribe();
   }
+});
+
+test('cards keep non-card parents across Currencies; imported Accounts can be renamed and converted', async () => {
+  await createAccount({ name: 'Card parent', currencyCode: 'USD', openingBalance: '100' });
+  const parent = (await listManagedAccounts()).find((a) => a.name === 'Card parent');
+  await createAccount({
+    name: 'Credit card',
+    currencyCode: 'USD',
+    openingBalance: '-25',
+    isCreditCard: true,
+    parentAccountId: parent.id,
+    statementDay: 20,
+    dueDay: 5,
+  });
+  const card = (await listManagedAccounts()).find((a) => a.name === 'Credit card');
+  assert.equal(card.card.parentAccountId, parent.id);
+  assert.equal(card.openingBalanceMinor, -2500);
+  await assert.rejects(
+    updateAccount(parent.id, {
+      name: parent.name,
+      currencyCode: 'USD',
+      openingBalance: '100',
+      isCreditCard: true,
+    }),
+    /Change the cards/,
+  );
+  await createAccount({
+    name: 'Different Currency',
+    currencyCode: 'BDT',
+    openingBalance: '0',
+    isCreditCard: true,
+    parentAccountId: parent.id,
+  });
+  await assert.rejects(
+    createAccount({
+      name: 'Card parent cycle',
+      currencyCode: 'USD',
+      openingBalance: '0',
+      isCreditCard: true,
+      parentAccountId: card.id,
+    }),
+    /non-card Account/,
+  );
+  await assert.rejects(
+    createAccount({
+      name: 'Invalid day',
+      currencyCode: 'USD',
+      openingBalance: '0',
+      isCreditCard: true,
+      dueDay: 32,
+    }),
+    /between 1 and 31/,
+  );
+  await updateAccount(card.id, {
+    name: 'Renamed card',
+    currencyCode: 'USD',
+    openingBalance: '-25',
+    isCreditCard: true,
+  });
+  assert.equal(
+    (await listManagedAccounts()).find((a) => a.id === card.id).card.parentAccountId,
+    null,
+  );
+  await updateAccount(card.id, {
+    name: 'Renamed account',
+    currencyCode: 'USD',
+    openingBalance: '25',
+  });
+  assert.equal((await listManagedAccounts()).find((a) => a.id === card.id).card, undefined);
 });

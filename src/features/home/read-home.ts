@@ -1,3 +1,4 @@
+import { creditCardBills } from '@/lib/credit-cards';
 import { database } from '@/lib/database';
 import type { DisplayRate } from '@/lib/display-rate';
 import { getDisplayRate } from '@/lib/display-rate-store';
@@ -6,7 +7,7 @@ import type { PaceRow } from './pace.ts';
 import { parsePeriodSetting, type HomePeriod, type PeriodSetting } from './period.ts';
 import { periodBack, type ListPeriod, type ListRow, type PeriodRows } from './list.ts';
 
-const listRead = `SELECT t.id, t.type, t.amountMinor, t.date, t.accountId, t.transferAccountId,
+const listRead = `SELECT t.id, t.type, t.amountMinor, t.receivedAmountMinor, destination.currencyCode AS destinationCurrencyCode, t.date, t.accountId, t.transferAccountId,
   a.name AS accountName, destination.name AS transferAccountName, a.currencyCode,
   c.name AS categoryName, parent.name AS parentCategoryName,
   COALESCE(NULLIF(c.iconKey, ''), NULLIF(parent.iconKey, '')) AS categoryEmoji,
@@ -91,7 +92,7 @@ export async function homeDeckData(today: number): Promise<{
         WHEN t.type = 'EXPENSE' THEN -t.amountMinor
         WHEN t.type = 'INCOME' THEN t.amountMinor
         WHEN t.type = 'TRANSFER' AND t.accountId = a.id THEN -t.amountMinor
-        WHEN t.type = 'TRANSFER' AND t.transferAccountId = a.id THEN t.amountMinor
+        WHEN t.type = 'TRANSFER' AND t.transferAccountId = a.id THEN COALESCE(t.receivedAmountMinor, t.amountMinor)
         ELSE 0 END), 0) AS balanceMinor,
       MAX(CASE WHEN t.date <= ? THEN t.date END) AS lastUsedDay
       FROM accounts a
@@ -104,7 +105,15 @@ export async function homeDeckData(today: number): Promise<{
       periodSettingKey,
     ]),
   ]);
-  return { accounts, displayRate, period: parsePeriodSetting(setting?.value) };
+  const bills = await creditCardBills(today);
+  return {
+    accounts: accounts.map((account) => ({
+      ...account,
+      bill: bills.find((bill) => bill.accountId === account.id),
+    })),
+    displayRate,
+    period: parsePeriodSetting(setting?.value),
+  };
 }
 
 export async function savePeriodSetting(setting: PeriodSetting): Promise<void> {
@@ -126,7 +135,7 @@ export async function homeTrend(
     WHEN t.type = 'EXPENSE' THEN -t.amountMinor
     WHEN t.type = 'INCOME' THEN t.amountMinor
     WHEN t.type = 'TRANSFER' AND t.accountId = ? THEN -t.amountMinor
-    ELSE t.amountMinor END`;
+    ELSE COALESCE(t.receivedAmountMinor, t.amountMinor) END`;
   const scope = `(t.accountId = ? OR (t.type = 'TRANSFER' AND t.transferAccountId = ?))`;
   const [opening, days] = await Promise.all([
     db.getFirstAsync<{ balanceMinor: number }>(

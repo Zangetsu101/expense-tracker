@@ -12,13 +12,12 @@ import {
   View,
 } from 'react-native';
 import { TransactionReceipt, TransferReceipt } from '@/components/transaction-receipt';
-import { TransferFormSection, type TransferDraft } from '@/features/transfer';
+import { TransferFormSection, type TransferDraft } from './transfer-edit';
 import { dateFromEpochDay, epochDay } from '@/lib/database';
 import { deleteLendingEntry } from '@/lib/lending';
 import { WriteOffForm } from '@/features/lending/write-off-form';
 import { writeWithOverpaidCreditCheck } from '@/features/lending/view';
 import { FormButton } from '@/components/form-controls';
-import { formatLineItemAmount } from '@/lib/line-item-amount';
 import { deleteTransaction } from '@/lib/transaction-delete';
 import { saveTransferEdit, type EditableTransfer } from '@/lib/transfers';
 import { theme } from '@/theme';
@@ -97,9 +96,9 @@ function ReceiptSession({ id, writeOff }: { id: number; writeOff: boolean }) {
     },
     [dirty, deleting],
   );
-  usePreventRemove(editing && !closing && (dirty || saving || deleting), ({ data: removal }) => {
+  usePreventRemove(editing && !closing && (dirty || saving || deleting), ({ repeat }) => {
     confirmDiscard(() => {
-      pendingNavigation.current = () => navigation.dispatch(removal.action);
+      pendingNavigation.current = repeat;
       exitEditing();
     });
   });
@@ -295,7 +294,10 @@ function EditTransferScreen({
   const [initial] = useState(() => ({
     fromId: transfer.fromAccountId,
     toId: transfer.toAccountId,
-    amount: formatLineItemAmount(transfer.amountMinor),
+    amountMinor: transfer.amountMinor,
+    receivedAmountMinor:
+      transfer.receivedAmountMinor ??
+      (transfer.currencyCode !== transfer.destinationCurrencyCode ? transfer.amountMinor : null),
     note: transfer.note ?? '',
     date: dateFromEpochDay(transfer.date),
   }));
@@ -303,12 +305,20 @@ function EditTransferScreen({
     (dirty: boolean) => onDirtyChange(dirty && !committed),
     [onDirtyChange, committed],
   );
-  const submit = async ({ amountMinor, fromAccountId, toAccountId, note, date }: TransferDraft) => {
+  const submit = async ({
+    amountMinor,
+    receivedAmountMinor,
+    fromAccountId,
+    toAccountId,
+    note,
+    date,
+  }: TransferDraft) => {
     onSavingChange(true);
     try {
       if (!committed) {
         await saveTransferEdit(transfer, {
           amountMinor,
+          receivedAmountMinor,
           fromAccountId,
           toAccountId,
           note,
@@ -324,8 +334,8 @@ function EditTransferScreen({
   return (
     <TransferFormSection
       initial={initial}
-      editDate
       fieldsLocked={committed || deleting}
+      deleting={deleting}
       submitLabel={committed ? 'Retry receipt' : 'Save changes'}
       onSubmit={submit}
       onDirtyChange={dirtyChange}

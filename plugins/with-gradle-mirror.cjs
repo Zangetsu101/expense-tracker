@@ -2,9 +2,9 @@ const { withDangerousMod } = require('expo/config-plugins');
 const { readFile, writeFile } = require('node:fs/promises');
 const { join } = require('node:path');
 
-const archive = 'gradle-9.3.1-bin.zip';
+const archive = 'gradle-9.4.1-bin.zip';
 // Gradle's official checksum, also matched against Huawei Cloud's mirror.
-const checksum = 'b266d5ff6b90eada6dc3b20cb090e3731302e553a27c5d3e4df1f0d76beaff06';
+const checksum = '2ab2958f2a1e51120c326cad6f385153bb11ee93b3c216c5fccebfdfbb7ec6cb';
 
 module.exports = (config) =>
   withDangerousMod(config, [

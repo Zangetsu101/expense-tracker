@@ -1,7 +1,7 @@
 import { useEffect, useEffectEvent, useState, type ReactNode } from 'react';
 import { BackHandler, Keyboard, Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { calculateAmount } from '@/lib/amount-calculator';
+import { calculateAmount, pressAmountKey } from '@/lib/amount-calculator';
 import { parsePositiveAmountMinor } from '@/lib/amount';
 import { AmountCalculator } from './amount-calculator.tsx';
 import { theme } from '@/theme';
@@ -29,7 +29,8 @@ export function AmountInput({
     editing: boolean;
   }) => ReactNode;
 }) {
-  const [amount, setAmount] = useState(initialAmount);
+  const [entry, setEntry] = useState({ amount: initialAmount, evaluated: false, error: '' });
+  const { amount } = entry;
   const [calculatorOpen, setCalculatorOpen] = useState(initiallyOpen);
   const [validAmount, setValidAmount] = useState(!!initialAmount);
   const insets = useSafeAreaInsets();
@@ -38,10 +39,11 @@ export function AmountInput({
     try {
       const calculated = calculateAmount(amount);
       const minor = parsePositiveAmountMinor(calculated);
-      setAmount(calculated);
+      setEntry({ amount: calculated, evaluated: false, error: '' });
       setValidAmount(true);
       onChange(minor);
     } catch {
+      setEntry((current) => ({ ...current, evaluated: false, error: '' }));
       setValidAmount(false);
       onChange(undefined);
     }
@@ -108,8 +110,8 @@ export function AmountInput({
     <AmountCalculator
       open={calculatorOpen}
       bottomInset={insets.bottom}
-      value={amount}
-      onChange={setAmount}
+      error={entry.error}
+      onKey={(key) => setEntry((current) => pressAmountKey(current, key))}
       onDone={dismiss}
     />
   );

@@ -23,6 +23,7 @@ const columnsByTable: Record<string, readonly string[]> = {
     'id',
     'type',
     'amountMinor',
+    'receivedAmountMinor',
     'date',
     'accountId',
     'transferAccountId',
@@ -52,6 +53,7 @@ export const backupStore: BackupStore = {
           for (const field of boolFields)
             if (field in result) result[field] = Boolean(result[field]);
           if (table === 'transactions') {
+            if (result.receivedAmountMinor == null) delete result.receivedAmountMinor;
             result.dateEpochDay = result.date;
             delete result.date;
           }
@@ -60,6 +62,9 @@ export const backupStore: BackupStore = {
       }
       data.moneyLoverImportRows = await tx.getAllAsync<{ rowKey: string; transactionId: number }>(
         'SELECT rowKey, transactionId FROM moneylover_import_rows ORDER BY rowKey',
+      );
+      data.creditCards = await tx.getAllAsync(
+        'SELECT accountId, parentAccountId, statementDay, dueDay FROM credit_cards ORDER BY accountId',
       );
       data.people = await tx.getAllAsync('SELECT id, name FROM people ORDER BY id');
       data.lendingEntries = await tx.getAllAsync(`SELECT e.id, e.personId, e.kind, e.transactionId,
@@ -85,7 +90,7 @@ export const backupStore: BackupStore = {
     const db = await database();
     await db.withExclusiveTransactionAsync(async (tx) => {
       await tx.execAsync(
-        'DELETE FROM lending_entries; DELETE FROM people; DELETE FROM moneylover_import_rows',
+        'DELETE FROM credit_cards; DELETE FROM lending_entries; DELETE FROM people; DELETE FROM moneylover_import_rows',
       );
       for (const table of [
         'transaction_tags',
@@ -117,6 +122,12 @@ export const backupStore: BackupStore = {
             ),
           );
         }
+      }
+      for (const card of data.creditCards ?? []) {
+        await tx.runAsync(
+          'INSERT INTO credit_cards (accountId, parentAccountId, statementDay, dueDay) VALUES (?, ?, ?, ?)',
+          [card.accountId, card.parentAccountId, card.statementDay, card.dueDay],
+        );
       }
       for (const category of data.categories) {
         if (category.parentId != null)

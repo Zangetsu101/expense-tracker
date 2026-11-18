@@ -21,7 +21,7 @@ const mocks = {
     export const AppState={currentState:'active',addEventListener:(_,fn)=>{globalThis.__homeScreenTest.lifecycle=fn;return {remove(){}}}};
     export const Platform={OS:'android'}; export const useWindowDimensions=()=>({width:400,height:800});`,
   'react-native-reanimated': `const chain=new Proxy({},{get:()=>()=>chain});
-    export default {View:'AnimatedView'}; export const FadeInDown=chain,FadeOutUp=chain,FadeIn=chain,SlideInRight=chain,LinearTransition=chain;
+    export const useAnimatedReaction=()=>{}; export default {View:'AnimatedView'}; export const FadeInDown=chain,FadeOutUp=chain,FadeIn=chain,SlideInRight=chain,LinearTransition=chain;
     export const ReduceMotion={System:'system'},Easing={out:x=>x,cubic:x=>x}; export const useReducedMotion=()=>false;
     export const useSharedValue=value=>({get:()=>value,set(){}}),useAnimatedStyle=()=>({}),withTiming=value=>value;`,
   './trend-chart.tsx': `export const TrendChart='TrendChart';`,
@@ -268,9 +268,12 @@ test('Home boundaries', async (t) => {
 
   await t.test(
     'a scope change dims the old list at once and a late result cannot replace the new scope',
-    async () => {
+    async (st) => {
       reads();
       await mount();
+      // Stop the clock of the grace period, so that the result does not depend on the speed
+      // of the machine: the new list shows when its read resolves.
+      st.mock.timers.enable({ apis: ['setTimeout'] });
       const { calls } = pending('list');
       await swipeTo(2);
       assert.equal(

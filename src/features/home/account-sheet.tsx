@@ -111,7 +111,15 @@ export function AccountSheet({
                 </Text>
                 {card.account && (
                   <Text style={{ color: c.muted, fontVariant: ['tabular-nums'] }}>
-                    {formatBalance(card.account.balanceMinor, card.account.currencyCode)}
+                    {card.account.bill
+                      ? `${card.account.bill.creditMinor ? 'Credit' : 'Bill'} · `
+                      : ''}
+                    {formatBalance(
+                      card.account.bill
+                        ? card.account.bill.creditMinor || card.account.bill.billMinor
+                        : card.account.balanceMinor,
+                      card.account.currencyCode,
+                    )}
                   </Text>
                 )}
               </Pressable>

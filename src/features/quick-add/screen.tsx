@@ -1,15 +1,26 @@
-import { useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { categoriesQuery, peopleQuery, includeCreatedPerson } from './queries.ts';
 import { accountsQuery } from '@/lib/account-queries';
-import { ChoicesSection } from './view.tsx';
+import { ChoicesSection, layoutTransition } from './view.tsx';
+import { TransferBillChoices } from './transfer-bill-choices.tsx';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight, useNavigation, usePreventRemove } from 'expo-router/react-navigation';
-import { Alert, KeyboardAvoidingView, Pressable, ScrollView, Text, View } from 'react-native';
+import {
+  Alert,
+  KeyboardAvoidingView,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+  useWindowDimensions,
+} from 'react-native';
+import Animated from 'react-native-reanimated';
 import { epochDay } from '@/lib/database';
 import { addQuickTransaction } from '@/lib/quick-add-tags';
 import { addTransfer } from '@/lib/transfers';
 import { createPerson, saveLendingEntry, type LendingKind, type LendingTotal } from '@/lib/lending';
+import { TransferAmountInput } from '@/components/transfer-amount-input';
 import { AmountInput } from '@/components/amount-input';
 import { useRankedCategories } from './use-ranked-categories.ts';
 import { QuickAddDate } from '@/components/quick-add-date';
@@ -17,8 +28,10 @@ import { QuickSelectCategory } from '@/components/quick-select-category';
 import { AccountChoices, personBalanceSummary } from '@/components/entry-choices';
 import { FormButton, FormInput, JoinedChoice } from '@/components/form-controls';
 import { parseRouteId } from '@/lib/account-selection';
+import { useClippedChips } from '@/components/use-clipped-chips';
 import { theme } from '@/theme';
 
+const AnimatedFormButton = Animated.createAnimatedComponent(FormButton);
 const c = theme.colors;
 type Mode = 'EXPENSE' | 'INCOME' | 'TRANSFER' | 'PERSON';
 type PersonAction = Extract<LendingKind, 'LEND' | 'BORROW' | 'RECEIVE_REPAYMENT' | 'REPAY'>;
@@ -107,11 +120,21 @@ function QuickAddForm() {
     personId?: string;
     action?: string;
     currency?: string;
+    toId?: string;
+    amountMinor?: string;
   }>();
   const initialAction = [...principalActions, ...repaymentActions].find(
     (option) => option.value === params.action,
   )?.value;
-  const [mode, setMode] = useState<Mode>(() => (params.mode === 'PERSON' ? 'PERSON' : 'EXPENSE'));
+  const [mode, setMode] = useState<Mode>(() =>
+    params.mode === 'PERSON' ? 'PERSON' : params.mode === 'TRANSFER' ? 'TRANSFER' : 'EXPENSE',
+  );
+  const [preset, setPreset] = useState(() => {
+    const amount = Number(params.amountMinor);
+    return Number.isSafeInteger(amount) && amount > 0 ? amount : undefined;
+  });
+  const [entryAmount, setEntryAmount] = useState(preset);
+  const [amountKey, setAmountKey] = useState(0);
   const categoryMode = mode === 'EXPENSE' || mode === 'INCOME' ? mode : undefined;
   const categoryRead = useQuery({ ...categoriesQuery(categoryMode ?? 'EXPENSE'), enabled: false });
   const peopleRead = useQuery({ ...peopleQuery(), enabled: false });
@@ -119,9 +142,16 @@ function QuickAddForm() {
   const categories = categoryRead.data ?? [];
   const people = peopleRead.data?.people ?? [];
   const headerHeight = useHeaderHeight();
-  const [amountMinor, setAmountMinor] = useState<number>();
+  const [amountMinor, setAmountMinor] = useState<number | undefined>(preset);
+  const [receivedAmountMinor, setReceivedAmountMinor] = useState<number>();
+  const onTransferAmounts = useCallback((paid: number | undefined, received?: number) => {
+    setAmountMinor(paid);
+    setReceivedAmountMinor(received);
+  }, []);
   const [accountId, setAccountId] = useState(() => parseRouteId(params.accountId));
-  const [toId, setToId] = useState<number>();
+  const [toId, setToId] = useState<number | undefined>(
+    () => parseRouteId(params.toId) ?? undefined,
+  );
   const [categoryIds, setCategoryIds] = useState<{
     EXPENSE?: number;
     INCOME?: number;
@@ -129,6 +159,10 @@ function QuickAddForm() {
   const routePersonId = parseRouteId(params.personId);
   const [personId, setPersonId] = useState(routePersonId);
   const [query, setQuery] = useState('');
+  const { fontScale } = useWindowDimensions();
+  const personChipHeight = 20 + 36 * fontScale;
+  const peopleMaxHeight = personChipHeight * 2 + 8;
+  const peopleClipping = useClippedChips(peopleMaxHeight);
   const [action, setAction] = useState<PersonAction>(() => initialAction ?? 'LEND');
   const [note, setNote] = useState('');
   const [tags, setTags] = useState('');
@@ -155,9 +189,7 @@ function QuickAddForm() {
     amountMinor,
     epochDay(date),
   );
-  const destinations = accounts.filter(
-    (item) => item.id !== accountId && item.currencyCode === account?.currencyCode,
-  );
+  const destinations = accounts.filter((item) => item.id !== accountId);
   const incoming =
     mode === 'INCOME' ||
     (mode === 'PERSON' && (action === 'BORROW' || action === 'RECEIVE_REPAYMENT'));
@@ -165,7 +197,10 @@ function QuickAddForm() {
   const matches = people.filter((item) => item.name.toLocaleLowerCase().includes(search));
   const canCreatePerson =
     !!search && !people.some((item) => item.name.toLocaleLowerCase() === search);
-  const validAmount = amountMinor !== undefined;
+  const destination = destinations.find((item) => item.id === toId);
+  const cross =
+    mode === 'TRANSFER' && destination && destination.currencyCode !== account?.currencyCode;
+  const validAmount = amountMinor !== undefined && (!cross || receivedAmountMinor !== undefined);
   const canSave =
     !!accountsRead.data &&
     (mode === 'TRANSFER' || (mode === 'PERSON' ? !!peopleRead.data : !!categoryRead.data)) &&
@@ -217,6 +252,7 @@ function QuickAddForm() {
       if (mode === 'TRANSFER') {
         await addTransfer({
           amountMinor,
+          receivedAmountMinor,
           fromAccountId: account.id,
           toAccountId: toId!,
           note,
@@ -261,8 +297,21 @@ function QuickAddForm() {
     }
   }
 
+  const AmountEntry = mode === 'TRANSFER' ? TransferAmountInput : AmountInput;
   return (
-    <AmountInput currency={account?.currencyCode} disabled={pending} onChange={setAmountMinor}>
+    <AmountEntry
+      key={mode === 'TRANSFER' ? 'transfer' : amountKey}
+      source={account}
+      destination={destination}
+      receivedPreset={preset}
+      presetRevision={amountKey}
+      initialPaid={preset && cross ? undefined : amountMinor}
+      initialAmount={entryAmount ? (entryAmount / 100).toFixed(2) : ''}
+      initiallyOpen={!entryAmount}
+      currency={account?.currencyCode}
+      disabled={pending}
+      onChange={mode === 'TRANSFER' ? onTransferAmounts : setAmountMinor}
+    >
       {({ input, keypad, dismiss: dismissCalculator, editing }) => (
         <KeyboardAvoidingView
           style={{ flex: 1 }}
@@ -292,23 +341,32 @@ function QuickAddForm() {
               }}
             >
               <JoinedChoice
+                key="mode"
                 value={mode}
                 options={modes}
                 disabled={pending}
                 onChange={(value) => {
+                  if (mode === 'TRANSFER' && value !== 'TRANSFER') {
+                    setEntryAmount(amountMinor);
+                    setPreset(undefined);
+                  }
                   setMode(value);
                   setError('');
                 }}
               />
               <ChoicesSection
+                key="accounts"
                 options={accountsQuery()}
                 label="accounts"
                 layout="accounts"
                 pendingLabel={incoming ? 'Into' : 'From'}
               >
                 {(readyAccounts) => (
-                  <>
-                    <View style={{ gap: 10 }}>
+                  <View style={{ gap: 10 }}>
+                    <View
+                      accessibilityLabel={incoming ? 'Destination account' : 'Source account'}
+                      style={{ gap: 10 }}
+                    >
                       <Label>{`${incoming ? 'Into' : 'From'} ${account?.name ?? 'an account'}`}</Label>
                       <AccountChoices
                         accounts={
@@ -320,7 +378,7 @@ function QuickAddForm() {
                         disabled={pending}
                         onSelect={(id) => {
                           setAccountId(id);
-                          setToId(undefined);
+                          setToId((current) => (current !== id ? current : undefined));
                           setError('');
                         }}
                       />
@@ -335,7 +393,7 @@ function QuickAddForm() {
                       )}
                     </View>
                     {mode === 'TRANSFER' && (
-                      <View style={{ gap: 10 }}>
+                      <View accessibilityLabel="Transfer destination" style={{ gap: 10 }}>
                         <Label>{`To ${destinations.find((item) => item.id === toId)?.name ?? 'another account'}`}</Label>
                         <AccountChoices
                           accounts={destinations}
@@ -343,19 +401,26 @@ function QuickAddForm() {
                           disabled={pending}
                           onSelect={setToId}
                         />
+                        <TransferBillChoices
+                          destination={destination}
+                          disabled={pending}
+                          onPreset={(amount) => {
+                            setPreset(amount);
+                            setAmountKey((key) => key + 1);
+                          }}
+                        />
                         {!destinations.length && (
                           <Text style={{ color: c.muted }}>
-                            No other {account?.currencyCode ?? 'same-currency'} account. Create one
-                            in Accounts or choose a different source.
+                            No other account. Create one in Accounts or choose a different source.
                           </Text>
                         )}
                       </View>
                     )}
-                  </>
+                  </View>
                 )}
               </ChoicesSection>
               {mode === 'PERSON' && (
-                <>
+                <View key="person" style={{ gap: 18 }}>
                   <View style={{ gap: 10 }}>
                     <Label>{`With ${person?.name ?? 'a person'}`}</Label>
                     <FormInput
@@ -367,56 +432,76 @@ function QuickAddForm() {
                     />
                   </View>
                   <ChoicesSection options={peopleQuery()} label="people" layout="people">
-                    {(readyPeople) => (
-                      <>
+                    {(readyPeople) => {
+                      const personChip = (item: (typeof people)[number]) => {
+                        const selected = item.id === personId;
+                        return (
+                          <Animated.View
+                            key={item.id}
+                            layout={layoutTransition}
+                            style={{ maxWidth: '100%' }}
+                            onLayout={peopleClipping.onLayout(item.id)}
+                          >
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel={item.name}
+                              accessibilityState={{ selected, disabled: pending }}
+                              {...peopleClipping.accessibilityProps(item.id, pending)}
+                              onPress={() => setPersonId(item.id)}
+                              style={({ pressed }) => ({
+                                paddingHorizontal: 14,
+                                paddingVertical: 8,
+                                height: personChipHeight,
+                                maxWidth: '100%',
+                                borderRadius: 14,
+                                backgroundColor: selected ? c.selected : c.surface,
+                                opacity: pending ? 0.45 : pressed ? 0.7 : 1,
+                                gap: 4,
+                              })}
+                            >
+                              <Text
+                                numberOfLines={1}
+                                style={{
+                                  color: c.text,
+                                  fontSize: 15,
+                                  lineHeight: 20,
+                                  fontWeight: selected ? '700' : '500',
+                                }}
+                              >
+                                {item.name}
+                              </Text>
+                              <Text
+                                numberOfLines={1}
+                                style={{
+                                  color: selected ? c.onSelected : c.muted,
+                                  fontSize: 12,
+                                  lineHeight: 16,
+                                }}
+                              >
+                                {personBalanceSummary(
+                                  readyPeople.totals,
+                                  item.id,
+                                  account?.currencyCode ?? '',
+                                )}
+                              </Text>
+                            </Pressable>
+                          </Animated.View>
+                        );
+                      };
+                      return (
                         <View style={{ gap: 10 }}>
-                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                            {matches.map((item) => {
-                              const selected = item.id === personId;
-                              return (
-                                <Pressable
-                                  key={item.id}
-                                  accessibilityRole="button"
-                                  accessibilityLabel={item.name}
-                                  accessibilityState={{ selected, disabled: pending }}
-                                  disabled={pending}
-                                  onPress={() => setPersonId(item.id)}
-                                  style={({ pressed }) => ({
-                                    paddingHorizontal: 14,
-                                    paddingVertical: 8,
-                                    minHeight: 48,
-                                    maxWidth: '100%',
-                                    borderRadius: 14,
-                                    backgroundColor: selected ? c.selected : c.surface,
-                                    opacity: pending ? 0.45 : pressed ? 0.7 : 1,
-                                    gap: 4,
-                                  })}
-                                >
-                                  <Text
-                                    style={{
-                                      color: c.text,
-                                      fontSize: 15,
-                                      fontWeight: selected ? '700' : '500',
-                                    }}
-                                  >
-                                    {item.name}
-                                  </Text>
-                                  <Text
-                                    style={{
-                                      color: selected ? c.onSelected : c.muted,
-                                      fontSize: 12,
-                                    }}
-                                  >
-                                    {personBalanceSummary(
-                                      readyPeople.totals,
-                                      item.id,
-                                      account?.currencyCode ?? '',
-                                    )}
-                                  </Text>
-                                </Pressable>
-                              );
-                            })}
-                          </View>
+                          <Animated.View
+                            layout={layoutTransition}
+                            style={{
+                              maxHeight: peopleMaxHeight,
+                              overflow: 'hidden',
+                              flexDirection: 'row',
+                              flexWrap: 'wrap',
+                              gap: 8,
+                            }}
+                          >
+                            {matches.map(personChip)}
+                          </Animated.View>
                           {!matches.length && (
                             <Text style={{ color: c.muted }}>
                               {search
@@ -425,7 +510,8 @@ function QuickAddForm() {
                             </Text>
                           )}
                           {canCreatePerson && (
-                            <FormButton
+                            <AnimatedFormButton
+                              layout={layoutTransition}
                               label={`Add “${query.trim()}”`}
                               variant="secondary"
                               disabled={pending}
@@ -433,8 +519,8 @@ function QuickAddForm() {
                             />
                           )}
                         </View>
-                      </>
-                    )}
+                      );
+                    }}
                   </ChoicesSection>
                   <View style={{ gap: 10 }}>
                     <Label>What happened</Label>
@@ -456,7 +542,7 @@ function QuickAddForm() {
                     {account?.name ?? 'the selected account'}. Excluded from spending reports.
                     Recorded person balances may be incomplete.
                   </Text>
-                </>
+                </View>
               )}
               {categoryMode && (
                 <ChoicesSection
@@ -484,7 +570,7 @@ function QuickAddForm() {
                   )}
                 </ChoicesSection>
               )}
-              <View style={{ gap: 12 }}>
+              <Animated.View key="details" style={{ gap: 12 }}>
                 <Label>Note · optional</Label>
                 <FormInput
                   accessibilityLabel="Note"
@@ -502,13 +588,14 @@ function QuickAddForm() {
                   editable={!pending}
                 />
                 <QuickAddDate value={date} onChange={setDate} disabled={pending} />
-              </View>
+              </Animated.View>
               {!!error && (
-                <Text selectable accessibilityRole="alert" style={{ color: c.warning }}>
+                <Text key="error" selectable accessibilityRole="alert" style={{ color: c.warning }}>
                   {error}
                 </Text>
               )}
               <FormButton
+                key="save"
                 label={saveLabel}
                 loading={pending}
                 disabled={!canSave || editing}
@@ -521,6 +608,6 @@ function QuickAddForm() {
           {keypad}
         </KeyboardAvoidingView>
       )}
-    </AmountInput>
+    </AmountEntry>
   );
 }

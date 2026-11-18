@@ -77,3 +77,29 @@ export function formatMoney(
 export function formatBalance(minor: number, currency: string): string {
   return `${minor < 0 ? '−' : ''}${formatMoney('TRANSFER', Math.abs(minor), currency)}`;
 }
+
+export function transferAmounts(
+  row: {
+    amountMinor: number;
+    receivedAmountMinor?: number | null;
+    currencyCode: string;
+    destinationCurrencyCode?: string | null;
+    transferAccountId?: number | null;
+  },
+  accountId: number | null,
+  format = formatMoney,
+): { amount: string; otherAmount?: string } {
+  const into = accountId !== null && row.transferAccountId === accountId;
+  const paid = format('TRANSFER', row.amountMinor, row.currencyCode);
+  const received = format(
+    'TRANSFER',
+    row.receivedAmountMinor ?? row.amountMinor,
+    row.destinationCurrencyCode ?? row.currencyCode,
+  );
+  return {
+    amount: accountId === null ? paid : into ? `+${received}` : `−${paid}`,
+    ...(row.destinationCurrencyCode && row.destinationCurrencyCode !== row.currencyCode
+      ? { otherAmount: into ? paid : received }
+      : {}),
+  };
+}

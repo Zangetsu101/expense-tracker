@@ -72,7 +72,9 @@ test('pending work blocks duplicate actions and leaving, and reports success onl
 
   const navigation = jest.mocked(usePreventRemove).mock.calls.at(-1)!;
   expect(navigation[0]).toBe(true);
-  await act(async () => navigation[1]({ data: { action: { type: 'GO_BACK' } } }));
+  await act(async () =>
+    navigation[1]!({ data: { action: { type: 'GO_BACK' } }, repeat: jest.fn() }),
+  );
   expect(alert).toHaveBeenCalledWith(
     'Operation in progress',
     expect.stringContaining('before leaving'),

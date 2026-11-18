@@ -648,3 +648,25 @@ test.each(['pending', 'failed'] as const)(
     expect(scrolled()).toEqual([expect.objectContaining({ sectionIndex: 0, itemIndex: 0 })]);
   },
 );
+
+test('an Account change keeps the old list with its search until the new period arrives', async () => {
+  const user = userEvent.setup();
+  let resolve: (value: HomeListPage) => void = () => {};
+  jest.mocked(homeListPage).mockImplementation(async (account) =>
+    account === 2
+      ? new Promise((done) => {
+          resolve = done;
+        })
+      : page([row(1, { note: 'with Rahim' }), row(2)]),
+  );
+  await render(<ControlledList initialScope={trend(1)} />);
+  await user.type(await screen.findByRole('search'), 'rahim');
+  expect(await screen.findByText('1 result')).toBeOnTheScreen();
+  await user.press(screen.getByRole('button', { name: 'Show Bank' }));
+  expect(screen.getByRole('search')).toHaveDisplayValue('');
+  expect(screen.getByText('1 result')).toBeOnTheScreen();
+  expect(screen.queryByText('Lunch 2')).not.toBeOnTheScreen();
+  await act(async () => resolve(page([row(3, { accountId: 2, accountName: 'Bank' })])));
+  expect(await screen.findByText('Lunch 3')).toBeOnTheScreen();
+  expect(screen.queryByText('1 result')).not.toBeOnTheScreen();
+});

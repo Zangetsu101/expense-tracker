@@ -7,6 +7,7 @@ import {
   formatMoney,
   formatTransactionAmount,
   transactionTitle,
+  transferAmounts,
 } from './transaction-format.ts';
 
 test('lending titles use kind and person ahead of category, including attributed imports', () => {
@@ -72,4 +73,28 @@ test('formatBalance signs negative balances only', () => {
   assert.equal(formatBalance(-245000, 'BDT'), '−৳2,450.00');
   assert.equal(formatBalance(0, 'BDT'), '৳0.00');
   assert.equal(formatBalance(-150, 'USD'), `−${formatTransactionAmount('TRANSFER', 150, 'USD')}`);
+});
+
+test('Transfer amount presentation uses the selected Account leg, and All accounts uses paid without a sign', () => {
+  const transfer = {
+    amountMinor: 1220000,
+    receivedAmountMinor: 10000,
+    currencyCode: 'BDT',
+    destinationCurrencyCode: 'USD',
+    transferAccountId: 2,
+  };
+  assert.deepEqual(transferAmounts(transfer, null), {
+    amount: '৳12,200.00',
+    otherAmount: '$100.00',
+  });
+  assert.deepEqual(transferAmounts(transfer, 1), { amount: '−৳12,200.00', otherAmount: '$100.00' });
+  assert.deepEqual(transferAmounts(transfer, 2), { amount: '+$100.00', otherAmount: '৳12,200.00' });
+  assert.deepEqual(
+    transferAmounts({ ...transfer, destinationCurrencyCode: 'BDT', receivedAmountMinor: null }, 2),
+    { amount: '+৳12,200.00' },
+  );
+  assert.deepEqual(transferAmounts({ ...transfer, receivedAmountMinor: null }, 2), {
+    amount: '+$12,200.00',
+    otherAmount: '৳12,200.00',
+  });
 });

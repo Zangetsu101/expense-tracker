@@ -5,21 +5,19 @@ import {
   type QueryKey,
 } from '@tanstack/react-query';
 import { Text, View } from 'react-native';
+import { LinearTransition, ReduceMotion } from 'react-native-reanimated';
 import { QueryBoundary } from '@/components/query-error-boundary';
 import { Skeleton } from '@/components/loading';
 import { FormButton } from '@/components/form-controls';
 import { theme } from '@/theme';
 import { CategorySearchInput } from '@/components/quick-select-category';
 
-type ChoicesLayout = 'accounts' | 'categories' | 'people';
+type ChoicesLayout = 'accounts' | 'categories' | 'people' | 'bills';
 
-function SectionLayout({ children, label }: { children: ReactNode; label?: string }) {
-  return (
-    <View accessibilityLabel={label} style={{ gap: 10 }}>
-      {children}
-    </View>
-  );
-}
+export const layoutTransition = LinearTransition.springify()
+  .dampingRatio(2)
+  .duration(300)
+  .reduceMotion(ReduceMotion.System);
 
 function PillSkeletonRows({
   height,
@@ -55,8 +53,13 @@ function ChoicesSkeleton({
   pendingLabel?: string;
 }) {
   return (
-    <SectionLayout label={`Loading ${label}`}>
-      {layout === 'categories' ? (
+    <View accessibilityLabel={`Loading ${label}`} style={{ gap: 10 }}>
+      {layout === 'bills' ? (
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <Skeleton width={130} height={48} />
+          <Skeleton width={130} height={48} />
+        </View>
+      ) : layout === 'categories' ? (
         <>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <Text style={{ color: theme.colors.text }}>Selected:</Text>
@@ -76,7 +79,7 @@ function ChoicesSkeleton({
       ) : (
         <PillSkeletonRows height={48} borderRadius={14} columns={2} />
       )}
-    </SectionLayout>
+    </View>
   );
 }
 
@@ -102,10 +105,10 @@ function ReadyChoices<T, K extends QueryKey>({
 }) {
   const { data, error, isFetching, refetch } = useSuspenseQuery(options);
   return (
-    <SectionLayout>
+    <View style={{ gap: 10 }}>
       {children(data)}
       {!!error && !isFetching && <ChoicesError label={label} retry={() => void refetch()} />}
-    </SectionLayout>
+    </View>
   );
 }
 
@@ -126,9 +129,9 @@ export function ChoicesSection<T, K extends QueryKey>({
     <QueryBoundary
       pending={<ChoicesSkeleton label={label} layout={layout} pendingLabel={pendingLabel} />}
       error={(retry) => (
-        <SectionLayout>
+        <View style={{ gap: 10 }}>
           <ChoicesError label={label} retry={retry} />
-        </SectionLayout>
+        </View>
       )}
     >
       <ReadyChoices options={options} label={label}>

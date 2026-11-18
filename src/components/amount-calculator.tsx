@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { type ComponentProps, useEffect, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import { Touchable } from 'react-native-gesture-handler';
 import { SymbolView } from 'expo-symbols';
 import Animated, {
   Easing,
@@ -9,7 +10,6 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
-import { calculateAmount } from '@/lib/amount-calculator';
 import { theme } from '@/theme';
 
 const rows = [
@@ -27,31 +27,24 @@ const labels: Record<string, string> = {
   '−': 'Subtract',
   '+': 'Add',
   '=': 'Equals',
-  Done: 'Done',
 };
 const c = theme.colors;
 
 export function AmountCalculator({
-  value,
-  onChange,
+  error,
+  onKey,
   onDone,
   open,
   bottomInset,
 }: {
-  value: string;
-  onChange: (amount: string) => void;
+  /** The message from the last calculation that failed. */
+  error: string;
+  /** Receives each key that changes the amount, such as `7`, `+`, `=`, `C` or `⌫`. */
+  onKey: (key: string) => void;
   onDone: () => void;
   open: boolean;
   bottomInset: number;
 }) {
-  const [error, setError] = useState('');
-  const [evaluated, setEvaluated] = useState(false);
-  const [wasOpen, setWasOpen] = useState(open);
-  if (wasOpen !== open) {
-    setWasOpen(open);
-    setError('');
-    setEvaluated(false);
-  }
   const [contentHeight, setContentHeight] = useState(0);
   const height = useSharedValue(0);
   useEffect(() => {
@@ -69,34 +62,6 @@ export function AmountCalculator({
         ? Haptics.performAndroidHapticsAsync(Haptics.AndroidHaptics.Keyboard_Tap)
         : Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     void effect.catch(() => {});
-  }
-  function press(key: string) {
-    setError('');
-    if (key === 'Done') {
-      onDone();
-      return;
-    }
-    if (key === '=') {
-      try {
-        onChange(calculateAmount(value));
-        setEvaluated(true);
-      } catch (cause) {
-        setError((cause as Error).message);
-      }
-      return;
-    }
-    let next =
-      key === 'C'
-        ? ''
-        : key === '⌫'
-          ? value.slice(0, -1)
-          : evaluated && /^[0-9.]$/.test(key)
-            ? key
-            : value + key;
-    if (['+', '−', '×', '÷'].includes(key) && /[+−×÷]$/.test(value))
-      next = value.slice(0, -1) + key;
-    onChange(next);
-    setEvaluated(false);
   }
   return (
     <Animated.View
@@ -129,43 +94,15 @@ export function AmountCalculator({
           )}
           {rows.map((row, index) => (
             <View key={index} style={{ flexDirection: 'row', gap: 6 }}>
-              {row.map((key) => {
-                const digit = /^[0-9.]$/.test(key);
-                return (
-                  <Pressable
-                    key={key}
-                    accessibilityRole="button"
-                    accessibilityLabel={labels[key] ?? key}
-                    onPressIn={feedback}
-                    onPress={() => press(key)}
-                    style={({ pressed }) => ({
-                      flex: key === 'Done' ? 2 : 1,
-                      minHeight: 48,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      borderRadius: 6,
-                      backgroundColor: pressed
-                        ? c.line
-                        : key === 'Done'
-                          ? c.selected
-                          : digit
-                            ? c.raised
-                            : c.root,
-                    })}
-                  >
-                    <Text
-                      style={{
-                        color: digit || key === 'Done' ? c.text : c.accent,
-                        fontSize: key === 'Done' ? 17 : 24,
-                        fontWeight: '500',
-                        fontVariant: ['tabular-nums'],
-                      }}
-                    >
-                      {key}
-                    </Text>
-                  </Pressable>
-                );
-              })}
+              {row.map((key) =>
+                key === 'Done' ? (
+                  <DoneKey key={key} onFeedback={feedback} onDone={onDone} />
+                ) : key === '⌫' ? (
+                  <BackspaceKey key={key} onFeedback={feedback} onKey={onKey} enabled={open} />
+                ) : (
+                  <Key key={key} label={key} onFeedback={feedback} onKey={onKey} />
+                ),
+              )}
             </View>
           ))}
         </View>
@@ -198,5 +135,121 @@ export function AmountCalculator({
         </View>
       </View>
     </Animated.View>
+  );
+}
+
+const keyStyle = {
+  minHeight: 48,
+  alignItems: 'center',
+  justifyContent: 'center',
+  borderRadius: 6,
+} as const;
+
+function Key({
+  label,
+  onFeedback,
+  onKey,
+}: {
+  label: string;
+  onFeedback: () => void;
+  onKey: (key: string) => void;
+}) {
+  return <KeyButton label={label} onPressIn={onFeedback} onPress={() => onKey(label)} />;
+}
+
+function BackspaceKey({
+  enabled,
+  onFeedback,
+  onKey,
+}: {
+  enabled: boolean;
+  onFeedback: () => void;
+  onKey: (key: string) => void;
+}) {
+  const repeatTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const repeated = useRef(false);
+  const latestOnKey = useRef(onKey);
+  useEffect(() => {
+    latestOnKey.current = onKey;
+  }, [onKey]);
+  function stopRepeating() {
+    if (repeatTimer.current !== null) {
+      clearInterval(repeatTimer.current);
+      repeatTimer.current = null;
+    }
+  }
+  useEffect(() => {
+    if (!enabled) stopRepeating();
+    return stopRepeating;
+  }, [enabled]);
+  return (
+    <KeyButton
+      label="⌫"
+      onPressIn={() => {
+        repeated.current = false;
+        onFeedback();
+      }}
+      onLongPress={() => {
+        repeated.current = true;
+        latestOnKey.current('⌫');
+        repeatTimer.current = setInterval(() => latestOnKey.current('⌫'), 75);
+      }}
+      onPressOut={stopRepeating}
+      onPress={() => {
+        if (!repeated.current) onKey('⌫');
+      }}
+    />
+  );
+}
+
+// Nonexclusive native keys allow overlapping presses from different fingers.
+function KeyButton({
+  label,
+  ...handlers
+}: { label: string } & Pick<
+  ComponentProps<typeof Touchable>,
+  'onPress' | 'onPressIn' | 'onPressOut' | 'onLongPress'
+>) {
+  const digit = /^[0-9.]$/.test(label);
+  return (
+    <Touchable
+      accessible
+      accessibilityRole="button"
+      accessibilityLabel={labels[label] ?? label}
+      exclusive={false}
+      underlayColor={c.line}
+      activeUnderlayOpacity={1}
+      animationDuration={0}
+      {...handlers}
+      style={[keyStyle, { flex: 1, backgroundColor: digit ? c.raised : c.root }]}
+    >
+      <Text
+        style={{
+          color: digit ? c.text : c.accent,
+          fontSize: 24,
+          fontWeight: '500',
+          fontVariant: ['tabular-nums'],
+        }}
+      >
+        {label}
+      </Text>
+    </Touchable>
+  );
+}
+
+function DoneKey({ onFeedback, onDone }: { onFeedback: () => void; onDone: () => void }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Done"
+      onPressIn={onFeedback}
+      onPress={onDone}
+      style={({ pressed }) => [
+        keyStyle,
+        { flex: 2, backgroundColor: pressed ? c.line : c.selected },
+      ]}
+    >
+      <Text style={{ color: c.text, fontSize: 17, fontWeight: '500' }}>Done</Text>
+    </Pressable>
   );
 }

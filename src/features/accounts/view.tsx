@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react';
 import { Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { ManagedAccount } from '@/lib/accounts';
+import { reverseAmountSign, type ManagedAccount } from '@/lib/accounts';
 import { countLabel, formatBalance } from '@/lib/transaction-format';
 import { AppSheet } from '@/components/app-sheet';
-import { FormButton, FormInput } from '@/components/form-controls';
+import { FormButton, FormInput, JoinedChoice } from '@/components/form-controls';
 import { Skeleton } from '@/components/loading';
 import { theme } from '@/theme';
 import type { AccountsOverview } from './queries.ts';
@@ -16,7 +16,16 @@ const colors = {
   negative: theme.colors.warning,
 };
 
-export type AccountForm = { name: string; currencyCode: string; openingBalance: string };
+export type AccountForm = {
+  id?: number;
+  name: string;
+  currencyCode: string;
+  openingBalance: string;
+  isCreditCard?: boolean;
+  parentAccountId?: number | null;
+  statementDay?: number | null;
+  dueDay?: number | null;
+};
 
 export function AccountsLayout({ sheet, children }: { sheet: ReactNode; children: ReactNode }) {
   const insets = useSafeAreaInsets();
@@ -56,7 +65,7 @@ function OverviewCard({ children }: { children: ReactNode }) {
 export function BalanceOverview({ overview }: { overview: AccountsOverview }) {
   return (
     <OverviewCard>
-      {groupByCurrency(overview.accounts).map(([code, group]) => {
+      {groupByCurrency(overview.accounts.filter((a) => !a.card)).map(([code, group]) => {
         const total = group.reduce(
           (sum, account) => sum + (overview.balances.get(account.id) ?? 0),
           0,
@@ -76,6 +85,18 @@ export function BalanceOverview({ overview }: { overview: AccountsOverview }) {
           </Text>
         );
       })}
+      {groupByCurrency(overview.accounts.filter((a) => !!a.card)).map(([code, group]) => (
+        <Text key={`bills-${code}`} style={{ color: colors.negative }}>
+          Bills to settle ·{' '}
+          {formatBalance(
+            group.reduce(
+              (sum, a) => sum + (overview.bills.find((b) => b.accountId === a.id)?.billMinor ?? 0),
+              0,
+            ),
+            code,
+          )}
+        </Text>
+      ))}
     </OverviewCard>
   );
 }
@@ -154,10 +175,12 @@ export function AccountGroups({
   overview,
   disabled,
   onFavorite,
+  onEdit,
 }: {
   overview: AccountsOverview;
   disabled: boolean;
   onFavorite: (id: number) => void;
+  onEdit: (account: ManagedAccount) => void;
 }) {
   if (overview.accounts.length === 0)
     return <Text style={{ color: colors.muted }}>No accounts yet.</Text>;
@@ -171,7 +194,13 @@ export function AccountGroups({
         const blocked = disabled || !!account.isFavorite;
         return (
           <AccountRow key={account.id}>
-            <View style={{ flex: 1, gap: 4 }}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Edit ${account.name}`}
+              disabled={disabled}
+              onPress={() => onEdit(account)}
+              style={{ flex: 1, gap: 4 }}
+            >
               <Text selectable style={{ color: colors.ink, fontSize: 16, fontWeight: '600' }}>
                 {account.name}
                 {account.isFavorite ? ' · Favorite' : ''}
@@ -179,13 +208,20 @@ export function AccountGroups({
               <Text
                 selectable
                 style={{
-                  color: balance < 0 ? colors.negative : colors.muted,
+                  color:
+                    account.card && balance > 0
+                      ? colors.accent
+                      : balance < 0
+                        ? colors.negative
+                        : colors.muted,
                   fontVariant: ['tabular-nums'],
                 }}
               >
-                {formatBalance(balance, code)}
+                {account.card
+                  ? `${balance > 0 ? 'Credit' : 'Bill'} · ${formatBalance(balance > 0 ? balance : (overview.bills.find((b) => b.accountId === account.id)?.billMinor ?? 0), code)}`
+                  : formatBalance(balance, code)}
               </Text>
-            </View>
+            </Pressable>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`${account.name}, ${account.isFavorite ? 'favorite' : 'set as favorite'} for Quick add`}
@@ -258,7 +294,9 @@ export function AddAccountSheet({
   error,
   onSave,
   onClose,
+  accounts,
 }: {
+  accounts: ManagedAccount[];
   form: AccountForm;
   onChange: (form: AccountForm) => void;
   pending: boolean;
@@ -285,8 +323,27 @@ export function AddAccountSheet({
         }}
       >
         <Text style={{ color: colors.ink, fontSize: theme.type.heading, fontWeight: '700' }}>
-          Add account
+          {form.id ? 'Edit account' : 'Add account'}
         </Text>
+        <JoinedChoice
+          value={form.isCreditCard ? 'CARD' : 'ACCOUNT'}
+          options={[
+            { value: 'ACCOUNT', label: 'Account' },
+            { value: 'CARD', label: 'Credit card' },
+          ]}
+          disabled={pending}
+          onChange={(value) => {
+            if ((value === 'CARD') === !!form.isCreditCard) return;
+            onChange({
+              ...form,
+              isCreditCard: value === 'CARD',
+              parentAccountId: null,
+              openingBalance: form.id
+                ? reverseAmountSign(form.openingBalance)
+                : form.openingBalance,
+            });
+          }}
+        />
         <FormInput
           accessibilityLabel="Account name"
           placeholder="Account name"
@@ -304,26 +361,72 @@ export function AddAccountSheet({
           onChangeText={(currencyCode) => onChange({ ...form, currencyCode })}
           autoCapitalize="characters"
           maxLength={3}
-          editable={!pending}
+          editable={!pending && !form.id}
         />
         <FormInput
-          accessibilityLabel="Opening balance"
-          placeholder="Opening balance"
+          accessibilityLabel={
+            form.isCreditCard ? (form.id ? 'Opening amount owed' : 'Owed now') : 'Opening balance'
+          }
+          placeholder={
+            form.isCreditCard ? (form.id ? 'Opening amount owed' : 'Owed now') : 'Opening balance'
+          }
           placeholderTextColor={colors.muted}
           value={form.openingBalance}
           onChangeText={(openingBalance) => onChange({ ...form, openingBalance })}
           keyboardType="numbers-and-punctuation"
           editable={!pending}
         />
+        {form.isCreditCard && (
+          <>
+            <Text style={{ color: colors.muted }}>Pays from</Text>
+            <JoinedChoice
+              value={String(form.parentAccountId ?? '')}
+              options={[
+                { value: '', label: 'None' },
+                ...accounts
+                  .filter((a) => !a.card && a.id !== form.id)
+                  .map((a) => ({ value: String(a.id), label: a.name })),
+              ]}
+              disabled={pending}
+              onChange={(value) =>
+                onChange({ ...form, parentAccountId: value ? Number(value) : null })
+              }
+            />
+            <FormInput
+              accessibilityLabel="Statement day"
+              placeholder="Statement day · optional (1–31)"
+              value={String(form.statementDay ?? '')}
+              keyboardType="number-pad"
+              editable={!pending}
+              onChangeText={(value) =>
+                onChange({ ...form, statementDay: value ? Number(value) : null })
+              }
+            />
+            <FormInput
+              accessibilityLabel="Due day"
+              placeholder="Due day · optional (1–31)"
+              value={String(form.dueDay ?? '')}
+              keyboardType="number-pad"
+              editable={!pending}
+              onChangeText={(value) => onChange({ ...form, dueDay: value ? Number(value) : null })}
+            />
+          </>
+        )}
         <Text style={{ color: colors.muted }}>
-          Currency is fixed after creation. Opening balance may be negative.
+          {form.isCreditCard
+            ? 'This is the opening amount owed, before recorded transactions. A negative amount represents credit.'
+            : 'Currency is fixed after creation. Opening balance may be negative.'}
         </Text>
         {error && (
           <Text selectable accessibilityRole="alert" style={{ color: colors.negative }}>
             {error}
           </Text>
         )}
-        <FormButton label="Create account" loading={pending} onPress={onSave} />
+        <FormButton
+          label={form.id ? 'Save account' : 'Create account'}
+          loading={pending}
+          onPress={onSave}
+        />
         <FormButton label="Cancel" variant="secondary" disabled={pending} onPress={onClose} />
       </ScrollView>
     </AppSheet>
