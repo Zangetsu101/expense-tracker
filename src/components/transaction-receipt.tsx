@@ -1,3 +1,4 @@
+import { savedTransferRate, formatTransferRate } from '@/lib/transfer-amounts';
 import { useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import type { EditableTransaction } from '@/lib/transaction-edit';
@@ -141,6 +142,16 @@ export function TransactionReceipt({ transaction: row }: Props) {
   );
 }
 export function TransferReceipt({ transfer: row }: { transfer: EditableTransfer }) {
+  const cross = row.currencyCode !== row.destinationCurrencyCode;
+  const received = row.receivedAmountMinor ?? row.amountMinor;
+  const rate = cross
+    ? savedTransferRate({
+        paid: row.amountMinor,
+        received,
+        source: row.currencyCode,
+        destination: row.destinationCurrencyCode,
+      })
+    : null;
   return (
     <ScrollView
       contentInsetAdjustmentBehavior="automatic"
@@ -148,7 +159,7 @@ export function TransferReceipt({ transfer: row }: { transfer: EditableTransfer 
       contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 24, paddingBottom: 32, gap: 24 }}
     >
       <View style={{ backgroundColor: color.panel, borderRadius: 18, padding: 22, gap: 16 }}>
-        <Label>{`Transfer · ${row.currencyCode}`}</Label>
+        <Label>{`Transfer · ${row.currencyCode}${cross ? ` → ${row.destinationCurrencyCode}` : ''}`}</Label>
         <Text
           selectable
           style={{
@@ -160,6 +171,11 @@ export function TransferReceipt({ transfer: row }: { transfer: EditableTransfer 
         >
           {formatTransactionAmount('TRANSFER', row.amountMinor, row.currencyCode)}
         </Text>
+        {cross && (
+          <Text selectable style={{ color: color.ink, fontSize: 20 }}>
+            {formatTransactionAmount('TRANSFER', received, row.destinationCurrencyCode)} received
+          </Text>
+        )}
         <Text
           selectable
           style={{ color: color.ink, fontSize: 20, fontWeight: '700' }}
@@ -174,6 +190,12 @@ export function TransferReceipt({ transfer: row }: { transfer: EditableTransfer 
             <Label>To</Label>
             <Value>{row.toAccountName}</Value>
           </View>
+          {rate && (
+            <View style={{ gap: 8 }}>
+              <Label>Rate</Label>
+              <Value>{`1 ${rate.base} = ${formatTransferRate(rate.rate)} ${rate.quote}`}</Value>
+            </View>
+          )}
           <View style={{ gap: 8 }}>
             <Label>Date</Label>
             <Value>{formatEpochDay(row.date)}</Value>

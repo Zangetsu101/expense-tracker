@@ -36,7 +36,7 @@ export async function accountBalances(today = epochDay(new Date())): Promise<Acc
       WHEN t.type = 'EXPENSE' THEN -t.amountMinor
       WHEN t.type = 'INCOME' THEN t.amountMinor
       WHEN t.type = 'TRANSFER' AND t.accountId = a.id THEN -t.amountMinor
-      WHEN t.type = 'TRANSFER' AND t.transferAccountId = a.id THEN t.amountMinor
+      WHEN t.type = 'TRANSFER' AND t.transferAccountId = a.id THEN COALESCE(t.receivedAmountMinor, t.amountMinor)
       ELSE 0 END), 0) AS balanceMinor
     FROM accounts a LEFT JOIN transactions t ON (t.accountId = a.id OR (t.type = 'TRANSFER' AND t.transferAccountId = a.id)) AND t.date <= ?
     GROUP BY a.id ORDER BY a.name, a.id`,

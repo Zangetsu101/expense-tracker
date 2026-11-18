@@ -70,6 +70,7 @@ function Results({ filters, muted }: { filters: SearchFilters; muted: boolean })
   return (
     <ResultsList
       rows={rows}
+      accountId={filters.accountId}
       hasMore={hasNextPage}
       muted={muted}
       alert={

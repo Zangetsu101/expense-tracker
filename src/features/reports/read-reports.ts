@@ -53,7 +53,7 @@ export async function netWorthData(
         WHEN t.type = 'EXPENSE' THEN -t.amountMinor
         WHEN t.type = 'INCOME' THEN t.amountMinor
         WHEN t.type = 'TRANSFER' AND t.accountId = a.id THEN -t.amountMinor
-        ELSE t.amountMinor END) AS changeMinor
+        ELSE COALESCE(t.receivedAmountMinor, t.amountMinor) END) AS changeMinor
       FROM accounts a JOIN transactions t
         ON t.accountId = a.id OR (t.type = 'TRANSFER' AND t.transferAccountId = a.id)
       WHERE t.date <= ? GROUP BY a.id, month`,

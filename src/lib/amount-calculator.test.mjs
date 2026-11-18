@@ -22,8 +22,14 @@ test('rejects incomplete, unsafe and non-arithmetic input', () => {
   }
 });
 
+test('rate calculations retain four decimal places while money still rounds to cents', () => {
+  assert.equal(calculateAmount('1 ÷ 122', 4), '0.0082');
+  assert.equal(calculateAmount('1 ÷ 122'), '0.01');
+  assert.equal(calculateAmount('121.4567 × 2', 4), '242.9134');
+});
+
 const type = (keys, amount = '') =>
-  keys.reduce(pressAmountKey, { amount, evaluated: false, error: '' });
+  keys.reduce((entry, key) => pressAmountKey(entry, key), { amount, evaluated: false, error: '' });
 
 test('keypad keys build on the entry that the key before them returned', () => {
   assert.equal(type(['1', '2', '2']).amount, '122');
@@ -42,4 +48,11 @@ test('equals on an incomplete calculation keeps the amount and reports the error
   assert.equal(failed.amount, '4+');
   assert.match(failed.error, /complete calculation/);
   assert.equal(pressAmountKey(failed, '5').error, '');
+});
+
+test('equals keeps the precision that the keypad asks for', () => {
+  assert.equal(
+    pressAmountKey({ amount: '1÷122', evaluated: false, error: '' }, '=', 4).amount,
+    '0.0082',
+  );
 });

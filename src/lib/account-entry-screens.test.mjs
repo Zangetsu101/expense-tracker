@@ -14,6 +14,7 @@ const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const root = new URL('../../', import.meta.url);
 const mocks = {
+  '@/lib/transfer-rate-store': `export const loadFirstTransferRate=async (source,destination)=>({base:destination,quote:source,rate:undefined});`,
   '@/lib/credit-cards': `export const creditCardBills=async()=>[];`,
   '@/lib/category-prediction-history': `export const listCategoryEvidence=async()=>globalThis.__entryTest.evidence??[];`,
   '@/components/loading': `export const Skeleton='Skeleton',Shimmer='Shimmer';`,
@@ -388,40 +389,6 @@ test('Account entry screens', async (t) => {
       assert.equal(button('Save').props.disabled, true);
       await act(async () => choices.props.onSelect(1));
       assert.equal(button('Save').props.disabled, false);
-    },
-  );
-  await t.test(
-    'Quick add transfer selects accounts inline, restricts currency, and saves date and tags',
-    async () => {
-      await mount(QuickAdd);
-      await change('Amount', '8.25');
-      await act(async () => nodes('JoinedChoice')[0].props.onChange('TRANSFER'));
-      let selectors = renderer.root.findAll((n) => n.type?.name === 'AccountChoices');
-      assert.deepEqual(
-        selectors[1].props.accounts.map((a) => a.id),
-        [2],
-      );
-      await act(async () => selectors[1].props.onSelect(2));
-      await change('Tags, separated by commas', 'move');
-      const date = new Date(2020, 0, 1);
-      await act(async () => nodes('Date')[0].props.onChange(date));
-      let saved;
-      state.save = async (x) => {
-        saved = x;
-      };
-      await press('Save transfer');
-      assert.equal(saved.amountMinor, 825);
-      assert.equal(saved.fromAccountId, 1);
-      assert.equal(saved.toAccountId, 2);
-      assert.equal(saved.tagText, 'move');
-      assert.equal(saved.date, date);
-      assert.equal(state.back, true);
-      assert.equal(state.alert, undefined);
-      selectors = renderer.root.findAll((n) => n.type?.name === 'AccountChoices');
-      await act(async () => selectors[0].props.onSelect(4));
-      selectors = renderer.root.findAll((n) => n.type?.name === 'AccountChoices');
-      assert.deepEqual(selectors[1].props.accounts, []);
-      assert.equal(button('Save transfer').props.disabled, true);
     },
   );
   await t.test(

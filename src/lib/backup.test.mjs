@@ -271,3 +271,34 @@ test('restore cancellation and invalid files never replace data', async () => {
     assert.equal(confirmations, scenario === 'confirmation cancelled' ? 1 : 0);
   }
 });
+
+test('received amounts are optional safe positive minor units on cross-Currency Transfers only', () => {
+  const data = decodeBackup(native);
+  const from = data.accounts[0];
+  data.accounts.push({
+    ...from,
+    id: 9999,
+    currencyCode: from.currencyCode === 'USD' ? 'BDT' : 'USD',
+  });
+  const transaction = {
+    ...data.transactions[0],
+    type: 'TRANSFER',
+    accountId: from.id,
+    transferAccountId: 9999,
+    receivedAmountMinor: 100,
+  };
+  data.transactions = [transaction];
+  assert.equal(decodeBackup(encodeBackup(data)).transactions[0].receivedAmountMinor, 100);
+  for (const receivedAmountMinor of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+    transaction.receivedAmountMinor = receivedAmountMinor;
+    assert.throws(() => encodeBackup(data), /received|safe integer/);
+  }
+  transaction.receivedAmountMinor = 100;
+  transaction.type = 'EXPENSE';
+  assert.throws(() => encodeBackup(data), /amount received/);
+  transaction.type = 'TRANSFER';
+  data.accounts.at(-1).currencyCode = from.currencyCode;
+  assert.throws(() => encodeBackup(data), /amount received/);
+  delete transaction.receivedAmountMinor;
+  assert.doesNotThrow(() => encodeBackup(data));
+});

@@ -122,6 +122,27 @@ test('netWorthData reads month changes up to today and the lending as it happene
   assert.equal(one.mainCurrency, 'BDT');
 });
 
+test('netWorthData adds the received amount of a Transfer between Currencies', async () => {
+  try {
+    sqlite.exec(`INSERT INTO transactions (id, type, amountMinor, receivedAmountMinor, date, accountId, transferAccountId)
+      VALUES (50, 'TRANSFER', 12000, 100, ${day(2026, 8, 1)}, 1, 2)`);
+    const { changes } = await netWorthData(null, today);
+    const august = 2026 * 12 + 7;
+    assert.deepEqual(
+      changes
+        .filter((c) => c.month === august)
+        .map((c) => [c.accountId, c.changeMinor])
+        .sort((a, b) => a[0] - b[0]),
+      [
+        [1, -12000],
+        [2, 100],
+      ],
+    );
+  } finally {
+    sqlite.exec('DELETE FROM transactions WHERE id = 50');
+  }
+});
+
 test('the report settings read the Home start day and the first month of the fiscal year', async () => {
   assert.deepEqual(await reportSettings(), { monthStart: 1, fiscalStart: 0 });
   sqlite.exec(

@@ -1,5 +1,5 @@
 import { createContext, useState, type ReactElement, type ReactNode } from 'react';
-import { act, fireEvent, screen, userEvent, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, screen, userEvent, waitFor, within } from '@testing-library/react-native';
 import { Alert, BackHandler, Pressable } from 'react-native';
 import { usePreventRemove } from 'expo-router/react-navigation';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -11,6 +11,7 @@ import {
   saveTransactionEdit,
   type EditableTransaction,
 } from '@/lib/transaction-edit';
+import { loadFirstTransferRate } from '@/lib/transfer-rate-store';
 import { loadTransfer, saveTransferEdit, type EditableTransfer } from '@/lib/transfers';
 import { renderWithQueries } from '@/test/render-with-queries';
 import TransactionScreen from './screen';
@@ -59,6 +60,8 @@ jest.mock('@/lib/transaction-edit', () => ({
   loadEditableTransaction: jest.fn(),
   saveTransactionEdit: jest.fn(),
 }));
+jest.mock('@/lib/transfer-rate-store', () => ({ loadFirstTransferRate: jest.fn() }));
+jest.mock('@/lib/credit-cards', () => ({ creditCardBills: jest.fn(async () => []) }));
 jest.mock('@/lib/transfers', () => ({ loadTransfer: jest.fn(), saveTransferEdit: jest.fn() }));
 jest.mock('@/lib/transaction-delete', () => ({ deleteTransaction: jest.fn() }));
 jest.mock('react-native-worklets', () => jest.requireActual('react-native-worklets/src/mock'));
@@ -140,6 +143,8 @@ const transaction: EditableTransaction = {
 const transfer: EditableTransfer = {
   id: 1,
   type: 'TRANSFER',
+  receivedAmountMinor: null,
+  destinationCurrencyCode: 'USD',
   amountMinor: 500,
   date: 20000,
   fromAccountId: 1,
@@ -648,6 +653,13 @@ describe('Delete', () => {
   });
 });
 
+async function editTransferAmount(user: ReturnType<typeof userEvent.setup>, value: string) {
+  await user.press(await screen.findByRole('button', { name: 'Amount' }));
+  await user.press(screen.getByRole('button', { name: 'Clear calculation' }));
+  for (const digit of value) await user.press(screen.getByRole('button', { name: digit }));
+  await user.press(screen.getByRole('button', { name: 'Done' }));
+}
+
 describe('Transfer', () => {
   beforeEach(() => {
     jest.mocked(loadEditableTransaction).mockResolvedValue(null);
@@ -663,7 +675,9 @@ describe('Transfer', () => {
     await openEditor(user);
 
     expect(mockHeader.title).toBe('Edit transfer');
-    expect(await screen.findByLabelText('Transfer amount')).toHaveDisplayValue('5.00');
+    expect(await screen.findByRole('button', { name: 'Amount' })).toHaveAccessibilityValue({
+      text: '5.00',
+    });
   });
 
   test('the transfer edit shows a skeleton while the accounts load', async () => {
@@ -674,9 +688,12 @@ describe('Transfer', () => {
     await openEditor(user);
 
     expect(screen.getByLabelText('Loading accounts')).toBeOnTheScreen();
+    expect(screen.queryByText('Loading accounts…')).not.toBeOnTheScreen();
     expect(headerCancel()).toBeEnabled();
     await act(async () => read.resolve(accounts));
-    expect(screen.getByLabelText('Transfer amount')).toHaveDisplayValue('5.00');
+    expect(screen.getByRole('button', { name: 'Amount' })).toHaveAccessibilityValue({
+      text: '5.00',
+    });
   });
 
   test('a Transfer edit saves swapped accounts, amount, note and date, then shows the new receipt', async () => {
@@ -684,17 +701,24 @@ describe('Transfer', () => {
     jest.mocked(saveTransferEdit).mockResolvedValue(undefined);
     await renderScreen();
     await openEditor(user);
-    await user.clear(await screen.findByLabelText('Transfer amount'));
-    await user.type(screen.getByLabelText('Transfer amount'), '7.5');
+    await editTransferAmount(user, '7.5');
     await user.clear(noteInput());
     await user.type(noteInput(), 'rent');
-    await user.press(screen.getByRole('button', { name: 'Swap accounts' }));
+    await user.press(
+      within(screen.getByLabelText('Source account')).getByRole('button', { name: 'Bank, USD' }),
+    );
+    await user.press(
+      within(screen.getByLabelText('Transfer destination')).getByRole('button', {
+        name: 'Cash, USD',
+      }),
+    );
     await user.press(screen.getByRole('button', { name: 'Use 2 January 2024' }));
     jest.mocked(loadTransfer).mockResolvedValue({ ...transfer, amountMinor: 750, note: 'rent' });
     await user.press(screen.getByRole('button', { name: 'Save changes' }));
 
     expect(saveTransferEdit).toHaveBeenCalledWith(transfer, {
       amountMinor: 750,
+      receivedAmountMinor: undefined,
       fromAccountId: 2,
       toAccountId: 1,
       note: 'rent',
@@ -709,14 +733,13 @@ describe('Transfer', () => {
     jest.mocked(saveTransferEdit).mockResolvedValue(undefined);
     await renderScreen();
     await openEditor(user);
-    await user.clear(await screen.findByLabelText('Transfer amount'));
-    await user.type(screen.getByLabelText('Transfer amount'), '9');
+    await editTransferAmount(user, '9');
     jest.mocked(loadTransfer).mockRejectedValue(new Error('Reload failed'));
     await user.press(screen.getByRole('button', { name: 'Save changes' }));
 
     expect(await screen.findByText('Reload failed')).toBeOnTheScreen();
     expect(screen.getByRole('button', { name: 'Use 2 January 2024' })).toBeDisabled();
-    expect(screen.getByLabelText('Transfer amount')).not.toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Amount' })).not.toBeEnabled();
     jest.mocked(loadTransfer).mockResolvedValue({ ...transfer, amountMinor: 900, note: 'nine' });
     await user.press(screen.getByRole('button', { name: 'Retry receipt' }));
 
@@ -725,28 +748,28 @@ describe('Transfer', () => {
     expect(mockHeader.title).toBe('Receipt');
   });
 
-  test('the destination choices leave out other currencies and the source', async () => {
+  test('the destination choices include other currencies and leave out the source', async () => {
     const user = userEvent.setup();
     await renderScreen();
     await openEditor(user);
-    await user.press(await screen.findByRole('button', { name: 'To account: Bank, USD' }));
-
-    expect(screen.getByRole('button', { name: 'Bank · USD' })).toBeOnTheScreen();
-    expect(screen.queryByRole('button', { name: 'Card · EUR' })).not.toBeOnTheScreen();
-    expect(screen.queryByRole('button', { name: 'Cash · USD' })).not.toBeOnTheScreen();
+    await screen.findByRole('button', { name: 'Amount' });
+    const destination = within(screen.getByLabelText('Transfer destination'));
+    expect(destination.getByRole('button', { name: 'Bank, USD' })).toBeOnTheScreen();
+    expect(destination.getByRole('button', { name: 'Card, EUR' })).toBeOnTheScreen();
+    expect(destination.queryByRole('button', { name: 'Cash, USD' })).not.toBeOnTheScreen();
   });
 
   test('a dirty Transfer edit asks before it discards, and a clean Cancel does not', async () => {
     const user = userEvent.setup();
     await renderScreen();
     await openEditor(user);
-    await screen.findByLabelText('Transfer amount');
+    await screen.findByRole('button', { name: 'Amount' });
     await user.press(bottomCancel());
     expect(alert).not.toHaveBeenCalled();
     expect(mockHeader.title).toBe('Receipt');
 
     await openEditor(user);
-    await user.type(await screen.findByLabelText('Transfer amount'), '9');
+    await editTransferAmount(user, '9');
     await pressHardwareBack();
     expect(alert.mock.calls.at(-1)?.[0]).toBe('Discard changes?');
     await chooseAlert('Discard');
@@ -770,13 +793,127 @@ describe('Transfer', () => {
     jest.mocked(saveTransferEdit).mockRejectedValue(new Error('Save failed'));
     await renderScreen();
     await openEditor(user);
-    await user.clear(await screen.findByLabelText('Transfer amount'));
-    await user.type(screen.getByLabelText('Transfer amount'), '9');
+    await editTransferAmount(user, '9');
     await user.press(screen.getByRole('button', { name: 'Save changes' }));
 
     expect(await screen.findByText('Save failed')).toBeOnTheScreen();
     expect(screen.getByRole('button', { name: 'Use 2 January 2024' })).toBeEnabled();
-    expect(screen.getByLabelText('Transfer amount')).toHaveDisplayValue('9');
+    expect(screen.getByRole('button', { name: 'Amount' })).toHaveAccessibilityValue({
+      text: '9.00',
+    });
     expect(mockHeader.title).toBe('Edit transfer');
   });
+});
+
+test('a cross-Currency receipt derives its rate and edit treats both saved amounts as typed', async () => {
+  const user = userEvent.setup();
+  const saved: EditableTransfer = {
+    ...transfer,
+    toAccountId: 3,
+    toAccountName: 'Card',
+    destinationCurrencyCode: 'EUR',
+    receivedAmountMinor: 1000,
+  };
+  jest.mocked(loadEditableTransaction).mockResolvedValue(null);
+  jest.mocked(loadTransfer).mockResolvedValue(saved);
+  jest
+    .mocked(loadFirstTransferRate)
+    .mockResolvedValue({ base: 'USD', quote: 'EUR', rate: 2, date: 20000 });
+  await renderScreen();
+  expect(await screen.findByText('Transfer · USD → EUR')).toBeOnTheScreen();
+  expect(screen.getByText('1 USD = 2.00 EUR')).toBeOnTheScreen();
+  expect(screen.getByText(/10.00 received/)).toBeOnTheScreen();
+  await openEditor(user);
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Cash pays' })).toBeEnabled());
+  expect(screen.getByText('2.00')).toBeOnTheScreen();
+  expect(screen.queryByText(/\(from /)).not.toBeOnTheScreen();
+  await user.press(screen.getByRole('button', { name: 'Cash pays' }));
+  await user.press(screen.getByRole('button', { name: '9' }));
+  await user.press(screen.getByRole('button', { name: 'Done' }));
+  expect(screen.getByRole('button', { name: 'Card receives' })).toHaveAccessibilityValue({
+    text: '10.00',
+  });
+  expect(screen.getByText('1.1111')).toBeOnTheScreen();
+  await user.press(screen.getByRole('button', { name: 'Rate' }));
+  await user.press(screen.getByRole('button', { name: '4' }));
+  await user.press(screen.getByRole('button', { name: 'Done' }));
+  expect(screen.getByRole('button', { name: 'Cash pays' })).toHaveAccessibilityValue({
+    text: '2.50',
+  });
+  jest.mocked(saveTransferEdit).mockResolvedValue(undefined);
+  jest.mocked(loadTransfer).mockResolvedValue({ ...saved, amountMinor: 250 });
+  await user.press(screen.getByRole('button', { name: 'Save changes' }));
+  expect(saveTransferEdit).toHaveBeenCalledWith(
+    saved,
+    expect.objectContaining({ amountMinor: 250, receivedAmountMinor: 1000 }),
+  );
+});
+
+test('Transfer Account loading retries after failure', async () => {
+  const user = userEvent.setup();
+  jest.mocked(loadEditableTransaction).mockResolvedValue(null);
+  jest.mocked(loadTransfer).mockResolvedValue(transfer);
+  jest.mocked(listAccounts).mockRejectedValueOnce(new Error('Accounts unavailable'));
+  await renderScreen();
+  await openEditor(user);
+  await user.press(await screen.findByRole('button', { name: 'Could not load accounts. Retry' }));
+  expect(await screen.findByRole('button', { name: 'Amount' })).toHaveAccessibilityValue({
+    text: '5.00',
+  });
+});
+
+test('Transfer Account refresh locks Save, keeps the draft on failure and can retry', async () => {
+  const user = userEvent.setup();
+  jest.mocked(loadEditableTransaction).mockResolvedValue(null);
+  jest.mocked(loadTransfer).mockResolvedValue(transfer);
+  await renderScreen();
+  await openEditor(user);
+  await editTransferAmount(user, '9');
+  await user.clear(noteInput());
+  await user.type(noteInput(), 'Keep draft');
+  const refresh = Promise.withResolvers<Account[]>();
+  jest.mocked(listAccounts).mockReturnValueOnce(refresh.promise);
+  await act(async () => notifyDataChanged());
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled());
+  await act(async () => refresh.reject(new Error('Refresh failed')));
+  expect(
+    await screen.findByRole('button', { name: 'Could not refresh accounts. Retry' }),
+  ).toBeOnTheScreen();
+  expect(screen.getByRole('button', { name: 'Amount' })).toHaveAccessibilityValue({ text: '9.00' });
+  expect(noteInput()).toHaveDisplayValue('Keep draft');
+  await user.press(screen.getByRole('button', { name: 'Could not refresh accounts. Retry' }));
+  await waitFor(() =>
+    expect(
+      screen.queryByRole('button', { name: 'Could not refresh accounts. Retry' }),
+    ).not.toBeOnTheScreen(),
+  );
+  expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled();
+});
+
+test('opening and closing a rounded rate leaves both saved amounts unchanged', async () => {
+  const user = userEvent.setup();
+  const saved: EditableTransfer = {
+    ...transfer,
+    amountMinor: 100000000,
+    receivedAmountMinor: 100000001,
+    toAccountId: 3,
+    toAccountName: 'Card',
+    destinationCurrencyCode: 'EUR',
+  };
+  jest.mocked(loadEditableTransaction).mockResolvedValue(null);
+  jest.mocked(loadTransfer).mockResolvedValue(saved);
+  jest.mocked(loadFirstTransferRate).mockResolvedValue({ base: 'USD', quote: 'EUR', rate: 2 });
+  await renderScreen();
+  await openEditor(user);
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Rate' })).toBeEnabled());
+  await user.press(screen.getByRole('button', { name: 'Rate' }));
+  await user.press(screen.getByRole('button', { name: 'Done' }));
+  expect(screen.getByRole('button', { name: 'Cash pays' })).toHaveAccessibilityValue({
+    text: '1000000.00',
+  });
+  expect(screen.getByRole('button', { name: 'Card receives' })).toHaveAccessibilityValue({
+    text: '1000000.01',
+  });
+  await user.press(bottomCancel());
+  expect(alert).not.toHaveBeenCalled();
 });
