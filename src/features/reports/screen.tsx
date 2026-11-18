@@ -7,6 +7,7 @@ import {
   useSuspenseQuery,
 } from '@tanstack/react-query';
 import { router } from 'expo-router';
+import { AccountSheet, AccountTitle } from '@/components/account-sheet';
 import { QueryBoundary } from '@/components/query-error-boundary';
 import { defaultCurrencyCode } from '@/lib/currency';
 import { epochDay } from '@/lib/database';
@@ -32,8 +33,6 @@ import { saveFiscalStart } from './read-reports.ts';
 import { TrendCards } from './trends.tsx';
 import { moverRows } from '@/lib/usual-spending';
 import {
-  AccountRow,
-  AccountRowSkeleton,
   LoadError,
   Note,
   RangeHeader,
@@ -41,8 +40,6 @@ import {
   RangeSheet,
   RefreshAlert,
   ReportPage,
-  ScopeSheet,
-  scopeLabel,
   SegmentedSwitch,
   TotalsSkeleton,
   TotalsView,
@@ -139,6 +136,11 @@ function ReportsBody({ reset, today }: { reset: () => void; today: number }) {
     reset();
     setRange(next);
   };
+  const selectAccount = (id: number | undefined) => {
+    reset();
+    setSelected(id);
+    setSheet(null);
+  };
   const changeFiscalStart = (month: number) => {
     const next = { ...settings, fiscalStart: month };
     client.setQueryData(reportSettingsQuery().queryKey, next);
@@ -147,6 +149,9 @@ function ReportsBody({ reset, today }: { reset: () => void; today: number }) {
   return (
     <ReportPage
       title="Reports"
+      headerTitle={
+        <AccountTitle name={account?.name ?? 'All accounts'} onPress={() => setSheet('scope')} />
+      }
       sheet={
         sheet === 'range' ? (
           <RangeSheet
@@ -158,16 +163,29 @@ function ReportsBody({ reset, today }: { reset: () => void; today: number }) {
             onClose={() => setSheet(null)}
           />
         ) : sheet === 'scope' ? (
-          <ScopeSheet
-            accounts={accounts}
-            selected={accountId}
-            onSelect={(value) => {
-              reset();
-              setSelected(value);
+          <AccountSheet
+            onAddAccount={() => {
               setSheet(null);
+              router.push('/accounts');
             }}
-            onClose={() => setSheet(null)}
-          />
+            onDismiss={() => setSheet(null)}
+          >
+            <AccountSheet.Option
+              name="All accounts"
+              selected={accountId === undefined}
+              onPress={() => selectAccount(undefined)}
+            />
+            {accounts.map((item) => (
+              <AccountSheet.Option
+                key={item.id}
+                name={item.name}
+                detail={item.currencyCode}
+                favorite={!!item.isFavorite}
+                selected={accountId === item.id}
+                onPress={() => selectAccount(item.id)}
+              />
+            ))}
+          </AccountSheet>
         ) : null
       }
     >
@@ -179,7 +197,6 @@ function ReportsBody({ reset, today }: { reset: () => void; today: number }) {
         onNext={() => change(stepRange(range, 1, settings))}
         onOpen={() => setSheet('range')}
       />
-      <AccountRow label={scopeLabel(account)} onOpen={() => setSheet('scope')} />
       {!!error && !isFetching && (
         <RefreshAlert message="Could not refresh accounts." retry={() => void refetch()} />
       )}
@@ -232,7 +249,6 @@ function ReportsSkeleton() {
   return (
     <ReportPage title="Reports">
       <RangeHeaderSkeleton />
-      <AccountRowSkeleton />
       <TotalsSkeleton />
     </ReportPage>
   );

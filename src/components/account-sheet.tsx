@@ -1,14 +1,12 @@
+import type { ReactNode } from 'react';
 import { Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { SymbolView } from 'expo-symbols';
 import { AppSheet } from '@/components/app-sheet';
-import { formatBalance } from '@/lib/transaction-format';
 import { theme } from '@/theme';
-import type { DeckCard } from './deck.ts';
 
 const c = theme.colors;
 
-/** The Home title. It names the Account in view and opens the Account list. */
-export function HomeTitle({ name, onPress }: { name: string; onPress: () => void }) {
+export function AccountTitle({ name, onPress }: { name: string; onPress: () => void }) {
   return (
     <Pressable
       accessibilityRole="button"
@@ -41,17 +39,51 @@ const rowStyle = {
   alignItems: 'center',
 } as const;
 
-/** All the cards of the deck in deck order. A tap moves the deck to that card. */
-export function AccountSheet({
-  cards,
-  selectedId,
-  onSelect,
+function AccountOption({
+  name,
+  detail,
+  favorite,
+  selected,
+  onPress,
+}: {
+  name: string;
+  detail?: string;
+  favorite?: boolean;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={name}
+      accessibilityState={{ selected }}
+      onPress={onPress}
+      style={rowStyle}
+    >
+      <Text
+        style={{
+          color: selected ? c.accent : c.text,
+          fontSize: 16,
+          flex: 1,
+          fontWeight: selected ? '700' : '400',
+        }}
+      >
+        {name}
+        {favorite ? ' ★' : ''}
+      </Text>
+      {detail !== undefined && (
+        <Text style={{ color: c.muted, fontVariant: ['tabular-nums'] }}>{detail}</Text>
+      )}
+    </Pressable>
+  );
+}
+
+function AccountSheetLayout({
+  children,
   onAddAccount,
   onDismiss,
 }: {
-  cards: DeckCard[];
-  selectedId: number | null;
-  onSelect: (accountId: number | null) => void;
+  children: ReactNode;
   onAddAccount: () => void;
   onDismiss: () => void;
 }) {
@@ -86,45 +118,7 @@ export function AccountSheet({
           </Pressable>
         </View>
         <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
-          {cards.map((card) => {
-            const name = card.account?.name ?? 'All accounts';
-            const selected = card.accountId === selectedId;
-            return (
-              <Pressable
-                key={String(card.accountId)}
-                accessibilityRole="button"
-                accessibilityLabel={name}
-                accessibilityState={{ selected }}
-                onPress={() => onSelect(card.accountId)}
-                style={rowStyle}
-              >
-                <Text
-                  style={{
-                    color: selected ? c.accent : c.text,
-                    fontSize: 16,
-                    flex: 1,
-                    fontWeight: selected ? '700' : '400',
-                  }}
-                >
-                  {name}
-                  {card.account?.isFavorite ? ' ★' : ''}
-                </Text>
-                {card.account && (
-                  <Text style={{ color: c.muted, fontVariant: ['tabular-nums'] }}>
-                    {card.account.bill
-                      ? `${card.account.bill.creditMinor ? 'Credit' : 'Bill'} · `
-                      : ''}
-                    {formatBalance(
-                      card.account.bill
-                        ? card.account.bill.creditMinor || card.account.bill.billMinor
-                        : card.account.balanceMinor,
-                      card.account.currencyCode,
-                    )}
-                  </Text>
-                )}
-              </Pressable>
-            );
-          })}
+          {children}
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Add account"
@@ -138,3 +132,5 @@ export function AccountSheet({
     </AppSheet>
   );
 }
+
+export const AccountSheet = Object.assign(AccountSheetLayout, { Option: AccountOption });
