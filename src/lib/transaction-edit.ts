@@ -139,7 +139,9 @@ export async function saveTransactionEdit(
       `UPDATE transactions AS t SET amountMinor = ?, note = ?, excludeFromReport = CASE
         WHEN ${principalReportExclusion} THEN 1 ELSE ? END
       WHERE id = ? AND type = ? AND amountMinor = ? AND date = ? AND accountId = ?
-        AND categoryId IS ? AND note IS ? AND excludeFromReport = ?`,
+        AND categoryId IS ? AND note IS ? AND excludeFromReport = ?
+        AND (SELECT personId FROM lending_entries WHERE transactionId = t.id) IS ?
+        AND (SELECT kind FROM lending_entries WHERE transactionId = t.id) IS ?`,
       [
         amountMinor,
         note.trim() || null,
@@ -152,6 +154,8 @@ export async function saveTransactionEdit(
         original.categoryId,
         original.note,
         original.excludeFromReport,
+        original.personId ?? null,
+        original.lendingKind ?? null,
       ],
     );
     if (result.changes !== 1)

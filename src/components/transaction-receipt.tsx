@@ -1,9 +1,14 @@
 import { useState } from 'react';
+import { Link } from 'expo-router';
+import type { WriteOffReceipt } from '@/features/receipt/queries';
+import { lendingKindLabels } from '@/lib/lending-labels';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import type { EditableTransaction } from '@/lib/transaction-edit';
 import type { EditableTransfer } from '@/lib/transfers';
 import {
   formatEpochDay,
+  formatActivityDay,
+  formatMoney,
   formatTransactionAmount,
   transactionTitle,
 } from '@/lib/transaction-format';
@@ -11,7 +16,7 @@ import { formatLineItemAmount } from '@/lib/line-item-amount';
 import { theme } from '@/theme';
 
 const color = { ...theme.colors, panel: theme.colors.surface, ink: theme.colors.text };
-type Props = { transaction: EditableTransaction };
+type Props = { transaction: EditableTransaction | WriteOffReceipt };
 function Label({ children }: { children: string }) {
   return (
     <Text
@@ -88,6 +93,20 @@ function ItemSection({ row }: { row: EditableTransaction }) {
   );
 }
 export function TransactionReceipt({ transaction: row }: Props) {
+  const writeOff = row.type === 'WRITE_OFF';
+  const kind = writeOff ? row.kind : row.lendingKind;
+  const label = writeOff
+    ? 'Write-off'
+    : kind
+      ? lendingKindLabels[kind]
+      : row.type === 'EXPENSE'
+        ? 'Expense'
+        : 'Income';
+  const title = writeOff
+    ? row.kind === 'WRITE_OFF_LENT'
+      ? `Wrote off what ${row.personName} owes`
+      : `Wrote off what you owe ${row.personName}`
+    : transactionTitle(row);
   return (
     <ScrollView
       contentInsetAdjustmentBehavior="automatic"
@@ -95,48 +114,78 @@ export function TransactionReceipt({ transaction: row }: Props) {
       contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 24, paddingBottom: 32, gap: 24 }}
     >
       <View style={{ backgroundColor: color.panel, borderRadius: 18, padding: 22, gap: 16 }}>
-        <Label>{`${row.type === 'EXPENSE' ? 'Expense' : 'Income'} · ${row.currencyCode}`}</Label>
+        <Label>{`${label} · ${row.currencyCode}`}</Label>
         <Text
           selectable
           style={{
-            color: row.type === 'INCOME' ? color.accent : color.ink,
+            color: writeOff ? color.muted : row.type === 'INCOME' ? color.accent : color.ink,
             fontSize: 40,
             fontWeight: '300',
             fontVariant: ['tabular-nums'],
           }}
         >
-          {formatTransactionAmount(row.type, row.amountMinor, row.currencyCode)}
+          {writeOff
+            ? formatMoney('TRANSFER', row.amountMinor, row.currencyCode)
+            : (kind ? formatMoney : formatTransactionAmount)(
+                row.type,
+                row.amountMinor,
+                row.currencyCode,
+              )}
         </Text>
         <Text selectable style={{ color: color.ink, fontSize: 20, fontWeight: '700' }}>
-          {transactionTitle(row)}
+          {title}
         </Text>
         <View style={{ height: 1, backgroundColor: color.line }} />
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 20 }}>
           <View style={{ gap: 8 }}>
             <Label>Account</Label>
-            <Value>{row.accountName}</Value>
+            <Value muted={writeOff}>{row.accountName ?? 'No Account movement'}</Value>
           </View>
           <View style={{ gap: 8 }}>
             <Label>Date</Label>
-            <Value>{formatEpochDay(row.date)}</Value>
+            <Value>{kind ? formatActivityDay(row.date) : formatEpochDay(row.date)}</Value>
           </View>
         </View>
       </View>
+      {!!row.personId && !!row.personName && (
+        <View style={{ gap: 8 }}>
+          <Label>Person</Label>
+          <Link
+            href={{
+              pathname: '/accounts/lending/person',
+              params: { id: row.personId, name: row.personName },
+            }}
+            style={{ color: color.accent, fontSize: 16 }}
+          >
+            {row.personName} ›
+          </Link>
+        </View>
+      )}
       <View style={{ gap: 8 }}>
         <Label>Note</Label>
         <Value muted={!row.note}>{row.note || 'No note'}</Value>
       </View>
-      <View style={{ gap: 8 }}>
-        <Label>Tags</Label>
-        <Value muted={!row.tags.length}>
-          {row.tags.map((tag) => `#${tag.name}`).join('  ') || 'No tags'}
-        </Value>
-      </View>
-      <ItemSection row={row} />
-      <View style={{ gap: 8 }}>
-        <Label>Reports</Label>
-        <Value>{row.excludeFromReport ? 'Excluded from reports' : 'Included in reports'}</Value>
-      </View>
+      {!writeOff && (
+        <>
+          {(!kind || !!row.tags.length) && (
+            <View style={{ gap: 8 }}>
+              <Label>Tags</Label>
+              <Value muted={!row.tags.length}>
+                {row.tags.map((tag) => `#${tag.name}`).join('  ') || 'No tags'}
+              </Value>
+            </View>
+          )}
+          {(!kind || !!row.lineItems.length) && <ItemSection row={row} />}
+          <View style={{ gap: 8 }}>
+            <Label>Reports</Label>
+            <Value>
+              {row.excludeFromReport || row.reportExclusionLocked
+                ? 'Excluded from reports'
+                : 'Included in reports'}
+            </Value>
+          </View>
+        </>
+      )}
     </ScrollView>
   );
 }

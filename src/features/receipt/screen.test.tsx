@@ -5,6 +5,7 @@ import { usePreventRemove } from 'expo-router/react-navigation';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { listAccounts, type Account } from '@/lib/database';
 import { notifyDataChanged } from '@/lib/data-changes';
+import { loadLendingEntry } from '@/lib/lending';
 import { deleteTransaction } from '@/lib/transaction-delete';
 import {
   loadEditableTransaction,
@@ -20,12 +21,17 @@ type HeaderOptions = {
   headerLeft?: () => ReactElement;
   headerRight?: () => ReactElement;
 };
-const MockParamsContext = createContext<{ id?: string }>({});
+const MockParamsContext = createContext<{ id?: string; kind?: string }>({});
 let mockHeader: HeaderOptions = {};
 const mockNavigation = { dispatch: jest.fn(), goBack: jest.fn() };
 jest.mock('expo-router', () => {
-  const { View } = jest.requireActual<typeof import('react-native')>('react-native');
+  const { View, Text } = jest.requireActual<typeof import('react-native')>('react-native');
   return {
+    Link: ({ children, href }: { children: ReactNode; href: object }) => (
+      <Text accessibilityRole="link" accessibilityHint={JSON.stringify(href)}>
+        {children}
+      </Text>
+    ),
     useLocalSearchParams: () =>
       jest.requireActual<typeof import('react')>('react').use(MockParamsContext),
     Stack: {
@@ -55,6 +61,11 @@ jest.mock('@/lib/database', () => {
     listAccounts: jest.fn(),
   };
 });
+jest.mock('@/lib/lending', () => ({
+  loadLendingEntry: jest.fn(),
+  saveLendingEntry: jest.fn(),
+  deleteLendingEntry: jest.fn(),
+}));
 jest.mock('@/lib/transaction-edit', () => ({
   loadEditableTransaction: jest.fn(),
   saveTransactionEdit: jest.fn(),
@@ -118,6 +129,7 @@ jest.mock('@expo/ui', () => {
     }) => (
       <Switch
         accessibilityLabel={label}
+        accessibilityState={{ disabled: !!disabled }}
         value={value}
         onValueChange={onValueChange}
         disabled={disabled}
@@ -171,10 +183,10 @@ const safeArea = {
 };
 
 /** Renders the screen with a route param that test buttons can change. */
-function Route({ initialId }: { initialId: string }) {
+function Route({ initialId, kind }: { initialId: string; kind?: string }) {
   const [id, setId] = useState(initialId);
   return (
-    <MockParamsContext value={{ id }}>
+    <MockParamsContext value={{ id, kind }}>
       <SafeAreaProvider initialMetrics={safeArea}>
         <Pressable
           accessibilityRole="button"
@@ -222,8 +234,8 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
-async function renderScreen(id = '1') {
-  const view = await renderWithQueries(<Route initialId={id} />);
+async function renderScreen(id = '1', kind?: string) {
+  const view = await renderWithQueries(<Route initialId={id} kind={kind} />);
   return view;
 }
 
@@ -570,16 +582,51 @@ describe('Transaction edit', () => {
     expect(jest.mocked(saveTransactionEdit).mock.calls[0][5]).toBe(1250);
   });
 
-  test('a lending Transaction shows a read-only amount', async () => {
+  test('the lending Person links to the Accounts tab and an amount edit can confirm overpaid credit', async () => {
     const user = userEvent.setup();
+    const linked = {
+      ...transaction,
+      lendingKind: 'LEND' as const,
+      personId: 7,
+      personName: 'Sam',
+      reportExclusionLocked: 1,
+    };
+    jest.mocked(loadEditableTransaction).mockResolvedValue(linked);
     jest
-      .mocked(loadEditableTransaction)
-      .mockResolvedValue({ ...transaction, lendingKind: 'LEND', personName: 'Sam' });
+      .mocked(saveTransactionEdit)
+      .mockResolvedValueOnce({
+        status: 'confirmation_required',
+        warnings: [
+          {
+            personId: 7,
+            currencyCode: 'USD',
+            direction: 'LENT',
+            outstandingMinor: 0,
+            overpaidMinor: 100,
+            principalMinor: 500,
+            repaidMinor: 600,
+            writtenOffMinor: 0,
+          },
+        ],
+      })
+      .mockResolvedValueOnce(undefined);
     await renderScreen();
+    const person = await screen.findByRole('link', { name: /Sam/ });
+    expect(person.props.accessibilityHint).toContain('/accounts/lending/person');
     await openEditor(user);
-
-    expect(screen.queryByRole('button', { name: 'Amount' })).not.toBeOnTheScreen();
-    expect(screen.getByText(/from Lending/)).toBeOnTheScreen();
+    expect(screen.getByLabelText('Exclude from reports')).toBeDisabled();
+    await user.press(screen.getByRole('button', { name: 'Amount' }));
+    for (const key of ['Clear calculation', '5', 'Done'])
+      await user.press(screen.getByRole('button', { name: key }));
+    await user.press(screen.getByRole('button', { name: 'Save changes' }));
+    expect(alert.mock.calls.at(-1)?.[0]).toBe('Overpayment warning');
+    expect(saveTransactionEdit).toHaveBeenCalledTimes(1);
+    expect(saveTransactionEdit).toHaveBeenLastCalledWith(linked, '', true, '', [], 500);
+    await chooseAlert('Save anyway');
+    expect(saveTransactionEdit).toHaveBeenLastCalledWith(linked, '', true, '', [], 500, {
+      confirmOverpayment: true,
+    });
+    expect(await screen.findByRole('button', { name: 'Edit' })).toBeEnabled();
   });
 });
 
@@ -794,4 +841,26 @@ describe('Transfer', () => {
     expect(screen.getByLabelText('Transfer amount')).toHaveDisplayValue('9');
     expect(mockHeader.title).toBe('Edit transfer');
   });
+});
+
+test('a write-off opens in Receipt without a Transaction or report field', async () => {
+  jest.mocked(loadLendingEntry).mockResolvedValue({
+    id: 1,
+    personId: 7,
+    personName: 'Sam',
+    kind: 'WRITE_OFF_LENT',
+    transactionId: null,
+    amountMinor: 500,
+    currencyCode: 'USD',
+    date: 20000,
+    note: 'Agreed',
+    accountId: null,
+    accountName: null,
+  });
+  await renderScreen('1', 'write-off');
+  expect(await screen.findByText('No Account movement')).toBeOnTheScreen();
+  expect(screen.getByText('Wrote off what Sam owes')).toBeOnTheScreen();
+  expect(screen.getByRole('link', { name: /Sam/ })).toBeOnTheScreen();
+  expect(screen.queryByText('Reports')).not.toBeOnTheScreen();
+  expect(loadEditableTransaction).not.toHaveBeenCalled();
 });
