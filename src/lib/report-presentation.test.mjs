@@ -1,101 +1,88 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {
-  changeReportYear,
-  currencyReports,
-  currentReportPeriod,
-  parseReportYear,
-} from './report-presentation.ts';
+import { changeMark, currencyTotals, hasChildren, scopeCurrencies } from './report-presentation.ts';
 
 const accounts = [
-  { id: 1, name: 'Cash', currencyCode: 'BDT' },
-  { id: 2, name: 'Bank', currencyCode: 'BDT' },
-  { id: 3, name: 'Travel', currencyCode: 'USD' },
+  { id: 1, currencyCode: 'BDT' },
+  { id: 2, currencyCode: 'BDT' },
+  { id: 3, currencyCode: 'USD' },
+  { id: 4, currencyCode: 'EUR' },
 ];
-const empty = { summaries: [], spending: [] };
-
-test('empty months retain separate metadata currencies and scoped account names', () => {
-  const all = currencyReports(empty, accounts);
-  assert.deepEqual(
-    all.map((row) => [
-      row.currencyCode,
-      row.accountNames,
-      row.incomeMinor,
-      row.expenseMinor,
-      row.netMinor,
-    ]),
-    [
-      ['BDT', ['Cash', 'Bank'], 0, 0, 0],
-      ['USD', ['Travel'], 0, 0, 0],
-    ],
-  );
-  assert.deepEqual(
-    currencyReports(empty, accounts, 3).map((row) => row.currencyCode),
-    ['USD'],
-  );
-  assert.deepEqual(currencyReports(empty, accounts, 99), []);
-  assert.deepEqual(currencyReports(empty, []), []);
+const spend = (categoryId, categoryName, topId, topName, amountMinor, currencyCode = 'BDT') => ({
+  categoryId,
+  categoryName,
+  topId,
+  topName,
+  amountMinor,
+  currencyCode,
 });
 
-test('ranked spending and shares stay within the scoped currency', () => {
-  const report = {
-    summaries: [
-      { currencyCode: 'BDT', incomeMinor: 2000, expenseMinor: 1000 },
-      { currencyCode: 'USD', incomeMinor: 0, expenseMinor: 50 },
-    ],
-    spending: [
-      { categoryId: 1, categoryName: 'Food', currencyCode: 'BDT', amountMinor: 250 },
-      { categoryId: 2, categoryName: 'Rent', currencyCode: 'BDT', amountMinor: 750 },
-      { categoryId: 3, categoryName: 'Other', currencyCode: 'USD', amountMinor: 50 },
-      { categoryId: 4, categoryName: 'Zero', currencyCode: 'BDT', amountMinor: 0 },
-    ],
-  };
-  const [bdt] = currencyReports(report, accounts, 1);
-  assert.equal(bdt.netMinor, 1000);
-  assert.deepEqual(
-    bdt.categories.map((row) => [row.categoryName, row.share]),
-    [
-      ['Rent', 75],
-      ['Food', 25],
-    ],
-  );
-  assert.deepEqual(bdt.accountNames, ['Cash']);
-  assert.equal(currencyReports(report, accounts, 3)[0].netMinor, -50);
-  assert.deepEqual(
-    report.spending.map((row) => row.categoryId),
-    [1, 2, 3, 4],
-  );
+test('the Currencies in scope put the main Currency first', () => {
+  assert.deepEqual(scopeCurrencies(accounts, undefined, 'USD'), ['USD', 'BDT', 'EUR']);
+  assert.deepEqual(scopeCurrencies(accounts, 2, 'USD'), ['BDT']);
+  assert.deepEqual(scopeCurrencies(accounts, 99, 'USD'), []);
 });
 
-test('zero expense shares remain finite and ties rank deterministically', () => {
-  const rows = currencyReports(
+test('the totals of one Currency roll children up into parent Categories', () => {
+  const totals = currencyTotals(
     {
-      summaries: [{ currencyCode: 'BDT', incomeMinor: 100, expenseMinor: 0 }],
+      summaries: [
+        { currencyCode: 'BDT', incomeMinor: 2000, expenseMinor: 1000 },
+        { currencyCode: 'USD', incomeMinor: 0, expenseMinor: 50 },
+      ],
       spending: [
-        { categoryId: 2, categoryName: 'Zoo', currencyCode: 'BDT', amountMinor: 5 },
-        { categoryId: 1, categoryName: 'Apple', currencyCode: 'BDT', amountMinor: 5 },
+        spend(11, 'Groceries', 1, 'Food', 300),
+        spend(1, 'Food', 1, 'Food', 100),
+        spend(12, 'Coffee', 1, 'Food', 200),
+        spend(2, 'Rent', 2, 'Rent', 350),
+        spend(null, null, null, null, 50),
+        spend(3, 'Other', 3, 'Other', 50, 'USD'),
+        spend(4, 'Zero', 4, 'Zero', 0),
       ],
     },
-    accounts,
+    'BDT',
   );
+  assert.equal(totals.netMinor, 1000);
   assert.deepEqual(
-    rows[0].categories.map((row) => [row.categoryName, row.share]),
+    totals.categories.map((row) => [row.name, row.amountMinor, row.share]),
     [
-      ['Apple', 0],
-      ['Zoo', 0],
+      ['Food', 600, 60],
+      ['Rent', 350, 35],
+      [null, 50, 5],
     ],
   );
+  assert.deepEqual(
+    totals.categories[0].children.map((row) => [row.name, row.amountMinor, row.share]),
+    [
+      ['Groceries', 300, 30],
+      ['Coffee', 200, 20],
+      ['Food', 100, 10],
+    ],
+  );
+  assert.equal(hasChildren(totals.categories[0]), true);
+  assert.equal(hasChildren(totals.categories[1]), false);
+  assert.equal(hasChildren(totals.categories[2]), false);
 });
 
-test('local current month and year navigation preserve months without Date year-0..99 coercion', () => {
-  const early = new Date(0);
-  early.setFullYear(1, 1, 28);
-  assert.deepEqual(currentReportPeriod(early), { year: 1, month: 1 });
-  assert.deepEqual(changeReportYear({ year: 1, month: 1 }, -1), { year: 1, month: 1 });
-  assert.deepEqual(changeReportYear({ year: 99, month: 11 }, 1), { year: 100, month: 11 });
-  assert.deepEqual(changeReportYear({ year: 9999, month: 0 }, 1), { year: 9999, month: 0 });
-  for (const year of ['1', '0099', '2024', '9999'])
-    assert.equal(parseReportYear(year), Number(year));
-  for (const invalid of ['', '0', '10000', '-1', '2.5', ' 2024', 'year'])
-    assert.equal(parseReportYear(invalid), undefined);
+test('a parent Category with one child that is not itself has children', () => {
+  assert.equal(hasChildren({ id: 1, children: [{ id: 5 }] }), true);
+});
+
+test('a Currency with no activity has zero totals', () => {
+  assert.deepEqual(currencyTotals({ summaries: [], spending: [] }, 'EUR'), {
+    currencyCode: 'EUR',
+    incomeMinor: 0,
+    expenseMinor: 0,
+    netMinor: 0,
+    categories: [],
+  });
+});
+
+test('a marker shows a change of at least a fifth of usual', () => {
+  assert.equal(changeMark(120, 100), 'up');
+  assert.equal(changeMark(119, 100), null);
+  assert.equal(changeMark(80, 100), 'down');
+  assert.equal(changeMark(81, 100), null);
+  assert.equal(changeMark(5, 0), 'up');
+  assert.equal(changeMark(0, 0), null);
 });

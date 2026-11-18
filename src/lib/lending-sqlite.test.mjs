@@ -52,7 +52,9 @@ registerHooks({
 });
 const api = await import('./lending.ts');
 const { database } = await import('./database.ts');
-const { accountBalances, monthlyReport } = await import('./reports.ts');
+const { accountBalances, rangeReport } = await import('./reports.ts');
+const monthlyReport = (year, month) =>
+  rangeReport(Date.UTC(year, month - 1, 1) / 86400000, Date.UTC(year, month, 1) / 86400000);
 await database();
 const input = (personId, kind, amountMinor, extra = {}) => ({
   personId,

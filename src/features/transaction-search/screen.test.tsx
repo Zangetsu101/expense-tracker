@@ -6,7 +6,7 @@ import { searchTransactions, type SearchFilters, type SearchRow } from '@/lib/tr
 import { renderWithQueries } from '@/test/render-with-queries';
 import { TransactionSearchScreen } from './index';
 
-const mockParams: { accountId?: string; query?: string } = {};
+const mockParams: Record<string, string | undefined> = {};
 jest.mock('expo-router', () => ({
   Link: ({ children }: { children: React.ReactNode }) => children,
   useLocalSearchParams: () => mockParams,
@@ -49,8 +49,7 @@ const rows = (count: number, from = 1) =>
 const receipt = (note: string) => `View receipt for expense transaction, ${note}`;
 
 beforeEach(() => {
-  delete mockParams.accountId;
-  delete mockParams.query;
+  for (const key of Object.keys(mockParams)) delete mockParams[key];
   jest.mocked(listAccounts).mockReset().mockResolvedValue([cash, bank]);
   jest.mocked(listManagedCategories).mockReset().mockResolvedValue([food]);
   jest.mocked(searchTransactions).mockReset();
@@ -247,6 +246,44 @@ test('opens with the search and the Account that Home passes', async () => {
   await waitFor(() =>
     expect(searchTransactions).toHaveBeenCalledWith(
       expect.objectContaining({ accountId: 2, query: 'rahim' }),
+      0,
+    ),
+  );
+});
+
+test('opens with the Category, the dates and the type that a report row passes', async () => {
+  mockParams.categoryId = '5';
+  mockParams.startDate = '2026-11-01';
+  mockParams.endDate = '2026-11-30';
+  mockParams.type = 'EXPENSE';
+  jest.mocked(searchTransactions).mockResolvedValue([row(1, 'Lunch')]);
+  await renderScreen();
+  await waitFor(() =>
+    expect(searchTransactions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        categoryId: 5,
+        datePreset: 'CUSTOM',
+        startDate: '2026-11-01',
+        endDate: '2026-11-30',
+        type: 'EXPENSE',
+        accountId: null,
+      }),
+      0,
+    ),
+  );
+  expect(await screen.findByRole('button', { name: 'Category: Food ×' })).toBeOnTheScreen();
+});
+
+test('ignores route filters that are not valid', async () => {
+  mockParams.categoryId = 'x';
+  mockParams.startDate = '2026-11-31';
+  mockParams.endDate = '2026-11-30';
+  mockParams.type = 'LOAN';
+  jest.mocked(searchTransactions).mockResolvedValue([]);
+  await renderScreen();
+  await waitFor(() =>
+    expect(searchTransactions).toHaveBeenCalledWith(
+      expect.objectContaining({ categoryId: null, datePreset: 'ANY', type: 'ALL' }),
       0,
     ),
   );

@@ -8,7 +8,7 @@ import {
 import { useLocalSearchParams } from 'expo-router';
 import { QueryBoundary } from '@/components/query-error-boundary';
 import { parseRouteId } from '@/lib/account-selection';
-import type { SearchFilters } from '@/lib/transaction-search';
+import { validDate, type SearchFilters } from '@/lib/transaction-search';
 import { managedCategoriesQuery } from '@/features/categories';
 import { accountsQuery } from '@/lib/account-queries';
 import { searchResultsQuery } from './queries.ts';
@@ -30,6 +30,29 @@ import {
 } from './view.tsx';
 
 type ClearFilter = (clear: Partial<SearchFilters>) => void;
+type RouteFilters = {
+  accountId?: string;
+  query?: string;
+  categoryId?: string;
+  startDate?: string;
+  endDate?: string;
+  type?: string;
+};
+const types = ['EXPENSE', 'INCOME', 'TRANSFER'] as const;
+
+/** The filters that Home and the Reports pass. A value that is not valid is left out. */
+function routeFilters(params: RouteFilters): SearchFilters {
+  const { startDate = '', endDate = '' } = params;
+  const dates = validDate(startDate) && validDate(endDate) && startDate <= endDate;
+  return {
+    ...initialFilters,
+    query: params.query ?? '',
+    accountId: parseRouteId(params.accountId) ?? null,
+    categoryId: parseRouteId(params.categoryId) ?? null,
+    type: types.find((type) => type === params.type) ?? 'ALL',
+    ...(dates ? { datePreset: 'CUSTOM' as const, startDate, endDate } : {}),
+  };
+}
 
 function Results({ filters, muted }: { filters: SearchFilters; muted: boolean }) {
   const {
@@ -98,12 +121,8 @@ function FilterOptionsSection(props: {
 }
 
 function TransactionSearch({ reset }: { reset: () => void }) {
-  const params = useLocalSearchParams<{ accountId?: string; query?: string }>();
-  const [filters, setFilters] = useState<SearchFilters>(() => ({
-    ...initialFilters,
-    query: params.query ?? '',
-    accountId: parseRouteId(params.accountId) ?? null,
-  }));
+  const params = useLocalSearchParams<RouteFilters>();
+  const [filters, setFilters] = useState(() => routeFilters(params));
   const [draft, setDraft] = useState(filters);
   const [open, setOpen] = useState(false);
   const [categoryQuery, setCategoryQuery] = useState('');

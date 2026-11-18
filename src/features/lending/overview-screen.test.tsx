@@ -1,11 +1,8 @@
 import { act, screen, userEvent } from '@testing-library/react-native';
 import { router } from 'expo-router';
 import { notifyDataChanged } from '@/lib/data-changes';
-import {
-  listPeopleWithLendingTotals,
-  loadUnassignedLending,
-  type LendingTotal,
-} from '@/lib/lending';
+import { listPeopleWithLendingTotals, loadUnassignedLending } from '@/lib/lending';
+import type { LendingTotal } from '@/lib/lending-totals';
 import { renderWithQueries } from '@/test/render-with-queries';
 import LendingScreen from './overview-screen';
 

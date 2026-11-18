@@ -16,7 +16,8 @@ import { AppSheet } from '@/components/app-sheet';
 import { QueryBoundary } from '@/components/query-error-boundary';
 import { Skeleton } from '@/components/loading';
 import { formatActivityDay, formatBalance, formatMoney } from '@/lib/transaction-format';
-import type { LendingEntry, LendingTotal, UnassignedLendingTransaction } from '@/lib/lending';
+import type { LendingEntry, UnassignedLendingTransaction } from '@/lib/lending';
+import type { LendingTotal } from '@/lib/lending-totals';
 import { lendingKindLabels } from '@/lib/lending-labels';
 import { theme } from '@/theme';
 

@@ -3,7 +3,8 @@ import { Stack, router } from 'expo-router';
 import { Pressable, Text, View } from 'react-native';
 import { QueryBoundary } from '@/components/query-error-boundary';
 import { Skeleton } from '@/components/loading';
-import type { LendingTotal, PersonWithTotals } from '@/lib/lending';
+import type { PersonWithTotals } from '@/lib/lending';
+import type { LendingTotal } from '@/lib/lending-totals';
 import { countLabel, formatActivityDay, formatBalance } from '@/lib/transaction-format';
 import { lendingOverviewQuery } from './queries.ts';
 import {

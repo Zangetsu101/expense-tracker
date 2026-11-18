@@ -10,8 +10,8 @@ import {
   loadLendingEntry,
   saveLendingEntry,
   type LendingEntry,
-  type LendingTotal,
 } from '@/lib/lending';
+import type { LendingTotal } from '@/lib/lending-totals';
 import { deleteTransaction } from '@/lib/transaction-delete';
 import {
   loadEditableTransaction,

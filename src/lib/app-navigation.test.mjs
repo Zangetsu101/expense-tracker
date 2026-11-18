@@ -44,7 +44,7 @@ const mocks = {
   '@/components/quick-select-category': `export const QuickSelectCategory='Category',CategorySearchInput='CategorySearchInput';`,
   './read-home.ts': `const s=globalThis.__navTest; export const homeListPage=async id=>{s.accountQueries.push(id);return {periods:[{period:{start:0,end:1,label:'November'},rows:[]}],firstDay:0,next:null}}; export const homeSearch=async()=>[]; export const homeDeckData=async()=>{if(s.accountsError)throw Error('Accounts unavailable');return {accounts:(s.accounts??[]).map(a=>({balanceMinor:0,lastUsedDay:null,...a})),displayRate:null,period:{range:'month',monthStart:1}}}; export const homeTrend=async()=>[0,0]; export const homePace=async()=>[]; export const savePeriodSetting=async()=>{};`,
   '@/lib/database': `export const epochDay=d=>Math.floor(d.getTime()/86400000); export const listAccounts=async()=>{if(globalThis.__navTest.accountsError)throw Error('Accounts unavailable');return globalThis.__navTest.accounts??[];}; export const listCategories=async()=>[]; export const setFavoriteAccount=async()=>{};`,
-  '@/lib/reports': `export const accountBalances=async()=>[];`,
+  '@/lib/reports': `export const accountBalances=async()=>[]; export const spendHistory=async()=>({periods:[{start:0,end:1}],rows:[]});`,
   '@/lib/categories': `export const listManagedCategories=async()=>[]; export const listCategoriesByRecentUse=async()=>[];`,
   '@/lib/transfers': `export const addTransfer=async()=>{}; `,
   '@/lib/lending': `export const listPeople=async()=>globalThis.__navTest.people??[]; export const listLendingTotals=async()=>[]; export const createPerson=async()=>{}; export const saveLendingEntry=async()=>{};`,
