@@ -12,7 +12,7 @@ import { defaultCurrencyCode } from '@/lib/currency';
 import { epochDay } from '@/lib/database';
 import { QueryTimeContext } from '@/lib/query-time';
 import { changeMark, currencyTotals, scopeCurrencies } from '@/lib/report-presentation';
-import { transactionsHref } from './links.ts';
+import { transactionsHref } from '@/lib/report-links';
 import {
   managedAccountsQuery,
   rangeReportQuery,
@@ -30,11 +30,10 @@ import {
 } from './range.ts';
 import { saveFiscalStart } from './read-reports.ts';
 import { TrendCards } from './trends.tsx';
-import { moverRows } from './usual.ts';
+import { moverRows } from '@/lib/usual-spending';
 import {
   AccountRow,
   AccountRowSkeleton,
-  CurrencySwitch,
   LoadError,
   Note,
   RangeHeader,
@@ -44,6 +43,7 @@ import {
   ReportPage,
   ScopeSheet,
   scopeLabel,
+  SegmentedSwitch,
   TotalsSkeleton,
   TotalsView,
   type Marks,
@@ -184,8 +184,8 @@ function ReportsBody({ reset, today }: { reset: () => void; today: number }) {
         <RefreshAlert message="Could not refresh accounts." retry={() => void refetch()} />
       )}
       {!account && currencies.length > 1 && (
-        <CurrencySwitch
-          currencies={currencies}
+        <SegmentedSwitch
+          options={currencies.map((code) => ({ value: code, text: code, label: `Show ${code}` }))}
           selected={currency}
           onSelect={(code) => {
             reset();

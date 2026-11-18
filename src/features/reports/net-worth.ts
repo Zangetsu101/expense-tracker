@@ -1,7 +1,8 @@
-import { convertTo, validDisplayRate, type DisplayRate } from '@/lib/display-rate';
+import { byMainCurrency } from '@/lib/currency';
+import { convertTo, usableRate, type DisplayRate } from '@/lib/display-rate';
 import type { LendingEntry } from '@/lib/lending';
 import { lendingTotals } from '@/lib/lending-totals';
-import { dayParts, toDay } from './range.ts';
+import { monthEndDay, monthIndex, type MonthIndex } from '@/lib/periods';
 
 export type NetWorthAccount = {
   id: number;
@@ -9,8 +10,8 @@ export type NetWorthAccount = {
   currencyCode: string;
   openingBalanceMinor: number;
 };
-/** The change of one Account in one calendar month. `month` is `year * 12 + zero-based month`. */
-export type MonthChange = { accountId: number; month: number; changeMinor: number };
+/** The change of one Account in one calendar month. */
+export type MonthChange = { accountId: number; month: MonthIndex; changeMinor: number };
 export type LendingMove = Pick<
   LendingEntry,
   'personId' | 'kind' | 'currencyCode' | 'amountMinor' | 'date'
@@ -42,12 +43,6 @@ export type NetWorth = {
 };
 export type NetWorthSpan = 6 | 12 | 'all';
 
-const monthOf = (day: number) => {
-  const { year, month } = dayParts(day);
-  return year * 12 + month;
-};
-const monthEnd = (month: number) => toDay(Math.floor(month / 12), (month % 12) + 1, 1) - 1;
-
 function owed(lending: LendingMove[], day: number) {
   const totals = new Map<string, { oweYouMinor: number; youOweMinor: number }>();
   for (const total of lendingTotals(lending.filter((entry) => entry.date <= day))) {
@@ -65,27 +60,27 @@ export function netWorth(input: NetWorthInput, span: NetWorthSpan): NetWorth {
   const ids = new Set(accounts.map((account) => account.id));
   const changes = input.changes.filter((change) => ids.has(change.accountId));
   const lending = input.lending.filter((entry) => entry.date <= today);
-  const current = monthOf(today);
+  const current = monthIndex(today);
   const first =
     span === 'all'
       ? Math.min(
           current,
           ...changes.map((change) => change.month),
-          ...lending.map((entry) => monthOf(entry.date)),
+          ...lending.map((entry) => monthIndex(entry.date)),
         )
       : current - span;
   const points = Array.from({ length: current - first + 1 }, (_, k) => ({
     month: first + k,
-    day: first + k === current ? today : monthEnd(first + k),
+    day: first + k === current ? today : monthEndDay(first + k),
   }));
-  const balanceAt = (account: NetWorthAccount, month: number) =>
+  const balanceAt = (account: NetWorthAccount, month: MonthIndex) =>
     changes.reduce(
       (sum, change) =>
         change.accountId === account.id && change.month <= month ? sum + change.changeMinor : sum,
       account.openingBalanceMinor,
     );
   const currencies = [...new Set([...accounts, ...lending].map((row) => row.currencyCode))].sort(
-    (a, b) => Number(b === mainCurrency) - Number(a === mainCurrency) || a.localeCompare(b),
+    byMainCurrency(mainCurrency),
   );
   const perCurrency = points.map(({ month, day }) => {
     const debts = owed(lending, day);
@@ -97,7 +92,7 @@ export function netWorth(input: NetWorthInput, span: NetWorthSpan): NetWorth {
       return { currencyCode, balance, ...owedHere };
     });
   });
-  const usable = rate && validDisplayRate(rate) ? rate : null;
+  const usable = usableRate(rate);
   const inMain = (pick: (row: (typeof perCurrency)[number][number]) => number) =>
     perCurrency.map((rows) =>
       convertTo(

@@ -10,6 +10,11 @@ export function validDisplayRate(value: DisplayRate): boolean {
   );
 }
 
+/** The rate when it is valid, or null. */
+export function usableRate(rate: DisplayRate | null): DisplayRate | null {
+  return rate && validDisplayRate(rate) ? rate : null;
+}
+
 export function combinedMinor(
   rows: { currencyCode: string; amountMinor: number }[],
   rate: DisplayRate | null,
@@ -87,4 +92,24 @@ export function convertTo(
     else return null;
   }
   return Math.round(total);
+}
+
+/**
+ * The rows in the target Currency. The Display Rate converts the other Currencies. When it
+ * cannot convert a row, only the rows in the target Currency stay, and `leftOutOthers` is true.
+ */
+export function rowsInCurrency<R extends { currencyCode: string; amountMinor: number }>(
+  rows: R[],
+  rate: DisplayRate | null,
+  target: string,
+): { rows: R[]; leftOutOthers: boolean } {
+  const usable = usableRate(rate);
+  const converted: R[] = [];
+  for (const row of rows) {
+    const amountMinor = convertTo([row], usable, target);
+    if (amountMinor === null)
+      return { rows: rows.filter((item) => item.currencyCode === target), leftOutOthers: true };
+    converted.push({ ...row, currencyCode: target, amountMinor });
+  }
+  return { rows: converted, leftOutOthers: false };
 }

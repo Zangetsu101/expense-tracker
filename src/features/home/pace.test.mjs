@@ -12,7 +12,7 @@ const hooks = registerHooks({
         }
       : next(specifier, context),
 });
-const { paceSummary, rowsInCurrency } = await import('./pace.ts');
+const { paceSummary } = await import('./pace.ts');
 const { convertTo } = await import('../../lib/display-rate.ts');
 hooks.deregister();
 
@@ -122,23 +122,4 @@ test('no spending in the main Currency gives zero Pace', () => {
     sameMinor: 0,
     previousMinor: 0,
   });
-});
-
-test('rowsInCurrency converts each row at the Display Rate, or keeps the main Currency only', () => {
-  const rows = [
-    { currencyCode: 'BDT', amountMinor: 1_000, date: 1 },
-    { currencyCode: 'USD', amountMinor: 10, date: 2 },
-  ];
-  assert.deepEqual(rowsInCurrency(rows, rate, 'BDT'), {
-    rows: [
-      { currencyCode: 'BDT', amountMinor: 1_000, date: 1 },
-      { currencyCode: 'BDT', amountMinor: 1_200, date: 2 },
-    ],
-    only: false,
-  });
-  assert.deepEqual(rowsInCurrency(rows, null, 'BDT'), {
-    rows: [{ currencyCode: 'BDT', amountMinor: 1_000, date: 1 }],
-    only: true,
-  });
-  assert.deepEqual(rowsInCurrency(rows.slice(0, 1), null, 'BDT').only, false);
 });

@@ -1,6 +1,7 @@
-/** Local dates as epoch days. `end` is exclusive. */
-export type ReportRange = { start: number; end: number };
-/** `monthStart` is the day of the month that Home sets (1–28). `fiscalStart` is a zero-based month. */
+import { dayParts, monthCycle, monthNames, toDay, type DayRange } from '@/lib/periods';
+
+export type ReportRange = DayRange;
+/** `monthStart` is the day of the month that Home sets (see `maxMonthStart`). `fiscalStart` is a zero-based month. */
 export type RangeSettings = { monthStart: number; fiscalStart: number };
 
 export const shortcuts = [
@@ -12,37 +13,7 @@ export const shortcuts = [
   { key: 'lastYear', label: 'Last calendar year' },
 ] as const;
 type ShortcutKey = (typeof shortcuts)[number]['key'];
-
-export const monthNames = [
-  'January',
-  'February',
-  'March',
-  'April',
-  'May',
-  'June',
-  'July',
-  'August',
-  'September',
-  'October',
-  'November',
-  'December',
-] as const;
 const short = (month: number) => monthNames[month].slice(0, 3);
-
-const dayMs = 86400000;
-export const toDay = (year: number, month: number, date: number) =>
-  Math.floor(Date.UTC(year, month, date) / dayMs);
-export function dayParts(day: number) {
-  const date = new Date(day * dayMs);
-  return { year: date.getUTCFullYear(), month: date.getUTCMonth(), date: date.getUTCDate() };
-}
-
-/** The month cycle that starts on `monthStart`, `back` cycles before the one that has `today`. */
-export function monthCycle(today: number, monthStart: number, back = 0): ReportRange {
-  const { year, month, date } = dayParts(today);
-  const first = (date >= monthStart ? month : month - 1) - back;
-  return { start: toDay(year, first, monthStart), end: toDay(year, first + 1, monthStart) };
-}
 
 function yearFrom(today: number, firstMonth: number, back: number): ReportRange {
   const { year, month } = dayParts(today);

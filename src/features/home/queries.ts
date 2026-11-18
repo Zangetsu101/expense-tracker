@@ -1,14 +1,8 @@
 import { infiniteQueryOptions, queryOptions, type QueryClient } from '@tanstack/react-query';
 import { epochDay } from '@/lib/database';
-import { periodsBack, usualPeriods } from '../reports/usual.ts';
-import {
-  homeDeckData,
-  homeListPage,
-  homePace,
-  homeSearch,
-  homeSpendDays,
-  homeTrend,
-} from './read-home.ts';
+import { spendHistory } from '@/lib/reports';
+import { usualPeriods } from '@/lib/usual-spending';
+import { homeDeckData, homeListPage, homePace, homeSearch, homeTrend } from './read-home.ts';
 import type { ListScope } from './list.ts';
 import { homePeriod, periodKey, type PeriodSetting } from './period.ts';
 
@@ -60,13 +54,7 @@ export function homeUsualQuery(
   const today = epochDay(now);
   return queryOptions({
     queryKey: [...homeQueryKey, 'usual', accountId, periodKey(setting), today],
-    queryFn: async () => {
-      const periods = periodsBack(setting.range, today, setting.monthStart, usualPeriods);
-      return {
-        periods,
-        rows: await homeSpendDays(accountId, periods.at(-1)!.start, periods[0].end),
-      };
-    },
+    queryFn: () => spendHistory(accountId, setting.range, setting.monthStart, today, usualPeriods),
   });
 }
 

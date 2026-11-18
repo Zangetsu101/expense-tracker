@@ -4,8 +4,6 @@ import { database } from './database';
 import { addTransactionTags, parseQuickAddTags } from './tag-store';
 import { lendingTotals, type LendingTotal } from './lending-totals.ts';
 
-export type { LendingTotal };
-
 export type LendingKind =
   'LEND' | 'BORROW' | 'RECEIVE_REPAYMENT' | 'REPAY' | 'WRITE_OFF_LENT' | 'WRITE_OFF_BORROWED';
 export type Person = { id: number; name: string };

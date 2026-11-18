@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { median, moverRows, paceResult, periodsBack } from './usual.ts';
+import { median, moverRows, paceResult, periodsBack } from './usual-spending.ts';
 
 const day = (y, m, d) => Math.floor(Date.UTC(y, m - 1, d) / 86400000);
 // Friday 13 November 2026.

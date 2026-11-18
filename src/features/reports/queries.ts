@@ -1,9 +1,9 @@
 import { queryOptions } from '@tanstack/react-query';
 import { listManagedAccounts } from '@/lib/accounts';
-import { rangeReport, spendDays } from '@/lib/reports';
+import { rangeReport, spendHistory } from '@/lib/reports';
 import { netWorthData, reportSettings } from './read-reports.ts';
 import type { ReportRange } from './range.ts';
-import { periodsBack, type PeriodKind } from './usual.ts';
+import type { PeriodKind } from '@/lib/usual-spending';
 
 const reportsKey = ['reports'] as const;
 
@@ -31,11 +31,7 @@ export function trendQuery(
 ) {
   return queryOptions({
     queryKey: [...reportsKey, 'trend', accountId, kind, monthStart, today],
-    queryFn: async () => {
-      const periods = periodsBack(kind, today, monthStart, 7);
-      const rows = await spendDays(accountId, periods.at(-1)!.start, periods[0].end);
-      return { periods, rows };
-    },
+    queryFn: () => spendHistory(accountId, kind, monthStart, today, 7),
   });
 }
 

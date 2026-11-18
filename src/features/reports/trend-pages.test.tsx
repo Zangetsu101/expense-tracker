@@ -16,7 +16,26 @@ jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
 }));
 jest.mock('@/lib/accounts', () => ({ listManagedAccounts: jest.fn() }));
-jest.mock('@/lib/reports', () => ({ rangeReport: jest.fn(), spendDays: jest.fn() }));
+jest.mock('@/lib/reports', () => {
+  // spendHistory uses the real periods and reads its rows through the spendDays mock.
+  const { periodsBack } =
+    jest.requireActual<typeof import('@/lib/usual-spending')>('@/lib/usual-spending');
+  const spendDays = jest.fn();
+  return {
+    rangeReport: jest.fn(),
+    spendDays,
+    spendHistory: async (
+      accountId: number | null,
+      kind: 'week' | 'month',
+      monthStart: number,
+      today: number,
+      back: number,
+    ) => {
+      const periods = periodsBack(kind, today, monthStart, back);
+      return { periods, rows: await spendDays(accountId, periods.at(-1)!.start, periods[0].end) };
+    },
+  };
+});
 jest.mock('./read-reports.ts', () => ({
   reportSettings: jest.fn(),
   saveFiscalStart: jest.fn(),

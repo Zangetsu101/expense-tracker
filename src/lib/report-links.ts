@@ -1,11 +1,9 @@
-import type { ReportRange } from './range.ts';
-import type { PeriodKind } from './usual.ts';
+import { isoDay, type DayRange } from './periods.ts';
+import type { PeriodKind } from './usual-spending.ts';
 
 export type TrendPage = 'pace' | 'movers' | 'net-worth';
 /** The route params of a Trend page. */
 export type TrendParams = { accountId?: string; currency?: string; kind?: string };
-
-const isoDay = (day: number) => new Date(day * 86400000).toISOString().slice(0, 10);
 
 export function trendHref(
   page: TrendPage,
@@ -30,7 +28,7 @@ export function parseKind(value: string | undefined): PeriodKind {
 /** The Transaction search with the filters of a report row: the Category, the dates, the Account and Expense. */
 export function transactionsHref(
   categoryId: number,
-  range: ReportRange,
+  range: DayRange,
   accountId: number | undefined | null,
 ) {
   return {

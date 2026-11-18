@@ -8,9 +8,9 @@ import {
   listLendingTotals,
   listPeople,
   type LendingEntry,
-  type LendingTotal,
   type Person,
 } from '@/lib/lending';
+import type { LendingTotal } from '@/lib/lending-totals';
 import { renderWithQueries } from '@/test/render-with-queries';
 import PersonScreen from './person-screen';
 

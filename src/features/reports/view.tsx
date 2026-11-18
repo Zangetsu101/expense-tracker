@@ -11,10 +11,9 @@ import { dateFromEpochDay, epochDay } from '@/lib/database';
 import { hasChildren, type CategoryShare, type CurrencyTotals } from '@/lib/report-presentation';
 import { formatBalance } from '@/lib/transaction-format';
 import { theme } from '@/theme';
+import { dayParts, monthNames } from '@/lib/periods';
 import {
-  dayParts,
   matchingShortcut,
-  monthNames,
   shortcutRange,
   shortcuts,
   type RangeSettings,
@@ -220,7 +219,7 @@ function DateField({
   );
 }
 
-function Chip({
+export function Chip({
   label,
   selected,
   onPress,
@@ -449,15 +448,15 @@ export function AccountRowSkeleton() {
   );
 }
 
-/** All Currencies stay in view, so one tap changes the Currency. */
-export function CurrencySwitch({
-  currencies,
+/** All choices stay in view, so one tap changes the choice. */
+export function SegmentedSwitch<T extends string>({
+  options,
   selected,
   onSelect,
 }: {
-  currencies: string[];
-  selected: string;
-  onSelect: (currency: string) => void;
+  options: { value: T; text: string; label: string }[];
+  selected: T;
+  onSelect: (value: T) => void;
 }) {
   return (
     <View
@@ -469,24 +468,30 @@ export function CurrencySwitch({
         padding: 3,
       }}
     >
-      {currencies.map((code) => (
+      {options.map((option) => (
         <Pressable
-          key={code}
+          key={option.value}
           accessibilityRole="radio"
-          accessibilityLabel={`Show ${code}`}
-          accessibilityState={{ checked: code === selected }}
-          onPress={() => onSelect(code)}
+          accessibilityLabel={option.label}
+          accessibilityState={{ checked: option.value === selected }}
+          onPress={() => onSelect(option.value)}
           style={{
             flex: 1,
             minHeight: 40,
             alignItems: 'center',
             justifyContent: 'center',
             borderRadius: 9,
-            backgroundColor: code === selected ? c.selected : 'transparent',
+            backgroundColor: option.value === selected ? c.selected : 'transparent',
           }}
         >
-          <Text style={{ color: c.text, fontWeight: code === selected ? '700' : '400' }}>
-            {code}
+          <Text
+            style={{
+              color: c.text,
+              fontSize: theme.type.detail,
+              fontWeight: option.value === selected ? '700' : '400',
+            }}
+          >
+            {option.text}
           </Text>
         </Pressable>
       ))}
@@ -687,88 +692,137 @@ function ShareRow({
 type TreeRow = { id: number | null; name: string | null; amountMinor: number };
 type RowOptions = { toggle?: { open: boolean }; small: boolean };
 
+/** A row that opens the Transactions of its Category. A row with no Category has no link. */
+function CategoryLink({
+  label,
+  id,
+  onOpenTransactions,
+  children,
+}: {
+  label: string;
+  id: number | null;
+  onOpenTransactions: (categoryId: number) => void;
+  children: ReactNode;
+}) {
+  if (id === null) return <View>{children}</View>;
+  return (
+    <Pressable
+      accessibilityRole="link"
+      accessibilityLabel={label}
+      accessibilityHint="Shows its Transactions"
+      onPress={() => onOpenTransactions(id)}
+      style={({ pressed }) => ({ opacity: pressed ? 0.65 : 1 })}
+    >
+      {children}
+    </Pressable>
+  );
+}
+
+/** A parent Category that opens to show its children and a link to all of its Transactions. */
+function ParentRow<R extends TreeRow>({
+  row,
+  label,
+  renderRow,
+  linkLabel,
+  onOpenTransactions,
+}: {
+  row: R & { children: R[] };
+  label: string;
+  renderRow: (row: R, options: RowOptions) => ReactNode;
+  linkLabel: (row: R) => string;
+  onOpenTransactions: (categoryId: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const id = row.id;
+  return (
+    <View style={{ gap: theme.spacing.md }}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        accessibilityState={{ expanded: open }}
+        onPress={() => setOpen((old) => !old)}
+        style={({ pressed }) => ({ opacity: pressed ? 0.65 : 1 })}
+      >
+        {renderRow(row, { toggle: { open }, small: false })}
+      </Pressable>
+      {open && (
+        <View
+          style={{
+            gap: theme.spacing.md,
+            marginLeft: theme.spacing.md,
+            paddingLeft: theme.spacing.md,
+            borderLeftWidth: 2,
+            borderColor: c.line,
+          }}
+        >
+          {row.children.map((child) => (
+            <CategoryLink
+              key={child.id ?? 'none'}
+              label={linkLabel(child)}
+              id={child.id}
+              onOpenTransactions={onOpenTransactions}
+            >
+              {renderRow(child, { small: true })}
+            </CategoryLink>
+          ))}
+          {id !== null && (
+            <Pressable
+              accessibilityRole="link"
+              onPress={() => onOpenTransactions(id)}
+              style={{ minHeight: 40, justifyContent: 'center' }}
+            >
+              <Text style={{ color: c.accent, fontSize: theme.type.detail }}>
+                All {categoryName(row.name)} Transactions ›
+              </Text>
+            </Pressable>
+          )}
+        </View>
+      )}
+    </View>
+  );
+}
+
+/**
+ * A tap on a parent Category opens it. A tap on a child Category, or on a Category with no
+ * children, opens its Transactions. An open parent links to all of its Transactions.
+ */
 export function CategoryTree<R extends TreeRow>({
   rows,
   currency,
-  value,
+  renderRow,
   onOpenTransactions,
 }: {
   rows: (R & { children: R[] })[];
   currency: string;
   /** Draws the inside of a row. Spending by category shows a bar; Movers shows the change. */
-  value: (row: R, options: RowOptions) => ReactNode;
+  renderRow: (row: R, options: RowOptions) => ReactNode;
   onOpenTransactions: (categoryId: number) => void;
 }) {
-  const [open, setOpen] = useState<Set<number | null>>(new Set());
-  const draw = value;
-  const link = (row: R, child: boolean) => {
-    const name = categoryName(row.name);
-    if (row.id === null) return <View key="none">{draw(row, { small: child })}</View>;
-    const id = row.id;
-    return (
-      <Pressable
-        key={id}
-        accessibilityRole="link"
-        accessibilityLabel={`${name}, ${formatBalance(row.amountMinor, currency)}`}
-        accessibilityHint="Shows its Transactions"
-        onPress={() => onOpenTransactions(id)}
-        style={({ pressed }) => ({ opacity: pressed ? 0.65 : 1 })}
-      >
-        {draw(row, { small: child })}
-      </Pressable>
-    );
-  };
+  const label = (row: R) =>
+    `${categoryName(row.name)}, ${formatBalance(row.amountMinor, currency)}`;
   return (
     <View style={{ gap: theme.spacing.lg }}>
-      {rows.map((row) => {
-        if (!hasChildren(row)) return link(row, false);
-        const isOpen = open.has(row.id);
-        const id = row.id;
-        return (
-          <View key={row.id ?? 'none'} style={{ gap: theme.spacing.md }}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`${categoryName(row.name)}, ${formatBalance(row.amountMinor, currency)}`}
-              accessibilityState={{ expanded: isOpen }}
-              onPress={() =>
-                setOpen((old) => {
-                  const next = new Set(old);
-                  if (next.has(row.id)) next.delete(row.id);
-                  else next.add(row.id);
-                  return next;
-                })
-              }
-              style={({ pressed }) => ({ opacity: pressed ? 0.65 : 1 })}
-            >
-              {draw(row, { toggle: { open: isOpen }, small: false })}
-            </Pressable>
-            {isOpen && (
-              <View
-                style={{
-                  gap: theme.spacing.md,
-                  marginLeft: theme.spacing.md,
-                  paddingLeft: theme.spacing.md,
-                  borderLeftWidth: 2,
-                  borderColor: c.line,
-                }}
-              >
-                {row.children.map((child) => link(child, true))}
-                {id !== null && (
-                  <Pressable
-                    accessibilityRole="link"
-                    onPress={() => onOpenTransactions(id)}
-                    style={{ minHeight: 40, justifyContent: 'center' }}
-                  >
-                    <Text style={{ color: c.accent, fontSize: theme.type.detail }}>
-                      All {categoryName(row.name)} Transactions ›
-                    </Text>
-                  </Pressable>
-                )}
-              </View>
-            )}
-          </View>
-        );
-      })}
+      {rows.map((row) =>
+        hasChildren(row) ? (
+          <ParentRow
+            key={row.id ?? 'none'}
+            row={row}
+            label={label(row)}
+            renderRow={renderRow}
+            linkLabel={label}
+            onOpenTransactions={onOpenTransactions}
+          />
+        ) : (
+          <CategoryLink
+            key={row.id ?? 'none'}
+            label={label(row)}
+            id={row.id}
+            onOpenTransactions={onOpenTransactions}
+          >
+            {renderRow(row, { small: false })}
+          </CategoryLink>
+        ),
+      )}
     </View>
   );
 }
@@ -807,7 +861,7 @@ export function TotalsView({
           <CategoryTree<CategoryShare>
             rows={totals.categories}
             currency={currency}
-            value={(row, options) => (
+            renderRow={(row, options) => (
               <ShareRow
                 row={row}
                 currency={currency}

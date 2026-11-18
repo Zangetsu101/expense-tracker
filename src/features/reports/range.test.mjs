@@ -1,14 +1,20 @@
 import assert from 'node:assert/strict';
+import { registerHooks } from 'node:module';
 import { test } from 'node:test';
-import {
-  canStepForward,
-  matchingShortcut,
-  monthCycle,
-  parseFiscalStart,
-  rangeTitle,
-  shortcutRange,
-  stepRange,
-} from './range.ts';
+
+// Resolve the `@/lib/` path alias that the app bundler provides.
+const hooks = registerHooks({
+  resolve: (specifier, context, next) =>
+    specifier.startsWith('@/lib/')
+      ? {
+          url: new URL(`../../lib/${specifier.slice(6)}.ts`, import.meta.url).href,
+          shortCircuit: true,
+        }
+      : next(specifier, context),
+});
+const { canStepForward, matchingShortcut, parseFiscalStart, rangeTitle, shortcutRange, stepRange } =
+  await import('./range.ts');
+hooks.deregister();
 
 const day = (y, m, d) => Math.floor(Date.UTC(y, m - 1, d) / 86400000);
 const span = (a, b) => ({ start: a, end: b });
@@ -31,9 +37,6 @@ test('the month shortcuts follow the start day of the month', () => {
     shortcutRange('lastMonth', today, payday),
     span(day(2026, 9, 25), day(2026, 10, 25)),
   );
-  // On the start day itself, the new cycle begins.
-  assert.deepEqual(monthCycle(day(2026, 11, 25), 25), span(day(2026, 11, 25), day(2026, 12, 25)));
-  assert.deepEqual(monthCycle(day(2027, 1, 3), 25, 1), span(day(2026, 11, 25), day(2026, 12, 25)));
 });
 
 test('the year shortcuts use the first day of the first month', () => {

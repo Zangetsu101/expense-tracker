@@ -1,3 +1,4 @@
+import { byMainCurrency } from './currency.ts';
 import type { CategorySpending, MonthlySummary } from './reports';
 
 export type CategoryShare = {
@@ -24,9 +25,7 @@ export function scopeCurrencies(
       .filter((account) => accountId === undefined || account.id === accountId)
       .map((account) => account.currencyCode),
   );
-  return [...codes].sort(
-    (a, b) => Number(b === mainCurrency) - Number(a === mainCurrency) || a.localeCompare(b),
-  );
+  return [...codes].sort(byMainCurrency(mainCurrency));
 }
 
 const byAmount = (a: CategoryShare, b: CategoryShare) =>

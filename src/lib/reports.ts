@@ -1,4 +1,5 @@
 import { database, epochDay } from '@/lib/database';
+import { periodsBack, type PeriodKind } from './usual-spending.ts';
 
 export type AccountBalance = {
   id: number;
@@ -109,4 +110,16 @@ export async function spendDays(
     GROUP BY a.currencyCode, t.categoryId, t.date`,
     accountId === null ? [start, end] : [start, end, accountId],
   );
+}
+
+/** Daily spending for the period that has `today` and `back` periods before it, with those periods. */
+export async function spendHistory(
+  accountId: number | null,
+  kind: PeriodKind,
+  monthStart: number,
+  today: number,
+  back: number,
+) {
+  const periods = periodsBack(kind, today, monthStart, back);
+  return { periods, rows: await spendDays(accountId, periods.at(-1)!.start, periods[0].end) };
 }

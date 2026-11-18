@@ -1,4 +1,5 @@
-import { convertTo, validDisplayRate, type DisplayRate } from '@/lib/display-rate';
+import { byMainCurrency } from '@/lib/currency';
+import { convertTo, usableRate, type DisplayRate } from '@/lib/display-rate';
 import type { CurrencyBalance } from './balances.ts';
 
 /** Spending in one Currency: in the period, in the previous period up to the same point, and in all of the previous period. */
@@ -32,22 +33,20 @@ export function paceSummary({
   rate: DisplayRate | null;
   mainCurrency: string;
 }): PaceSummary {
-  const parts = [...balances].sort(
-    (a, b) =>
-      Number(b.currencyCode === mainCurrency) - Number(a.currencyCode === mainCurrency) ||
-      a.currencyCode.localeCompare(b.currencyCode),
+  const parts = [...balances].sort((a, b) =>
+    byMainCurrency(mainCurrency)(a.currencyCode, b.currencyCode),
   );
   const many = new Set([...balances, ...pace].map((row) => row.currencyCode)).size > 1;
-  const usableRate = many && rate && validDisplayRate(rate) ? rate : null;
+  const rateToUse = many ? usableRate(rate) : null;
   const convert = (pick: (row: PaceRow) => number) =>
     convertTo(
       pace.map((row) => ({ currencyCode: row.currencyCode, amountMinor: pick(row) })),
-      usableRate,
+      rateToUse,
       mainCurrency,
     );
   const totalMinor = convertTo(
     balances.map((row) => ({ currencyCode: row.currencyCode, amountMinor: row.balanceMinor })),
-    usableRate,
+    rateToUse,
     mainCurrency,
   );
   const spentMinor = convert((row) => row.spentMinor);
@@ -56,7 +55,7 @@ export function paceSummary({
   if (totalMinor !== null && spentMinor !== null && sameMinor !== null && previousMinor !== null)
     return {
       total: { currencyCode: mainCurrency, amountMinor: totalMinor },
-      rate: usableRate,
+      rate: rateToUse,
       parts,
       pace: { currencyCode: mainCurrency, spentMinor, sameMinor, previousMinor },
       paceOnly: null,
@@ -73,24 +72,4 @@ export function paceSummary({
     },
     paceOnly: mainCurrency,
   };
-}
-
-/**
- * The rows in the target Currency. The Display Rate converts the other Currencies. When it
- * cannot convert a row, only the rows in the target Currency stay, and `only` is true.
- */
-export function rowsInCurrency<R extends { currencyCode: string; amountMinor: number }>(
-  rows: R[],
-  rate: DisplayRate | null,
-  target: string,
-): { rows: R[]; only: boolean } {
-  const usable = rate && validDisplayRate(rate) ? rate : null;
-  const converted: R[] = [];
-  for (const row of rows) {
-    const amountMinor = convertTo([row], usable, target);
-    if (amountMinor === null)
-      return { rows: rows.filter((item) => item.currencyCode === target), only: true };
-    converted.push({ ...row, currencyCode: target, amountMinor });
-  }
-  return { rows: converted, only: false };
 }

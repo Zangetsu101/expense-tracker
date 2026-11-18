@@ -9,16 +9,16 @@ import { RollingNumber } from '@/components/motion';
 import { currencySymbol } from '@/lib/currency';
 import { epochDay } from '@/lib/database';
 import { formatActivityDay, formatBalance } from '@/lib/transaction-format';
-import { convertTo, validDisplayRate, type DisplayRate } from '@/lib/display-rate';
+import { convertTo, rowsInCurrency, validDisplayRate, type DisplayRate } from '@/lib/display-rate';
 import { theme } from '@/theme';
 import { homeBalances } from './balances.ts';
 import { pageDots, type DeckAccount, type DeckCard } from './deck.ts';
-import { paceSummary, rowsInCurrency } from './pace.ts';
+import { paceSummary } from './pace.ts';
 import { periodKey, shortDay, type HomePeriod, type PeriodSetting } from './period.ts';
 import { homePaceQuery, homeTrendQuery, homeUsualQuery } from './queries.ts';
 import { TrendChart } from './trend-chart.tsx';
-import { trendHref } from '../reports/links.ts';
-import { paceResult } from '../reports/usual.ts';
+import { trendHref } from '@/lib/report-links';
+import { needsText, paceResult } from '@/lib/usual-spending';
 
 const c = theme.colors;
 export const cardHeight = 206;
@@ -448,7 +448,7 @@ function UsualPaceBody({
   const max = Math.max(ready ? pace.usualFullMinor : 0, pace.spentMinor, 1);
   const difference = formatBalance(Math.abs(pace.spentMinor - usualMinor), currency);
   const comparison = !ready
-    ? `Usual needs ${pace.needed} more full ${setting.range}${pace.needed === 1 ? '' : 's'}`
+    ? needsText(setting.range, pace.needed)
     : pace.spentMinor === usualMinor
       ? 'Same as usual by this point'
       : `${difference} ${over ? 'more' : 'less'} than usual by this point`;
@@ -497,7 +497,7 @@ function UsualPaceBody({
       >
         {comparison} ›
       </Text>
-      {converted.only && new Set(scoped.map((a) => a.currencyCode)).size > 1 && (
+      {converted.leftOutOthers && new Set(scoped.map((a) => a.currencyCode)).size > 1 && (
         <Text style={{ color: c.muted, fontSize: 11.5 }}>
           Spending counts {currency} accounts only
         </Text>

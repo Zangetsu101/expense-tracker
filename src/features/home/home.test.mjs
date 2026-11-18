@@ -25,6 +25,9 @@ const mocks = {
     export const ReduceMotion={System:'system'},Easing={out:x=>x,cubic:x=>x}; export const useReducedMotion=()=>false;
     export const useSharedValue=value=>({get:()=>value,set(){}}),useAnimatedStyle=()=>({}),withTiming=value=>value;`,
   './trend-chart.tsx': `export const TrendChart='TrendChart';`,
+  '@/lib/reports': `import { periodsBack } from '@/lib/usual-spending';
+    export const spendHistory=async(id,kind,monthStart,today,back)=>{const periods=periodsBack(kind,today,monthStart,back);
+      return {periods,rows:await globalThis.__homeScreenTest.read('spend',id,periods.at(-1).start,periods[0].end)};};`,
   'expo-router': `export const useIsFocused=()=>true,useFocusEffect=()=>{}; export const Stack={Screen:({options})=>options.headerTitle?options.headerTitle():null}; export const router={push(to){globalThis.__homeScreenTest.pushed.push(to)}};`,
   'expo-status-bar': `export const StatusBar=()=>null;`,
   'expo-symbols': `export const SymbolView='SymbolView';`,
@@ -36,7 +39,7 @@ const mocks = {
   './read-home.ts': `const r=(...a)=>globalThis.__homeScreenTest.read(...a);
     export const homeDeckData=today=>r('deck',today); export const homeTrend=(id,start,today)=>r('trend',id,start,today);
     export const homePace=(id)=>r('pace',id); export const homeListPage=(id,setting,today,steps)=>r('list',id,steps);
-    export const homeSearch=()=>[]; export const homeSpendDays=(id,start,end)=>r('spend',id,start,end);
+    export const homeSearch=()=>[];
     export const savePeriodSetting=setting=>r('save',setting);`,
 };
 const hooks = registerHooks({
@@ -255,7 +258,7 @@ test('Home boundaries', async (t) => {
   await t.test('the month compares with usual, and a tap opens Pace in Reports', async () => {
     reads();
     await mount();
-    assert.ok(cardTexts('All accounts').includes('Usual needs 3 more full months ›'));
+    assert.ok(cardTexts('All accounts').includes('Needs 3 full months · 3 more ›'));
     await act(async () => renderer.unmount());
     const day = 86400000;
     const history = [1, 2, 3].map((back) => {

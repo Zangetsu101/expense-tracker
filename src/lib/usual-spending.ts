@@ -1,7 +1,5 @@
-import type { SpendRow } from '@/lib/reports';
-import { monthCycle, type ReportRange } from './range.ts';
-
-export type { SpendRow };
+import { monthCycle, weekStart, type DayRange } from './periods.ts';
+import type { SpendRow } from './reports';
 
 export type PeriodKind = 'week' | 'month';
 
@@ -16,15 +14,19 @@ export function periodsBack(
   today: number,
   monthStart: number,
   back: number,
-): ReportRange[] {
+): DayRange[] {
   if (kind === 'month')
     return Array.from({ length: back + 1 }, (_, k) => monthCycle(today, monthStart, k));
-  const weekday = new Date(today * 86400000).getUTCDay();
-  const start = today - ((weekday + 1) % 7);
+  const start = weekStart(today);
   return Array.from({ length: back + 1 }, (_, k) => ({
     start: start - 7 * k,
     end: start - 7 * k + 7,
   }));
+}
+
+/** The text that says how many full periods usual still needs. */
+export function needsText(kind: PeriodKind, needed: number) {
+  return `Needs ${minimumPeriods} full ${kind}s · ${needed} more`;
 }
 
 export function median(values: number[]): number {
@@ -41,7 +43,7 @@ function quantile(values: number[], position: number): number {
 }
 
 /** The running total of the rows for each day from the start of the period. */
-function dailyTotals(rows: SpendRow[], period: ReportRange, length: number): number[] {
+function dailyTotals(rows: SpendRow[], period: DayRange, length: number): number[] {
   const days = Array<number>(length).fill(0);
   for (const row of rows) {
     const index = row.date - period.start;
@@ -58,7 +60,7 @@ const sumIn = (rows: SpendRow[], start: number, end: number) =>
  * The past periods that usual uses: at most 6, newest first, from the newest past
  * period to the oldest period that has an Expense. Null when fewer than 3 remain.
  */
-function baseline(rows: SpendRow[], past: ReportRange[]) {
+function baseline(rows: SpendRow[], past: DayRange[]) {
   const used = past.slice(0, usualPeriods);
   let count = 0;
   used.forEach((period, index) => {
@@ -94,7 +96,7 @@ export type PaceResult =
 /** `periods` is the output of periodsBack: the current period first. */
 export function paceResult(
   allRows: SpendRow[],
-  periods: ReportRange[],
+  periods: DayRange[],
   today: number,
   currencyCode: string,
 ): PaceResult {
@@ -154,8 +156,8 @@ const byChange = (a: Compared, b: Compared) =>
 function compare(
   rows: SpendRow[],
   key: (row: SpendRow) => string,
-  target: ReportRange,
-  used: ReportRange[],
+  target: DayRange,
+  used: DayRange[],
   span: number,
 ) {
   const keys = new Map<string, SpendRow>();
@@ -177,7 +179,7 @@ function compare(
  */
 export function moverRows(
   allRows: SpendRow[],
-  periods: ReportRange[],
+  periods: DayRange[],
   today: number,
   currencyCode: string,
   mode: 'current' | 'last',

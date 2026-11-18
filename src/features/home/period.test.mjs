@@ -1,6 +1,19 @@
 import assert from 'node:assert/strict';
+import { registerHooks } from 'node:module';
 import { test } from 'node:test';
-import { homePeriod, parsePeriodSetting, periodKey } from './period.ts';
+
+// Resolve the `@/lib/` path alias that the app bundler provides.
+const hooks = registerHooks({
+  resolve: (specifier, context, next) =>
+    specifier.startsWith('@/lib/')
+      ? {
+          url: new URL(`../../lib/${specifier.slice(6)}.ts`, import.meta.url).href,
+          shortCircuit: true,
+        }
+      : next(specifier, context),
+});
+const { homePeriod, parsePeriodSetting, periodKey } = await import('./period.ts');
+hooks.deregister();
 
 const day = (y, m, d) => Math.floor(Date.UTC(y, m - 1, d) / 86400000);
 // Monday 9 November 2026.

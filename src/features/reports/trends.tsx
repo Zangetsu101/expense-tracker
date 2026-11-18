@@ -7,19 +7,16 @@ import { Skeleton } from '@/components/loading';
 import { formatBalance } from '@/lib/transaction-format';
 import { theme } from '@/theme';
 import { ChangeBars, LineChart, ProgressMarks } from './charts.tsx';
-import { trendHref } from './links.ts';
+import { trendHref } from '@/lib/report-links';
 import { netWorth } from './net-worth.ts';
 import { netWorthQuery, trendQuery } from './queries.ts';
-import { minimumPeriods, moverRows, paceResult, type PeriodKind } from './usual.ts';
+import { minimumPeriods, moverRows, needsText, paceResult } from '@/lib/usual-spending';
 import { c, LoadError, Note } from './view.tsx';
 
 const art = { width: 96, height: 44 };
 
 export function signed(minor: number, currency: string) {
   return `${minor > 0 ? '+' : minor < 0 ? '−' : ''}${formatBalance(Math.abs(minor), currency)}`;
-}
-export function needsText(kind: PeriodKind, needed: number) {
-  return `Needs ${minimumPeriods} full ${kind}s · ${needed} more`;
 }
 export function aboveText(nowMinor: number, usualMinor: number, currency: string) {
   const difference = nowMinor - usualMinor;

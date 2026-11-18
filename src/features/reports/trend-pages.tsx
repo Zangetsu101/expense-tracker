@@ -1,7 +1,7 @@
 import { use, useDeferredValue, useState, type ReactNode } from 'react';
 import { useSuspenseQueries, useSuspenseQuery } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Pressable, Text, useWindowDimensions, View } from 'react-native';
+import { Text, useWindowDimensions, View } from 'react-native';
 import { QueryBoundary } from '@/components/query-error-boundary';
 import { Skeleton } from '@/components/loading';
 import { parseAccountId } from '@/lib/account-selection';
@@ -11,21 +11,31 @@ import { QueryTimeContext } from '@/lib/query-time';
 import { formatBalance } from '@/lib/transaction-format';
 import { theme } from '@/theme';
 import { LineChart } from './charts.tsx';
-import { parseKind, transactionsHref, type TrendParams } from './links.ts';
-import { netWorth, type NetWorthSpan } from './net-worth.ts';
+import { parseKind, transactionsHref, type TrendParams } from '@/lib/report-links';
+import { netWorth, type NetWorthSeries, type NetWorthSpan } from './net-worth.ts';
 import { managedAccountsQuery, netWorthQuery, reportSettingsQuery, trendQuery } from './queries.ts';
-import { dayParts, monthNames, rangeTitle } from './range.ts';
-import { aboveText, needsText, signed } from './trends.tsx';
-import { moverRows, paceResult, usualPeriods, type MoverRow, type PeriodKind } from './usual.ts';
+import { dayParts, monthNames } from '@/lib/periods';
+import { rangeTitle } from './range.ts';
+import { aboveText, signed } from './trends.tsx';
+import {
+  moverRows,
+  needsText,
+  paceResult,
+  usualPeriods,
+  type MoverRow,
+  type PeriodKind,
+} from '@/lib/usual-spending';
 import {
   c,
   Card,
   CategoryTree,
+  Chip,
   Heading,
   LoadError,
   Note,
   ReportPage,
   scopeLabel,
+  SegmentedSwitch,
 } from './view.tsx';
 
 const shortDay = (day: number) => {
@@ -322,43 +332,14 @@ function MoversContent() {
   const target =
     mode === 'current' ? { start: data.periods[0].start, end: today + 1 } : data.periods[1];
   const switcher = (
-    <View
-      accessibilityRole="radiogroup"
-      style={{
-        flexDirection: 'row',
-        backgroundColor: c.surface,
-        borderRadius: theme.radius.control,
-        padding: 3,
-      }}
-    >
-      {(['current', 'last'] as const).map((value, index) => (
-        <Pressable
-          key={value}
-          accessibilityRole="radio"
-          accessibilityLabel={names[index]}
-          accessibilityState={{ checked: mode === value }}
-          onPress={() => setMode(value)}
-          style={{
-            flex: 1,
-            minHeight: 40,
-            alignItems: 'center',
-            justifyContent: 'center',
-            borderRadius: 9,
-            backgroundColor: mode === value ? c.selected : 'transparent',
-          }}
-        >
-          <Text
-            style={{
-              color: c.text,
-              fontSize: theme.type.detail,
-              fontWeight: mode === value ? '700' : '400',
-            }}
-          >
-            {names[index]}
-          </Text>
-        </Pressable>
-      ))}
-    </View>
+    <SegmentedSwitch
+      options={[
+        { value: 'current' as const, text: names[0], label: names[0] },
+        { value: 'last' as const, text: names[1], label: names[1] },
+      ]}
+      selected={mode}
+      onSelect={setMode}
+    />
   );
   if (movers.status === 'notEnough')
     return (
@@ -396,7 +377,7 @@ function MoversContent() {
             children: row.children.map((child) => ({ ...child, amountMinor: child.nowMinor })),
           }))}
           currency={scope.currency}
-          value={(row, options) => (
+          renderRow={(row, options) => (
             <MoverValue
               row={row}
               currency={scope.currency}
@@ -433,6 +414,32 @@ const spans: { label: string; value: NetWorthSpan }[] = [
   { label: 'All', value: 'all' },
 ];
 
+function LendingCard({ series }: { series: NetWorthSeries }) {
+  return (
+    <Card>
+      <Line
+        label="People owe you"
+        value={signed(series.lending.oweYouMinor, series.currencyCode)}
+        color={c.accent}
+      />
+      <Line
+        label="You owe people"
+        value={signed(-series.lending.youOweMinor, series.currencyCode)}
+        color={c.warning}
+      />
+      <View style={{ borderTopWidth: 1, borderColor: c.line, paddingTop: theme.spacing.md }}>
+        <Line
+          label="With lending"
+          value={formatBalance(series.withLending.at(-1)!, series.currencyCode)}
+          strong
+          color={c.accent}
+        />
+      </View>
+      <Note>Lending totals can be incomplete. Some old Transactions have no person.</Note>
+    </Card>
+  );
+}
+
 function NetWorthContent() {
   const today = useToday();
   const scope = useTrendScope();
@@ -440,7 +447,7 @@ function NetWorthContent() {
   const [span, setSpan] = useState<NetWorthSpan>(12);
   const { data } = useSuspenseQuery(netWorthQuery(scope.accountId ?? null, today));
   const result = netWorth(data, span);
-  const one = scope.accountId !== undefined;
+  const singleAccount = scope.accountId !== undefined;
   const combined = result.series.length === 1;
   const chartWidth = width - 2 * theme.spacing.xl - 2 * theme.spacing.lg;
   const first = result.points[0].day;
@@ -452,30 +459,19 @@ function NetWorthContent() {
     <>
       <View style={{ flexDirection: 'row', gap: theme.spacing.sm }}>
         {spans.map((item) => (
-          <Pressable
+          <Chip
             key={item.label}
-            accessibilityRole="button"
-            accessibilityLabel={item.label}
-            accessibilityState={{ selected: span === item.value }}
+            label={item.label}
+            selected={span === item.value}
             onPress={() => setSpan(item.value)}
-            style={{
-              minHeight: 40,
-              paddingHorizontal: theme.spacing.md,
-              justifyContent: 'center',
-              borderRadius: 20,
-              borderWidth: 1,
-              borderColor: span === item.value ? c.accent : c.line,
-            }}
-          >
-            <Text style={{ color: span === item.value ? c.accent : c.muted }}>{item.label}</Text>
-          </Pressable>
+          />
         ))}
       </View>
       {result.series.map((series) => (
         <View key={series.currencyCode} style={{ gap: theme.spacing.lg }}>
           <Headline
             label={
-              one
+              singleAccount
                 ? scope.label
                 : combined && result.accounts.some((a) => a.currencyCode !== series.currencyCode)
                   ? `All Accounts, in ${series.currencyCode} at your Display Rate`
@@ -493,14 +489,14 @@ function NetWorthContent() {
               axis={thousands}
               labels={labels}
               lines={[
-                ...(one
+                ...(singleAccount
                   ? []
                   : [{ values: series.withLending, color: c.muted, dashed: true, thin: true }]),
                 { values: series.accounts, color: c.accent },
               ]}
               accessibilityLabel={`Total at each month end, ${formatBalance(series.totalMinor, series.currencyCode)} today`}
             />
-            {!one && (
+            {!singleAccount && (
               <View style={{ flexDirection: 'row', gap: theme.spacing.md }}>
                 <Text style={{ color: c.accent, fontSize: theme.type.caption }}>━ Accounts</Text>
                 <Text style={{ color: c.muted, fontSize: theme.type.caption }}>┄ With lending</Text>
@@ -529,34 +525,12 @@ function NetWorthContent() {
           />
         ))}
       </Card>
-      {one ? (
+      {singleAccount ? (
         <Note>
           Lending does not show for one Account. A lending entry has no link to an Account.
         </Note>
       ) : (
-        result.series.map((series) => (
-          <Card key={series.currencyCode}>
-            <Line
-              label="People owe you"
-              value={signed(series.lending.oweYouMinor, series.currencyCode)}
-              color={c.accent}
-            />
-            <Line
-              label="You owe people"
-              value={signed(-series.lending.youOweMinor, series.currencyCode)}
-              color={c.warning}
-            />
-            <View style={{ borderTopWidth: 1, borderColor: c.line, paddingTop: theme.spacing.md }}>
-              <Line
-                label="With lending"
-                value={formatBalance(series.withLending.at(-1)!, series.currencyCode)}
-                strong
-                color={c.accent}
-              />
-            </View>
-            <Note>Lending totals can be incomplete. Some old Transactions have no person.</Note>
-          </Card>
-        ))
+        result.series.map((series) => <LendingCard key={series.currencyCode} series={series} />)
       )}
     </>
   );
