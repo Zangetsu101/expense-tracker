@@ -1,4 +1,9 @@
-import { formatMoney, transactionTitle, type LendingLabel } from '@/lib/transaction-format';
+import {
+  formatMoney,
+  transferAmounts,
+  transactionTitle,
+  type LendingLabel,
+} from '@/lib/transaction-format';
 import type { DeckCard } from './deck.ts';
 import { homePeriod, shortDay, type PeriodSetting } from './period.ts';
 
@@ -6,6 +11,8 @@ import { homePeriod, shortDay, type PeriodSetting } from './period.ts';
 export type ListRow = LendingLabel & {
   id: number;
   type: 'EXPENSE' | 'INCOME' | 'TRANSFER';
+  receivedAmountMinor?: number | null;
+  destinationCurrencyCode?: string | null;
   amountMinor: number;
   date: number;
   accountId: number;
@@ -38,6 +45,7 @@ export type RowView = {
   /** `null` when the row has no second line. */
   detail: string | null;
   amount: string;
+  otherAmount?: string;
   tone: Tone;
   icon: RowIcon;
 };
@@ -62,13 +70,13 @@ export type ListSection = {
 function transferFace(
   row: ListRow,
   accountId: number | null,
-): Pick<RowView, 'title' | 'amount' | 'tone'> {
-  const amount = formatMoney('TRANSFER', row.amountMinor, row.currencyCode);
+): Pick<RowView, 'title' | 'amount' | 'otherAmount' | 'tone'> {
+  const amounts = transferAmounts(row, accountId);
   if (accountId === null)
-    return { title: `${row.accountName} → ${row.transferAccountName}`, amount, tone: 'muted' };
+    return { ...amounts, title: `${row.accountName} → ${row.transferAccountName}`, tone: 'muted' };
   if (row.transferAccountId === accountId)
-    return { title: `From ${row.accountName}`, amount: `+${amount}`, tone: 'income' };
-  return { title: `To ${row.transferAccountName}`, amount: `−${amount}`, tone: 'normal' };
+    return { ...amounts, title: `From ${row.accountName}`, tone: 'income' };
+  return { ...amounts, title: `To ${row.transferAccountName}`, tone: 'normal' };
 }
 
 /** On a Pace card, a grey amount is not in the day total. Only All accounts names the Account of a row. */
@@ -137,7 +145,16 @@ function balanceTotals(rows: readonly ListRow[], accountId: number): TotalPart[]
   for (const row of rows) {
     const out =
       row.type === 'EXPENSE' || (row.type === 'TRANSFER' && row.transferAccountId !== accountId);
-    add(net, row.currencyCode, out ? -row.amountMinor : row.amountMinor);
+    const intoTransfer = row.type === 'TRANSFER' && !out;
+    add(
+      net,
+      intoTransfer ? (row.destinationCurrencyCode ?? row.currencyCode) : row.currencyCode,
+      out
+        ? -row.amountMinor
+        : intoTransfer
+          ? (row.receivedAmountMinor ?? row.amountMinor)
+          : row.amountMinor,
+    );
   }
   return byCurrency(net).map(([currency, minor]) => ({
     text: `${minor < 0 ? '−' : '+'}${formatMoney('TRANSFER', Math.abs(minor), currency)}`,

@@ -294,3 +294,22 @@ test('the deck derives card bills from both Transfer legs and excludes future ca
     650,
   );
 });
+
+test('a destination in another Currency uses the received amount for balance, trend and Bill', async () => {
+  sqlite.exec(`DELETE FROM credit_cards; DELETE FROM lending_entries; DELETE FROM transactions; DELETE FROM accounts;
+    INSERT INTO accounts (id, name, currencyCode, openingBalanceMinor) VALUES (1, 'BDT bank', 'BDT', 2000000), (2, 'USD card', 'USD', -20000);
+    INSERT INTO credit_cards (accountId, parentAccountId, statementDay) VALUES (2, 1, 20);
+    INSERT INTO transactions (id, type, amountMinor, receivedAmountMinor, date, accountId, transferAccountId) VALUES (1, 'TRANSFER', 1220000, 10000, ${day(2025, 1, 22)}, 1, 2);`);
+  const today = day(2025, 1, 23);
+  const deck = await homeDeckData(today);
+  assert.equal(deck.accounts.find((a) => a.id === 1).balanceMinor, 780000);
+  const destination = deck.accounts.find((a) => a.id === 2);
+  assert.equal(destination.balanceMinor, -10000);
+  assert.equal(destination.bill.billMinor, 10000);
+  assert.equal(destination.bill.owedMinor, 10000);
+  assert.deepEqual(await homeTrend(2, day(2025, 1, 21), today), [-20000, -20000, -10000, -10000]);
+  assert.deepEqual(await homeTrend(1, day(2025, 1, 21), today), [2000000, 2000000, 780000, 780000]);
+  const row = (await homeListPage(2, month, today, 0)).periods[0].rows[0];
+  assert.equal(row.receivedAmountMinor, 10000);
+  assert.equal(row.destinationCurrencyCode, 'USD');
+});

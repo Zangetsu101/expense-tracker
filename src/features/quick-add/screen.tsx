@@ -1,8 +1,9 @@
-import { useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { categoriesQuery, peopleQuery, includeCreatedPerson, cardBillsQuery } from './queries.ts';
+import { categoriesQuery, peopleQuery, includeCreatedPerson } from './queries.ts';
 import { accountsQuery } from '@/lib/account-queries';
 import { ChoicesSection, layoutTransition } from './view.tsx';
+import { TransferBillChoices } from './transfer-bill-choices.tsx';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight, useNavigation, usePreventRemove } from 'expo-router/react-navigation';
 import {
@@ -15,11 +16,11 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import Animated from 'react-native-reanimated';
-import { formatBalance } from '@/lib/transaction-format';
 import { epochDay } from '@/lib/database';
 import { addQuickTransaction } from '@/lib/quick-add-tags';
 import { addTransfer } from '@/lib/transfers';
 import { createPerson, saveLendingEntry, type LendingKind, type LendingTotal } from '@/lib/lending';
+import { TransferAmountInput } from '@/components/transfer-amount-input';
 import { AmountInput } from '@/components/amount-input';
 import { useRankedCategories } from './use-ranked-categories.ts';
 import { QuickAddDate } from '@/components/quick-add-date';
@@ -124,6 +125,7 @@ function QuickAddForm() {
     const amount = Number(params.amountMinor);
     return Number.isSafeInteger(amount) && amount > 0 ? amount : undefined;
   });
+  const [entryAmount, setEntryAmount] = useState(preset);
   const [amountKey, setAmountKey] = useState(0);
   const categoryMode = mode === 'EXPENSE' || mode === 'INCOME' ? mode : undefined;
   const categoryRead = useQuery({ ...categoriesQuery(categoryMode ?? 'EXPENSE'), enabled: false });
@@ -133,6 +135,11 @@ function QuickAddForm() {
   const people = peopleRead.data?.people ?? [];
   const headerHeight = useHeaderHeight();
   const [amountMinor, setAmountMinor] = useState<number | undefined>(preset);
+  const [receivedAmountMinor, setReceivedAmountMinor] = useState<number>();
+  const onTransferAmounts = useCallback((paid: number | undefined, received?: number) => {
+    setAmountMinor(paid);
+    setReceivedAmountMinor(received);
+  }, []);
   const [accountId, setAccountId] = useState(() => parseAccountId(params.accountId));
   const [toId, setToId] = useState<number | undefined>(
     () => parseAccountId(params.toId) ?? undefined,
@@ -167,9 +174,7 @@ function QuickAddForm() {
     amountMinor,
     epochDay(date),
   );
-  const destinations = accounts.filter(
-    (item) => item.id !== accountId && item.currencyCode === account?.currencyCode,
-  );
+  const destinations = accounts.filter((item) => item.id !== accountId);
   const incoming =
     mode === 'INCOME' ||
     (mode === 'PERSON' && (action === 'BORROW' || action === 'RECEIVE_REPAYMENT'));
@@ -177,7 +182,10 @@ function QuickAddForm() {
   const matches = people.filter((item) => item.name.toLocaleLowerCase().includes(search));
   const canCreatePerson =
     !!search && !people.some((item) => item.name.toLocaleLowerCase() === search);
-  const validAmount = amountMinor !== undefined;
+  const destination = destinations.find((item) => item.id === toId);
+  const cross =
+    mode === 'TRANSFER' && destination && destination.currencyCode !== account?.currencyCode;
+  const validAmount = amountMinor !== undefined && (!cross || receivedAmountMinor !== undefined);
   const canSave =
     !!accountsRead.data &&
     (mode === 'TRANSFER' || (mode === 'PERSON' ? !!peopleRead.data : !!categoryRead.data)) &&
@@ -229,6 +237,7 @@ function QuickAddForm() {
       if (mode === 'TRANSFER') {
         await addTransfer({
           amountMinor,
+          receivedAmountMinor,
           fromAccountId: account.id,
           toAccountId: toId!,
           note,
@@ -273,14 +282,20 @@ function QuickAddForm() {
     }
   }
 
+  const AmountEntry = mode === 'TRANSFER' ? TransferAmountInput : AmountInput;
   return (
-    <AmountInput
-      key={amountKey}
-      initialAmount={preset ? (preset / 100).toFixed(2) : ''}
-      initiallyOpen={!preset}
+    <AmountEntry
+      key={mode === 'TRANSFER' ? 'transfer' : amountKey}
+      source={account}
+      destination={destination}
+      receivedPreset={preset}
+      presetRevision={amountKey}
+      initialPaid={preset && cross ? undefined : amountMinor}
+      initialAmount={entryAmount ? (entryAmount / 100).toFixed(2) : ''}
+      initiallyOpen={!entryAmount}
       currency={account?.currencyCode}
       disabled={pending}
-      onChange={setAmountMinor}
+      onChange={mode === 'TRANSFER' ? onTransferAmounts : setAmountMinor}
     >
       {({ input, keypad, dismiss: dismissCalculator, editing }) => (
         <KeyboardAvoidingView
@@ -316,6 +331,10 @@ function QuickAddForm() {
                 options={modes}
                 disabled={pending}
                 onChange={(value) => {
+                  if (mode === 'TRANSFER' && value !== 'TRANSFER') {
+                    setEntryAmount(amountMinor);
+                    setPreset(undefined);
+                  }
                   setMode(value);
                   setError('');
                 }}
@@ -340,15 +359,7 @@ function QuickAddForm() {
                         disabled={pending}
                         onSelect={(id) => {
                           setAccountId(id);
-                          setToId((current) => {
-                            const source = readyAccounts.find((item) => item.id === id);
-                            const destination = readyAccounts.find((item) => item.id === current);
-                            return destination &&
-                              destination.id !== id &&
-                              destination.currencyCode === source?.currencyCode
-                              ? current
-                              : undefined;
-                          });
+                          setToId((current) => (current !== id ? current : undefined));
                           setError('');
                         }}
                       />
@@ -367,45 +378,17 @@ function QuickAddForm() {
                           disabled={pending}
                           onSelect={setToId}
                         />
-                        <ChoicesSection
-                          options={cardBillsQuery(epochDay(new Date()))}
-                          label="card bills"
-                          layout="bills"
-                        >
-                          {(bills) =>
-                            bills
-                              .filter((bill) => bill.accountId === toId)
-                              .map((bill) => (
-                                <View
-                                  key={bill.accountId}
-                                  style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}
-                                >
-                                  {[
-                                    { label: 'Bill', amount: bill.billMinor },
-                                    { label: 'All owed', amount: bill.owedMinor },
-                                  ]
-                                    .filter((choice) => choice.amount > 0)
-                                    .map((choice) => (
-                                      <FormButton
-                                        key={choice.label}
-                                        label={`${choice.label} · ${formatBalance(choice.amount, account?.currencyCode ?? '')}`}
-                                        variant="secondary"
-                                        disabled={pending}
-                                        onPress={() => {
-                                          setPreset(choice.amount);
-                                          setAmountMinor(choice.amount);
-                                          setAmountKey((key) => key + 1);
-                                        }}
-                                      />
-                                    ))}
-                                </View>
-                              ))
-                          }
-                        </ChoicesSection>
+                        <TransferBillChoices
+                          destination={destination}
+                          disabled={pending}
+                          onPreset={(amount) => {
+                            setPreset(amount);
+                            setAmountKey((key) => key + 1);
+                          }}
+                        />
                         {!destinations.length && (
                           <Text style={{ color: c.muted }}>
-                            No other {account?.currencyCode ?? 'same-currency'} account. Create one
-                            in Accounts or choose a different source.
+                            No other account. Create one in Accounts or choose a different source.
                           </Text>
                         )}
                       </View>
@@ -602,6 +585,6 @@ function QuickAddForm() {
           {keypad}
         </KeyboardAvoidingView>
       )}
-    </AmountInput>
+    </AmountEntry>
   );
 }

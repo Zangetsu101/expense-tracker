@@ -9,6 +9,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const sqlite = new DatabaseSync(':memory:');
 let failLink = false;
 const adapter = {
+  async getAllAsync(sql, params = []) {
+    return sqlite.prepare(sql).all(...params);
+  },
   async execAsync(sql) {
     sqlite.exec(sql);
   },

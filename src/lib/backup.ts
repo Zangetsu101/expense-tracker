@@ -22,6 +22,7 @@ export interface BackupData {
   transactions: {
     id: number;
     type: string;
+    receivedAmountMinor?: number | null;
     amountMinor: number;
     dateEpochDay: number;
     accountId: number;
@@ -86,6 +87,7 @@ const longFields = [
   'openingBalanceMinor',
   'parentId',
   'amountMinor',
+  'receivedAmountMinor',
   'dateEpochDay',
   'accountId',
   'transferAccountId',
@@ -189,6 +191,21 @@ export function decodeBackup(json: string): BackupData {
       keys.add(row.rowKey);
     }
   }
+  for (const row of (data.transactions ?? []) as BackupData['transactions']) {
+    if (row.receivedAmountMinor != null) {
+      const accounts = (data.accounts ?? []) as BackupData['accounts'];
+      const source = accounts.find((a) => a.id === row.accountId);
+      const destination = accounts.find((a) => a.id === row.transferAccountId);
+      if (
+        row.type !== 'TRANSFER' ||
+        row.receivedAmountMinor <= 0 ||
+        !source ||
+        !destination ||
+        source.currencyCode === destination.currencyCode
+      )
+        throw new Error('Invalid backup amount received');
+    }
+  }
   validateCreditCards(data);
   validateLending(data);
   const settings = (data.settings ?? {}) as BackupData['settings'];
@@ -240,9 +257,7 @@ function validateCreditCards(data: Record<string, unknown>): void {
   for (const card of cards) {
     if (card.parentAccountId === null) continue;
     const parent = accounts.find((a) => a.id === card.parentAccountId);
-    const account = accounts.find((a) => a.id === card.accountId)!;
-    if (!parent || ids.has(parent.id) || parent.currencyCode !== account.currencyCode)
-      throw new Error('Invalid backup credit-card parent');
+    if (!parent || ids.has(parent.id)) throw new Error('Invalid backup credit-card parent');
   }
 }
 

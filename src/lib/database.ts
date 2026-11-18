@@ -33,6 +33,11 @@ export function database() {
       CREATE INDEX IF NOT EXISTS lending_entries_person ON lending_entries(personId);
       CREATE TABLE IF NOT EXISTS credit_cards (accountId INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE, parentAccountId INTEGER REFERENCES accounts(id), statementDay INTEGER CHECK(statementDay BETWEEN 1 AND 31), dueDay INTEGER CHECK(dueDay BETWEEN 1 AND 31), CHECK(accountId != parentAccountId));
       CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);`);
+      const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(transactions)');
+      if (!columns.some((column) => column.name === 'receivedAmountMinor'))
+        await db.execAsync(
+          'ALTER TABLE transactions ADD COLUMN receivedAmountMinor INTEGER CHECK(receivedAmountMinor > 0)',
+        );
       await db.runAsync(
         "INSERT INTO accounts (name, currencyCode, isFavorite) SELECT 'Cash', ?, 1 WHERE NOT EXISTS (SELECT 1 FROM accounts)",
         [defaultCurrencyCode],

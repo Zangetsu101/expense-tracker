@@ -26,6 +26,7 @@ import {
   formatEpochDay,
   formatTransactionAmount,
   transactionTitle,
+  transferAmounts,
 } from '@/lib/transaction-format';
 
 const ink = '#edf1f4';
@@ -222,7 +223,20 @@ function CountLine({ rows, hasMore }: { rows: SearchRow[]; hasMore: boolean }) {
   );
 }
 
-function ResultRow({ item, showDate }: { item: SearchRow; showDate: boolean }) {
+function ResultRow({
+  item,
+  showDate,
+  accountId,
+}: {
+  item: SearchRow;
+  showDate: boolean;
+  accountId: number | null;
+}) {
+  const transfer =
+    item.type === 'TRANSFER' ? transferAmounts(item, accountId, formatTransactionAmount) : null;
+  const main =
+    transfer?.amount ?? formatTransactionAmount(item.type, item.amountMinor, item.currencyCode);
+  const other = transfer?.otherAmount;
   const title = item.lendingKind
     ? transactionTitle(item)
     : item.note?.trim() || transactionTitle(item);
@@ -258,16 +272,19 @@ function ResultRow({ item, showDate }: { item: SearchRow; showDate: boolean }) {
                 {item.type === 'TRANSFER' ? '⇄  ' : ''}
                 {title}
               </Text>
-              <Text
-                selectable
-                style={{
-                  color: item.type === 'INCOME' ? accent : ink,
-                  fontWeight: '700',
-                  fontVariant: ['tabular-nums'],
-                }}
-              >
-                {formatTransactionAmount(item.type, item.amountMinor, item.currencyCode)}
-              </Text>
+              <View style={{ alignItems: 'flex-end', gap: 3 }}>
+                <Text
+                  selectable
+                  style={{
+                    color: item.type === 'INCOME' ? accent : ink,
+                    fontWeight: '700',
+                    fontVariant: ['tabular-nums'],
+                  }}
+                >
+                  {main}
+                </Text>
+                {other && <Text style={{ color: muted, fontSize: 12.5 }}>{other}</Text>}
+              </View>
             </View>
             <Text style={{ color: muted, fontSize: 12 }}>{detail}</Text>
           </RowCard>
@@ -298,6 +315,7 @@ const listContent = { padding: 16, paddingTop: 14, paddingBottom: 24 };
 
 export function ResultsList({
   rows,
+  accountId = null,
   hasMore,
   muted: stale,
   alert,
@@ -305,6 +323,7 @@ export function ResultsList({
   onEndReached,
 }: {
   rows: SearchRow[];
+  accountId?: number | null;
   hasMore: boolean;
   muted: boolean;
   alert: ReactNode;
@@ -337,7 +356,11 @@ export function ResultsList({
           </Text>
         }
         renderItem={({ item, index }) => (
-          <ResultRow item={item} showDate={index === 0 || rows[index - 1].date !== item.date} />
+          <ResultRow
+            item={item}
+            accountId={accountId}
+            showDate={index === 0 || rows[index - 1].date !== item.date}
+          />
         )}
         onEndReached={onEndReached}
         onEndReachedThreshold={0.5}

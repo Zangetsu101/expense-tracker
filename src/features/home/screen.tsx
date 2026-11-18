@@ -90,9 +90,7 @@ function Home({ reset }: { reset: () => void }) {
     setSheet(null);
     const source =
       account.bill?.parentAccountId ??
-      deck.accounts.find(
-        (a) => !a.bill && a.id !== account.id && a.currencyCode === account.currencyCode,
-      )?.id;
+      deck.accounts.find((a) => !a.bill && a.id !== account.id)?.id;
     router.push({
       pathname: '/quick-add',
       params: {
