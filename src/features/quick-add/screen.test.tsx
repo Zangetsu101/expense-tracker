@@ -417,14 +417,27 @@ test('Quick add offers Transfer and Cancel returns to the previous screen', asyn
 
 test('opening a lending balance prefills the person and repayment action and filters accounts by currency', async () => {
   mockParams = { mode: 'PERSON', personId: '9', action: 'RECEIVE_REPAYMENT', currency: 'USD' };
-  jest.mocked(listPeople).mockResolvedValue([{ id: 9, name: 'Sam' }]);
+  jest.mocked(listPeople).mockResolvedValue([
+    { id: 1, name: 'Alex' },
+    { id: 9, name: 'Sam' },
+    { id: 2, name: 'Taylor' },
+  ]);
   jest
     .mocked(listAccounts)
     .mockResolvedValue([accounts[0], { ...accounts[1], currencyCode: 'BDT' }]);
-  await open();
+  const { type } = await open();
   expect(screen.getByRole('radio', { name: 'Person' })).toBeChecked();
   expect(await screen.findByText('With Sam')).toBeOnTheScreen();
+  const selectedPerson = await screen.findByRole('button', { name: 'Sam', selected: true });
+  expect(screen.getAllByRole('button', { name: /^(Alex|Sam|Taylor)$/ })).toEqual([
+    selectedPerson,
+    button('Alex'),
+    button('Taylor'),
+  ]);
   expect(screen.getByRole('radio', { name: 'They paid back' })).toBeChecked();
   expect(button(/Cash, USD/)).toBeOnTheScreen();
   expect(screen.queryByRole('button', { name: /Bank, BDT/ })).toBeNull();
+  await type('Search people', 'Alex');
+  expect(button('Alex')).toBeOnTheScreen();
+  expect(screen.queryByRole('button', { name: 'Sam' })).toBeNull();
 });

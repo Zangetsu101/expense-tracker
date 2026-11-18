@@ -195,7 +195,6 @@ function QuickAddForm() {
     mode === 'INCOME' ||
     (mode === 'PERSON' && (action === 'BORROW' || action === 'RECEIVE_REPAYMENT'));
   const search = query.trim().toLocaleLowerCase();
-  const matches = people.filter((item) => item.name.toLocaleLowerCase().includes(search));
   const canCreatePerson =
     !!search && !people.some((item) => item.name.toLocaleLowerCase() === search);
   const destination = destinations.find((item) => item.id === toId);
@@ -435,6 +434,13 @@ function QuickAddForm() {
                   </View>
                   <ChoicesSection options={peopleQuery()} label="people" layout="people">
                     {(readyPeople) => {
+                      const matches = readyPeople.people.filter((item) =>
+                        item.name.toLocaleLowerCase().includes(search),
+                      );
+                      const selectedIndex = matches.findIndex((item) => item.id === personId);
+                      if (selectedIndex > 0) {
+                        matches.unshift(...matches.splice(selectedIndex, 1));
+                      }
                       const personChip = (item: (typeof people)[number]) => {
                         const selected = item.id === personId;
                         return (
