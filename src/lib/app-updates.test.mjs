@@ -54,11 +54,11 @@ test('manual checks bypass automatic cooldown; foreground failures are quiet and
   assert.equal(controller.getSnapshot().status, 'idle');
   await controller.check();
   assert.equal(calls.length, 1);
-  await controller.check(true);
+  await controller.check('manual');
   assert.equal(controller.getSnapshot().status, 'error');
   assert.match(controller.getSnapshot().error, /connection/);
   api.check = async () => ({ isAvailable: false });
-  await controller.check(true);
+  await controller.check('manual');
   assert.equal(controller.getSnapshot().status, 'current');
   advance();
   await controller.check();
@@ -76,9 +76,9 @@ test('serializes checks and downloads and never reloads until explicitly request
     calls.push('fetch');
     return download.promise;
   };
-  const running = controller.check(true);
+  const running = controller.check('manual');
   assert.equal(controller.getSnapshot().status, 'checking');
-  await controller.check(true);
+  await controller.check('manual');
   await controller.restart();
   assert.deepEqual(calls, ['check']);
   check.resolve({ isAvailable: true });
@@ -86,28 +86,65 @@ test('serializes checks and downloads and never reloads until explicitly request
   assert.equal(controller.getSnapshot().status, 'downloading');
   controller.sync({ ...idle, isDownloading: true, downloadProgress: 0.42 });
   assert.equal(controller.getSnapshot().progress, 0.42);
-  await controller.check(true);
+  await controller.check('manual');
   await controller.restart();
   download.resolve({ isNew: true });
   await running;
   controller.sync({ ...idle, isUpdatePending: true });
   assert.equal(controller.getSnapshot().status, 'ready');
   assert.deepEqual(calls, ['check', 'fetch']);
-  await controller.check(true);
+  await controller.check('manual');
   await controller.restart();
   assert.deepEqual(calls, ['check', 'fetch', 'reload']);
 });
 test('cached pending updates and native startup work take precedence', async () => {
   const { controller, calls } = fixture();
   controller.sync({ ...idle, isStartupProcedureRunning: true });
-  await controller.check(true);
+  await controller.check('manual');
   controller.sync({ ...idle, isDownloading: true });
-  await controller.check(true);
+  await controller.check('manual');
   assert.deepEqual(calls, []);
   controller.sync({ ...idle, isUpdatePending: true });
-  await controller.check(true);
+  await controller.check('manual');
   assert.equal(controller.getSnapshot().status, 'ready');
   assert.deepEqual(calls, []);
+});
+test('screen checks look for a newer update and preserve the cached update on failure', async () => {
+  const { controller, api, calls } = fixture();
+  controller.sync({
+    ...idle,
+    isUpdatePending: true,
+    lastCheckForUpdateTimeSinceRestart: new Date(100),
+  });
+  const check = deferred();
+  api.check = () => check.promise;
+  const running = controller.check('focus');
+  controller.sync({ ...idle, isUpdatePending: true });
+  assert.equal(controller.getSnapshot().status, 'checking');
+  await controller.restart();
+  assert.deepEqual(calls, []);
+  const download = deferred();
+  api.fetch = () => download.promise;
+  check.resolve({ isAvailable: true });
+  await Promise.resolve();
+  assert.equal(controller.getSnapshot().status, 'downloading');
+  download.reject(Error('offline'));
+  await running;
+  assert.deepEqual(controller.getSnapshot(), { status: 'ready' });
+  await controller.restart();
+  assert.deepEqual(calls, ['reload']);
+});
+test('screen checks skip downloading the cached version and fetch a different version', async () => {
+  const { controller, api, calls } = fixture();
+  controller.sync({ ...idle, isUpdatePending: true, downloadedUpdate: { updateId: 'cached' } });
+  api.check = async () => ({ isAvailable: true, manifest: { id: 'cached' } });
+  await controller.check('focus');
+  assert.deepEqual(calls, []);
+  assert.equal(controller.getSnapshot().status, 'ready');
+  api.check = async () => ({ isAvailable: true, manifest: { id: 'newer' } });
+  await controller.check('focus');
+  assert.deepEqual(calls, ['fetch']);
+  assert.equal(controller.getSnapshot().status, 'ready');
 });
 test('startup check timestamp prevents immediate duplicate request', async () => {
   const { controller, calls, advance } = fixture();
@@ -121,7 +158,7 @@ test('startup check timestamp prevents immediate duplicate request', async () =>
 test('unsupported runtimes never invoke update APIs', async () => {
   const { controller, calls } = fixture(false);
   controller.sync({ ...idle, isUpdatePending: true });
-  await controller.check(true);
+  await controller.check('manual');
   await controller.restart();
   assert.equal(controller.getSnapshot().status, 'unsupported');
   assert.deepEqual(calls, []);
@@ -132,10 +169,10 @@ test('download failure retries; reload failure keeps downloaded update available
   api.fetch = async () => {
     throw Error('offline');
   };
-  await controller.check(true);
+  await controller.check('manual');
   assert.equal(controller.getSnapshot().status, 'error');
   api.fetch = async () => ({ isNew: true });
-  await controller.check(true);
+  await controller.check('manual');
   assert.equal(controller.getSnapshot().status, 'ready');
   api.reload = async () => {
     throw Error('reload');
@@ -148,7 +185,7 @@ test('rollback directives are fetched and require explicit restart too', async (
   const { controller, api, calls } = fixture();
   api.check = async () => ({ isAvailable: false, isRollBackToEmbedded: true });
   api.fetch = async () => ({ isNew: false, isRollBackToEmbedded: true });
-  await controller.check(true);
+  await controller.check('manual');
   assert.equal(controller.getSnapshot().status, 'ready');
   assert.deepEqual(calls, []);
 });
@@ -156,7 +193,7 @@ test('a no-longer-new fetch does not falsely offer restart', async () => {
   const { controller, api } = fixture();
   api.check = async () => ({ isAvailable: true });
   api.fetch = async () => ({ isNew: false });
-  await controller.check(true);
+  await controller.check('manual');
   assert.equal(controller.getSnapshot().status, 'current');
 });
 test('lifecycle checks on launch and transitions to active and removes listener', () => {

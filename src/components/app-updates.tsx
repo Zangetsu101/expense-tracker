@@ -3,6 +3,7 @@ import {
   useCallback,
   use,
   useEffect,
+  useLayoutEffect,
   useState,
   useSyncExternalStore,
   type ReactNode,
@@ -40,7 +41,7 @@ export function AppUpdatesProvider({ children }: { children: ReactNode }) {
       },
     ),
   );
-  useEffect(() => {
+  useLayoutEffect(() => {
     controller.sync(native);
   }, [controller, native]);
   useEffect(
@@ -67,7 +68,7 @@ export function useAppUpdates() {
   if (!controller) throw new Error('AppUpdatesProvider is required');
   return {
     ...useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot),
-    check: () => controller.check(true),
+    check: controller.check,
     restart: controller.restart,
   };
 }
@@ -78,7 +79,8 @@ export function UpdatesRow() {
   useFocusEffect(
     useCallback(() => {
       setCheckedThisVisit(false);
-    }, []),
+      void check('focus');
+    }, [check]),
   );
   const status =
     !checkedThisVisit && (updateStatus === 'current' || updateStatus === 'error')
@@ -141,7 +143,7 @@ export function UpdatesRow() {
             );
           else {
             setCheckedThisVisit(true);
-            void check();
+            void check('manual');
           }
         }}
         style={({ pressed }) => ({
