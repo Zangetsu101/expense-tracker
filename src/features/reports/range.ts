@@ -1,7 +1,7 @@
 import { dayParts, monthCycle, monthNames, toDay, type DayRange } from '@/lib/periods';
 
 export type ReportRange = DayRange;
-/** `monthStart` is the day of the month that Home sets (see `maxMonthStart`). `fiscalStart` is a zero-based month. */
+/** `monthStart` is the day of the month that Home sets. `fiscalStart` is a zero-based month. */
 export type RangeSettings = { monthStart: number; fiscalStart: number };
 
 export const shortcuts = [

@@ -339,6 +339,7 @@ function MoversContent() {
       ]}
       selected={mode}
       onSelect={setMode}
+      fontSize={theme.type.detail}
     />
   );
   if (movers.status === 'notEnough')

@@ -453,10 +453,12 @@ export function SegmentedSwitch<T extends string>({
   options,
   selected,
   onSelect,
+  fontSize = theme.type.body,
 }: {
   options: { value: T; text: string; label: string }[];
   selected: T;
   onSelect: (value: T) => void;
+  fontSize?: number;
 }) {
   return (
     <View
@@ -487,7 +489,7 @@ export function SegmentedSwitch<T extends string>({
           <Text
             style={{
               color: c.text,
-              fontSize: theme.type.detail,
+              fontSize,
               fontWeight: option.value === selected ? '700' : '400',
             }}
           >

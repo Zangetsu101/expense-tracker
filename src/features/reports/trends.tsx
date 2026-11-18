@@ -245,6 +245,7 @@ export function TrendCards({ muted, ...scope }: Scope & { muted: boolean }) {
         {cards.map(([title, card]) => (
           <QueryBoundary
             key={title}
+            resetKey={`${scope.accountId ?? 'all'}-${scope.currency}`}
             pending={<CardSkeleton title={title} />}
             error={(retry) => <LoadError message={`Could not load ${title}.`} retry={retry} />}
           >

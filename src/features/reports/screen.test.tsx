@@ -429,6 +429,17 @@ test('a new Account keeps the old Trend cards dimmed until the new numbers arriv
   ).not.toBeOnTheScreen();
 });
 
+test('a failed Trend card reads again for a new Account', async () => {
+  const user = userEvent.setup();
+  jest.mocked(netWorthData).mockRejectedValueOnce(new Error('Database unavailable'));
+  await renderScreen();
+  expect(await screen.findByText('Could not load Net worth.')).toBeOnTheScreen();
+
+  await chooseCash(user);
+  expect(await screen.findByRole('button', { name: /^Balance, / })).toBeOnTheScreen();
+  expect(screen.queryByText('Could not load Net worth.')).not.toBeOnTheScreen();
+});
+
 test('a failed report read shows an error, and Retry reads again', async () => {
   const user = userEvent.setup();
   jest.mocked(rangeReport).mockRejectedValueOnce(new Error('Database unavailable'));
