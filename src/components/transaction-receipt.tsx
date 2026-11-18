@@ -152,7 +152,7 @@ export function TransactionReceipt({ transaction: row }: Props) {
           <Label>Person</Label>
           <Link
             href={{
-              pathname: '/accounts/lending/person',
+              pathname: '/person',
               params: { id: row.personId, name: row.personName },
             }}
             style={{ color: color.accent, fontSize: 16 }}

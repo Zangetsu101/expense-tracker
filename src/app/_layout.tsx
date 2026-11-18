@@ -3,6 +3,7 @@ import { AppQueriesProvider } from '@/components/app-queries';
 import { AppUpdatesProvider } from '@/components/app-updates';
 import { Stack, ThemeProvider, DarkTheme } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { theme } from '@/theme';
 
 export const unstable_settings = { anchor: '(tabs)' };
 
@@ -26,6 +27,13 @@ export default function Layout() {
               <Stack.Screen name="transactions" options={{ title: 'Search transactions' }} />
               <Stack.Screen name="settings" options={{ title: 'Settings' }} />
               <Stack.Screen name="review-queue" options={{ title: 'Review Queue' }} />
+              <Stack.Screen
+                name="person"
+                options={{
+                  headerStyle: { backgroundColor: theme.colors.background },
+                  headerTintColor: theme.colors.text,
+                }}
+              />
             </Stack>
           </AppUpdatesProvider>
         </ThemeProvider>

@@ -588,7 +588,7 @@ describe('Transaction edit', () => {
     expect(jest.mocked(saveTransactionEdit).mock.calls[0][5]).toBe(1250);
   });
 
-  test('the lending Person links to the Accounts tab and an amount edit can confirm overpaid credit', async () => {
+  test('the lending Person opens the person screen above the Receipt, and an amount edit can confirm overpaid credit', async () => {
     const user = userEvent.setup();
     const linked = {
       ...transaction,
@@ -618,7 +618,10 @@ describe('Transaction edit', () => {
       .mockResolvedValueOnce(undefined);
     await renderScreen();
     const person = await screen.findByRole('link', { name: /Sam/ });
-    expect(person.props.accessibilityHint).toContain('/accounts/lending/person');
+    expect(JSON.parse(person.props.accessibilityHint)).toEqual({
+      pathname: '/person',
+      params: { id: 7, name: 'Sam' },
+    });
     await openEditor(user);
     expect(screen.getByLabelText('Exclude from reports')).toBeDisabled();
     await user.press(screen.getByRole('button', { name: 'Amount' }));
