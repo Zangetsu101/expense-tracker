@@ -1,7 +1,6 @@
 import type { ReactElement, ReactNode } from 'react';
 import { router } from 'expo-router';
 import { BottomSheet, RNHostView } from '@expo/ui';
-import { interactiveDismissDisabled } from '@expo/ui/swift-ui/modifiers';
 import {
   ActivityIndicator,
   Alert,
@@ -13,6 +12,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { AppSheet } from '@/components/app-sheet';
 import { QueryBoundary } from '@/components/query-error-boundary';
 import { Skeleton } from '@/components/loading';
 import { formatActivityDay, formatBalance, formatMoney } from '@/lib/transaction-format';
@@ -412,6 +412,26 @@ export function LedgerSheet({
 }) {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const content = (
+    <ScrollView
+      keyboardShouldPersistTaps="handled"
+      style={{ backgroundColor: c.surface, width, maxHeight: height * 0.75 }}
+      contentContainerStyle={{
+        padding: 20,
+        paddingBottom: Math.max(20, insets.bottom),
+        gap: 12,
+      }}
+    >
+      {children}
+    </ScrollView>
+  );
+  if (process.env.EXPO_OS === 'ios') {
+    return (
+      <AppSheet pending={pending} onDismiss={dismiss}>
+        {content}
+      </AppSheet>
+    );
+  }
   return (
     <BottomSheet
       isPresented
@@ -423,21 +443,8 @@ export function LedgerSheet({
       containerColor={c.surface}
       contentPadding={0}
       showDragIndicator={!pending}
-      modifiers={process.env.EXPO_OS === 'ios' ? [interactiveDismissDisabled(pending)] : undefined}
     >
-      <RNHostView matchContents>
-        <ScrollView
-          keyboardShouldPersistTaps="handled"
-          style={{ backgroundColor: c.surface, width, maxHeight: height * 0.75 }}
-          contentContainerStyle={{
-            padding: 20,
-            paddingBottom: Math.max(20, insets.bottom),
-            gap: 12,
-          }}
-        >
-          {children}
-        </ScrollView>
-      </RNHostView>
+      <RNHostView matchContents>{content}</RNHostView>
     </BottomSheet>
   );
 }

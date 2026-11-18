@@ -21,7 +21,7 @@ jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({
 jest.mock('@expo/ui', () => {
   const { View } = jest.requireActual<typeof import('react-native')>('react-native');
   const Box = ({ children }: { children: ReactNode }) => <View>{children}</View>;
-  return { BottomSheet: Box, RNHostView: Box };
+  return { BottomSheet: Box, Host: Box, RNHostView: Box };
 });
 
 const person = { id: 1, name: 'Rafi' };
