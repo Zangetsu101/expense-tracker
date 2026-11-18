@@ -590,6 +590,7 @@ export function Deck({
   const interval = context.width + cardGap;
   return (
     <FlatList
+      testID="home-account-deck"
       ref={listRef}
       horizontal
       data={items}

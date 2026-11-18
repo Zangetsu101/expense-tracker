@@ -310,6 +310,7 @@ function QuickAddForm() {
             }}
           />
           <ScrollView
+            testID="quick-add-form"
             style={{ flex: 1 }}
             contentInsetAdjustmentBehavior="automatic"
             keyboardShouldPersistTaps="handled"
