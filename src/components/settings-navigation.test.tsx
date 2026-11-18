@@ -44,10 +44,13 @@ test('Settings exposes data actions and hides other navigation until a backup fi
   }
   await user.press(screen.getByRole('button', { name: 'Share a backup file' }));
   expect(shareBackup).toHaveBeenCalledTimes(1);
-  for (const name of ['Lending & borrowing', 'Review transfer candidates']) {
-    expect(screen.queryByRole('button', { name })).toBeNull();
-    expect(screen.getByRole('button', { name, includeHiddenElements: true })).toBeDisabled();
-  }
+  expect(
+    screen.queryByRole('button', { name: 'Lending & borrowing', includeHiddenElements: true }),
+  ).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Review transfer candidates' })).toBeNull();
+  expect(
+    screen.getByRole('button', { name: 'Review transfer candidates', includeHiddenElements: true }),
+  ).toBeDisabled();
   await act(async () => pending.resolve(undefined));
   await user.press(screen.getByRole('button', { name: 'Review transfer candidates' }));
   expect(router.push).toHaveBeenCalledWith('/review-queue');

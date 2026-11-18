@@ -1,3 +1,5 @@
+import { dayParts, monthCycle, toDay, weekStart } from '@/lib/periods';
+
 export const homeRanges = [
   { range: 'week', label: 'This week' },
   { range: 'month', label: 'This month' },
@@ -37,26 +39,13 @@ const months = [
   ['Dec', 'December'],
 ] as const;
 
-const dayMs = 86400000;
-const toDay = (year: number, month: number, date: number) =>
-  Math.floor(Date.UTC(year, month, date) / dayMs);
-const parts = (day: number) => {
-  const date = new Date(day * dayMs);
-  return {
-    year: date.getUTCFullYear(),
-    month: date.getUTCMonth(),
-    date: date.getUTCDate(),
-    weekday: date.getUTCDay(),
-  };
-};
-
 export function shortDay(day: number): string {
-  const { date, month } = parts(day);
+  const { date, month } = dayParts(day);
   return `${date} ${months[month][0]}`;
 }
 
 export function homePeriod(setting: PeriodSetting, today: number): HomePeriod {
-  const { year, month, date, weekday } = parts(today);
+  const { year } = dayParts(today);
   const span = (
     start: number,
     previousStart: number,
@@ -73,7 +62,7 @@ export function homePeriod(setting: PeriodSetting, today: number): HomePeriod {
   });
   switch (setting.range) {
     case 'week': {
-      const start = today - ((weekday + 1) % 7);
+      const start = weekStart(today);
       return span(start, start - 7, [`Week of ${shortDay(start)}`, 'last week']);
     }
     case '90d': {
@@ -83,17 +72,13 @@ export function homePeriod(setting: PeriodSetting, today: number): HomePeriod {
     case 'year':
       return span(toDay(year, 0, 1), toDay(year - 1, 0, 1), [String(year), String(year - 1)]);
     case 'month': {
-      const first = setting.monthStart;
-      const startMonth = date >= first ? month : month - 1;
-      const start = toDay(year, startMonth, first);
+      const cycle = monthCycle(today, setting.monthStart);
+      const startMonth = dayParts(cycle.start).month;
       const labels: [string, string] =
-        first === 1
-          ? [months[(startMonth + 12) % 12][1], months[(startMonth + 11) % 12][1]]
-          : [
-              `${shortDay(start)} – ${shortDay(toDay(year, startMonth + 1, first) - 1)}`,
-              'last cycle',
-            ];
-      return span(start, toDay(year, startMonth - 1, first), labels);
+        setting.monthStart === 1
+          ? [months[startMonth][1], months[(startMonth + 11) % 12][1]]
+          : [`${shortDay(cycle.start)} – ${shortDay(cycle.end - 1)}`, 'last cycle'];
+      return span(cycle.start, monthCycle(today, setting.monthStart, 1).start, labels);
     }
   }
 }

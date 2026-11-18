@@ -15,7 +15,15 @@ import { renderWithQueries } from '@/test/render-with-queries';
 import QuickAdd from './screen';
 
 const mockDispatch = jest.fn();
-let mockParams: { mode?: string; accountId?: string; toId?: string; amountMinor?: string } = {};
+let mockParams: {
+  personId?: string;
+  action?: string;
+  currency?: string;
+  mode?: string;
+  accountId?: string;
+  toId?: string;
+  amountMinor?: string;
+} = {};
 
 jest.mock('expo-router', () => ({
   router: { back: jest.fn() },
@@ -405,4 +413,18 @@ test('Quick add offers Transfer and Cancel returns to the previous screen', asyn
   expect(screen.getByRole('radio', { name: 'Transfer' })).toBeEnabled();
   await press('Cancel');
   expect(router.back).toHaveBeenCalled();
+});
+
+test('opening a lending balance prefills the person and repayment action and filters accounts by currency', async () => {
+  mockParams = { mode: 'PERSON', personId: '9', action: 'RECEIVE_REPAYMENT', currency: 'USD' };
+  jest.mocked(listPeople).mockResolvedValue([{ id: 9, name: 'Sam' }]);
+  jest
+    .mocked(listAccounts)
+    .mockResolvedValue([accounts[0], { ...accounts[1], currencyCode: 'BDT' }]);
+  await open();
+  expect(screen.getByRole('radio', { name: 'Person' })).toBeChecked();
+  expect(await screen.findByText('With Sam')).toBeOnTheScreen();
+  expect(screen.getByRole('radio', { name: 'They paid back' })).toBeChecked();
+  expect(button(/Cash, USD/)).toBeOnTheScreen();
+  expect(screen.queryByRole('button', { name: /Bank, BDT/ })).toBeNull();
 });

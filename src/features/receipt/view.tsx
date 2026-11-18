@@ -5,13 +5,14 @@ import { Stack } from 'expo-router';
 import { AmountInput } from '@/components/amount-input';
 import { FormButton, FormInput } from '@/components/form-controls';
 import { Skeleton } from '@/components/loading';
-import { formatEpochDay, formatTransactionAmount } from '@/lib/transaction-format';
+import { formatActivityDay, formatEpochDay } from '@/lib/transaction-format';
 import { formatLineItemAmount, parseLineItemAmount } from '@/lib/line-item-amount';
 import {
   saveTransactionEdit,
   type EditableTransaction,
   type LineItem,
 } from '@/lib/transaction-edit';
+import { writeWithOverpaidCreditCheck } from '@/features/lending/view';
 import { theme } from '@/theme';
 
 export function EditTransactionScreen({
@@ -32,7 +33,6 @@ export function EditTransactionScreen({
   onSaved: () => Promise<void>;
 }) {
   const initialAmount = formatLineItemAmount(transaction.amountMinor);
-  const amountLocked = !!transaction.lendingKind;
   const [amountMinor, setAmountMinor] = useState<number | undefined>(transaction.amountMinor);
   const [note, setNote] = useState(transaction.note ?? '');
   const initialTags = transaction.tags.map((tag) => tag.name).join(', ');
@@ -90,7 +90,14 @@ export function EditTransactionScreen({
         return { id: item.id, name: item.name, amountMinor, quantity };
       });
       if (!committed) {
-        await saveTransactionEdit(transaction, note, excluded, tags, lineItems, amountMinor);
+        const saved = await writeWithOverpaidCreditCheck(
+          (confirmOverpayment) =>
+            saveTransactionEdit(transaction, note, excluded, tags, lineItems, amountMinor, {
+              confirmOverpayment,
+            }),
+          'Save anyway',
+        );
+        if (!saved) return;
         setCommitted(true);
       }
       await onSaved();
@@ -133,33 +140,15 @@ export function EditTransactionScreen({
                   backgroundColor: theme.colors.surface,
                 }}
               >
-                {amountLocked ? (
-                  <Text
-                    selectable
-                    style={{
-                      color: theme.colors.text,
-                      fontSize: 24,
-                      fontWeight: '600',
-                      fontVariant: ['tabular-nums'],
-                    }}
-                  >
-                    {formatTransactionAmount(
-                      transaction.type,
-                      transaction.amountMinor,
-                      transaction.currencyCode,
-                    )}
-                  </Text>
-                ) : (
-                  input
-                )}
+                {input}
                 <Text selectable style={{ color: theme.colors.text }}>
                   {transaction.categoryName ?? transaction.type} · {transaction.accountName}
                 </Text>
                 <Text selectable style={{ color: theme.colors.muted }}>
-                  {formatEpochDay(transaction.date)} ·{' '}
-                  {amountLocked
-                    ? 'Change the amount of a lending entry from Lending'
-                    : 'Category, Account and date are read-only'}
+                  {transaction.lendingKind
+                    ? formatActivityDay(transaction.date)
+                    : formatEpochDay(transaction.date)}{' '}
+                  · Category, Account and date are read-only
                 </Text>
               </View>
               <View style={{ gap: 20 }} onTouchStart={dismissCalculator}>
@@ -306,7 +295,7 @@ export function EditTransactionScreen({
               </View>
             </>
           </ScrollView>
-          {!amountLocked && keypad}
+          {keypad}
         </View>
       )}
     </AmountInput>

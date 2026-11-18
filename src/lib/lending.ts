@@ -2,6 +2,7 @@ import { notifyDataChanged, type SavedTransaction } from './data-changes.ts';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { database } from './database';
 import { addTransactionTags, parseQuickAddTags } from './tag-store';
+import { lendingTotals, type LendingTotal } from './lending-totals.ts';
 
 export type LendingKind =
   'LEND' | 'BORROW' | 'RECEIVE_REPAYMENT' | 'REPAY' | 'WRITE_OFF_LENT' | 'WRITE_OFF_BORROWED';
@@ -31,15 +32,10 @@ export type LendingEntry = {
   accountId: number | null;
   accountName: string | null;
 };
-export type LendingTotal = {
-  personId: number;
-  currencyCode: string;
-  direction: 'LENT' | 'BORROWED';
-  principalMinor: number;
-  repaidMinor: number;
-  writtenOffMinor: number;
-  outstandingMinor: number;
-  overpaidMinor: number;
+/** A write-off has no Transaction. The Receipt shows it with "No Account movement". */
+export type WriteOffEntry = LendingEntry & {
+  type: 'WRITE_OFF';
+  kind: 'WRITE_OFF_LENT' | 'WRITE_OFF_BORROWED';
 };
 export type LendingResult =
   | { status: 'saved'; id: number }
@@ -68,67 +64,96 @@ export async function createPerson(name: string): Promise<Person> {
   notifyDataChanged();
   return { id: result.lastInsertRowId, name };
 }
+export async function renamePerson(id: number, name: string): Promise<Person> {
+  positive(id);
+  name = name.trim();
+  if (!name) throw new Error('Enter a person name.');
+  const db = await database();
+  const result = await db.runAsync('UPDATE people SET name=? WHERE id=?', [name, id]);
+  if (result.changes !== 1) throw new Error('Person not found.');
+  notifyDataChanged();
+  return { id, name };
+}
 export async function listPeople(): Promise<Person[]> {
   return (await database()).getAllAsync<Person>(
     'SELECT id, name FROM people ORDER BY name COLLATE NOCASE, id',
   );
 }
-async function entries(db: DB, personId?: number): Promise<LendingEntry[]> {
+async function entries(
+  db: DB,
+  filter?: { personId: number } | { entryId: number },
+): Promise<LendingEntry[]> {
+  const column = filter && ('personId' in filter ? 'personId' : 'id');
   return db.getAllAsync<LendingEntry>(
     `SELECT e.id,e.personId,p.name AS personName,e.kind,e.transactionId,
  CASE WHEN t.id IS NULL THEN e.currencyCode ELSE a.currencyCode END AS currencyCode,
  COALESCE(t.amountMinor,e.amountMinor) AS amountMinor,COALESCE(t.date,e.date) AS date,
  CASE WHEN t.id IS NULL THEN e.note ELSE t.note END AS note,t.accountId,a.name AS accountName
  FROM lending_entries e JOIN people p ON p.id=e.personId LEFT JOIN transactions t ON t.id=e.transactionId LEFT JOIN accounts a ON a.id=t.accountId
- ${personId === undefined ? '' : 'WHERE e.personId = ?'} ORDER BY date DESC,e.id DESC`,
-    personId === undefined ? [] : [personId],
+ ${column ? `WHERE e.${column} = ?` : ''} ORDER BY date DESC,e.id DESC`,
+    filter ? ['personId' in filter ? filter.personId : filter.entryId] : [],
   );
 }
 export async function listLendingEntries(personId?: number) {
-  return entries(await database(), personId);
-}
-function totals(rows: LendingEntry[]): LendingTotal[] {
-  const map = new Map<string, LendingTotal>();
-  for (const row of rows) {
-    const direction = ['LEND', 'RECEIVE_REPAYMENT', 'WRITE_OFF_LENT'].includes(row.kind)
-      ? 'LENT'
-      : 'BORROWED';
-    const key = `${row.personId}:${row.currencyCode}:${direction}`;
-    const total = map.get(key) ?? {
-      personId: row.personId,
-      currencyCode: row.currencyCode,
-      direction,
-      principalMinor: 0,
-      repaidMinor: 0,
-      writtenOffMinor: 0,
-      outstandingMinor: 0,
-      overpaidMinor: 0,
-    };
-    if (row.kind === 'LEND' || row.kind === 'BORROW') total.principalMinor += row.amountMinor;
-    else if (writeoff(row.kind)) total.writtenOffMinor += row.amountMinor;
-    else total.repaidMinor += row.amountMinor;
-    const balance = total.principalMinor - total.repaidMinor - total.writtenOffMinor;
-    total.outstandingMinor = Math.max(0, balance);
-    total.overpaidMinor = Math.max(0, -balance);
-    if (
-      ![total.principalMinor, total.repaidMinor, total.writtenOffMinor].every(Number.isSafeInteger)
-    )
-      throw new Error('Lending total exceeds supported range.');
-    map.set(key, total);
-  }
-  return [...map.values()].sort(
-    (a, b) =>
-      a.personId - b.personId ||
-      a.currencyCode.localeCompare(b.currencyCode) ||
-      a.direction.localeCompare(b.direction),
-  );
+  return entries(await database(), personId === undefined ? undefined : { personId });
 }
 export async function listLendingTotals(personId?: number) {
-  return totals(await listLendingEntries(personId));
+  return lendingTotals(await listLendingEntries(personId));
 }
+export async function loadLendingEntry(id: number) {
+  const [entry] = await entries(await database(), { entryId: id });
+  return entry;
+}
+
+export async function loadPersonLedger(id: number) {
+  const db = await database();
+  const [person, rows] = await Promise.all([
+    db.getFirstAsync<Person>('SELECT id,name FROM people WHERE id=?', [id]),
+    entries(db, { personId: id }),
+  ]);
+  if (!person) throw new Error('Person not found.');
+  return { person, entries: rows, totals: lendingTotals(rows) };
+}
+
+export type PersonWithTotals = Person & { totals: LendingTotal[]; lastDate?: number };
+
+export async function listPeopleWithLendingTotals(): Promise<PersonWithTotals[]> {
+  const [people, rows] = await Promise.all([listPeople(), listLendingEntries()]);
+  const grouped = new Map<number, LendingTotal[]>();
+  for (const total of lendingTotals(rows)) {
+    const group = grouped.get(total.personId) ?? [];
+    group.push(total);
+    grouped.set(total.personId, group);
+  }
+  const dates = new Map<number, number>();
+  for (const row of rows) {
+    if (!dates.has(row.personId)) dates.set(row.personId, row.date);
+  }
+  return people.map((person) => ({
+    ...person,
+    totals: grouped.get(person.id) ?? [],
+    lastDate: dates.get(person.id),
+  }));
+}
+
+export async function linkedAmountWarnings(db: DB, transactionId: number, amountMinor: number) {
+  const link = await db.getFirstAsync<{ personId: number }>(
+    'SELECT personId FROM lending_entries WHERE transactionId=?',
+    [transactionId],
+  );
+  if (!link) return [];
+  const rows = await entries(db, { personId: link.personId });
+  const row = rows.find((entry) => entry.transactionId === transactionId);
+  if (!row || row.amountMinor === amountMinor) return [];
+  return warnings(
+    rows,
+    rows.map((entry) => (entry === row ? { ...entry, amountMinor } : entry)),
+  );
+}
+
 function warnings(before: LendingEntry[], after: LendingEntry[]) {
-  const old = totals(before);
-  return totals(after).filter(
+  const old = lendingTotals(before);
+  return lendingTotals(after).filter(
     (t) =>
       t.overpaidMinor >
       (old.find(
@@ -295,36 +320,85 @@ async function unassigned(db: DB) {
 export async function listUnassignedLendingTransactions() {
   return unassigned(await database());
 }
+function historicalEntry(row: UnassignedLendingTransaction, personId: number): LendingEntry {
+  return { ...row, id: -1, personId, personName: '' };
+}
+
+export async function loadUnassignedLending() {
+  const rows = await listUnassignedLendingTransactions();
+  return { rows, totals: lendingTotals(rows.map((row) => historicalEntry(row, 0))) };
+}
+
+type AssignmentResult =
+  | { status: 'saved'; ids: number[]; person: Person }
+  | Extract<LendingResult, { status: 'confirmation_required' }>;
+
+export async function assignLendingTransactions(
+  transactionIds: readonly number[],
+  target: number | string,
+  options: { confirmOverpayment?: boolean } = {},
+): Promise<AssignmentResult> {
+  if (!transactionIds.length) throw new Error('Select at least one entry.');
+  const ids = [...new Set(transactionIds)];
+  ids.forEach(positive);
+  if (typeof target === 'number') positive(target);
+  else if (!target.trim()) throw new Error('Enter a person name.');
+  const db = await database();
+  let result!: AssignmentResult;
+  await db.withExclusiveTransactionAsync(async (tx) => {
+    let chosen =
+      typeof target === 'number'
+        ? await tx.getFirstAsync<Person>('SELECT id,name FROM people WHERE id=?', [target])
+        : await tx.getFirstAsync<Person>(
+            'SELECT id,name FROM people WHERE name=? COLLATE NOCASE ORDER BY id LIMIT 1',
+            [target.trim()],
+          );
+    if (!chosen && typeof target === 'number') throw new Error('Person not found.');
+    const available = new Map((await unassigned(tx)).map((row) => [row.transactionId, row]));
+    const rows = ids.map((id) => {
+      const row = available.get(id);
+      if (!row) throw new Error('Transaction is not an unassigned historical lending movement.');
+      return row;
+    });
+    const before = await entries(tx);
+    const warning = warnings(before, [
+      ...before,
+      ...rows.map((row) => historicalEntry(row, chosen?.id ?? 0)),
+    ]);
+    if (warning.length && !options.confirmOverpayment) {
+      result = { status: 'confirmation_required', warnings: warning };
+      return;
+    }
+    if (!chosen) {
+      const name = String(target).trim();
+      const created = await tx.runAsync('INSERT INTO people (name) VALUES (?)', [name]);
+      chosen = { id: created.lastInsertRowId, name };
+    }
+    const saved = [];
+    for (const row of rows) {
+      const id = row.transactionId;
+      const r = await tx.runAsync(
+        'INSERT INTO lending_entries (personId,kind,transactionId,currencyCode,amountMinor,date,note) VALUES (?,?,?,?,?,?,?)',
+        [chosen.id, row.kind, id, row.currencyCode, row.amountMinor, row.date, row.note],
+      );
+      await tx.runAsync('UPDATE transactions SET excludeFromReport=1 WHERE id=?', [id]);
+      await tx.runAsync(
+        'UPDATE transfer_candidates SET resolved=1 WHERE outgoingTxnId=? OR incomingTxnId=?',
+        [id, id],
+      );
+      saved.push(r.lastInsertRowId);
+    }
+    result = { status: 'saved', ids: saved, person: chosen };
+  });
+  if (result.status === 'saved') notifyDataChanged();
+  return result;
+}
+
 export async function assignLendingTransaction(
   transactionId: number,
   personId: number,
   options: { confirmOverpayment?: boolean } = {},
 ): Promise<LendingResult> {
-  positive(transactionId);
-  const db = await database();
-  let result: LendingResult = { status: 'deleted' };
-  await db.withExclusiveTransactionAsync(async (tx) => {
-    await person(tx, personId);
-    const row = (await unassigned(tx)).find((t) => t.transactionId === transactionId);
-    if (!row) throw new Error('Transaction is not an unassigned historical lending movement.');
-    const before = await entries(tx);
-    const entry: LendingEntry = { ...row, id: -1, personId, personName: '' };
-    const warning = warnings(before, [...before, entry]);
-    if (warning.length && !options.confirmOverpayment) {
-      result = { status: 'confirmation_required', warnings: warning };
-      return;
-    }
-    const r = await tx.runAsync(
-      'INSERT INTO lending_entries (personId,kind,transactionId,currencyCode,amountMinor,date,note) VALUES (?,?,?,?,?,?,?)',
-      [personId, row.kind, transactionId, row.currencyCode, row.amountMinor, row.date, row.note],
-    );
-    await tx.runAsync('UPDATE transactions SET excludeFromReport=1 WHERE id=?', [transactionId]);
-    await tx.runAsync(
-      'UPDATE transfer_candidates SET resolved=1 WHERE outgoingTxnId=? OR incomingTxnId=?',
-      [transactionId, transactionId],
-    );
-    result = { status: 'saved', id: r.lastInsertRowId };
-  });
-  if (!('warnings' in result)) notifyDataChanged();
-  return result;
+  const result = await assignLendingTransactions([transactionId], personId, options);
+  return result.status === 'saved' ? { status: 'saved', id: result.ids[0] } : result;
 }

@@ -34,7 +34,8 @@ registerHooks({
     return next(url, context);
   },
 });
-const { combinedMinor, combinedCategorySpending } = await import('./display-rate.ts');
+const { combinedMinor, combinedCategorySpending, rowsInCurrency, usableRate } =
+  await import('./display-rate.ts');
 const { saveDisplayRate, getDisplayRate } = await import('./display-rate-store.ts');
 
 const rate = { base: 'USD', quote: 'BDT', rate: 100 };
@@ -87,4 +88,31 @@ test('save preserves favorite account and other settings and can clear rate', as
   assert.equal(await getDisplayRate(), null);
   assert.equal(JSON.parse(stored).favoriteAccountId, 7);
   await assert.rejects(saveDisplayRate({ ...rate, rate: Infinity }));
+});
+
+test('usableRate keeps a valid Display Rate only', () => {
+  const rate = { base: 'USD', quote: 'BDT', rate: 120 };
+  assert.equal(usableRate(rate), rate);
+  assert.equal(usableRate({ ...rate, rate: 0 }), null);
+  assert.equal(usableRate(null), null);
+});
+
+test('rowsInCurrency converts each row at the Display Rate, or leaves out the other Currencies', () => {
+  const rate = { base: 'USD', quote: 'BDT', rate: 120 };
+  const rows = [
+    { currencyCode: 'BDT', amountMinor: 1_000, date: 1 },
+    { currencyCode: 'USD', amountMinor: 10, date: 2 },
+  ];
+  assert.deepEqual(rowsInCurrency(rows, rate, 'BDT'), {
+    rows: [
+      { currencyCode: 'BDT', amountMinor: 1_000, date: 1 },
+      { currencyCode: 'BDT', amountMinor: 1_200, date: 2 },
+    ],
+    leftOutOthers: false,
+  });
+  assert.deepEqual(rowsInCurrency(rows, null, 'BDT'), {
+    rows: [{ currencyCode: 'BDT', amountMinor: 1_000, date: 1 }],
+    leftOutOthers: true,
+  });
+  assert.equal(rowsInCurrency(rows.slice(0, 1), null, 'BDT').leftOutOthers, false);
 });

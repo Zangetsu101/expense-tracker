@@ -10,6 +10,11 @@ export function validDisplayRate(value: DisplayRate): boolean {
   );
 }
 
+/** The rate when it is valid, or null. */
+export function usableRate(rate: DisplayRate | null): DisplayRate | null {
+  return rate && validDisplayRate(rate) ? rate : null;
+}
+
 export function combinedMinor(
   rows: { currencyCode: string; amountMinor: number }[],
   rate: DisplayRate | null,
@@ -66,4 +71,45 @@ export function combinedCategorySpending(
   return [...totals.values()]
     .map((row) => ({ ...row, amountMinor: Math.round(row.amountMinor) }))
     .sort((a, b) => b.amountMinor - a.amountMinor);
+}
+
+/**
+ * The sum of the amounts in the target Currency. A Display Rate of `rate` means one `base` equals
+ * `rate` of `quote`. Returns null when an amount cannot be converted.
+ */
+export function convertTo(
+  rows: { currencyCode: string; amountMinor: number }[],
+  rate: DisplayRate | null,
+  target: string,
+): number | null {
+  let total = 0;
+  for (const row of rows) {
+    if (row.currencyCode === target) total += row.amountMinor;
+    else if (rate && row.currencyCode === rate.base && target === rate.quote)
+      total += row.amountMinor * rate.rate;
+    else if (rate && row.currencyCode === rate.quote && target === rate.base)
+      total += row.amountMinor / rate.rate;
+    else return null;
+  }
+  return Math.round(total);
+}
+
+/**
+ * The rows in the target Currency. The Display Rate converts the other Currencies. When it
+ * cannot convert a row, only the rows in the target Currency stay, and `leftOutOthers` is true.
+ */
+export function rowsInCurrency<R extends { currencyCode: string; amountMinor: number }>(
+  rows: R[],
+  rate: DisplayRate | null,
+  target: string,
+): { rows: R[]; leftOutOthers: boolean } {
+  const usable = usableRate(rate);
+  const converted: R[] = [];
+  for (const row of rows) {
+    const amountMinor = convertTo([row], usable, target);
+    if (amountMinor === null)
+      return { rows: rows.filter((item) => item.currencyCode === target), leftOutOthers: true };
+    converted.push({ ...row, currencyCode: target, amountMinor });
+  }
+  return { rows: converted, leftOutOthers: false };
 }

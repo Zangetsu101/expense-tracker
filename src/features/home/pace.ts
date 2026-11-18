@@ -1,4 +1,5 @@
-import { validDisplayRate, type DisplayRate } from '@/lib/display-rate';
+import { byMainCurrency } from '@/lib/currency';
+import { convertTo, usableRate, type DisplayRate } from '@/lib/display-rate';
 import type { CurrencyBalance } from './balances.ts';
 
 /** Spending in one Currency: in the period, in the previous period up to the same point, and in all of the previous period. */
@@ -8,27 +9,6 @@ export type PaceRow = {
   sameMinor: number;
   previousMinor: number;
 };
-
-/**
- * The sum of the amounts in the target Currency. A Display Rate of `rate` means one `base` equals
- * `rate` of `quote`. Returns null when an amount cannot be converted.
- */
-export function convertTo(
-  rows: { currencyCode: string; amountMinor: number }[],
-  rate: DisplayRate | null,
-  target: string,
-): number | null {
-  let total = 0;
-  for (const row of rows) {
-    if (row.currencyCode === target) total += row.amountMinor;
-    else if (rate && row.currencyCode === rate.base && target === rate.quote)
-      total += row.amountMinor * rate.rate;
-    else if (rate && row.currencyCode === rate.quote && target === rate.base)
-      total += row.amountMinor / rate.rate;
-    else return null;
-  }
-  return Math.round(total);
-}
 
 export type PaceSummary = {
   /** One total when all balances are in one Currency or the Display Rate converts them. */
@@ -53,22 +33,20 @@ export function paceSummary({
   rate: DisplayRate | null;
   mainCurrency: string;
 }): PaceSummary {
-  const parts = [...balances].sort(
-    (a, b) =>
-      Number(b.currencyCode === mainCurrency) - Number(a.currencyCode === mainCurrency) ||
-      a.currencyCode.localeCompare(b.currencyCode),
+  const parts = [...balances].sort((a, b) =>
+    byMainCurrency(mainCurrency)(a.currencyCode, b.currencyCode),
   );
   const many = new Set([...balances, ...pace].map((row) => row.currencyCode)).size > 1;
-  const usableRate = many && rate && validDisplayRate(rate) ? rate : null;
+  const rateToUse = many ? usableRate(rate) : null;
   const convert = (pick: (row: PaceRow) => number) =>
     convertTo(
       pace.map((row) => ({ currencyCode: row.currencyCode, amountMinor: pick(row) })),
-      usableRate,
+      rateToUse,
       mainCurrency,
     );
   const totalMinor = convertTo(
     balances.map((row) => ({ currencyCode: row.currencyCode, amountMinor: row.balanceMinor })),
-    usableRate,
+    rateToUse,
     mainCurrency,
   );
   const spentMinor = convert((row) => row.spentMinor);
@@ -77,7 +55,7 @@ export function paceSummary({
   if (totalMinor !== null && spentMinor !== null && sameMinor !== null && previousMinor !== null)
     return {
       total: { currencyCode: mainCurrency, amountMinor: totalMinor },
-      rate: usableRate,
+      rate: rateToUse,
       parts,
       pace: { currencyCode: mainCurrency, spentMinor, sameMinor, previousMinor },
       paceOnly: null,

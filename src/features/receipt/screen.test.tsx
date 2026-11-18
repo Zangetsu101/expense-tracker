@@ -5,6 +5,13 @@ import { usePreventRemove } from 'expo-router/react-navigation';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { listAccounts, type Account } from '@/lib/database';
 import { notifyDataChanged } from '@/lib/data-changes';
+import {
+  deleteLendingEntry,
+  loadLendingEntry,
+  saveLendingEntry,
+  type LendingEntry,
+} from '@/lib/lending';
+import type { LendingTotal } from '@/lib/lending-totals';
 import { deleteTransaction } from '@/lib/transaction-delete';
 import {
   loadEditableTransaction,
@@ -21,12 +28,17 @@ type HeaderOptions = {
   headerLeft?: () => ReactElement;
   headerRight?: () => ReactElement;
 };
-const MockParamsContext = createContext<{ id?: string }>({});
+const MockParamsContext = createContext<{ id?: string; kind?: string }>({});
 let mockHeader: HeaderOptions = {};
 const mockNavigation = { dispatch: jest.fn(), goBack: jest.fn() };
 jest.mock('expo-router', () => {
-  const { View } = jest.requireActual<typeof import('react-native')>('react-native');
+  const { View, Text } = jest.requireActual<typeof import('react-native')>('react-native');
   return {
+    Link: ({ children, href }: { children: ReactNode; href: object }) => (
+      <Text accessibilityRole="link" accessibilityHint={JSON.stringify(href)}>
+        {children}
+      </Text>
+    ),
     useLocalSearchParams: () =>
       jest.requireActual<typeof import('react')>('react').use(MockParamsContext),
     Stack: {
@@ -56,6 +68,11 @@ jest.mock('@/lib/database', () => {
     listAccounts: jest.fn(),
   };
 });
+jest.mock('@/lib/lending', () => ({
+  loadLendingEntry: jest.fn(),
+  saveLendingEntry: jest.fn(),
+  deleteLendingEntry: jest.fn(),
+}));
 jest.mock('@/lib/transaction-edit', () => ({
   loadEditableTransaction: jest.fn(),
   saveTransactionEdit: jest.fn(),
@@ -111,6 +128,7 @@ jest.mock('@expo/ui', () => {
     }) => (
       <Switch
         accessibilityLabel={label}
+        accessibilityState={{ disabled: !!disabled }}
         value={value}
         onValueChange={onValueChange}
         disabled={disabled}
@@ -166,10 +184,10 @@ const safeArea = {
 };
 
 /** Renders the screen with a route param that test buttons can change. */
-function Route({ initialId }: { initialId: string }) {
+function Route({ initialId, kind }: { initialId: string; kind?: string }) {
   const [id, setId] = useState(initialId);
   return (
-    <MockParamsContext value={{ id }}>
+    <MockParamsContext value={{ id, kind }}>
       <SafeAreaProvider initialMetrics={safeArea}>
         <Pressable
           accessibilityRole="button"
@@ -217,8 +235,8 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
-async function renderScreen(id = '1') {
-  const view = await renderWithQueries(<Route initialId={id} />);
+async function renderScreen(id = '1', kind?: string) {
+  const view = await renderWithQueries(<Route initialId={id} kind={kind} />);
   return view;
 }
 
@@ -560,16 +578,56 @@ describe('Transaction edit', () => {
     expect(jest.mocked(saveTransactionEdit).mock.calls[0][5]).toBe(1250);
   });
 
-  test('a lending Transaction shows a read-only amount', async () => {
+  test('the lending Person opens the person screen above the Receipt, and an amount edit can confirm overpaid credit', async () => {
     const user = userEvent.setup();
+    const linked = {
+      ...transaction,
+      lendingKind: 'LEND' as const,
+      personId: 7,
+      personName: 'Sam',
+      reportExclusionLocked: 1,
+    };
+    jest.mocked(loadEditableTransaction).mockResolvedValue(linked);
     jest
-      .mocked(loadEditableTransaction)
-      .mockResolvedValue({ ...transaction, lendingKind: 'LEND', personName: 'Sam' });
+      .mocked(saveTransactionEdit)
+      .mockResolvedValueOnce({
+        status: 'confirmation_required',
+        warnings: [
+          {
+            personId: 7,
+            currencyCode: 'USD',
+            direction: 'LENT',
+            outstandingMinor: 0,
+            overpaidMinor: 100,
+            principalMinor: 500,
+            repaidMinor: 600,
+            writtenOffMinor: 0,
+          },
+        ],
+      })
+      .mockResolvedValueOnce(undefined);
     await renderScreen();
+    const person = await screen.findByRole('link', { name: /Sam/ });
+    expect(JSON.parse(person.props.accessibilityHint)).toEqual({
+      pathname: '/person',
+      params: { id: 7, name: 'Sam' },
+    });
     await openEditor(user);
-
-    expect(screen.queryByRole('button', { name: 'Amount' })).not.toBeOnTheScreen();
-    expect(screen.getByText(/from Lending/)).toBeOnTheScreen();
+    expect(screen.getByLabelText('Exclude from reports')).toBeDisabled();
+    await user.press(screen.getByRole('button', { name: 'Amount' }));
+    for (const key of ['Clear calculation', '5', 'Done'])
+      await user.press(screen.getByRole('button', { name: key }));
+    await user.press(screen.getByRole('button', { name: 'Save changes' }));
+    expect(alert.mock.calls.at(-1)?.[0]).toBe('Overpayment warning');
+    expect(saveTransactionEdit).toHaveBeenCalledTimes(1);
+    expect(saveTransactionEdit).toHaveBeenLastCalledWith(linked, '', true, '', [], 500, {
+      confirmOverpayment: false,
+    });
+    await chooseAlert('Save anyway');
+    expect(saveTransactionEdit).toHaveBeenLastCalledWith(linked, '', true, '', [], 500, {
+      confirmOverpayment: true,
+    });
+    expect(await screen.findByRole('button', { name: 'Edit' })).toBeEnabled();
   });
 });
 
@@ -628,7 +686,7 @@ describe('Delete', () => {
     await chooseAlert('Delete');
 
     expect(alert.mock.calls.at(-1)?.[0]).toBe('Overpayment warning');
-    expect(alert.mock.calls.at(-1)?.[1]).toMatch(/overpaid credit 2\.50/);
+    expect(alert.mock.calls.at(-1)?.[1]).toMatch(/Overpaid credit \$2\.50/);
     expect(mockNavigation.goBack).not.toHaveBeenCalled();
     await chooseAlert('Delete');
 
@@ -802,6 +860,128 @@ describe('Transfer', () => {
       text: '9.00',
     });
     expect(mockHeader.title).toBe('Edit transfer');
+  });
+});
+
+describe('Write-off', () => {
+  const writeOff: LendingEntry = {
+    id: 1,
+    personId: 7,
+    personName: 'Sam',
+    kind: 'WRITE_OFF_LENT',
+    transactionId: null,
+    amountMinor: 500,
+    currencyCode: 'USD',
+    date: 20000,
+    note: 'Agreed',
+    accountId: null,
+    accountName: null,
+  };
+  const overpaid: LendingTotal = {
+    personId: 7,
+    currencyCode: 'USD',
+    direction: 'LENT',
+    principalMinor: 500,
+    repaidMinor: 0,
+    writtenOffMinor: 700,
+    outstandingMinor: 0,
+    overpaidMinor: 200,
+  };
+  beforeEach(() => {
+    for (const mock of [loadLendingEntry, saveLendingEntry, deleteLendingEntry])
+      jest.mocked(mock).mockReset();
+    jest.mocked(loadLendingEntry).mockResolvedValue(writeOff);
+  });
+
+  test('a write-off opens in Receipt without a Transaction or report field', async () => {
+    await renderScreen('1', 'write-off');
+    expect(await screen.findByText('No Account movement')).toBeOnTheScreen();
+    expect(screen.getByText('Wrote off what Sam owes')).toBeOnTheScreen();
+    expect(screen.getByRole('link', { name: /Sam/ })).toBeOnTheScreen();
+    expect(screen.queryByText('Reports')).not.toBeOnTheScreen();
+    expect(loadEditableTransaction).not.toHaveBeenCalled();
+  });
+
+  test('an edit that adds overpaid credit asks first, then saves and shows the new receipt', async () => {
+    const user = userEvent.setup();
+    jest
+      .mocked(saveLendingEntry)
+      .mockResolvedValueOnce({ status: 'confirmation_required', warnings: [overpaid] })
+      .mockResolvedValueOnce({ status: 'saved', id: 1 });
+    await renderScreen('1', 'write-off');
+    await openEditor(user);
+    expect(mockHeader.title).toBe('Edit write-off');
+    await user.clear(screen.getByLabelText('Amount'));
+    await user.type(screen.getByLabelText('Amount'), '7');
+    await user.type(noteInput(), ' in full');
+    jest.mocked(loadLendingEntry).mockResolvedValue({ ...writeOff, amountMinor: 700 });
+    await user.press(screen.getByRole('button', { name: 'Save changes' }));
+
+    expect(alert.mock.calls.at(-1)?.[0]).toBe('Overpayment warning');
+    expect(saveLendingEntry).toHaveBeenCalledTimes(1);
+    await chooseAlert('Write off anyway');
+
+    const draft = {
+      id: 1,
+      personId: 7,
+      kind: 'WRITE_OFF_LENT',
+      currencyCode: 'USD',
+      amountMinor: 700,
+      date: 20000,
+      note: 'Agreed in full',
+    };
+    expect(jest.mocked(saveLendingEntry).mock.calls).toEqual([
+      [{ ...draft, confirmOverpayment: false }],
+      [{ ...draft, confirmOverpayment: true }],
+    ]);
+    expect(await screen.findByRole('button', { name: 'Edit' })).toBeEnabled();
+    expect(mockHeader.title).toBe('Receipt');
+  });
+
+  test('Cancel on the overpaid credit warning keeps the draft and saves nothing more', async () => {
+    const user = userEvent.setup();
+    jest
+      .mocked(saveLendingEntry)
+      .mockResolvedValue({ status: 'confirmation_required', warnings: [overpaid] });
+    await renderScreen('1', 'write-off');
+    await openEditor(user);
+    await user.clear(screen.getByLabelText('Amount'));
+    await user.type(screen.getByLabelText('Amount'), '7');
+    await user.press(screen.getByRole('button', { name: 'Save changes' }));
+    await chooseAlert('Cancel');
+
+    expect(saveLendingEntry).toHaveBeenCalledTimes(1);
+    expect(mockHeader.title).toBe('Edit write-off');
+    expect(screen.getByLabelText('Amount')).toHaveDisplayValue('7');
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled();
+  });
+
+  test('Delete asks first, confirms overpaid credit, deletes the write-off and closes', async () => {
+    const user = userEvent.setup();
+    jest
+      .mocked(deleteLendingEntry)
+      .mockImplementation(async (_, options) =>
+        options?.confirmOverpayment
+          ? { status: 'deleted' }
+          : { status: 'confirmation_required', warnings: [overpaid] },
+      );
+    await renderScreen('1', 'write-off');
+    await openEditor(user);
+    await user.press(screen.getByRole('button', { name: 'Delete write-off' }));
+
+    expect(alert.mock.calls.at(-1)?.[0]).toBe('Delete write-off?');
+    expect(deleteLendingEntry).not.toHaveBeenCalled();
+    await chooseAlert('Delete');
+    expect(alert.mock.calls.at(-1)?.[0]).toBe('Overpayment warning');
+    expect(mockNavigation.goBack).not.toHaveBeenCalled();
+    await chooseAlert('Delete');
+
+    expect(jest.mocked(deleteLendingEntry).mock.calls).toEqual([
+      [1, { confirmDelete: true, confirmOverpayment: false }],
+      [1, { confirmDelete: true, confirmOverpayment: true }],
+    ]);
+    expect(deleteTransaction).not.toHaveBeenCalled();
+    expect(mockNavigation.goBack).toHaveBeenCalledTimes(1);
   });
 });
 

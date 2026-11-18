@@ -3,6 +3,7 @@ export type NativeUpdateState = {
   isDownloading: boolean;
   isStartupProcedureRunning: boolean;
   isUpdatePending: boolean;
+  downloadedUpdate?: { updateId?: string };
   isRestarting: boolean;
   downloadProgress?: number;
   lastCheckForUpdateTimeSinceRestart?: Date;
@@ -18,7 +19,11 @@ export type UpdateStatus =
   | 'error';
 export type UpdateState = { status: UpdateStatus; error?: string; progress?: number };
 type UpdateAPI = {
-  check: () => Promise<{ isAvailable: boolean; isRollBackToEmbedded?: boolean }>;
+  check: () => Promise<{
+    isAvailable: boolean;
+    isRollBackToEmbedded?: boolean;
+    manifest?: { id?: string };
+  }>;
   fetch: () => Promise<{ isNew: boolean; isRollBackToEmbedded?: boolean }>;
   reload: () => Promise<void>;
 };
@@ -29,6 +34,7 @@ export function createUpdateController(supported: boolean, api: UpdateAPI, now =
   let native: NativeUpdateState;
   let busy = false;
   let lastAttempt: number | undefined;
+  let focusCheckPending = false;
   const listeners = new Set<() => void>();
   const set = (next: UpdateState) => {
     state = next;
@@ -40,7 +46,10 @@ export function createUpdateController(supported: boolean, api: UpdateAPI, now =
       native.isDownloading ||
       native.isStartupProcedureRunning ||
       native.isRestarting);
-  return {
+  const checkAfterSettling = () => {
+    if (focusCheckPending && !busy && !nativeBusy()) void controller.check('focus');
+  };
+  const controller = {
     getSnapshot: () => state,
     subscribe(fn: () => void) {
       listeners.add(fn);
@@ -56,26 +65,36 @@ export function createUpdateController(supported: boolean, api: UpdateAPI, now =
       if (next.isRestarting) set({ status: 'restarting' });
       else if (next.isDownloading) set({ status: 'downloading', progress: next.downloadProgress });
       else if (next.isChecking || next.isStartupProcedureRunning) set({ status: 'checking' });
-      else if (next.isUpdatePending) set({ status: 'ready' });
+      else if (!busy && next.isUpdatePending) set({ status: 'ready' });
       else if (!busy && (state.status === 'checking' || state.status === 'downloading'))
         set({ status: 'idle' });
+      checkAfterSettling();
     },
-    async check(manual = false) {
+    async check(trigger: 'automatic' | 'manual' | 'focus' = 'automatic') {
+      if (!supported || state.status === 'restarting') return;
+      if (busy || nativeBusy()) {
+        if (trigger === 'focus') focusCheckPending = true;
+        return;
+      }
+      if (state.status === 'ready' && trigger !== 'focus') return;
       if (
-        !supported ||
-        busy ||
-        nativeBusy() ||
-        state.status === 'ready' ||
-        state.status === 'restarting'
+        trigger === 'automatic' &&
+        lastAttempt !== undefined &&
+        now() - lastAttempt < UPDATE_COOLDOWN
       )
         return;
-      if (!manual && lastAttempt !== undefined && now() - lastAttempt < UPDATE_COOLDOWN) return;
+      if (trigger === 'focus') focusCheckPending = false;
+      const wasReady = state.status === 'ready';
       lastAttempt = now();
       busy = true;
       set({ status: 'checking' });
       try {
         const result = await api.check();
-        if (native?.isUpdatePending) {
+        const hasCachedUpdate = wasReady || native?.isUpdatePending;
+        const discoveredId = result.manifest?.id;
+        const alreadyDownloaded =
+          discoveredId !== undefined && discoveredId === native?.downloadedUpdate?.updateId;
+        if (hasCachedUpdate && (trigger !== 'focus' || alreadyDownloaded)) {
           set({ status: 'ready' });
           return;
         }
@@ -84,16 +103,19 @@ export function createUpdateController(supported: boolean, api: UpdateAPI, now =
           const downloaded = await api.fetch();
           set({
             status:
-              downloaded.isNew || downloaded.isRollBackToEmbedded || native?.isUpdatePending
+              downloaded.isNew ||
+              downloaded.isRollBackToEmbedded ||
+              hasCachedUpdate ||
+              native?.isUpdatePending
                 ? 'ready'
                 : 'current',
           });
-        } else set({ status: 'current' });
+        } else set({ status: hasCachedUpdate ? 'ready' : 'current' });
       } catch {
-        if (native?.isUpdatePending) set({ status: 'ready' });
+        if (wasReady || native?.isUpdatePending) set({ status: 'ready' });
         else
           set(
-            manual
+            trigger === 'manual'
               ? {
                   status: 'error',
                   error:
@@ -103,6 +125,7 @@ export function createUpdateController(supported: boolean, api: UpdateAPI, now =
           );
       } finally {
         busy = false;
+        checkAfterSettling();
       }
     },
     async restart() {
@@ -118,6 +141,7 @@ export function createUpdateController(supported: boolean, api: UpdateAPI, now =
       }
     },
   };
+  return controller;
 }
 
 export function watchUpdateLifecycle(

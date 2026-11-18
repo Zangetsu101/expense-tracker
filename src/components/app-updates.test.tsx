@@ -1,119 +1,165 @@
-import { act, render, screen, userEvent } from '@testing-library/react-native';
-import { Alert, AppState } from 'react-native';
+import { act, render, screen, userEvent, within } from '@testing-library/react-native';
+import { useFocusEffect } from 'expo-router';
 import * as Updates from 'expo-updates';
+import { Alert, AppState } from 'react-native';
 import { AppUpdatesProvider, UpdatesRow } from './app-updates';
 
-let mockFocus: () => void;
 jest.mock('expo-router', () => ({
-  useFocusEffect: (focus: () => void) => {
-    mockFocus = focus;
-  },
+  useFocusEffect: jest.fn((callback) =>
+    jest.requireActual<typeof import('react')>('react').useEffect(callback, [callback]),
+  ),
 }));
 jest.mock('expo-constants', () => ({ executionEnvironment: 'standalone' }));
+jest.mock('expo-symbols', () => ({ SymbolView: () => null }));
 jest.mock('expo-updates', () => ({
   isEnabled: true,
-  UpdateCheckResultNotAvailableReason:
-    jest.requireActual('expo-updates').UpdateCheckResultNotAvailableReason,
+  UpdateCheckResultNotAvailableReason: {
+    NO_UPDATE_AVAILABLE_ON_SERVER: 'noUpdateAvailableOnServer',
+  },
   useUpdates: jest.fn(),
   checkForUpdateAsync: jest.fn(),
   fetchUpdateAsync: jest.fn(),
   reloadAsync: jest.fn(),
 }));
-const tree = (visible = true) => (
-  <AppUpdatesProvider>{visible && <UpdatesRow />}</AppUpdatesProvider>
-);
-const runtime = globalThis as typeof globalThis & { __DEV__: boolean };
-const originalDev = runtime.__DEV__;
-type NativeUpdates = ReturnType<typeof Updates.useUpdates>;
-const mockNative: NativeUpdates = {
+
+const idle: ReturnType<typeof Updates.useUpdates> = {
   currentlyRunning: {
     isEmbeddedLaunch: true,
     isEmergencyLaunch: false,
     emergencyLaunchReason: null,
   },
-  isUpdateAvailable: false,
-  restartCount: 0,
   isStartupProcedureRunning: false,
+  isUpdateAvailable: false,
+  isUpdatePending: false,
   isChecking: false,
   isDownloading: false,
-  isUpdatePending: false,
   isRestarting: false,
-  downloadProgress: undefined,
+  restartCount: 0,
 };
+const noUpdate = {
+  isAvailable: false,
+  isRollBackToEmbedded: false,
+  manifest: undefined,
+  reason: Updates.UpdateCheckResultNotAvailableReason.NO_UPDATE_AVAILABLE_ON_SERVER,
+} as const;
+const check = jest.mocked(Updates.checkForUpdateAsync);
+const native = jest.mocked(Updates.useUpdates);
+const button = (name: string) => screen.getByRole('button', { name });
+
+function tree(showRow = true) {
+  return <AppUpdatesProvider>{showRow && <UpdatesRow />}</AppUpdatesProvider>;
+}
+
+async function focus() {
+  const onFocus = jest.mocked(useFocusEffect).mock.lastCall?.[0];
+  expect(onFocus).toBeDefined();
+  await act(async () => {
+    onFocus?.();
+  });
+}
+
+const environment = globalThis as typeof globalThis & { __DEV__: boolean };
+let previousDev: boolean;
 beforeEach(() => {
-  runtime.__DEV__ = false;
+  previousDev = __DEV__;
+  environment.__DEV__ = false;
+  native.mockReturnValue(idle);
+  check.mockReset().mockResolvedValue(noUpdate);
+  jest.mocked(Updates.reloadAsync).mockResolvedValue(undefined);
   jest.spyOn(Alert, 'alert').mockImplementation(() => {});
-  jest.spyOn(AppState, 'addEventListener').mockReturnValue({ remove: jest.fn() });
-  jest.mocked(Updates.useUpdates).mockImplementation(() => ({ ...mockNative }));
 });
+
 afterEach(() => {
-  runtime.__DEV__ = originalDev;
+  environment.__DEV__ = previousDev;
   jest.restoreAllMocks();
 });
 
-test('startup owns the check, download exposes progress, and restart requires confirmation', async () => {
-  const user = userEvent.setup();
-  const native = { ...mockNative, isStartupProcedureRunning: true };
-  jest.mocked(Updates.useUpdates).mockImplementation(() => ({ ...native }));
-  const view = await render(tree());
-  expect(screen.getByRole('button', { name: 'Checking for updates' })).toBeDisabled();
-  expect(Updates.checkForUpdateAsync).not.toHaveBeenCalled();
-  Object.assign(native, {
-    isStartupProcedureRunning: false,
-    isDownloading: true,
-    isUpdatePending: true,
-  });
-  for (const percent of [0, 37, 50, 100]) {
-    native.downloadProgress = percent / 100;
-    await view.rerender(tree());
-    expect(screen.getByRole('button', { name: `Downloading update, ${percent}%` })).toBeDisabled();
-    expect(screen.getByLabelText('Downloading update')).toHaveAccessibilityValue({ now: percent });
+test('waits for native startup and reports native download progress', async () => {
+  const remove = jest.fn();
+  jest.spyOn(AppState, 'addEventListener').mockReturnValue({ remove });
+  native.mockReturnValue({ ...idle, isStartupProcedureRunning: true });
+  const { rerender, unmount } = await render(tree());
+  expect(button('Checking for updates')).toBeDisabled();
+  expect(check).not.toHaveBeenCalled();
+
+  for (const progress of [0.37, 0, 0.5, 1]) {
+    native.mockReturnValue({ ...idle, isDownloading: true, downloadProgress: progress });
+    await rerender(tree());
+    expect(button(`Downloading update, ${Math.round(progress * 100)}%`)).toBeDisabled();
+    expect(screen.getByLabelText('Downloading update')).toHaveAccessibilityValue({
+      now: Math.round(progress * 100),
+    });
   }
-  native.downloadProgress = undefined;
-  await view.rerender(tree());
-  expect(screen.getByRole('button', { name: 'Downloading update' })).toBeDisabled();
-  native.isDownloading = false;
-  await view.rerender(tree());
-  await act(mockFocus);
-  await user.press(screen.getByRole('button', { name: 'Restart to update' }));
-  expect(Updates.reloadAsync).not.toHaveBeenCalled();
-  const [, warning, buttons] = jest.mocked(Alert.alert).mock.lastCall!;
-  expect(warning).toMatch(/Unsaved/);
-  expect(buttons).toContainEqual(expect.objectContaining({ style: 'cancel' }));
-  await act(() => buttons?.find((b) => b.text === 'Restart to update')?.onPress?.());
-  expect(Updates.reloadAsync).toHaveBeenCalledTimes(1);
-  await view.unmount();
-  expect(jest.mocked(AppState.addEventListener).mock.results[0].value.remove).toHaveBeenCalled();
+  native.mockReturnValue({ ...idle, isDownloading: true });
+  await rerender(tree());
+  expect(button('Downloading update')).toBeDisabled();
+  expect(
+    within(button('Downloading update')).getByLabelText('Downloading update'),
+  ).toBeOnTheScreen();
+
+  native.mockReturnValue({ ...idle, isUpdatePending: true });
+  await rerender(tree());
+  expect(check).toHaveBeenCalledTimes(1);
+  expect(button('Restart to update')).toBeEnabled();
+  await unmount();
+  expect(remove).toHaveBeenCalledTimes(1);
 });
 
-test('failed checks can be retried and revisiting clears visit-specific feedback', async () => {
+test('checks again when Settings regains focus and restores the cached restart on failure', async () => {
   const user = userEvent.setup();
-  jest.mocked(Updates.checkForUpdateAsync).mockRejectedValue(new Error('offline'));
-  const view = await render(tree());
-  await user.press(screen.getByRole('button', { name: 'Check for updates' }));
-  expect(screen.getByRole('button', { name: 'Update failed. Tap to retry' })).toBeEnabled();
-  expect(Alert.alert).toHaveBeenCalledWith('Update failed', expect.stringMatching(/connection/));
-  await act(mockFocus);
-  expect(screen.getByRole('button', { name: 'Check for updates' })).toBeEnabled();
-  await view.rerender(tree(false));
-  await view.rerender(tree());
-  expect(Alert.alert).toHaveBeenCalledTimes(1);
-  jest.mocked(Updates.checkForUpdateAsync).mockResolvedValue({
-    isAvailable: false,
-    isRollBackToEmbedded: false,
-    manifest: undefined,
-    reason: Updates.UpdateCheckResultNotAvailableReason.NO_UPDATE_AVAILABLE_ON_SERVER,
-  });
-  await user.press(screen.getByRole('button', { name: 'Check for updates' }));
-  expect(screen.getByRole('button', { name: 'Up to date' })).toBeEnabled();
-  await act(mockFocus);
-  expect(screen.getByRole('button', { name: 'Check for updates' })).toBeEnabled();
-});
-test('development builds explain why updates are unavailable', async () => {
-  runtime.__DEV__ = true;
-  const user = userEvent.setup();
+  native.mockReturnValue({ ...idle, isUpdatePending: true });
   await render(tree());
-  await user.press(screen.getByRole('button', { name: /installed release build/ }));
-  expect(Alert.alert).toHaveBeenCalledWith('Updates', expect.stringMatching(/release build/));
-  expect(Updates.checkForUpdateAsync).not.toHaveBeenCalled();
+  expect(button('Restart to update')).toBeEnabled();
+  expect(check).toHaveBeenCalledTimes(1);
+
+  const result = Promise.withResolvers<Awaited<ReturnType<typeof check>>>();
+  check.mockReturnValueOnce(result.promise);
+  await focus();
+  expect(check).toHaveBeenCalledTimes(2);
+  expect(button('Checking for updates')).toBeBusy();
+  expect(button('Checking for updates')).toBeDisabled();
+  expect(screen.queryByRole('button', { name: 'Restart to update' })).toBeNull();
+
+  await act(async () => result.reject(Error('offline')));
+  expect(Alert.alert).not.toHaveBeenCalled();
+  await user.press(button('Restart to update'));
+  expect(Updates.reloadAsync).not.toHaveBeenCalled();
+  const [title, message, choices] = jest.mocked(Alert.alert).mock.lastCall ?? [];
+  expect(title).toBe('Restart to update?');
+  expect(message).toMatch(/Unsaved/);
+  expect(choices?.[0]?.style).toBe('cancel');
+  await act(async () => choices?.find(({ text }) => text === 'Restart to update')?.onPress?.());
+  expect(Updates.reloadAsync).toHaveBeenCalledTimes(1);
+});
+
+test('manual errors are actionable and their status clears on the next visit', async () => {
+  const user = userEvent.setup();
+  check.mockRejectedValue(Error('offline'));
+  const { rerender } = await render(tree());
+  expect(Alert.alert).not.toHaveBeenCalled();
+  await user.press(button('Check for updates'));
+  expect(button('Update failed. Tap to retry')).toBeEnabled();
+  expect(Alert.alert).toHaveBeenCalledWith('Update failed', expect.stringContaining('connection'));
+  await focus();
+  expect(button('Check for updates')).toBeEnabled();
+  await rerender(tree(false));
+  await rerender(tree());
+  expect(button('Check for updates')).toBeEnabled();
+  expect(Alert.alert).toHaveBeenCalledTimes(1);
+
+  check.mockResolvedValue(noUpdate);
+  await user.press(button('Check for updates'));
+  expect(button('Up to date')).toBeEnabled();
+  await focus();
+  expect(button('Check for updates')).toBeEnabled();
+});
+
+test('development builds explain that updates require an installed release build', async () => {
+  const user = userEvent.setup();
+  environment.__DEV__ = true;
+  await render(tree());
+  const label = 'Updates are available in an installed release build.';
+  await user.press(button(label));
+  expect(Alert.alert).toHaveBeenCalledWith('Updates', label);
+  expect(check).not.toHaveBeenCalled();
 });

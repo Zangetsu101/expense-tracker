@@ -115,7 +115,7 @@ test('deleting a lending Transaction removes its entry and asks before creating 
   assert.equal(count('SELECT count(*) AS n FROM lending_entries WHERE id = ?', lent.id), 0);
 });
 
-test('editing changes the amount of an Expense but not of a lending Transaction', async () => {
+test('editing changes the amount of both an Expense and a lending Transaction', async () => {
   sqlite.exec(`INSERT INTO transactions (id, type, amountMinor, date, accountId, note)
     VALUES (10, 'EXPENSE', 1000, 20000, 1, 'typo');`);
   const original = await loadEditableTransaction(10);
@@ -139,18 +139,14 @@ test('editing changes the amount of an Expense but not of a lending Transaction'
   });
   const transactionId = (await lending.listLendingEntries(person.id))[0].transactionId;
   const linked = await loadEditableTransaction(transactionId);
+  await saveTransactionEdit(linked, '', false, '', [], 600);
+  const updated = await loadEditableTransaction(transactionId);
+  assert.equal(updated.amountMinor, 600);
+  assert.equal(updated.excludeFromReport, 1);
+  assert.equal((await lending.listLendingEntries(person.id))[0].amountMinor, 600);
+
   await assert.rejects(
-    saveTransactionEdit(linked, '', true, '', [], 600),
-    /lending entry from Lending/,
-  );
-  // A link made after the editor loaded must also block the amount change.
-  await assert.rejects(
-    saveTransactionEdit({ ...linked, lendingKind: null }, '', true, '', [], 600),
+    saveTransactionEdit({ ...updated, lendingKind: null, personId: null }, '', true, '', [], 700),
     /changed or removed/,
-  );
-  assert.equal(
-    sqlite.prepare('SELECT amountMinor FROM transactions WHERE id = ?').get(transactionId)
-      .amountMinor,
-    500,
   );
 });

@@ -1,3 +1,5 @@
+import { spendHistory } from '@/lib/reports';
+import { periodsBack, usualPeriods, type PeriodKind } from '@/lib/usual-spending';
 import { AppState } from 'react-native';
 import { focusManager, notifyManager, type QueryClient } from '@tanstack/react-query';
 import { notifyDataChanged } from '@/lib/data-changes';
@@ -8,6 +10,7 @@ import { renderWithQueries } from '@/test/render-with-queries';
 import { homeDeckData, homeListPage, homePace, homeTrend, savePeriodSetting } from './read-home';
 import type { DeckAccount } from './deck';
 import HomeScreen from './screen';
+jest.mock('@/lib/reports', () => ({ spendHistory: jest.fn() }));
 
 jest.mock('expo-router', () => ({
   router: { push: jest.fn() },
@@ -75,12 +78,33 @@ const account = (id: number, name: string): DeckAccount => ({
 });
 const accounts = [account(1, 'Cash'), account(2, 'Bank'), account(3, 'Savings')];
 const deck = { accounts, displayRate: null, period: { range: 'month', monthStart: 1 } as const };
+const today = Date.UTC(2026, 10, 14) / 86400000;
+function spending(kind: PeriodKind, amountMinor = 6000) {
+  const periods = periodsBack(kind, today, 1, usualPeriods);
+  return {
+    periods,
+    rows: [
+      {
+        currencyCode: 'BDT',
+        categoryId: 1,
+        categoryName: 'Food',
+        topId: 1,
+        topName: 'Food',
+        date: today,
+        amountMinor,
+      },
+    ],
+  };
+}
 const pace = [{ currencyCode: 'BDT', spentMinor: 6000, sameMinor: 5000, previousMinor: 9000 }];
 beforeAll(() => notifyManager.setScheduler(queueMicrotask));
 afterAll(() => notifyManager.setScheduler((callback) => setTimeout(callback, 0)));
 beforeEach(() => {
   jest.useFakeTimers();
-  jest.mocked(homePace).mockReset();
+  jest
+    .mocked(spendHistory)
+    .mockReset()
+    .mockImplementation(async (_, kind) => spending(kind));
   jest.mocked(homeDeckData).mockResolvedValue(deck);
   jest.mocked(homePace).mockResolvedValue(pace);
   jest.mocked(homeTrend).mockResolvedValue([1000, 1200, 1100]);
@@ -122,7 +146,7 @@ test('loading and failed Home reads block adding until Retry loads the saved dec
 });
 test('failed card retains its balance and retries independently of the list', async () => {
   const user = userEvent.setup();
-  jest.mocked(homePace).mockRejectedValueOnce(Error('unavailable'));
+  jest.mocked(spendHistory).mockRejectedValueOnce(Error('unavailable'));
   await open();
   await screen.findByText('Couldn’t load this card');
   const all = within(screen.getByLabelText('All accounts'));
@@ -136,8 +160,8 @@ test('changing the period saves the range and keeps previous spending visible un
   const user = userEvent.setup();
   const view = await open();
   await screen.findByText('Spent ৳60.00');
-  const read = Promise.withResolvers<typeof pace>();
-  jest.mocked(homePace).mockReturnValueOnce(read.promise);
+  const read = Promise.withResolvers<ReturnType<typeof spending>>();
+  jest.mocked(spendHistory).mockReturnValueOnce(read.promise);
   await user.press(periodButton('Period, November'));
   await user.press(screen.getByRole('radio', { name: 'This week' }));
   expect(screen.queryByRole('radio', { name: 'This week' })).toBeNull();
@@ -155,7 +179,7 @@ test('changing the period saves the range and keeps previous spending visible un
       expect.anything(),
     ),
   );
-  await act(async () => read.resolve([{ ...pace[0], spentMinor: 1000 }]));
+  await act(async () => read.resolve(spending('week', 1000)));
   expect(await screen.findByText('Spent ৳10.00')).toBeOnTheScreen();
   expect(
     within(screen.getByLabelText('All accounts')).getByRole('button', {
@@ -169,7 +193,7 @@ test('changing the period saves the range and keeps previous spending visible un
 });
 test('changing period recovers a failed card including when returning to its original range', async () => {
   const user = userEvent.setup();
-  jest.mocked(homePace).mockRejectedValueOnce(Error('offline'));
+  jest.mocked(spendHistory).mockRejectedValueOnce(Error('offline'));
   await open();
   await screen.findByText('Couldn’t load this card');
   for (const name of ['This year', 'This month']) {
@@ -346,4 +370,28 @@ test('retrying failed activity reloads the list without rereading the deck', asy
   await user.press(button('Retry'));
   expect(await screen.findByText('No transactions yet')).toBeOnTheScreen();
   expect(homeDeckData).toHaveBeenCalledTimes(reads);
+});
+
+test('monthly spending compares against prior months and opens Pace in Reports', async () => {
+  const user = userEvent.setup();
+  await open();
+  await screen.findByText('Needs 3 full months · 3 more ›');
+  const data = spending('month');
+  jest.mocked(spendHistory).mockResolvedValue({
+    ...data,
+    rows: [
+      ...data.rows,
+      ...data.periods
+        .slice(1, 4)
+        .map((period) => ({ ...data.rows[0], date: period.start, amountMinor: 2000 })),
+    ],
+  });
+  await act(async () => notifyDataChanged());
+  await user.press(
+    await screen.findByRole('button', { name: /৳40.00 more than usual by this point/ }),
+  );
+  expect(router.push).toHaveBeenCalledWith({
+    pathname: '/reports/pace',
+    params: { currency: 'BDT' },
+  });
 });

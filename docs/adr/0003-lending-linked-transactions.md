@@ -9,3 +9,5 @@ All four direction-specific imported principal Categories are excluded from repo
 Backups retain schema version 1 with optional `people` and `lendingEntries` arrays, alongside import identities. Older backups restore with empty lending metadata. Validate links before replacement and restore metadata atomically with financial records.
 
 The dedicated view is reachable from Settings. Historical assignment is explicit and links existing Transactions; it does not infer people or apply private mappings. Person balances carry an incompleteness notice rather than claiming reconciliation.
+
+Update 2026-11-18: the Lending card on the Accounts tab now opens the dedicated view in that tab. Settings no longer links to it.

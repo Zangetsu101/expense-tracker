@@ -2,16 +2,26 @@ import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import { useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight, useNavigation, usePreventRemove } from 'expo-router/react-navigation';
-import { Alert, BackHandler, KeyboardAvoidingView, Pressable, Text, View } from 'react-native';
+import {
+  Alert,
+  BackHandler,
+  KeyboardAvoidingView,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+} from 'react-native';
 import { TransactionReceipt, TransferReceipt } from '@/components/transaction-receipt';
 import { TransferFormSection, type TransferDraft } from './transfer-edit';
 import { dateFromEpochDay, epochDay } from '@/lib/database';
-import type { LendingResult } from '@/lib/lending';
-import { formatLineItemAmount } from '@/lib/line-item-amount';
+import { deleteLendingEntry } from '@/lib/lending';
+import { WriteOffForm } from '@/features/lending/write-off-form';
+import { writeWithOverpaidCreditCheck } from '@/features/lending/view';
+import { FormButton } from '@/components/form-controls';
 import { deleteTransaction } from '@/lib/transaction-delete';
 import { saveTransferEdit, type EditableTransfer } from '@/lib/transfers';
 import { theme } from '@/theme';
-import { receiptQuery, type Receipt } from './queries.ts';
+import { receiptQuery, writeOffReceiptQuery, type Receipt } from './queries.ts';
 import { QueryBoundary } from '@/components/query-error-boundary';
 import {
   EditTransactionScreen,
@@ -21,9 +31,10 @@ import {
   ReceiptSkeleton,
 } from './view.tsx';
 
-function ReceiptSession({ id }: { id: number }) {
+function ReceiptSession({ id, writeOff }: { id: number; writeOff: boolean }) {
   const client = useQueryClient();
-  const { data, error, isFetching, refetch } = useSuspenseQuery(receiptQuery(id));
+  const query = writeOff ? writeOffReceiptQuery(id) : receiptQuery(id);
+  const { data, error, isFetching, refetch } = useSuspenseQuery(query);
   // The form edits this copy. Thus a refresh does not change an open form.
   const [snapshot, setSnapshot] = useState<Receipt>();
   const editing = snapshot !== undefined;
@@ -91,32 +102,22 @@ function ReceiptSession({ id }: { id: number }) {
       exitEditing();
     });
   });
-  function runDelete(confirmOverpayment: boolean) {
+  function runDelete() {
     startDeleting(async () => {
-      let result: LendingResult;
+      let deleted;
       try {
-        result = await deleteTransaction(id, { confirmOverpayment });
+        deleted = await writeWithOverpaidCreditCheck(
+          (confirmOverpayment) =>
+            writeOff
+              ? deleteLendingEntry(id, { confirmDelete: true, confirmOverpayment })
+              : deleteTransaction(id, { confirmOverpayment }),
+          'Delete',
+        );
       } catch (cause) {
         Alert.alert('Could not delete', String(cause));
         return;
       }
-      if (result.status === 'confirmation_required') {
-        Alert.alert(
-          'Overpayment warning',
-          result.warnings
-            .map(
-              (w) =>
-                `${w.currencyCode} · ${w.direction === 'LENT' ? 'They owe you' : 'You owe them'}: overpaid credit ${formatLineItemAmount(w.overpaidMinor)}`,
-            )
-            .join('\n') +
-            '\nDelete anyway? Excess remains visible as credit, not an opposite obligation.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Delete', style: 'destructive', onPress: () => runDelete(true) },
-          ],
-        );
-        return;
-      }
+      if (!deleted) return;
       // React does not keep updates after an await in the transition. Wrap them again.
       startDeleting(() => {
         setDirty(false);
@@ -127,11 +128,13 @@ function ReceiptSession({ id }: { id: number }) {
   function confirmDelete() {
     if (savingRef.current || deleting) return;
     Alert.alert(
-      'Delete transaction?',
-      'It will be removed from Account balances and reports. You cannot undo this.',
+      writeOff ? 'Delete write-off?' : 'Delete transaction?',
+      writeOff
+        ? 'This changes the person’s balance. You cannot undo this.'
+        : 'It will be removed from Account balances and reports. You cannot undo this.',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: () => runDelete(false) },
+        { text: 'Delete', style: 'destructive', onPress: runDelete },
       ],
     );
   }
@@ -156,7 +159,7 @@ function ReceiptSession({ id }: { id: number }) {
   // A committed save is never reported as a failed save. If this read fails,
   // the form stays locked and offers "Retry receipt".
   const onSaved = async () => {
-    const refreshed = await client.fetchQuery(receiptQuery(id));
+    const refreshed = await client.fetchQuery(query);
     if (!refreshed) throw new Error('Transaction not found after saving');
     exitEditing();
   };
@@ -165,7 +168,9 @@ function ReceiptSession({ id }: { id: number }) {
     ? 'Receipt'
     : snapshot.type === 'TRANSFER'
       ? 'Edit transfer'
-      : 'Edit transaction';
+      : snapshot.type === 'WRITE_OFF'
+        ? 'Edit write-off'
+        : 'Edit transaction';
   const canEdit = !isFetching && !error;
   return (
     <KeyboardAvoidingView
@@ -221,6 +226,28 @@ function ReceiptSession({ id }: { id: number }) {
             onDelete={confirmDelete}
             onSaved={onSaved}
           />
+        ) : snapshot.type === 'WRITE_OFF' ? (
+          <ScrollView
+            style={{ flex: 1, backgroundColor: theme.colors.background }}
+            contentContainerStyle={{ padding: 20 }}
+            keyboardShouldPersistTaps="handled"
+          >
+            <WriteOffForm
+              id={id}
+              personId={snapshot.personId}
+              kind={snapshot.kind}
+              currency={snapshot.currencyCode}
+              initialAmount={snapshot.amountMinor}
+              initialDate={snapshot.date}
+              initialNote={snapshot.note ?? ''}
+              onDirtyChange={setDirty}
+              onSavingChange={onSavingChange}
+              disabled={deleting || closing}
+              onSaved={onSaved}
+            >
+              <FormButton label="Delete write-off" variant="danger" onPress={confirmDelete} />
+            </WriteOffForm>
+          </ScrollView>
         ) : (
           <EditTransactionScreen
             transaction={snapshot}
@@ -319,16 +346,17 @@ function EditTransferScreen({
 }
 
 export default function TransactionScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, kind } = useLocalSearchParams<{ id: string; kind?: string }>();
+  const writeOff = kind === 'write-off';
   const transactionId = Number(id);
   if (!id || !Number.isSafeInteger(transactionId) || transactionId <= 0) return <NotFound />;
   return (
     <QueryBoundary
-      key={String(transactionId)}
+      key={`${transactionId}:${writeOff}`}
       pending={<ReceiptSkeleton />}
       error={(retry) => <ReceiptError retry={retry} />}
     >
-      <ReceiptSession id={transactionId} />
+      <ReceiptSession id={transactionId} writeOff={writeOff} />
     </QueryBoundary>
   );
 }

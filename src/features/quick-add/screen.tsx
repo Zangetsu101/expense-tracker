@@ -19,7 +19,8 @@ import Animated from 'react-native-reanimated';
 import { epochDay } from '@/lib/database';
 import { addQuickTransaction } from '@/lib/quick-add-tags';
 import { addTransfer } from '@/lib/transfers';
-import { createPerson, saveLendingEntry, type LendingKind, type LendingTotal } from '@/lib/lending';
+import { createPerson, saveLendingEntry, type LendingKind } from '@/lib/lending';
+import type { LendingTotal } from '@/lib/lending-totals';
 import { TransferAmountInput } from '@/components/transfer-amount-input';
 import { AmountInput } from '@/components/amount-input';
 import { useRankedCategories } from './use-ranked-categories.ts';
@@ -27,7 +28,7 @@ import { QuickAddDate } from '@/components/quick-add-date';
 import { QuickSelectCategory } from '@/components/quick-select-category';
 import { AccountChoices, personBalanceSummary } from '@/components/entry-choices';
 import { FormButton, FormInput, JoinedChoice } from '@/components/form-controls';
-import { parseAccountId } from '@/lib/account-selection';
+import { parseRouteId } from '@/lib/account-selection';
 import { useClippedChips } from '@/components/use-clipped-chips';
 import { theme } from '@/theme';
 
@@ -117,10 +118,18 @@ function QuickAddForm() {
   const params = useLocalSearchParams<{
     accountId?: string;
     mode?: string;
+    personId?: string;
+    action?: string;
+    currency?: string;
     toId?: string;
     amountMinor?: string;
   }>();
-  const [mode, setMode] = useState<Mode>(params.mode === 'TRANSFER' ? 'TRANSFER' : 'EXPENSE');
+  const initialAction = [...principalActions, ...repaymentActions].find(
+    (option) => option.value === params.action,
+  )?.value;
+  const [mode, setMode] = useState<Mode>(() =>
+    params.mode === 'PERSON' ? 'PERSON' : params.mode === 'TRANSFER' ? 'TRANSFER' : 'EXPENSE',
+  );
   const [preset, setPreset] = useState(() => {
     const amount = Number(params.amountMinor);
     return Number.isSafeInteger(amount) && amount > 0 ? amount : undefined;
@@ -140,21 +149,22 @@ function QuickAddForm() {
     setAmountMinor(paid);
     setReceivedAmountMinor(received);
   }, []);
-  const [accountId, setAccountId] = useState(() => parseAccountId(params.accountId));
+  const [accountId, setAccountId] = useState(() => parseRouteId(params.accountId));
   const [toId, setToId] = useState<number | undefined>(
-    () => parseAccountId(params.toId) ?? undefined,
+    () => parseRouteId(params.toId) ?? undefined,
   );
   const [categoryIds, setCategoryIds] = useState<{
     EXPENSE?: number;
     INCOME?: number;
   }>({});
-  const [personId, setPersonId] = useState<number>();
+  const routePersonId = parseRouteId(params.personId);
+  const [personId, setPersonId] = useState(routePersonId);
   const [query, setQuery] = useState('');
   const { fontScale } = useWindowDimensions();
   const personChipHeight = 20 + 36 * fontScale;
   const peopleMaxHeight = personChipHeight * 2 + 8;
   const peopleClipping = useClippedChips(peopleMaxHeight);
-  const [action, setAction] = useState<PersonAction>('LEND');
+  const [action, setAction] = useState<PersonAction>(() => initialAction ?? 'LEND');
   const [note, setNote] = useState('');
   const [tags, setTags] = useState('');
   const [date, setDate] = useState(() => new Date());
@@ -165,7 +175,13 @@ function QuickAddForm() {
   usePreventRemove(pending, ({ data: removal }) => {
     if (!busy.current) navigation.dispatch(removal.action);
   });
-  const account = accounts.find((item) => item.id === accountId);
+  const currency =
+    mode === 'PERSON' && action === initialAction && personId === routePersonId
+      ? params.currency
+      : undefined;
+  const account = accounts.find(
+    (item) => item.id === accountId && (!currency || item.currencyCode === currency),
+  );
   const person = people.find((item) => item.id === personId);
   const orderedCategoryIds = useRankedCategories(
     categoryRead.data,
@@ -355,7 +371,11 @@ function QuickAddForm() {
                     >
                       <Label>{`${incoming ? 'Into' : 'From'} ${account?.name ?? 'an account'}`}</Label>
                       <AccountChoices
-                        accounts={readyAccounts}
+                        accounts={
+                          currency
+                            ? readyAccounts.filter((item) => item.currencyCode === currency)
+                            : readyAccounts
+                        }
                         selectedId={accountId}
                         disabled={pending}
                         onSelect={(id) => {
@@ -364,9 +384,13 @@ function QuickAddForm() {
                           setError('');
                         }}
                       />
-                      {!readyAccounts.length && (
+                      {!readyAccounts.some(
+                        (item) => !currency || item.currencyCode === currency,
+                      ) && (
                         <Text style={{ color: c.muted }}>
-                          Create an account in the Accounts tab before adding a transaction.
+                          {currency
+                            ? `Create a ${currency} account in Accounts to add this entry.`
+                            : 'Create an account in the Accounts tab before adding a transaction.'}
                         </Text>
                       )}
                     </View>

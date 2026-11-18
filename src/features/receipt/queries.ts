@@ -1,8 +1,9 @@
 import { queryOptions } from '@tanstack/react-query';
 import { loadEditableTransaction, type EditableTransaction } from '@/lib/transaction-edit';
 import { loadTransfer, type EditableTransfer } from '@/lib/transfers';
+import { loadLendingEntry, type WriteOffEntry } from '@/lib/lending';
 
-export type Receipt = EditableTransaction | EditableTransfer;
+export type Receipt = EditableTransaction | EditableTransfer | WriteOffEntry;
 
 /** Reads a Transaction or a Transfer. The result is null when neither exists. */
 export function receiptQuery(id: number) {
@@ -10,5 +11,18 @@ export function receiptQuery(id: number) {
     queryKey: ['receipt', id],
     queryFn: async (): Promise<Receipt | null> =>
       (await loadEditableTransaction(id)) ?? (await loadTransfer(id)),
+  });
+}
+
+/** Reads a write-off by its lending entry id. The result is null for other entries. */
+export function writeOffReceiptQuery(id: number) {
+  return queryOptions({
+    queryKey: ['receipt', 'write-off', id],
+    queryFn: async (): Promise<Receipt | null> => {
+      const entry = await loadLendingEntry(id);
+      if (!entry || entry.transactionId !== null) return null;
+      if (entry.kind !== 'WRITE_OFF_LENT' && entry.kind !== 'WRITE_OFF_BORROWED') return null;
+      return { ...entry, type: 'WRITE_OFF', kind: entry.kind };
+    },
   });
 }

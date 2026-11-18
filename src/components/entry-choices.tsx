@@ -1,6 +1,6 @@
 import { Pressable, Text, View } from 'react-native';
 import type { Account } from '@/lib/database';
-import type { LendingTotal } from '@/lib/lending';
+import type { LendingTotal } from '@/lib/lending-totals';
 import { theme } from '@/theme';
 
 const c = theme.colors;
