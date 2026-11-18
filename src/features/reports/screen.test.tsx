@@ -8,7 +8,13 @@ import { renderWithQueries } from '@/test/render-with-queries';
 import { ReportsScreen } from './index';
 import { netWorthData, reportSettings, saveFiscalStart } from './read-reports.ts';
 
-jest.mock('expo-router', () => ({ Stack: { Screen: () => null }, router: { push: jest.fn() } }));
+jest.mock('expo-router', () => ({
+  Stack: {
+    Screen: ({ options }: { options: { headerTitle?: () => React.ReactNode } }) =>
+      options.headerTitle?.() ?? null,
+  },
+  router: { push: jest.fn() },
+}));
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
 }));
@@ -177,8 +183,8 @@ function reportReads() {
 }
 
 async function chooseCash(user: ReturnType<typeof userEvent.setup>) {
-  await user.press(screen.getByRole('button', { name: 'Choose account scope, All accounts' }));
-  await user.press(screen.getByRole('radio', { name: 'Cash · USD' }));
+  await user.press(screen.getByRole('button', { name: 'All accounts, choose account' }));
+  await user.press(screen.getByRole('button', { name: 'Cash' }));
 }
 
 test('first load shows a skeleton and then the totals of this month in the main Currency', async () => {
@@ -280,9 +286,7 @@ test('the Currency switch shows one Currency, and one Account hides the switch',
   await waitFor(() => expect(rangeReport).toHaveBeenLastCalledWith(march.start, march.end, 7));
   expect(await screen.findByLabelText('Income, $120.00')).toBeOnTheScreen();
   expect(screen.queryByRole('radio', { name: 'Show EUR' })).not.toBeOnTheScreen();
-  expect(
-    screen.getByRole('button', { name: 'Choose account scope, Cash · USD' }),
-  ).toBeOnTheScreen();
+  expect(screen.getByRole('button', { name: 'Cash, choose account' })).toBeOnTheScreen();
 });
 
 test('a parent Category opens to show its children, and a row opens its Transactions', async () => {
@@ -446,7 +450,7 @@ test('a failed report read shows an error, and Retry reads again', async () => {
   await renderScreen();
 
   expect(await screen.findByText('Could not load the report.')).toBeOnTheScreen();
-  expect(screen.getByRole('button', { name: 'Choose account scope, All accounts' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'All accounts, choose account' })).toBeEnabled();
   await user.press(screen.getByRole('button', { name: 'Retry' }));
 
   expect(await screen.findByLabelText('Income, $120.00')).toBeOnTheScreen();
@@ -522,7 +526,7 @@ test('a removed account in a refresh resets the scope to All accounts', async ()
   await act(async () => notifyDataChanged());
 
   expect(
-    await screen.findByRole('button', { name: 'Choose account scope, All accounts' }),
+    await screen.findByRole('button', { name: 'All accounts, choose account' }),
   ).toBeOnTheScreen();
   await waitFor(() =>
     expect(rangeReport).toHaveBeenLastCalledWith(march.start, march.end, undefined),

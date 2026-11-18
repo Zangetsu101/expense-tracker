@@ -15,7 +15,8 @@ import { accountParams } from '@/lib/account-selection';
 import { defaultCurrencyCode } from '@/lib/currency';
 import { epochDay } from '@/lib/database';
 import { QueryTimeContext } from '@/lib/query-time';
-import { AccountSheet, HomeTitle } from './account-sheet.tsx';
+import { formatBalance } from '@/lib/transaction-format';
+import { AccountSheet, AccountTitle } from '@/components/account-sheet';
 import {
   Deck,
   DeckSkeleton,
@@ -35,6 +36,12 @@ import { theme } from '@/theme';
 
 const pageGutter = 20;
 const cardPeek = 44;
+
+function accountDetail({ bill, balanceMinor, currencyCode }: DeckAccount) {
+  if (!bill) return formatBalance(balanceMinor, currencyCode);
+  const label = bill.creditMinor ? 'Credit' : 'Bill';
+  return `${label} · ${formatBalance(bill.creditMinor || bill.billMinor, currencyCode)}`;
+}
 
 function Home({ reset }: { reset: () => void }) {
   const now = useDeferredValue(use(QueryTimeContext));
@@ -120,7 +127,7 @@ function Home({ reset }: { reset: () => void }) {
   };
   return (
     <HomeLayout
-      title={<HomeTitle name={name} onPress={() => setSheet('accounts')} />}
+      title={<AccountTitle name={name} onPress={() => setSheet('accounts')} />}
       notice={<RefreshNotice failed={!!error} onRetry={() => void refetch()} />}
       quickAddAccountId={quickAddAccountId}
       accountsReady
@@ -166,18 +173,26 @@ function Home({ reset }: { reset: () => void }) {
       )}
       {sheet === 'accounts' && (
         <AccountSheet
-          cards={cards}
-          selectedId={scope}
-          onSelect={(accountId) => {
-            setSheet(null);
-            showAccount(accountId);
-          }}
           onAddAccount={() => {
             setSheet(null);
             router.push('/accounts');
           }}
           onDismiss={() => setSheet(null)}
-        />
+        >
+          {cards.map(({ accountId, account }) => (
+            <AccountSheet.Option
+              key={String(accountId)}
+              name={account?.name ?? 'All accounts'}
+              favorite={!!account?.isFavorite}
+              detail={account ? accountDetail(account) : undefined}
+              selected={accountId === scope}
+              onPress={() => {
+                setSheet(null);
+                showAccount(accountId);
+              }}
+            />
+          ))}
+        </AccountSheet>
       )}
     </HomeLayout>
   );

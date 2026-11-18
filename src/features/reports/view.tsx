@@ -60,10 +60,12 @@ export function Card({ children, gap = theme.spacing.md }: { children: ReactNode
 /** A scrolling page with the theme background and a header title. */
 export function ReportPage({
   title,
+  headerTitle,
   sheet,
   children,
 }: {
   title: string;
+  headerTitle?: ReactNode;
   sheet?: ReactNode;
   children: ReactNode;
 }) {
@@ -73,6 +75,7 @@ export function ReportPage({
       <Stack.Screen
         options={{
           title,
+          ...(headerTitle ? { headerTitle: () => headerTitle } : {}),
           headerStyle: { backgroundColor: c.background },
           headerTintColor: c.text,
         }}
@@ -417,37 +420,6 @@ export function RangeSheet({
   );
 }
 
-const rowButton = {
-  minHeight: theme.controlHeight,
-  flexDirection: 'row',
-  alignItems: 'center',
-  paddingHorizontal: theme.spacing.md,
-  backgroundColor: c.surface,
-  borderRadius: theme.radius.control,
-  borderCurve: 'continuous',
-} as const;
-
-export function AccountRow({ label, onOpen }: { label: string; onOpen: () => void }) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`Choose account scope, ${label}`}
-      onPress={onOpen}
-      style={({ pressed }) => ({ ...rowButton, opacity: pressed ? 0.65 : 1 })}
-    >
-      <Text style={{ color: c.accent, flex: 1 }}>{label} ⌄</Text>
-    </Pressable>
-  );
-}
-
-export function AccountRowSkeleton() {
-  return (
-    <View style={rowButton}>
-      <Skeleton width="40%" />
-    </View>
-  );
-}
-
 /** All choices stay in view, so one tap changes the choice. */
 export function SegmentedSwitch<T extends string>({
   options,
@@ -498,85 +470,6 @@ export function SegmentedSwitch<T extends string>({
         </Pressable>
       ))}
     </View>
-  );
-}
-
-/** A sheet with a list of choices. */
-function SheetFrame({ onDismiss, children }: { onDismiss: () => void; children: ReactNode }) {
-  const insets = useSafeAreaInsets();
-  const { height, width } = useWindowDimensions();
-  return (
-    <AppSheet pending={false} onDismiss={onDismiss}>
-      <View style={{ width, maxHeight: height * 0.82, backgroundColor: c.surface }}>
-        <ScrollView
-          contentContainerStyle={{
-            padding: theme.spacing.xl,
-            paddingBottom: insets.bottom + theme.spacing.indent,
-            gap: theme.spacing.md,
-          }}
-        >
-          {children}
-        </ScrollView>
-      </View>
-    </AppSheet>
-  );
-}
-
-export function ScopeSheet({
-  accounts,
-  selected,
-  onSelect,
-  onClose,
-}: {
-  accounts: ManagedAccount[];
-  selected: number | undefined;
-  onSelect: (value: number | undefined) => void;
-  onClose: () => void;
-}) {
-  const options = [
-    { value: undefined, label: 'All accounts' },
-    ...accounts.map((item) => ({
-      value: item.id as number | undefined,
-      label: `${item.name} · ${item.currencyCode}`,
-    })),
-  ];
-  return (
-    <SheetFrame onDismiss={onClose}>
-      <Heading>Account scope</Heading>
-      <Note>One Account also sets the Currency. The Totals and the Trends follow the Account.</Note>
-      {options.map((option) => (
-        <Pressable
-          key={option.value ?? 'all'}
-          accessibilityRole="radio"
-          accessibilityLabel={option.label}
-          accessibilityState={{ checked: selected === option.value }}
-          onPress={() => onSelect(option.value)}
-          style={({ pressed }) => ({
-            minHeight: 56,
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: theme.spacing.md,
-            padding: theme.spacing.sm,
-            borderBottomWidth: 1,
-            borderColor: c.line,
-            backgroundColor: selected === option.value ? c.raised : 'transparent',
-            opacity: pressed ? 0.65 : 1,
-          })}
-        >
-          <Text
-            style={{
-              flex: 1,
-              color: c.text,
-              fontWeight: selected === option.value ? '700' : '400',
-            }}
-          >
-            {option.label}
-          </Text>
-          <Text style={{ color: c.accent }}>{selected === option.value ? '✓' : ''}</Text>
-        </Pressable>
-      ))}
-      <FormButton variant="secondary" label="Cancel" onPress={onClose} />
-    </SheetFrame>
   );
 }
 
