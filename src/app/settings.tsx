@@ -69,8 +69,7 @@ export default function SettingsScreen() {
         style={{ gap: theme.spacing.indent, opacity: busy ? 0.45 : 1 }}
       >
         <SettingsGroup title="Manage">
-          <Row disabled={busy} first label="Lending & borrowing" href="/lending" />
-          <Row disabled={busy} label="Review transfer candidates" href="/review-queue" />
+          <Row disabled={busy} first label="Review transfer candidates" href="/review-queue" />
         </SettingsGroup>
         <SettingsGroup title="App">
           <UpdatesRow />

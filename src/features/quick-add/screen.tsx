@@ -101,14 +101,23 @@ export default function QuickAdd() {
 function QuickAddForm() {
   const client = useQueryClient();
   const accountsRead = useQuery({ ...accountsQuery(), enabled: false });
-  const [mode, setMode] = useState<Mode>('EXPENSE');
+  const params = useLocalSearchParams<{
+    accountId?: string;
+    mode?: string;
+    personId?: string;
+    action?: string;
+    currency?: string;
+  }>();
+  const initialAction = [...principalActions, ...repaymentActions].find(
+    (option) => option.value === params.action,
+  )?.value;
+  const [mode, setMode] = useState<Mode>(() => (params.mode === 'PERSON' ? 'PERSON' : 'EXPENSE'));
   const categoryMode = mode === 'EXPENSE' || mode === 'INCOME' ? mode : undefined;
   const categoryRead = useQuery({ ...categoriesQuery(categoryMode ?? 'EXPENSE'), enabled: false });
   const peopleRead = useQuery({ ...peopleQuery(), enabled: false });
   const accounts = accountsRead.data ?? [];
   const categories = categoryRead.data ?? [];
   const people = peopleRead.data?.people ?? [];
-  const params = useLocalSearchParams<{ accountId?: string }>();
   const headerHeight = useHeaderHeight();
   const [amountMinor, setAmountMinor] = useState<number>();
   const [accountId, setAccountId] = useState(() => parseAccountId(params.accountId));
@@ -117,9 +126,9 @@ function QuickAddForm() {
     EXPENSE?: number;
     INCOME?: number;
   }>({});
-  const [personId, setPersonId] = useState<number>();
+  const [personId, setPersonId] = useState(() => parseAccountId(params.personId));
   const [query, setQuery] = useState('');
-  const [action, setAction] = useState<PersonAction>('LEND');
+  const [action, setAction] = useState<PersonAction>(() => initialAction ?? 'LEND');
   const [note, setNote] = useState('');
   const [tags, setTags] = useState('');
   const [date, setDate] = useState(() => new Date());
@@ -130,7 +139,13 @@ function QuickAddForm() {
   usePreventRemove(pending, ({ data: removal }) => {
     if (!busy.current) navigation.dispatch(removal.action);
   });
-  const account = accounts.find((item) => item.id === accountId);
+  const currency =
+    mode === 'PERSON' && action === initialAction && personId === parseAccountId(params.personId)
+      ? params.currency
+      : undefined;
+  const account = accounts.find(
+    (item) => item.id === accountId && (!currency || item.currencyCode === currency),
+  );
   const person = people.find((item) => item.id === personId);
   const orderedCategoryIds = useRankedCategories(
     categoryRead.data,
@@ -295,7 +310,11 @@ function QuickAddForm() {
                     <View style={{ gap: 10 }}>
                       <Label>{`${incoming ? 'Into' : 'From'} ${account?.name ?? 'an account'}`}</Label>
                       <AccountChoices
-                        accounts={readyAccounts}
+                        accounts={
+                          currency
+                            ? readyAccounts.filter((item) => item.currencyCode === currency)
+                            : readyAccounts
+                        }
                         selectedId={accountId}
                         disabled={pending}
                         onSelect={(id) => {
@@ -304,9 +323,13 @@ function QuickAddForm() {
                           setError('');
                         }}
                       />
-                      {!readyAccounts.length && (
+                      {!readyAccounts.some(
+                        (item) => !currency || item.currencyCode === currency,
+                      ) && (
                         <Text style={{ color: c.muted }}>
-                          Create an account in the Accounts tab before adding a transaction.
+                          {currency
+                            ? `Create a ${currency} account in Accounts to add this entry.`
+                            : 'Create an account in the Accounts tab before adding a transaction.'}
                         </Text>
                       )}
                     </View>

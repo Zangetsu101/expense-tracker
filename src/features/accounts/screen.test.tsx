@@ -8,6 +8,7 @@ import {
   setFavoriteAccount,
   type ManagedAccount,
 } from '@/lib/accounts';
+import { listPeopleWithLendingTotals, loadUnassignedLending } from '@/lib/lending';
 import { notifyDataChanged } from '@/lib/data-changes';
 import { epochDay } from '@/lib/database';
 import { QueryTimeContext } from '@/lib/query-time';
@@ -38,6 +39,10 @@ jest.mock('@/lib/accounts', () => ({
   createAccount: jest.fn(),
   setFavoriteAccount: jest.fn(),
 }));
+jest.mock('@/lib/lending', () => ({
+  listPeopleWithLendingTotals: jest.fn(),
+  loadUnassignedLending: jest.fn(),
+}));
 jest.mock('@/lib/reports', () => ({ accountBalances: jest.fn() }));
 
 const cash: ManagedAccount = {
@@ -65,6 +70,8 @@ const day1 = new Date(2026, 10, 9, 12);
 const day2 = new Date(2026, 10, 10, 12);
 
 beforeEach(() => {
+  jest.mocked(listPeopleWithLendingTotals).mockReset().mockResolvedValue([]);
+  jest.mocked(loadUnassignedLending).mockReset().mockResolvedValue({ rows: [], totals: [] });
   for (const read of [listManagedAccounts, accountBalances, createAccount, setFavoriteAccount])
     jest.mocked(read).mockReset();
 });
@@ -397,4 +404,19 @@ describe('a change of day', () => {
     expect(screen.getAllByText(/25\.00/)).toHaveLength(2);
     expect(screen.queryByText(/15\.00/)).not.toBeOnTheScreen();
   });
+});
+
+test('Lending retries its own read and keeps Accounts usable', async () => {
+  const user = userEvent.setup();
+  jest.mocked(listManagedAccounts).mockResolvedValue([cash]);
+  jest.mocked(accountBalances).mockResolvedValue([balance(cash, 1500)]);
+  jest.mocked(listPeopleWithLendingTotals).mockRejectedValueOnce(new Error('Lending failed'));
+  await renderScreen();
+
+  expect(await screen.findByText('Could not load lending')).toBeOnTheScreen();
+  expect(screen.getByText('Cash · Favorite')).toBeOnTheScreen();
+  expect(screen.getByRole('button', { name: 'Add account' })).toBeEnabled();
+  await user.press(screen.getByRole('button', { name: 'Retry' }));
+  expect(await screen.findByRole('button', { name: 'Lending' })).toBeOnTheScreen();
+  expect(listManagedAccounts).toHaveBeenCalledTimes(1);
 });

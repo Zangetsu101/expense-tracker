@@ -211,12 +211,17 @@ export function AccountGroups({
   ));
 }
 
+export function AccountsBalanceSkeleton() {
+  return (
+    <OverviewCard>
+      <Skeleton width="55%" height={32} />
+    </OverviewCard>
+  );
+}
+
 export function AccountsSkeleton({ header }: { header: ReactNode }) {
   return (
     <View accessibilityRole="progressbar" accessibilityLabel="Loading accounts" style={{ gap: 18 }}>
-      <OverviewCard>
-        <Skeleton width="55%" height={32} />
-      </OverviewCard>
       {header}
       <View style={{ gap: 8 }}>
         <Skeleton width={140} height={20} />

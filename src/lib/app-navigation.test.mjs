@@ -31,7 +31,7 @@ const mocks = {
   '@/lib/import-csv': `export const importMoneyLoverFile=async()=>null;`,
   '@/components/app-updates': `export const UpdatesRow='UpdatesRow';`,
   'react-native': `import React from 'react'; export const Platform={OS:'android'}; export const BackHandler={addEventListener:()=>({remove(){}})}; export const Keyboard={dismiss() {}}; export const KeyboardAvoidingView='KeyboardAvoidingView',View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',Image='Image'; export const SectionList=p=>React.createElement('SectionList',null,p.ListHeaderComponent,p.ListFooterComponent),TextInput='TextInput',ActivityIndicator='ActivityIndicator'; export const FlatList=p=>React.createElement('FlatList',null,p.ListHeaderComponent,p.horizontal?p.data.map((item,index)=>React.createElement(React.Fragment,{key:index},p.renderItem({item,index}))):null,p.ListFooterComponent); export const useWindowDimensions=()=>({width:390,height:844}); export const Alert={alert(){}}; export const AppState={currentState:'active',addEventListener:(_,fn)=>{globalThis.__navTest.lifecycle=fn;return {remove(){}}}};`,
-  'expo-router': `import {useEffect} from 'react'; const s=globalThis.__navTest; export const useFocusEffect=fn=>useEffect(fn,[fn]); export const useIsFocused=()=>true; export const useLocalSearchParams=()=>({}); export const router={push:h=>s.calls.push(['push',h]),replace:h=>s.calls.push(['replace',h]),back:()=>s.calls.push(['back'])}; export const Link=({children})=>children; export const Stack={Screen:p=>{s.header={...s.header,...p.options};return null}};`,
+  'expo-router': `import {useEffect} from 'react'; const s=globalThis.__navTest; export const useFocusEffect=fn=>useEffect(fn,[fn]); export const useIsFocused=()=>true; export const useLocalSearchParams=()=>s.params??{}; export const router={push:h=>s.calls.push(['push',h]),replace:h=>s.calls.push(['replace',h]),back:()=>s.calls.push(['back'])}; export const Link=({children})=>children; export const Stack={Screen:p=>{s.header={...s.header,...p.options};return null}};`,
   'expo-router/react-navigation': `export const useHeaderHeight=()=>88; export const useNavigation=()=>({dispatch(){}}); export const usePreventRemove=()=>{};`,
   'expo-status-bar': `export const StatusBar=()=>null;`,
   'expo-symbols': `export const SymbolView='SymbolView';`,
@@ -44,7 +44,7 @@ const mocks = {
   '@/lib/reports': `export const accountBalances=async()=>[];`,
   '@/lib/categories': `export const listManagedCategories=async()=>[]; export const listCategoriesByRecentUse=async()=>[];`,
   '@/lib/transfers': `export const addTransfer=async()=>{}; `,
-  '@/lib/lending': `export const listPeople=async()=>[]; export const listLendingTotals=async()=>[]; export const createPerson=async()=>{}; export const saveLendingEntry=async()=>{};`,
+  '@/lib/lending': `export const listPeople=async()=>globalThis.__navTest.people??[]; export const listLendingTotals=async()=>[]; export const createPerson=async()=>{}; export const saveLendingEntry=async()=>{};`,
   '@/lib/quick-add-tags': `export const addQuickTransaction=async()=>{};`,
 };
 const hooks = registerHooks({
@@ -146,6 +146,8 @@ test('app navigation', async (t) => {
     queryClient?.clear();
     delete state.accounts;
     delete state.accountsError;
+    delete state.people;
+    delete state.params;
   });
   t.after(() => {
     notifyManager.setScheduler((callback) => setTimeout(callback, 0));
@@ -268,14 +270,14 @@ test('app navigation', async (t) => {
       try {
         await mount(Settings);
         await press('Share a backup file');
-        assert.equal(pressable('Lending & borrowing').props.disabled, true);
+        assert.equal(pressable('Lending & borrowing'), undefined);
         assert.equal(pressable('Review transfer candidates').props.disabled, true);
         const blocked = renderer.root
           .findAllByType('View')
           .find((n) => n.props.pointerEvents === 'none');
         assert.equal(blocked.props.importantForAccessibility, 'no-hide-descendants');
         await act(async () => finish());
-        assert.equal(pressable('Lending & borrowing').props.disabled, false);
+        assert.equal(pressable('Review transfer candidates').props.disabled, false);
       } finally {
         delete state.backup;
       }
@@ -302,6 +304,26 @@ test('app navigation', async (t) => {
       assert.equal(choices().props.selectedId, 1);
     },
   );
+  await t.test('Quick add opens the selected person and action for a lending balance', async () => {
+    state.params = { mode: 'PERSON', personId: '9', action: 'RECEIVE_REPAYMENT', currency: 'USD' };
+    state.people = [{ id: 9, name: 'Sam' }];
+    state.accounts = [
+      { id: 1, name: 'Cash', currencyCode: 'USD' },
+      { id: 2, name: 'Bank', currencyCode: 'BDT' },
+    ];
+    await mount(QuickAdd);
+    const choices = renderer.root.findAll((node) => node.type?.name === 'AccountChoices')[0];
+    assert.deepEqual(
+      choices.props.accounts.map((account) => account.id),
+      [1],
+    );
+    assert.equal(renderer.root.findAllByType('JoinedChoice')[0].props.value, 'PERSON');
+    assert.ok(texts().includes('With Sam'));
+    assert.equal(
+      renderer.root.findAllByType('JoinedChoice').at(-1).props.value,
+      'RECEIVE_REPAYMENT',
+    );
+  });
   await t.test(
     'Quick add centers its title and offers Cancel with transfer in the mode selector',
     async () => {

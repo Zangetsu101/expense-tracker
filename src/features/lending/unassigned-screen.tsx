@@ -1,192 +1,238 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSuspenseQuery } from '@tanstack/react-query';
 import { Stack } from 'expo-router';
-import { Alert, FlatList, Text, View } from 'react-native';
-import {
-  BottomSheet,
-  Button,
-  Column,
-  Host,
-  ScrollView as NativeScrollView,
-  Text as NativeText,
-} from '@expo/ui';
-import {
-  assignLendingTransaction,
-  type Person,
-  type UnassignedLendingTransaction,
-} from '@/lib/lending';
-import { FormButton } from '@/components/form-controls';
-import { QueryBoundary } from '@/components/query-error-boundary';
-import { formatEpochDay } from '@/lib/transaction-format';
-import { theme } from '@/theme';
+import { Pressable, Text, View } from 'react-native';
+import { FormInput } from '@/components/form-controls';
+import { assignLendingTransactions } from '@/lib/lending';
+import { countLabel, formatBalance } from '@/lib/transaction-format';
 import { unassignedHistoryQuery } from './queries.ts';
-import { EntryCardSkeleton, FallbackScroll, LendingAlert, LoadingGroup } from './view.tsx';
+import {
+  EmptyLedger,
+  Heading,
+  HistoryList,
+  LedgerSheet,
+  LendingAlert,
+  LendingBoundary,
+  LendingButton,
+  MoneyText,
+  Muted,
+  SheetAction,
+  askOverpayment,
+  c,
+  directionColor,
+  line,
+  panel,
+  two,
+} from './view.tsx';
 
-const c = theme.colors;
-const listStyle = { padding: 20, paddingTop: 0, gap: 16, paddingBottom: 48 };
-
-function UnassignedList() {
+function UnassignedLedger() {
   const { data, error, isFetching, refetch } = useSuspenseQuery(unassignedHistoryQuery());
-  const { rows, people } = data;
-  const [selected, setSelected] = useState<UnassignedLendingTransaction>();
+  const { rows, totals, people } = data;
+  const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
+  const [targets, setTargets] = useState<number[]>();
+  const [search, setSearch] = useState('');
   const [pending, setPending] = useState(false);
   const [writeError, setWriteError] = useState('');
-  async function assign(row: UnassignedLendingTransaction, person: Person, confirmed = false) {
-    if (pending) return;
+  const [notice, setNotice] = useState('');
+  const saving = useRef(false);
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(''), 2200);
+    return () => clearTimeout(timer);
+  }, [notice]);
+  const activeIds = rows
+    .filter((row) => selected.has(row.transactionId))
+    .map((row) => row.transactionId);
+  const term = search.trim().toLocaleLowerCase();
+  const matches = people.filter((person) => person.name.toLocaleLowerCase().includes(term));
+  function toggle(id: number) {
+    setNotice('');
+    setSelected((before) => {
+      const next = new Set(before);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  async function assign(target: string | number) {
+    if (!targets || saving.current) return;
+    saving.current = true;
     setPending(true);
     setWriteError('');
-    setSelected(undefined);
     try {
-      const result = await assignLendingTransaction(row.transactionId, person.id, {
-        confirmOverpayment: confirmed,
-      });
-      if (result.status === 'confirmation_required')
-        Alert.alert(
-          'Overpayment warning',
-          result.warnings
-            .map((w) => `${w.currencyCode}: overpaid credit ${(w.overpaidMinor / 100).toFixed(2)}`)
-            .join('\n') + '\nAssign anyway? Credit stays separate from outstanding obligations.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Assign anyway', onPress: () => void assign(row, person, true) },
-          ],
+      let result = await assignLendingTransactions(targets, target);
+      if (result.status === 'confirmation_required') {
+        if (!(await askOverpayment(result.warnings, 'Assign anyway'))) return;
+        result = await assignLendingTransactions(targets, target, { confirmOverpayment: true });
+      }
+      if (result.status === 'saved') {
+        setSelected(new Set());
+        setTargets(undefined);
+        setNotice(
+          `${countLabel(result.ids.length, 'entry', 'entries')} assigned to ${result.person.name}`,
         );
-    } catch (e) {
-      setWriteError(String(e));
+      }
+    } catch (cause) {
+      setWriteError(String(cause));
     } finally {
+      saving.current = false;
       setPending(false);
     }
   }
   return (
-    <View style={{ flex: 1 }}>
-      <FlatList
-        contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={listStyle}
-        data={rows}
-        keyExtractor={(r) => String(r.transactionId)}
-        ListHeaderComponent={
+    <View style={{ flex: 1, backgroundColor: c.background }}>
+      <HistoryList
+        rows={rows}
+        selection={selected}
+        onPress={(row) => toggle(row.transactionId)}
+        header={
           <View style={{ gap: 16 }}>
             {!!error && !isFetching && (
               <LendingAlert
-                message="Could not refresh unassigned entries."
+                refresh
+                message="Could not refresh the entries"
                 retry={() => void refetch()}
               />
             )}
-            {!!writeError && (
-              <Text selectable accessibilityRole="alert" style={{ color: c.warning }}>
-                {writeError}
-              </Text>
-            )}
-            {rows.length === 0 && (
-              <Text style={{ color: c.text }}>No unassigned historical lending entries.</Text>
-            )}
-            {people.length === 0 && (
-              <Text style={{ color: c.muted }}>
-                Save a person in Lending & borrowing before assigning history.
-              </Text>
+            {rows.length ? (
+              <>
+                <View style={panel}>
+                  {[...totals]
+                    .sort((a, b) => b.direction.localeCompare(a.direction))
+                    .map((total, index) => (
+                      <View key={`${total.direction}:${total.currencyCode}`} style={{ gap: 12 }}>
+                        {index > 0 && <View style={line} />}
+                        <View style={{ ...two, alignItems: 'baseline' }}>
+                          <Muted>
+                            {total.direction === 'LENT' ? 'Owed to you' : 'You owe'} ·{' '}
+                            {total.currencyCode}
+                          </Muted>
+                          <MoneyText
+                            size={total.direction === 'LENT' ? 22 : 18}
+                            color={directionColor(total.direction)}
+                          >
+                            {formatBalance(total.outstandingMinor, total.currencyCode)}
+                          </MoneyText>
+                        </View>
+                        {!!total.overpaidMinor && (
+                          <Muted>
+                            Overpaid credit {formatBalance(total.overpaidMinor, total.currencyCode)}
+                          </Muted>
+                        )}
+                      </View>
+                    ))}
+                </View>
+                <View style={{ ...two, alignItems: 'center', marginTop: 4 }}>
+                  <Heading>Entries</Heading>
+                  <Pressable
+                    accessibilityRole="button"
+                    style={{ padding: 8 }}
+                    onPress={() =>
+                      setSelected(
+                        new Set(activeIds.length ? [] : rows.map((row) => row.transactionId)),
+                      )
+                    }
+                  >
+                    <Text style={{ color: c.accent }}>
+                      {activeIds.length ? 'Clear' : 'Select all'}
+                    </Text>
+                  </Pressable>
+                </View>
+              </>
+            ) : (
+              <EmptyLedger
+                title="No entries without a person"
+                hint="Go to Lending and tap + to add an entry for a person."
+              />
             )}
           </View>
         }
-        renderItem={({ item }) => (
-          <View style={{ backgroundColor: c.surface, padding: 16, borderRadius: 16, gap: 8 }}>
-            <Text selectable style={{ color: c.text }}>
-              {
-                {
-                  LEND: 'Lent',
-                  BORROW: 'Borrowed',
-                  RECEIVE_REPAYMENT: 'Repayment received',
-                  REPAY: 'Repaid',
-                }[item.kind]
-              }{' '}
-              · {(item.amountMinor / 100).toFixed(2)} {item.currencyCode}
-            </Text>
-            <Text selectable style={{ color: c.muted }}>
-              {formatEpochDay(item.date)} · {item.accountName} · {item.categoryName}
-            </Text>
-            {!!item.note && (
-              <Text selectable style={{ color: c.text }}>
-                {item.note}
-              </Text>
-            )}
-            <FormButton
-              label="Assign person"
-              variant="secondary"
-              disabled={pending || isFetching || !people.length}
-              onPress={() => setSelected(item)}
-            />
-          </View>
-        )}
       />
-      <Host>
-        <BottomSheet
-          isPresented={!!selected}
-          onDismiss={() => setSelected(undefined)}
-          snapPoints={['half', 'full']}
+      {!!activeIds.length && (
+        <View
+          style={{
+            ...two,
+            alignItems: 'center',
+            backgroundColor: c.surface,
+            paddingHorizontal: 20,
+            paddingVertical: 14,
+          }}
         >
-          <NativeScrollView>
-            <Column>
-              <NativeText>Choose the known person</NativeText>
-              {people.map((person) => (
-                <Button
-                  key={person.id}
-                  label={person.name}
-                  onPress={() => {
-                    const row = selected;
-                    if (!row) return;
-                    Alert.alert(
-                      'Assign historical entry?',
-                      `${(row.amountMinor / 100).toFixed(2)} ${row.currencyCode} on ${formatEpochDay(row.date)} → ${person.name}. No additional Account movement will be created.`,
-                      [
-                        { text: 'Cancel', style: 'cancel' },
-                        { text: 'Assign', onPress: () => void assign(row, person) },
-                      ],
-                    );
-                  }}
-                />
-              ))}
-            </Column>
-          </NativeScrollView>
-        </BottomSheet>
-      </Host>
+          <Text style={{ color: c.text }}>{activeIds.length} selected</Text>
+          <LendingButton
+            label="Assign…"
+            onPress={() => {
+              setSearch('');
+              setWriteError('');
+              setTargets(activeIds);
+            }}
+          />
+        </View>
+      )}
+      {!!notice && (
+        <View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            bottom: 16,
+            right: 20,
+            left: 20,
+            backgroundColor: c.raised,
+            borderRadius: 12,
+            padding: 14,
+          }}
+        >
+          <Text accessibilityLiveRegion="polite" style={{ color: c.text }}>
+            {notice}
+          </Text>
+        </View>
+      )}
+      {targets && (
+        <LedgerSheet pending={pending} dismiss={() => setTargets(undefined)}>
+          <Heading>
+            {targets.length === 1 ? 'Assign the entry to' : `Assign ${targets.length} entries to`}
+          </Heading>
+          <FormInput
+            accessibilityLabel="Find or add a person"
+            placeholder="Find or add a person"
+            value={search}
+            onChangeText={setSearch}
+            editable={!pending}
+          />
+          {matches.map((person) => (
+            <SheetAction
+              key={person.id}
+              label={person.name}
+              disabled={pending}
+              onPress={() => void assign(person.id)}
+            />
+          ))}
+          {!!term && !matches.some((person) => person.name.toLocaleLowerCase() === term) && (
+            <SheetAction
+              label={`Add ${search.trim()}`}
+              accent
+              disabled={pending}
+              onPress={() => void assign(search.trim())}
+            />
+          )}
+          {!!writeError && (
+            <Text accessibilityRole="alert" style={{ color: c.warning }}>
+              {writeError}
+            </Text>
+          )}
+        </LedgerSheet>
+      )}
     </View>
-  );
-}
-
-function UnassignedSkeleton() {
-  return (
-    <FallbackScroll paddingTop={0}>
-      <LoadingGroup label="Loading unassigned entries">
-        <EntryCardSkeleton />
-        <EntryCardSkeleton />
-        <EntryCardSkeleton />
-      </LoadingGroup>
-    </FallbackScroll>
-  );
-}
-
-function UnassignedError({ retry }: { retry: () => void }) {
-  return (
-    <FallbackScroll paddingTop={0}>
-      <LendingAlert message="Could not load unassigned entries." retry={retry} />
-    </FallbackScroll>
   );
 }
 
 export default function UnassignedScreen() {
   return (
-    <View style={{ flex: 1, backgroundColor: c.background }}>
-      <Stack.Screen options={{ title: 'Unassigned history' }} />
-      <Text style={{ color: c.muted, padding: 20 }}>
-        Assign only when you know the person. This links the existing historical Transaction without
-        creating another Account movement. Missing people are never guessed; balances remain
-        incomplete until history is reconciled.
-      </Text>
-      <QueryBoundary
-        pending={<UnassignedSkeleton />}
-        error={(retry) => <UnassignedError retry={retry} />}
-      >
-        <UnassignedList />
-      </QueryBoundary>
-    </View>
+    <>
+      <Stack.Screen options={{ title: 'No person' }} />
+      <LendingBoundary title="entries" section="Entries" subject="the entries">
+        <UnassignedLedger />
+      </LendingBoundary>
+    </>
   );
 }

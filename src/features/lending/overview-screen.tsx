@@ -1,115 +1,225 @@
-import { useState } from 'react';
 import { useSuspenseQuery } from '@tanstack/react-query';
 import { Stack, router } from 'expo-router';
-import { ScrollView, Text, View } from 'react-native';
-import { createPerson } from '@/lib/lending';
-import { FormButton, FormInput } from '@/components/form-controls';
+import { Pressable, Text, View } from 'react-native';
 import { QueryBoundary } from '@/components/query-error-boundary';
-import { theme } from '@/theme';
+import { Skeleton } from '@/components/loading';
+import type { LendingTotal } from '@/lib/lending';
+import { countLabel, formatActivityDay, formatBalance } from '@/lib/transaction-format';
 import { lendingOverviewQuery } from './queries.ts';
-import { ButtonSkeleton, LendingAlert, LoadingGroup } from './view.tsx';
+import {
+  AddEntryButton,
+  BalanceAmounts,
+  EmptyLedger,
+  Heading,
+  LedgerRow,
+  LendingAlert,
+  LendingBoundary,
+  LendingScroll,
+  MoneyText,
+  Muted,
+  c,
+  directionColor,
+  line,
+  panel,
+  personRoute,
+  two,
+} from './view.tsx';
 
-const c = theme.colors;
-
-function LendingOverview() {
-  const { data, error, isFetching, refetch } = useSuspenseQuery(lendingOverviewQuery());
+function OpenTotals({ totals, compact = false }: { totals: LendingTotal[]; compact?: boolean }) {
   return (
-    <>
-      {!!error && !isFetching && (
-        <LendingAlert message="Could not refresh people." retry={() => void refetch()} />
-      )}
-      <FormButton
-        label={`Unassigned historical entries (${data.unassignedCount})`}
-        variant="secondary"
-        onPress={() => router.push('/lending/unassigned')}
-      />
-      {data.people.length === 0 && (
-        <Text style={{ color: c.muted }}>
-          No saved people yet. Save a person to start recording lending or borrowing.
-        </Text>
-      )}
-      {data.people.map((person) => (
-        <FormButton
-          key={person.id}
-          label={person.name}
-          variant="secondary"
-          onPress={() => router.push({ pathname: '/lending/person', params: { id: person.id } })}
-        />
-      ))}
-    </>
+    <View style={two}>
+      {(['LENT', 'BORROWED'] as const).map((direction) => {
+        const amounts = new Map<string, number>();
+        for (const total of totals) {
+          if (total.direction !== direction || !total.outstandingMinor) continue;
+          amounts.set(
+            total.currencyCode,
+            (amounts.get(total.currencyCode) ?? 0) + total.outstandingMinor,
+          );
+        }
+        return (
+          <View
+            key={direction}
+            style={{
+              flex: 1,
+              gap: 2,
+              alignItems: direction === 'LENT' ? 'flex-start' : 'flex-end',
+            }}
+          >
+            <Text style={{ color: c.muted, fontSize: compact ? 12 : 14 }}>
+              {direction === 'LENT' ? 'Owed to you' : 'You owe'}
+            </Text>
+            {amounts.size ? (
+              [...amounts]
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([currency, amount], index) => (
+                  <MoneyText
+                    key={currency}
+                    size={compact ? 18 : index === 0 ? 22 : 14}
+                    color={directionColor(direction)}
+                  >
+                    {formatBalance(amount, currency)}
+                  </MoneyText>
+                ))
+            ) : (
+              <MoneyText color={directionColor(direction)}>0</MoneyText>
+            )}
+          </View>
+        );
+      })}
+    </View>
   );
 }
 
-function LendingOverviewSkeleton() {
+function largestOpenAmount(totals: LendingTotal[]) {
+  return totals.reduce((largest, total) => Math.max(largest, total.outstandingMinor), 0);
+}
+
+function LendingOverview() {
+  const { data, error, isFetching, refetch } = useSuspenseQuery(lendingOverviewQuery());
+  const { people, unassigned } = data;
+  const open = people
+    .filter((person) => largestOpenAmount(person.totals))
+    .sort((a, b) => largestOpenAmount(b.totals) - largestOpenAmount(a.totals));
+  const settled = people.filter((person) => !largestOpenAmount(person.totals));
+  const empty = !people.length && !unassigned.rows.length;
+  function row(person: (typeof people)[number], isSettled = false) {
+    const credit = person.totals
+      .filter((total) => total.overpaidMinor)
+      .map((total) => formatBalance(total.overpaidMinor, total.currencyCode));
+    const detail = isSettled
+      ? credit.length
+        ? `Overpaid credit ${credit.join(' · ')}`
+        : 'Settled'
+      : [
+          person.totals.some((t) => t.outstandingMinor && t.direction === 'LENT') && 'Owes you',
+          person.totals.some((t) => t.outstandingMinor && t.direction === 'BORROWED') && 'You owe',
+          person.lastDate !== undefined && formatActivityDay(person.lastDate),
+        ]
+          .filter(Boolean)
+          .join(' · ');
+    return (
+      <LedgerRow
+        key={person.id}
+        title={person.name}
+        detail={detail}
+        icon={Array.from(person.name)[0]?.toLocaleUpperCase() ?? '?'}
+        settled={isSettled}
+        amounts={isSettled ? <Muted>›</Muted> : <BalanceAmounts totals={person.totals} />}
+        onPress={() => router.push(personRoute(person.id, person.name))}
+      />
+    );
+  }
   return (
-    <LoadingGroup label="Loading people">
-      <ButtonSkeleton />
-      <ButtonSkeleton />
-      <ButtonSkeleton />
-      <ButtonSkeleton />
-    </LoadingGroup>
+    <>
+      <LendingScroll>
+        {!!error && !isFetching && (
+          <LendingAlert refresh message="Could not refresh lending" retry={() => void refetch()} />
+        )}
+        {empty ? (
+          <EmptyLedger
+            title="No lending or borrowing yet"
+            hint="Tap + when you lend money to a person or borrow money from a person."
+          />
+        ) : (
+          <>
+            <View style={panel}>
+              <OpenTotals
+                totals={[...people.flatMap((person) => person.totals), ...unassigned.totals]}
+              />
+              <View style={line} />
+              <Muted>{countLabel(open.length, 'person', 'people')} with open balances</Muted>
+            </View>
+            <View style={{ marginTop: 4 }}>
+              <Heading>People</Heading>
+              {open.map((person) => row(person))}
+              {!!unassigned.rows.length && (
+                <LedgerRow
+                  title="No person"
+                  detail={countLabel(unassigned.rows.length, 'entry', 'entries')}
+                  icon="?"
+                  dashed
+                  amounts={<BalanceAmounts totals={unassigned.totals} />}
+                  onPress={() => router.push('/accounts/lending/unassigned')}
+                />
+              )}
+              {!!settled.length && (
+                <>
+                  <Text style={{ color: c.muted, fontWeight: '700', marginTop: 16 }}>Settled</Text>
+                  {settled.map((person) => row(person, true))}
+                </>
+              )}
+            </View>
+          </>
+        )}
+      </LendingScroll>
+      <AddEntryButton />
+    </>
   );
 }
 
 export default function LendingScreen() {
-  const [name, setName] = useState('');
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState('');
-  async function add() {
-    setPending(true);
-    setError('');
-    try {
-      const person = await createPerson(name);
-      setName('');
-      router.push({ pathname: '/lending/person', params: { id: person.id } });
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setPending(false);
-    }
-  }
   return (
     <>
-      <Stack.Screen options={{ title: 'Lending & borrowing' }} />
-      <ScrollView
-        style={{ flex: 1, backgroundColor: c.background }}
-        contentInsetAdjustmentBehavior="automatic"
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ padding: 20, gap: 16, paddingBottom: 48 }}
-      >
-        <Text style={{ color: c.muted }}>
-          People are shared across lending and borrowing. Balances stay separate by direction and
-          currency.
-        </Text>
-        <FormButton label="Add money movement" onPress={() => router.push('/lending/entry')} />
-        <FormInput
-          accessibilityLabel="New person name"
-          placeholder="Person’s name"
-          value={name}
-          onChangeText={setName}
-          editable={!pending}
-        />
-        <FormButton
-          label="Save person"
-          variant="secondary"
-          disabled={!name.trim()}
-          loading={pending}
-          onPress={() => void add()}
-        />
-        {!!error && (
-          <Text selectable accessibilityRole="alert" style={{ color: c.warning }}>
-            {error}
-          </Text>
-        )}
-        <View style={{ gap: 16 }}>
-          <QueryBoundary
-            pending={<LendingOverviewSkeleton />}
-            error={(retry) => <LendingAlert message="Could not load people." retry={retry} />}
-          >
-            <LendingOverview />
-          </QueryBoundary>
-        </View>
-      </ScrollView>
+      <Stack.Screen options={{ title: 'Lending' }} />
+      <LendingBoundary title="lending" section="People" subject="lending">
+        <LendingOverview />
+      </LendingBoundary>
     </>
+  );
+}
+
+function CardContent() {
+  const { data, error, isFetching, refetch } = useSuspenseQuery(lendingOverviewQuery());
+  return (
+    <View style={panel}>
+      {!!error && !isFetching && (
+        <LendingAlert refresh message="Could not refresh lending" retry={() => void refetch()} />
+      )}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Lending"
+        style={{ gap: 12 }}
+        onPress={() => router.push('/accounts/lending')}
+      >
+        <View style={two}>
+          <Muted>Lending</Muted>
+          <Muted>
+            {data.people.length ? `${countLabel(data.people.length, 'person', 'people')} ›` : '›'}
+          </Muted>
+        </View>
+        {data.people.every((person) => !person.totals.length) && !data.unassigned.rows.length ? (
+          <Text style={{ color: c.text }}>Nothing lent or borrowed yet</Text>
+        ) : (
+          <OpenTotals
+            compact
+            totals={[...data.people.flatMap((person) => person.totals), ...data.unassigned.totals]}
+          />
+        )}
+      </Pressable>
+    </View>
+  );
+}
+
+export function LendingCard() {
+  return (
+    <QueryBoundary
+      pending={
+        <View style={panel} accessibilityRole="progressbar" accessibilityLabel="Loading lending">
+          <Skeleton width="30%" />
+          <View style={two}>
+            <Skeleton width="40%" height={22} />
+            <Skeleton width="30%" height={22} />
+          </View>
+        </View>
+      }
+      error={(retry) => (
+        <View style={panel}>
+          <LendingAlert refresh message="Could not load lending" retry={retry} />
+        </View>
+      )}
+    >
+      <CardContent />
+    </QueryBoundary>
   );
 }
