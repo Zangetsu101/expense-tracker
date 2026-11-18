@@ -31,6 +31,11 @@ export type LendingEntry = {
   accountId: number | null;
   accountName: string | null;
 };
+/** A write-off has no Transaction. The Receipt shows it with "No Account movement". */
+export type WriteOffEntry = LendingEntry & {
+  type: 'WRITE_OFF';
+  kind: 'WRITE_OFF_LENT' | 'WRITE_OFF_BORROWED';
+};
 export type LendingTotal = {
   personId: number;
   currencyCode: string;
@@ -155,7 +160,9 @@ export async function loadPersonLedger(id: number) {
   return { person, entries: rows, totals: totals(rows) };
 }
 
-export async function listPeopleWithLendingTotals() {
+export type PersonWithTotals = Person & { totals: LendingTotal[]; lastDate?: number };
+
+export async function listPeopleWithLendingTotals(): Promise<PersonWithTotals[]> {
   const [people, rows] = await Promise.all([listPeople(), listLendingEntries()]);
   const grouped = new Map<number, LendingTotal[]>();
   for (const total of totals(rows)) {

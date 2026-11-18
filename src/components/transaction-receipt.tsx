@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'expo-router';
-import type { WriteOffReceipt } from '@/features/receipt/queries';
+import type { WriteOffEntry } from '@/lib/lending';
 import { lendingKindLabels } from '@/lib/lending-labels';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import type { EditableTransaction } from '@/lib/transaction-edit';
@@ -8,6 +8,7 @@ import type { EditableTransfer } from '@/lib/transfers';
 import {
   formatEpochDay,
   formatActivityDay,
+  formatBalance,
   formatMoney,
   formatTransactionAmount,
   transactionTitle,
@@ -16,7 +17,7 @@ import { formatLineItemAmount } from '@/lib/line-item-amount';
 import { theme } from '@/theme';
 
 const color = { ...theme.colors, panel: theme.colors.surface, ink: theme.colors.text };
-type Props = { transaction: EditableTransaction | WriteOffReceipt };
+type Props = { transaction: EditableTransaction | WriteOffEntry };
 function Label({ children }: { children: string }) {
   return (
     <Text
@@ -92,6 +93,11 @@ function ItemSection({ row }: { row: EditableTransaction }) {
     </View>
   );
 }
+function receiptAmount(row: Props['transaction']) {
+  if (row.type === 'WRITE_OFF') return formatBalance(row.amountMinor, row.currencyCode);
+  const format = row.lendingKind ? formatMoney : formatTransactionAmount;
+  return format(row.type, row.amountMinor, row.currencyCode);
+}
 export function TransactionReceipt({ transaction: row }: Props) {
   const writeOff = row.type === 'WRITE_OFF';
   const kind = writeOff ? row.kind : row.lendingKind;
@@ -124,13 +130,7 @@ export function TransactionReceipt({ transaction: row }: Props) {
             fontVariant: ['tabular-nums'],
           }}
         >
-          {writeOff
-            ? formatMoney('TRANSFER', row.amountMinor, row.currencyCode)
-            : (kind ? formatMoney : formatTransactionAmount)(
-                row.type,
-                row.amountMinor,
-                row.currencyCode,
-              )}
+          {receiptAmount(row)}
         </Text>
         <Text selectable style={{ color: color.ink, fontSize: 20, fontWeight: '700' }}>
           {title}

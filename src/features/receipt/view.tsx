@@ -12,7 +12,7 @@ import {
   type EditableTransaction,
   type LineItem,
 } from '@/lib/transaction-edit';
-import { askOverpayment } from '@/features/lending/view';
+import { writeWithOverpaidCreditCheck } from '@/features/lending/view';
 import { theme } from '@/theme';
 
 export function EditTransactionScreen({
@@ -90,20 +90,14 @@ export function EditTransactionScreen({
         return { id: item.id, name: item.name, amountMinor, quantity };
       });
       if (!committed) {
-        const result = await saveTransactionEdit(
-          transaction,
-          note,
-          excluded,
-          tags,
-          lineItems,
-          amountMinor,
+        const saved = await writeWithOverpaidCreditCheck(
+          (confirmOverpayment) =>
+            saveTransactionEdit(transaction, note, excluded, tags, lineItems, amountMinor, {
+              confirmOverpayment,
+            }),
+          'Save anyway',
         );
-        if (result?.status === 'confirmation_required') {
-          if (!(await askOverpayment(result.warnings, 'Save anyway'))) return;
-          await saveTransactionEdit(transaction, note, excluded, tags, lineItems, amountMinor, {
-            confirmOverpayment: true,
-          });
-        }
+        if (!saved) return;
         setCommitted(true);
       }
       await onSaved();

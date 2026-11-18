@@ -7,7 +7,7 @@ import { dateFromEpochDay, epochDay } from '@/lib/database';
 import { saveLendingEntry } from '@/lib/lending';
 import { formatLineItemAmount } from '@/lib/line-item-amount';
 import { formatActivityDay, formatBalance } from '@/lib/transaction-format';
-import { LendingButton, askOverpayment, c, two } from './view.tsx';
+import { LendingButton, colors, spacedRow, writeWithOverpaidCreditCheck } from './view.tsx';
 
 export function WriteOffForm({
   id,
@@ -69,11 +69,11 @@ export function WriteOffForm({
     try {
       if (!committed) {
         const draft = { id, personId, kind, currencyCode: currency, amountMinor, date: day, note };
-        const result = await saveLendingEntry(draft);
-        if (result.status === 'confirmation_required') {
-          if (!(await askOverpayment(result.warnings, 'Write off anyway'))) return;
-          await saveLendingEntry({ ...draft, confirmOverpayment: true });
-        }
+        const saved = await writeWithOverpaidCreditCheck(
+          (confirmOverpayment) => saveLendingEntry({ ...draft, confirmOverpayment }),
+          'Write off anyway',
+        );
+        if (!saved) return;
         setCommitted(true);
       }
       await onSaved();
@@ -89,10 +89,10 @@ export function WriteOffForm({
     <View style={{ gap: 12 }}>
       <View
         style={{
-          ...two,
+          ...spacedRow,
           alignItems: 'center',
           borderWidth: 1,
-          borderColor: c.line,
+          borderColor: colors.line,
           borderRadius: 12,
           paddingRight: 14,
         }}
@@ -111,10 +111,10 @@ export function WriteOffForm({
             fontWeight: '700',
           }}
         />
-        <Text style={{ color: c.muted }}>Amount</Text>
+        <Text style={{ color: colors.muted }}>Amount</Text>
       </View>
       {id === undefined && minor === initialAmount && (
-        <Text style={{ color: c.muted, fontSize: 12 }}>This closes the balance</Text>
+        <Text style={{ color: colors.muted, fontSize: 12 }}>This closes the balance</Text>
       )}
       <Pressable
         accessibilityRole="button"
@@ -122,17 +122,17 @@ export function WriteOffForm({
         disabled={locked}
         onPress={() => setDatePicker(!datePicker)}
         style={{
-          ...two,
+          ...spacedRow,
           alignItems: 'center',
           minHeight: 48,
           borderWidth: 1,
-          borderColor: c.line,
+          borderColor: colors.line,
           borderRadius: 12,
           paddingHorizontal: 14,
         }}
       >
-        <Text style={{ color: c.text, fontSize: 16 }}>{formatActivityDay(day)}</Text>
-        <Text style={{ color: c.muted }}>Date</Text>
+        <Text style={{ color: colors.text, fontSize: 16 }}>{formatActivityDay(day)}</Text>
+        <Text style={{ color: colors.muted }}>Date</Text>
       </Pressable>
       {datePicker && !locked && (
         <NativeDatePicker
@@ -158,7 +158,7 @@ export function WriteOffForm({
         editable={!locked}
       />
       {!!error && (
-        <Text accessibilityRole="alert" style={{ color: c.warning }}>
+        <Text accessibilityRole="alert" style={{ color: colors.warning }}>
           {error}
         </Text>
       )}

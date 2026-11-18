@@ -17,12 +17,12 @@ import {
   MoneyText,
   Muted,
   SheetAction,
-  askOverpayment,
-  c,
+  colors,
   directionColor,
-  line,
+  divider,
   panel,
-  two,
+  spacedRow,
+  writeWithOverpaidCreditCheck,
 } from './view.tsx';
 
 function UnassignedLedger() {
@@ -60,11 +60,12 @@ function UnassignedLedger() {
     setPending(true);
     setWriteError('');
     try {
-      let result = await assignLendingTransactions(targets, target);
-      if (result.status === 'confirmation_required') {
-        if (!(await askOverpayment(result.warnings, 'Assign anyway'))) return;
-        result = await assignLendingTransactions(targets, target, { confirmOverpayment: true });
-      }
+      const assigned = await writeWithOverpaidCreditCheck(
+        (confirmOverpayment) => assignLendingTransactions(targets, target, { confirmOverpayment }),
+        'Assign anyway',
+      );
+      if (!assigned) return;
+      const { result } = assigned;
       if (result.status === 'saved') {
         setSelected(new Set());
         setTargets(undefined);
@@ -80,7 +81,7 @@ function UnassignedLedger() {
     }
   }
   return (
-    <View style={{ flex: 1, backgroundColor: c.background }}>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
       <HistoryList
         rows={rows}
         selection={selected}
@@ -101,8 +102,8 @@ function UnassignedLedger() {
                     .sort((a, b) => b.direction.localeCompare(a.direction))
                     .map((total, index) => (
                       <View key={`${total.direction}:${total.currencyCode}`} style={{ gap: 12 }}>
-                        {index > 0 && <View style={line} />}
-                        <View style={{ ...two, alignItems: 'baseline' }}>
+                        {index > 0 && <View style={divider} />}
+                        <View style={{ ...spacedRow, alignItems: 'baseline' }}>
                           <Muted>
                             {total.direction === 'LENT' ? 'Owed to you' : 'You owe'} ·{' '}
                             {total.currencyCode}
@@ -122,7 +123,7 @@ function UnassignedLedger() {
                       </View>
                     ))}
                 </View>
-                <View style={{ ...two, alignItems: 'center', marginTop: 4 }}>
+                <View style={{ ...spacedRow, alignItems: 'center', marginTop: 4 }}>
                   <Heading>Entries</Heading>
                   <Pressable
                     accessibilityRole="button"
@@ -133,7 +134,7 @@ function UnassignedLedger() {
                       )
                     }
                   >
-                    <Text style={{ color: c.accent }}>
+                    <Text style={{ color: colors.accent }}>
                       {activeIds.length ? 'Clear' : 'Select all'}
                     </Text>
                   </Pressable>
@@ -151,14 +152,14 @@ function UnassignedLedger() {
       {!!activeIds.length && (
         <View
           style={{
-            ...two,
+            ...spacedRow,
             alignItems: 'center',
-            backgroundColor: c.surface,
+            backgroundColor: colors.surface,
             paddingHorizontal: 20,
             paddingVertical: 14,
           }}
         >
-          <Text style={{ color: c.text }}>{activeIds.length} selected</Text>
+          <Text style={{ color: colors.text }}>{activeIds.length} selected</Text>
           <LendingButton
             label="Assign…"
             onPress={() => {
@@ -177,12 +178,12 @@ function UnassignedLedger() {
             bottom: 16,
             right: 20,
             left: 20,
-            backgroundColor: c.raised,
+            backgroundColor: colors.raised,
             borderRadius: 12,
             padding: 14,
           }}
         >
-          <Text accessibilityLiveRegion="polite" style={{ color: c.text }}>
+          <Text accessibilityLiveRegion="polite" style={{ color: colors.text }}>
             {notice}
           </Text>
         </View>
@@ -216,7 +217,7 @@ function UnassignedLedger() {
             />
           )}
           {!!writeError && (
-            <Text accessibilityRole="alert" style={{ color: c.warning }}>
+            <Text accessibilityRole="alert" style={{ color: colors.warning }}>
               {writeError}
             </Text>
           )}

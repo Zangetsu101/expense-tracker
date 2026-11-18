@@ -20,16 +20,20 @@ import type { LendingEntry, LendingTotal, UnassignedLendingTransaction } from '@
 import { lendingKindLabels } from '@/lib/lending-labels';
 import { theme } from '@/theme';
 
-export const c = theme.colors;
-export const panel = { backgroundColor: c.surface, borderRadius: 16, padding: 18, gap: 12 };
-export const line = { height: 1, backgroundColor: c.line };
-export const two = { flexDirection: 'row', justifyContent: 'space-between', gap: 12 } as const;
+export const colors = theme.colors;
+export const panel = { backgroundColor: colors.surface, borderRadius: 16, padding: 18, gap: 12 };
+export const divider = { height: 1, backgroundColor: colors.line };
+export const spacedRow = {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  gap: 12,
+} as const;
 export function personRoute(id: number, name: string) {
   return { pathname: '/accounts/lending/person' as const, params: { id: String(id), name } };
 }
 
 export function directionColor(direction: LendingTotal['direction']) {
-  return direction === 'LENT' ? c.accent : c.warning;
+  return direction === 'LENT' ? colors.accent : colors.warning;
 }
 
 export function askOverpayment(warnings: LendingTotal[], action: string) {
@@ -51,13 +55,37 @@ export function askOverpayment(warnings: LendingTotal[], action: string) {
   );
 }
 
+type WriteResult = { status: string } | void;
+type OverpaidCreditCheck = { status: 'confirmation_required'; warnings: LendingTotal[] };
+function needsConfirmation(result: WriteResult): result is OverpaidCreditCheck {
+  return !!result && result.status === 'confirmation_required';
+}
+
+/**
+ * Runs a lending write. When the write increases overpaid credit, this function asks the user.
+ * If the user agrees, it runs the write again with the confirmation. If the user cancels, the
+ * function returns undefined.
+ */
+export async function writeWithOverpaidCreditCheck<R extends WriteResult>(
+  write: (confirmOverpayment: boolean) => Promise<R>,
+  action: string,
+): Promise<{ result: R } | undefined> {
+  const result = await write(false);
+  if (!needsConfirmation(result)) return { result };
+  if (!(await askOverpayment(result.warnings, action))) return undefined;
+  return { result: await write(true) };
+}
+
 export function Muted({ children }: { children: ReactNode }) {
-  return <Text style={{ color: c.muted }}>{children}</Text>;
+  return <Text style={{ color: colors.muted }}>{children}</Text>;
 }
 
 export function Heading({ children }: { children: ReactNode }) {
   return (
-    <Text accessibilityRole="header" style={{ color: c.text, fontSize: 22, fontWeight: '700' }}>
+    <Text
+      accessibilityRole="header"
+      style={{ color: colors.text, fontSize: 22, fontWeight: '700' }}
+    >
       {children}
     </Text>
   );
@@ -77,9 +105,9 @@ export function LendingAlert({
       style={
         refresh
           ? {
-              ...two,
+              ...spacedRow,
               alignItems: 'center',
-              backgroundColor: `${c.warning}1f`,
+              backgroundColor: `${colors.warning}1f`,
               borderRadius: 12,
               paddingLeft: 14,
             }
@@ -88,7 +116,7 @@ export function LendingAlert({
     >
       <Text
         accessibilityRole="alert"
-        style={{ color: refresh ? c.warning : c.muted, flexShrink: 1 }}
+        style={{ color: refresh ? colors.warning : colors.muted, flexShrink: 1 }}
       >
         {message}
       </Text>
@@ -100,12 +128,14 @@ export function LendingAlert({
           minHeight: 44,
           borderRadius: theme.radius.control,
           borderWidth: refresh ? 0 : 1,
-          borderColor: c.warning,
+          borderColor: colors.warning,
           paddingHorizontal: refresh ? 12 : 16,
           opacity: pressed ? 0.6 : 1,
         })}
       >
-        <Text style={{ color: refresh ? c.accent : c.warning, fontWeight: '600' }}>Retry</Text>
+        <Text style={{ color: refresh ? colors.accent : colors.warning, fontWeight: '600' }}>
+          Retry
+        </Text>
       </Pressable>
     </View>
   );
@@ -114,7 +144,7 @@ export function LendingAlert({
 export function LendingScroll({ children }: { children: ReactNode }) {
   return (
     <ScrollView
-      style={{ flex: 1, backgroundColor: c.background }}
+      style={{ flex: 1, backgroundColor: colors.background }}
       contentInsetAdjustmentBehavior="automatic"
       contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 4, paddingBottom: 90, gap: 16 }}
     >
@@ -146,7 +176,7 @@ export function LendingBoundary({
             <View style={panel}>
               <Skeleton width="40%" />
               <Skeleton width="65%" height={28} />
-              <View style={line} />
+              <View style={divider} />
               <Skeleton width="55%" />
             </View>
             <Heading>{section}</Heading>
@@ -177,10 +207,10 @@ export function LendingBoundary({
 export function EmptyLedger({ title, hint }: { title: string; hint?: string }) {
   return (
     <View style={{ minHeight: 360, justifyContent: 'center', alignItems: 'center', gap: 12 }}>
-      <Text style={{ color: c.text, fontSize: 18, fontWeight: '700', textAlign: 'center' }}>
+      <Text style={{ color: colors.text, fontSize: 18, fontWeight: '700', textAlign: 'center' }}>
         {title}
       </Text>
-      {hint && <Text style={{ color: c.muted, textAlign: 'center' }}>{hint}</Text>}
+      {hint && <Text style={{ color: colors.muted, textAlign: 'center' }}>{hint}</Text>}
     </View>
   );
 }
@@ -205,11 +235,11 @@ export function AddEntryButton({ personId }: { personId?: number }) {
         borderRadius: 30,
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: c.accent,
+        backgroundColor: colors.accent,
         elevation: 4,
       }}
     >
-      <Text style={{ color: c.background, fontSize: 32 }}>+</Text>
+      <Text style={{ color: colors.background, fontSize: 32 }}>+</Text>
     </Pressable>
   );
 }
@@ -221,7 +251,7 @@ const rowStyle = {
   minHeight: 68,
   paddingVertical: 10,
   borderBottomWidth: 1,
-  borderColor: c.line,
+  borderColor: colors.line,
 } as const;
 
 export function LedgerRow({
@@ -259,13 +289,15 @@ export function LedgerRow({
             borderRadius: 12,
             alignItems: 'center',
             justifyContent: 'center',
-            backgroundColor: dashed ? 'transparent' : c.raised,
-            borderColor: c.line,
+            backgroundColor: dashed ? 'transparent' : colors.raised,
+            borderColor: colors.line,
             borderWidth: dashed ? 1 : 0,
             borderStyle: dashed ? 'dashed' : 'solid',
           }}
         >
-          <Text style={{ color: dashed ? c.muted : c.text, fontSize: 18, fontWeight: '700' }}>
+          <Text
+            style={{ color: dashed ? colors.muted : colors.text, fontSize: 18, fontWeight: '700' }}
+          >
             {icon}
           </Text>
         </View>
@@ -276,17 +308,19 @@ export function LedgerRow({
             height: 24,
             borderRadius: 12,
             borderWidth: 2,
-            borderColor: checked ? c.accent : c.line,
-            backgroundColor: checked ? c.accent : 'transparent',
+            borderColor: checked ? colors.accent : colors.line,
+            backgroundColor: checked ? colors.accent : 'transparent',
             alignItems: 'center',
             justifyContent: 'center',
           }}
         >
-          <Text style={{ color: c.background }}>{checked ? '✓' : ''}</Text>
+          <Text style={{ color: colors.background }}>{checked ? '✓' : ''}</Text>
         </View>
       )}
       <View style={{ flex: 1, gap: 4 }}>
-        <Text style={{ color: settled ? c.muted : c.text, fontSize: 16, fontWeight: '600' }}>
+        <Text
+          style={{ color: settled ? colors.muted : colors.text, fontSize: 16, fontWeight: '600' }}
+        >
           {title}
         </Text>
         {!!detail && <Muted>{detail}</Muted>}
@@ -298,7 +332,7 @@ export function LedgerRow({
 
 export function MoneyText({
   children,
-  color = c.text,
+  color = colors.text,
   size = 14,
 }: {
   children: ReactNode;
@@ -360,7 +394,7 @@ export function HistoryList<T extends HistoryEntry>({
       sections={[...days].map(([date, data]) => ({ date, data, key: String(date) }))}
       keyExtractor={(row) => String('id' in row ? row.id : row.transactionId)}
       renderSectionHeader={({ section }) => (
-        <Text style={{ color: c.muted, fontWeight: '700', paddingTop: 16, paddingBottom: 6 }}>
+        <Text style={{ color: colors.muted, fontWeight: '700', paddingTop: 16, paddingBottom: 6 }}>
           {formatActivityDay(section.date)}
         </Text>
       )}
@@ -386,7 +420,7 @@ export function HistoryList<T extends HistoryEntry>({
             }
             onPress={() => onPress(item)}
             amounts={
-              <MoneyText color={writeOff ? c.muted : incoming ? c.accent : c.text}>
+              <MoneyText color={writeOff ? colors.muted : incoming ? colors.accent : colors.text}>
                 {formatMoney(
                   writeOff ? 'TRANSFER' : incoming ? 'INCOME' : 'EXPENSE',
                   item.amountMinor,
@@ -415,7 +449,7 @@ export function LedgerSheet({
   const content = (
     <ScrollView
       keyboardShouldPersistTaps="handled"
-      style={{ backgroundColor: c.surface, width, maxHeight: height * 0.75 }}
+      style={{ backgroundColor: colors.surface, width, maxHeight: height * 0.75 }}
       contentContainerStyle={{
         padding: 20,
         paddingBottom: Math.max(20, insets.bottom),
@@ -440,7 +474,7 @@ export function LedgerSheet({
       }}
       shouldDismissOnBackPress={!pending}
       shouldDismissOnClickOutside={!pending}
-      containerColor={c.surface}
+      containerColor={colors.surface}
       contentPadding={0}
       showDragIndicator={!pending}
     >
@@ -465,9 +499,14 @@ export function SheetAction({
       accessibilityRole="button"
       disabled={disabled}
       onPress={onPress}
-      style={{ minHeight: 48, justifyContent: 'center', borderBottomWidth: 1, borderColor: c.line }}
+      style={{
+        minHeight: 48,
+        justifyContent: 'center',
+        borderBottomWidth: 1,
+        borderColor: colors.line,
+      }}
     >
-      <Text style={{ color: accent ? c.accent : c.text, fontSize: 16 }}>{label}</Text>
+      <Text style={{ color: accent ? colors.accent : colors.text, fontSize: 16 }}>{label}</Text>
     </Pressable>
   );
 }
@@ -497,14 +536,14 @@ export function LendingButton({
         borderRadius: theme.radius.control,
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: c.accent,
+        backgroundColor: colors.accent,
         opacity: blocked ? 0.45 : pressed ? 0.65 : 1,
       })}
     >
       {pending ? (
-        <ActivityIndicator color={c.background} />
+        <ActivityIndicator color={colors.background} />
       ) : (
-        <Text style={{ color: c.background, fontWeight: '700', fontSize: 16 }}>{label}</Text>
+        <Text style={{ color: colors.background, fontWeight: '700', fontSize: 16 }}>{label}</Text>
       )}
     </Pressable>
   );

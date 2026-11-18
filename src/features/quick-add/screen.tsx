@@ -16,7 +16,7 @@ import { QuickAddDate } from '@/components/quick-add-date';
 import { QuickSelectCategory } from '@/components/quick-select-category';
 import { AccountChoices, personBalanceSummary } from '@/components/entry-choices';
 import { FormButton, FormInput, JoinedChoice } from '@/components/form-controls';
-import { parseAccountId } from '@/lib/account-selection';
+import { parseRouteId } from '@/lib/account-selection';
 import { theme } from '@/theme';
 
 const c = theme.colors;
@@ -120,13 +120,14 @@ function QuickAddForm() {
   const people = peopleRead.data?.people ?? [];
   const headerHeight = useHeaderHeight();
   const [amountMinor, setAmountMinor] = useState<number>();
-  const [accountId, setAccountId] = useState(() => parseAccountId(params.accountId));
+  const [accountId, setAccountId] = useState(() => parseRouteId(params.accountId));
   const [toId, setToId] = useState<number>();
   const [categoryIds, setCategoryIds] = useState<{
     EXPENSE?: number;
     INCOME?: number;
   }>({});
-  const [personId, setPersonId] = useState(() => parseAccountId(params.personId));
+  const routePersonId = parseRouteId(params.personId);
+  const [personId, setPersonId] = useState(routePersonId);
   const [query, setQuery] = useState('');
   const [action, setAction] = useState<PersonAction>(() => initialAction ?? 'LEND');
   const [note, setNote] = useState('');
@@ -140,7 +141,7 @@ function QuickAddForm() {
     if (!busy.current) navigation.dispatch(removal.action);
   });
   const currency =
-    mode === 'PERSON' && action === initialAction && personId === parseAccountId(params.personId)
+    mode === 'PERSON' && action === initialAction && personId === routePersonId
       ? params.currency
       : undefined;
   const account = accounts.find(

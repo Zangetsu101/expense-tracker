@@ -14,14 +14,15 @@ import {
 import { TransactionReceipt, TransferReceipt } from '@/components/transaction-receipt';
 import { TransferFormSection, type TransferDraft } from '@/features/transfer';
 import { dateFromEpochDay, epochDay } from '@/lib/database';
-import { deleteLendingEntry, type LendingResult } from '@/lib/lending';
+import { deleteLendingEntry } from '@/lib/lending';
 import { WriteOffForm } from '@/features/lending/write-off-form';
+import { writeWithOverpaidCreditCheck } from '@/features/lending/view';
 import { FormButton } from '@/components/form-controls';
 import { formatLineItemAmount } from '@/lib/line-item-amount';
 import { deleteTransaction } from '@/lib/transaction-delete';
 import { saveTransferEdit, type EditableTransfer } from '@/lib/transfers';
 import { theme } from '@/theme';
-import { receiptQuery, type Receipt } from './queries.ts';
+import { receiptQuery, writeOffReceiptQuery, type Receipt } from './queries.ts';
 import { QueryBoundary } from '@/components/query-error-boundary';
 import {
   EditTransactionScreen,
@@ -33,7 +34,8 @@ import {
 
 function ReceiptSession({ id, writeOff }: { id: number; writeOff: boolean }) {
   const client = useQueryClient();
-  const { data, error, isFetching, refetch } = useSuspenseQuery(receiptQuery(id, writeOff));
+  const query = writeOff ? writeOffReceiptQuery(id) : receiptQuery(id);
+  const { data, error, isFetching, refetch } = useSuspenseQuery(query);
   // The form edits this copy. Thus a refresh does not change an open form.
   const [snapshot, setSnapshot] = useState<Receipt>();
   const editing = snapshot !== undefined;
@@ -101,34 +103,22 @@ function ReceiptSession({ id, writeOff }: { id: number; writeOff: boolean }) {
       exitEditing();
     });
   });
-  function runDelete(confirmOverpayment: boolean) {
+  function runDelete() {
     startDeleting(async () => {
-      let result: LendingResult;
+      let deleted;
       try {
-        result = writeOff
-          ? await deleteLendingEntry(id, { confirmDelete: true, confirmOverpayment })
-          : await deleteTransaction(id, { confirmOverpayment });
+        deleted = await writeWithOverpaidCreditCheck(
+          (confirmOverpayment) =>
+            writeOff
+              ? deleteLendingEntry(id, { confirmDelete: true, confirmOverpayment })
+              : deleteTransaction(id, { confirmOverpayment }),
+          'Delete',
+        );
       } catch (cause) {
         Alert.alert('Could not delete', String(cause));
         return;
       }
-      if (result.status === 'confirmation_required') {
-        Alert.alert(
-          'Overpayment warning',
-          result.warnings
-            .map(
-              (w) =>
-                `${w.currencyCode} · ${w.direction === 'LENT' ? 'They owe you' : 'You owe them'}: overpaid credit ${formatLineItemAmount(w.overpaidMinor)}`,
-            )
-            .join('\n') +
-            '\nDelete anyway? Excess remains visible as credit, not an opposite obligation.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Delete', style: 'destructive', onPress: () => runDelete(true) },
-          ],
-        );
-        return;
-      }
+      if (!deleted) return;
       // React does not keep updates after an await in the transition. Wrap them again.
       startDeleting(() => {
         setDirty(false);
@@ -145,7 +135,7 @@ function ReceiptSession({ id, writeOff }: { id: number; writeOff: boolean }) {
         : 'It will be removed from Account balances and reports. You cannot undo this.',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: () => runDelete(false) },
+        { text: 'Delete', style: 'destructive', onPress: runDelete },
       ],
     );
   }
@@ -170,7 +160,7 @@ function ReceiptSession({ id, writeOff }: { id: number; writeOff: boolean }) {
   // A committed save is never reported as a failed save. If this read fails,
   // the form stays locked and offers "Retry receipt".
   const onSaved = async () => {
-    const refreshed = await client.fetchQuery(receiptQuery(id, writeOff));
+    const refreshed = await client.fetchQuery(query);
     if (!refreshed) throw new Error('Transaction not found after saving');
     exitEditing();
   };

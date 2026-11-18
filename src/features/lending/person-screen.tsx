@@ -18,11 +18,11 @@ import {
   MoneyText,
   Muted,
   SheetAction,
-  c,
+  colors,
   directionColor,
-  line,
+  divider,
   panel,
-  two,
+  spacedRow,
 } from './view.tsx';
 
 function Balance({ total, onPress }: { total: LendingTotal; onPress: () => void }) {
@@ -34,21 +34,21 @@ function Balance({ total, onPress }: { total: LendingTotal; onPress: () => void 
     : 0;
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={{ gap: 8 }}>
-      <View style={{ ...two, alignItems: 'baseline' }}>
+      <View style={{ ...spacedRow, alignItems: 'baseline' }}>
         <Muted>
           {lent ? 'Owes you' : 'You owe'} · {total.currencyCode}
         </Muted>
         <MoneyText size={lent ? 22 : 18} color={color}>
           {money(total.outstandingMinor)}{' '}
-          <Text style={{ color: c.muted, fontWeight: '400' }}>›</Text>
+          <Text style={{ color: colors.muted, fontWeight: '400' }}>›</Text>
         </MoneyText>
       </View>
-      <View style={{ height: 6, borderRadius: 3, backgroundColor: c.raised }}>
+      <View style={{ height: 6, borderRadius: 3, backgroundColor: colors.raised }}>
         <View
           style={{ height: 6, borderRadius: 3, width: `${progress}%`, backgroundColor: color }}
         />
       </View>
-      <Text style={{ color: c.muted, fontSize: 12 }}>
+      <Text style={{ color: colors.muted, fontSize: 12 }}>
         {money(total.repaidMinor)} repaid · {money(total.writtenOffMinor)} written off of{' '}
         {money(total.principalMinor)}
       </Text>
@@ -98,7 +98,7 @@ function PersonLedger({ personId }: { personId: number }) {
     }
   }
   return (
-    <View style={{ flex: 1, backgroundColor: c.background }}>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
       <Stack.Screen
         options={{
           title: person.name,
@@ -115,7 +115,7 @@ function PersonLedger({ personId }: { personId: number }) {
                 justifyContent: 'center',
               }}
             >
-              <Text style={{ color: c.text, fontSize: 22 }}>⋮</Text>
+              <Text style={{ color: colors.text, fontSize: 22 }}>⋮</Text>
             </Pressable>
           ),
         }}
@@ -138,7 +138,7 @@ function PersonLedger({ personId }: { personId: number }) {
                     .sort((a, b) => b.direction.localeCompare(a.direction))
                     .map((total, index) => (
                       <View key={`${total.direction}:${total.currencyCode}`} style={{ gap: 12 }}>
-                        {index > 0 && <View style={line} />}
+                        {index > 0 && <View style={divider} />}
                         <Balance
                           total={total}
                           onPress={() => {
@@ -183,7 +183,7 @@ function PersonLedger({ personId }: { personId: number }) {
               minWidth: 200,
               paddingHorizontal: 16,
               borderRadius: 12,
-              backgroundColor: c.raised,
+              backgroundColor: colors.raised,
               elevation: 6,
             }}
           >
@@ -211,7 +211,7 @@ function PersonLedger({ personId }: { personId: number }) {
                 editable={!pending}
               />
               {!!writeError && (
-                <Text accessibilityRole="alert" style={{ color: c.warning }}>
+                <Text accessibilityRole="alert" style={{ color: colors.warning }}>
                   {writeError}
                 </Text>
               )}

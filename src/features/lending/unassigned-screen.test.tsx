@@ -89,7 +89,7 @@ test('Select all and Clear change selection, then a single assignment writes bot
   expect(screen.getByText('Assign 2 entries to')).toBeOnTheScreen();
   await user.press(screen.getByRole('button', { name: 'Rafi' }));
   expect(assignLendingTransactions).toHaveBeenCalledTimes(1);
-  expect(assignLendingTransactions).toHaveBeenCalledWith([9, 10], 1);
+  expect(assignLendingTransactions).toHaveBeenCalledWith([9, 10], 1, { confirmOverpayment: false });
   expect(await screen.findByText('No entries without a person')).toBeOnTheScreen();
   expect(screen.getByText('2 entries assigned to Rafi')).toBeOnTheScreen();
 });
@@ -122,7 +122,9 @@ test('a new person can be added from the sheet and only overpaid credit requires
     await user.press(screen.getByRole('button', { name: 'Assign…' }));
     await user.type(screen.getByLabelText('Find or add a person'), 'Sam');
     await user.press(screen.getByRole('button', { name: 'Add Sam' }));
-    expect(assignLendingTransactions).toHaveBeenCalledWith([10], 'Sam');
+    expect(assignLendingTransactions).toHaveBeenCalledWith([10], 'Sam', {
+      confirmOverpayment: false,
+    });
     expect(alert.mock.calls[0][0]).toBe('Overpayment warning');
     const confirm = alert.mock.calls[0][2]?.find((button) => button.text === 'Assign anyway');
     expect(confirm?.onPress).toBeDefined();
