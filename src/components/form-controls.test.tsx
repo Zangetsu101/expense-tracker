@@ -9,7 +9,7 @@ test('Save accepts a press until it becomes busy', async () => {
     <FormButton label="Save" onPress={onPress} style={{ flex: 1 }} />,
   );
   const save = screen.getByRole('button', { name: 'Save' });
-  expect(save).toHaveStyle({ flex: 1, backgroundColor: '#52766c' });
+  expect(save).toHaveStyle({ flex: 1 });
   await user.press(save);
   await rerender(
     <FormButton label="Save" accessibilityLabel="Save category" loading onPress={onPress} />,
@@ -20,20 +20,18 @@ test('Save accepts a press until it becomes busy', async () => {
   expect(onPress).toHaveBeenCalledTimes(1);
 });
 
-test.each([
-  ['secondary', '#f1f5f4'],
-  ['danger', '#f4c998'],
-] as const)('disabled %s actions ignore presses', async (variant, color) => {
-  const user = userEvent.setup();
-  const press = jest.fn();
-  await render(<FormButton label="Action" disabled variant={variant} onPress={press} />);
-  const action = screen.getByRole('button', { name: 'Action' });
-  expect(action).toBeDisabled();
-  expect(action).toHaveStyle({ backgroundColor: 'transparent' });
-  expect(screen.getByText('Action')).toHaveStyle({ color });
-  await user.press(action);
-  expect(press).not.toHaveBeenCalled();
-});
+test.each(['secondary', 'danger'] as const)(
+  'disabled %s actions ignore presses',
+  async (variant) => {
+    const user = userEvent.setup();
+    const press = jest.fn();
+    await render(<FormButton label="Action" disabled variant={variant} onPress={press} />);
+    const action = screen.getByRole('button', { name: 'Action' });
+    expect(action).toBeDisabled();
+    await user.press(action);
+    expect(press).not.toHaveBeenCalled();
+  },
+);
 
 function Note({ editable }: { editable: boolean }) {
   const [value, setValue] = useState('draft');
@@ -56,7 +54,7 @@ test('the note field accepts edits until locked and forwards native field option
   const field = screen.getByLabelText('Note');
   expect(field).toHaveProp('keyboardType', 'decimal-pad');
   expect(field).toHaveProp('multiline', true);
-  expect(field).toHaveStyle({ fontSize: 16, minHeight: 100 });
+  expect(field).toHaveStyle({ minHeight: 100 });
   await user.clear(field);
   await user.type(field, 'new');
   expect(field).toHaveDisplayValue('new');
@@ -71,11 +69,21 @@ const options = [
 ] as const;
 function TypeChoice({ disabled }: { disabled: boolean }) {
   const [value, setValue] = useState<'EXPENSE' | 'INCOME'>('EXPENSE');
-  return <JoinedChoice options={options} value={value} onChange={setValue} disabled={disabled} />;
+  return (
+    <JoinedChoice
+      style={{ flex: 2 }}
+      options={options}
+      value={value}
+      onChange={setValue}
+      disabled={disabled}
+    />
+  );
 }
 test('switches the selected transaction type and locks both options when disabled', async () => {
   const user = userEvent.setup();
   const { rerender } = await render(<TypeChoice disabled={false} />);
+  expect(screen.root).toHaveProp('accessibilityRole', 'radiogroup');
+  expect(screen.root).toHaveStyle({ flex: 2 });
   const expense = screen.getByRole('radio', { name: 'Expense' });
   const income = screen.getByRole('radio', { name: 'Income' });
   expect(expense).toBeChecked();

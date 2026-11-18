@@ -275,17 +275,21 @@ test('late Expense choices cannot enable Income or overwrite its selection', asy
   expect(button('Save')).toBeDisabled();
   await press('Salary');
   await act(async () => pending.resolve([food]));
+  await mode('Expense');
+  expect(button('Save')).toBeDisabled();
+  await press('Food');
+  jest
+    .mocked(listCategoriesByRecentUse)
+    .mockImplementation(async (type) => (type === 'INCOME' ? [salary] : []));
+  await act(async () => notifyDataChanged());
+  await waitFor(() => expect(button('Save')).toBeDisabled());
+  await mode('Income');
+  await screen.findByRole('button', { name: 'Salary', selected: true });
   await press('Save');
   expect(addQuickTransaction).toHaveBeenCalledWith(
     expect.objectContaining({ type: 'INCOME', categoryId: 5 }),
     '',
   );
-  await mode('Expense');
-  expect(button('Save')).toBeDisabled();
-  await press('Food');
-  jest.mocked(listCategoriesByRecentUse).mockResolvedValue([]);
-  await act(async () => notifyDataChanged());
-  await waitFor(() => expect(button('Save')).toBeDisabled());
 });
 test('a failed people read can recover on returning to Person with the draft intact', async () => {
   jest.mocked(listPeople).mockRejectedValueOnce(Error('offline'));
@@ -357,12 +361,12 @@ test('repayment confirmation resubmits the original draft only after Confirm', a
   await mode('Person');
   await press('Rafi');
   await mode('They paid back');
-  jest.mocked(saveLendingEntry).mockResolvedValue({
-    status: 'confirmation_required',
+  const confirmation = {
+    status: 'confirmation_required' as const,
     warnings: [
       {
         currencyCode: 'USD',
-        direction: 'LENT',
+        direction: 'LENT' as const,
         personId: 1,
         principalMinor: 0,
         repaidMinor: 1000,
@@ -371,17 +375,25 @@ test('repayment confirmation resubmits the original draft only after Confirm', a
         overpaidMinor: 1000,
       },
     ],
-  });
-  for (const choice of ['Cancel', 'Confirm']) {
+  };
+  jest
+    .mocked(saveLendingEntry)
+    .mockResolvedValueOnce(confirmation)
+    .mockResolvedValueOnce(confirmation)
+    .mockResolvedValueOnce({ status: 'saved', id: 1 });
+  async function chooseWarning(choice: 'Cancel' | 'Confirm') {
     await press('Save repayment received');
     const call = jest.mocked(Alert.alert).mock.lastCall;
     expect(call?.[0]).toBe('Overpayment warning');
-    await act(async () => call?.[2]?.find((x) => x.text === choice)?.onPress?.());
-    if (choice === 'Cancel') {
-      expect(saveLendingEntry).toHaveBeenCalledTimes(1);
-      expect(router.back).not.toHaveBeenCalled();
-    }
+    const selected = call?.[2]?.find((button) => button.text === choice);
+    expect(selected?.onPress).toBeDefined();
+    await act(async () => selected!.onPress!());
   }
+  await chooseWarning('Cancel');
+  expect(saveLendingEntry).toHaveBeenCalledTimes(1);
+  expect(router.back).not.toHaveBeenCalled();
+  await chooseWarning('Confirm');
+  expect(saveLendingEntry).toHaveBeenCalledTimes(3);
   expect(jest.mocked(saveLendingEntry).mock.lastCall?.[0]).toEqual({
     ...jest.mocked(saveLendingEntry).mock.calls[0][0],
     confirmOverpayment: true,

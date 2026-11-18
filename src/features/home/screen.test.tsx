@@ -1,5 +1,5 @@
 import { AppState } from 'react-native';
-import { focusManager, notifyManager } from '@tanstack/react-query';
+import { focusManager, notifyManager, type QueryClient } from '@tanstack/react-query';
 import { notifyDataChanged } from '@/lib/data-changes';
 import { act, fireEvent, screen, userEvent, within, waitFor } from '@testing-library/react-native';
 import { router } from 'expo-router';
@@ -94,11 +94,12 @@ afterEach(() => {
   jest.restoreAllMocks();
   jest.useRealTimers();
 });
-const open = () =>
+const open = (client?: QueryClient) =>
   renderWithQueries(
     <QueryTimeContext value={new Date(2026, 10, 14)}>
       <HomeScreen />
     </QueryTimeContext>,
+    client,
   );
 const button = (name: string | RegExp) => screen.getByRole('button', { name });
 const periodButton = (name: string | RegExp) =>
@@ -109,6 +110,8 @@ test('loading and failed Home reads block adding until Retry loads the saved dec
   jest.mocked(homeDeckData).mockReturnValueOnce(read.promise);
   await open();
   expect(button('Add transaction')).toBeDisabled();
+  expect(screen.getByLabelText('Loading activity')).toBeOnTheScreen();
+  expect(screen.queryByRole('button', { name: /choose account/ })).toBeNull();
   expect(homeListPage).not.toHaveBeenCalled();
   await act(async () => read.reject(Error('offline')));
   await screen.findByText('Couldn’t load Home');
@@ -131,7 +134,7 @@ test('failed card retains its balance and retries independently of the list', as
 });
 test('changing the period saves the range and keeps previous spending visible until replacement arrives', async () => {
   const user = userEvent.setup();
-  await open();
+  const view = await open();
   await screen.findByText('Spent ৳60.00');
   const read = Promise.withResolvers<typeof pace>();
   jest.mocked(homePace).mockReturnValueOnce(read.promise);
@@ -145,6 +148,7 @@ test('changing the period saves the range and keeps previous spending visible un
     }),
   ).toBeEnabled();
   expect(screen.getByText('Spent ৳60.00', { includeHiddenElements: true })).toBeOnTheScreen();
+  expect(screen.queryByText('Spent ৳60.00')).toBeNull();
   await waitFor(() =>
     expect(savePeriodSetting).toHaveBeenCalledWith(
       expect.objectContaining({ range: 'week' }),
@@ -159,6 +163,9 @@ test('changing the period saves the range and keeps previous spending visible un
       busy: false,
     }),
   ).toBeOnTheScreen();
+  await view.unmount();
+  await open(view.client);
+  expect(periodButton(/Period, Week of/)).toBeOnTheScreen();
 });
 test('changing period recovers a failed card including when returning to its original range', async () => {
   const user = userEvent.setup();
@@ -223,10 +230,12 @@ test('settings and quick add follow the selected account across focus and deck c
     accounts: [...accounts.slice(0, 2), { ...accounts[2], lastUsedDay: 20000 }],
   });
   await act(async () => notifyDataChanged());
+  expect(await screen.findByLabelText('Card 4 of 4')).toBeOnTheScreen();
   expect(button('Bank, choose account')).toBeOnTheScreen();
   jest.mocked(homeDeckData).mockResolvedValue({ ...deck, accounts: [accounts[0], accounts[2]] });
   await act(async () => notifyDataChanged());
   await screen.findByRole('button', { name: 'All accounts, choose account' });
+  expect(screen.getByLabelText('Card 1 of 3')).toBeOnTheScreen();
   await act(() => subscription[1]('background'));
   expect(focusManager.isFocused()).toBe(false);
   await view.unmount();
@@ -326,4 +335,15 @@ test('Quick add without accounts opens an unscoped draft', async () => {
   await open();
   await user.press(await screen.findByRole('button', { name: 'Add transaction', disabled: false }));
   expect(router.push).toHaveBeenCalledWith({ pathname: '/quick-add', params: {} });
+});
+
+test('retrying failed activity reloads the list without rereading the deck', async () => {
+  const user = userEvent.setup();
+  jest.mocked(homeListPage).mockRejectedValueOnce(Error('offline'));
+  await open();
+  await screen.findByText('Couldn’t load account activity');
+  const reads = jest.mocked(homeDeckData).mock.calls.length;
+  await user.press(button('Retry'));
+  expect(await screen.findByText('No transactions yet')).toBeOnTheScreen();
+  expect(homeDeckData).toHaveBeenCalledTimes(reads);
 });
