@@ -317,8 +317,32 @@ test('the Trend cards say when usual needs more history', async () => {
   ).toBeOnTheScreen();
   expect(screen.getByRole('button', { name: /^Movers, Not enough history/ })).toBeOnTheScreen();
   expect(
-    screen.getByRole('button', { name: /^Net worth, \$0\.00, One total for each Currency/ }),
+    screen.getByRole('button', {
+      name: /^Net worth, \$0\.00 · €0\.00, One total for each Currency/,
+    }),
   ).toBeOnTheScreen();
+});
+
+test('without a Display Rate, the Net worth card shows the total of each Currency', async () => {
+  jest.mocked(netWorthData).mockImplementation(async (accountId, today) => ({
+    accounts: [
+      { ...cash, openingBalanceMinor: 1200 },
+      { ...bank, openingBalanceMinor: 900 },
+    ],
+    changes: [],
+    lending: [],
+    rate: null,
+    mainCurrency: 'USD',
+    today,
+  }));
+  await renderScreen();
+
+  expect(
+    await screen.findByRole('button', {
+      name: 'Net worth, $12.00 · €9.00, One total for each Currency',
+    }),
+  ).toBeOnTheScreen();
+  expect(screen.getAllByLabelText(/^Total at each month end in /)).toHaveLength(2);
 });
 
 test('with history, the cards compare with usual, the rows get markers, and a card opens its page', async () => {
@@ -379,6 +403,30 @@ test('the Trends follow the selected Account', async () => {
   );
   expect(netWorthData).toHaveBeenLastCalledWith(7, day(2026, 3, 15));
   expect(await screen.findByRole('button', { name: /^Balance, \$0\.00/ })).toBeOnTheScreen();
+});
+
+test('a new Account keeps the old Trend cards dimmed until the new numbers arrive', async () => {
+  const user = userEvent.setup();
+  await renderScreen();
+  await screen.findByRole('button', { name: /^Net worth, / });
+  const trend = Promise.withResolvers<Awaited<ReturnType<typeof spendDays>>>();
+  jest.mocked(spendDays).mockReturnValueOnce(trend.promise);
+  await chooseCash(user);
+  await waitFor(() =>
+    expect(spendDays).toHaveBeenLastCalledWith(7, expect.any(Number), expect.any(Number)),
+  );
+
+  expect(screen.queryByLabelText('Loading Pace')).not.toBeOnTheScreen();
+  expect(screen.queryByRole('button', { name: /^Net worth, / })).not.toBeOnTheScreen();
+  expect(
+    screen.getByRole('button', { name: /^Net worth, /, includeHiddenElements: true }),
+  ).toBeOnTheScreen();
+  await act(async () => trend.resolve([]));
+
+  expect(await screen.findByRole('button', { name: /^Balance, / })).toBeOnTheScreen();
+  expect(
+    screen.queryByRole('button', { name: /^Net worth, /, includeHiddenElements: true }),
+  ).not.toBeOnTheScreen();
 });
 
 test('a failed report read shows an error, and Retry reads again', async () => {

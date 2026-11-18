@@ -177,36 +177,46 @@ function MoversCard({ accountId, currency, monthStart, today }: Scope) {
   );
 }
 
+/** One total, or one total and one line for each Currency when no Display Rate combines them. */
 function NetWorthCard({ accountId, currency, today }: Omit<Scope, 'monthStart'>) {
   const { data } = useSuspenseQuery(netWorthQuery(accountId ?? null, today));
-  const result = netWorth(data, 12);
-  const [series] = result.series;
-  const change = series.totalMinor - series.accounts[0];
+  const { series } = netWorth(data, 12);
+  const [first] = series;
+  const manyCurrencies = series.length > 1;
   return (
     <TrendCard
       title={accountId === undefined ? 'Net worth' : 'Balance'}
-      head={formatBalance(series.totalMinor, series.currencyCode)}
+      head={series.map((item) => formatBalance(item.totalMinor, item.currencyCode)).join(' · ')}
       headColor={c.accent}
       note={
-        result.series.length > 1
+        manyCurrencies
           ? 'One total for each Currency'
-          : `${signed(change, series.currencyCode)} in 12 months`
+          : `${signed(first.totalMinor - first.accounts[0], first.currencyCode)} in 12 months`
       }
       picture={
-        <LineChart
-          {...art}
-          slots={series.accounts.length}
-          lines={[{ values: series.accounts, color: c.accent }]}
-          accessibilityLabel="Total at each month end"
-        />
+        <View style={{ gap: 4 }}>
+          {series.map((item) => (
+            <LineChart
+              key={item.currencyCode}
+              width={art.width}
+              height={manyCurrencies ? (art.height - 4) / 2 : art.height}
+              slots={item.accounts.length}
+              lines={[{ values: item.accounts, color: c.accent }]}
+              accessibilityLabel={`Total at each month end in ${item.currencyCode}`}
+            />
+          ))}
+        </View>
       }
       onPress={() => router.push(trendHref('net-worth', accountId, currency))}
     />
   );
 }
 
-/** Pace, Movers and Net worth. They follow the Account, but not the range. */
-export function TrendCards(scope: Scope) {
+/**
+ * Pace, Movers and Net worth. They follow the Account, but not the range. While the cards
+ * of a new Account or Currency load, the old cards stay `muted`.
+ */
+export function TrendCards({ muted, ...scope }: Scope & { muted: boolean }) {
   const cards = [
     ['Pace', <PaceCard key="pace" {...scope} />],
     ['Movers', <MoversCard key="movers" {...scope} />],
@@ -227,15 +237,21 @@ export function TrendCards(scope: Scope) {
         </Text>
         <Note>The range does not change these.</Note>
       </View>
-      {cards.map(([title, card]) => (
-        <QueryBoundary
-          key={title}
-          pending={<CardSkeleton title={title} />}
-          error={(retry) => <LoadError message={`Could not load ${title}.`} retry={retry} />}
-        >
-          {card}
-        </QueryBoundary>
-      ))}
+      <View
+        accessibilityElementsHidden={muted}
+        importantForAccessibility={muted ? 'no-hide-descendants' : 'auto'}
+        style={{ gap: theme.spacing.md, opacity: muted ? 0.4 : 1 }}
+      >
+        {cards.map(([title, card]) => (
+          <QueryBoundary
+            key={title}
+            pending={<CardSkeleton title={title} />}
+            error={(retry) => <LoadError message={`Could not load ${title}.`} retry={retry} />}
+          >
+            {card}
+          </QueryBoundary>
+        ))}
+      </View>
     </View>
   );
 }

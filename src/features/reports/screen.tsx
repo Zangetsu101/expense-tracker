@@ -212,11 +212,11 @@ function ReportsBody({ reset, today }: { reset: () => void; today: number }) {
             />
           </QueryBoundary>
           <TrendCards
-            key={`${accountId ?? 'all'}-${currency}`}
-            accountId={accountId}
-            currency={currency}
+            accountId={deferred.accountId}
+            currency={deferred.currency}
             monthStart={settings.monthStart}
             today={today}
+            muted={deferred.accountId !== accountId || deferred.currency !== currency}
           />
         </>
       )}
