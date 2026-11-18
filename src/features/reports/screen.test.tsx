@@ -1,4 +1,4 @@
-import { act, screen, userEvent, waitFor } from '@testing-library/react-native';
+import { act, screen, userEvent, waitFor, within } from '@testing-library/react-native';
 import { router } from 'expo-router';
 import type { AppSheetProps } from '@/components/app-sheet';
 import { listManagedAccounts, type ManagedAccount } from '@/lib/accounts';
@@ -319,6 +319,34 @@ test('with history, the cards compare with usual, the rows get markers, and a ca
     pathname: '/reports/pace',
     params: { currency: 'USD' },
   });
+});
+
+test('a parent Category gets the marker of its total, not of its own Expenses', async () => {
+  const user = userEvent.setup();
+  const own = { categoryId: 1, categoryName: 'Food' };
+  // Food itself stays at 10.00 a month. Coffee, its child, goes from 0.00 to 10.00.
+  jest
+    .mocked(spendDays)
+    .mockResolvedValue([
+      ...[day(2025, 12, 2), day(2026, 1, 2), day(2026, 2, 2), day(2026, 3, 2)].map((date) =>
+        spend(date, 1000, own.categoryId, own.categoryName),
+      ),
+      spend(day(2026, 3, 3), 1000, 12, 'Coffee'),
+    ]);
+  jest.mocked(rangeReport).mockResolvedValue({
+    summaries: [{ currencyCode: 'USD', incomeMinor: 0, expenseMinor: 2000 }],
+    spending: [spending(1, 'Food', 1, 'Food', 1000), spending(12, 'Coffee', 1, 'Food', 1000)],
+  });
+  await renderScreen();
+
+  const food = await screen.findByRole('button', { name: 'Food, $20.00' });
+  await waitFor(() => expect(within(food).getByLabelText('above usual')).toBeOnTheScreen());
+  await user.press(food);
+  const ownRow = screen.getByRole('link', { name: 'Food, $10.00' });
+  expect(within(ownRow).queryByLabelText('above usual')).not.toBeOnTheScreen();
+  expect(
+    within(screen.getByRole('link', { name: 'Coffee, $10.00' })).getByLabelText('above usual'),
+  ).toBeOnTheScreen();
 });
 
 test('the Trends follow the selected Account', async () => {

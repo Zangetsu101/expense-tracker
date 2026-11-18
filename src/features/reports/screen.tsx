@@ -63,9 +63,12 @@ function useMarks(request: TotalsRequest, settings: RangeSettings, today: number
   if (!current || !data) return null;
   const movers = moverRows(data.rows, data.periods, today, request.currency, 'current');
   if (movers.status !== 'ready') return null;
-  const marks: Marks = new Map();
-  for (const row of [...movers.rows, ...movers.rows.flatMap((parent) => parent.children)])
-    marks.set(row.id, changeMark(row.nowMinor, row.usualMinor));
+  const level = (rows: { id: number | null; nowMinor: number; usualMinor: number }[]) =>
+    new Map(rows.map((row) => [row.id, changeMark(row.nowMinor, row.usualMinor)]));
+  const marks: Marks = {
+    parents: level(movers.rows),
+    children: level(movers.rows.flatMap((parent) => parent.children)),
+  };
   return marks;
 }
 

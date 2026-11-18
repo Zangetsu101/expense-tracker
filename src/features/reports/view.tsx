@@ -613,7 +613,8 @@ function SummaryLine({
 }
 
 type Mark = 'up' | 'down' | null;
-export type Marks = Map<number | null, Mark>;
+/** A parent and its own Expenses can have the same id, so each level has its own map. */
+export type Marks = { parents: Map<number | null, Mark>; children: Map<number | null, Mark> };
 const categoryName = (name: string | null) => name ?? 'Uncategorized';
 
 function MarkText({ mark }: { mark: Mark }) {
@@ -811,14 +812,14 @@ export function TotalsView({
                 row={row}
                 currency={currency}
                 top={totals.categories[0]?.amountMinor ?? 0}
-                mark={marks?.get(row.id) ?? null}
+                mark={marks?.[options.small ? 'children' : 'parents'].get(row.id) ?? null}
                 {...options}
               />
             )}
             onOpenTransactions={onOpenTransactions}
           />
         )}
-        {marks && marks.size > 0 && (
+        {marks && marks.parents.size > 0 && (
           <Note>▲ ▼ show a change of a fifth or more against your usual amount by this day.</Note>
         )}
       </Card>
