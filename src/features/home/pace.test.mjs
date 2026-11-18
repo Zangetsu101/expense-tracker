@@ -12,7 +12,8 @@ const hooks = registerHooks({
         }
       : next(specifier, context),
 });
-const { paceSummary, convertTo } = await import('./pace.ts');
+const { paceSummary } = await import('./pace.ts');
+const { convertTo } = await import('../../lib/display-rate.ts');
 hooks.deregister();
 
 const rate = { base: 'USD', quote: 'BDT', rate: 120 };

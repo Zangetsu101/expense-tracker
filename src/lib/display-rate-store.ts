@@ -1,5 +1,5 @@
 import { database } from './database.ts';
-import { validDisplayRate, type DisplayRate } from './display-rate.ts';
+import { usableRate, validDisplayRate, type DisplayRate } from './display-rate.ts';
 
 type Settings = { favoriteAccountId: number | null; displayRate: DisplayRate | null };
 
@@ -9,7 +9,7 @@ export async function getDisplayRate(): Promise<DisplayRate | null> {
     "SELECT value FROM app_settings WHERE key = 'backupSettings'",
   );
   const rate = row ? (JSON.parse(row.value) as Settings).displayRate : null;
-  return rate && validDisplayRate(rate) ? rate : null;
+  return usableRate(rate);
 }
 
 export async function saveDisplayRate(rate: DisplayRate | null): Promise<void> {

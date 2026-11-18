@@ -2,6 +2,7 @@ import { notifyDataChanged, type SavedTransaction } from './data-changes.ts';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { database } from './database';
 import { addTransactionTags, parseQuickAddTags } from './tag-store';
+import { lendingTotals, type LendingTotal } from './lending-totals.ts';
 
 export type LendingKind =
   'LEND' | 'BORROW' | 'RECEIVE_REPAYMENT' | 'REPAY' | 'WRITE_OFF_LENT' | 'WRITE_OFF_BORROWED';
@@ -30,16 +31,6 @@ export type LendingEntry = {
   note: string | null;
   accountId: number | null;
   accountName: string | null;
-};
-export type LendingTotal = {
-  personId: number;
-  currencyCode: string;
-  direction: 'LENT' | 'BORROWED';
-  principalMinor: number;
-  repaidMinor: number;
-  writtenOffMinor: number;
-  outstandingMinor: number;
-  overpaidMinor: number;
 };
 export type LendingResult =
   | { status: 'saved'; id: number }
@@ -87,48 +78,12 @@ async function entries(db: DB, personId?: number): Promise<LendingEntry[]> {
 export async function listLendingEntries(personId?: number) {
   return entries(await database(), personId);
 }
-function totals(rows: LendingEntry[]): LendingTotal[] {
-  const map = new Map<string, LendingTotal>();
-  for (const row of rows) {
-    const direction = ['LEND', 'RECEIVE_REPAYMENT', 'WRITE_OFF_LENT'].includes(row.kind)
-      ? 'LENT'
-      : 'BORROWED';
-    const key = `${row.personId}:${row.currencyCode}:${direction}`;
-    const total = map.get(key) ?? {
-      personId: row.personId,
-      currencyCode: row.currencyCode,
-      direction,
-      principalMinor: 0,
-      repaidMinor: 0,
-      writtenOffMinor: 0,
-      outstandingMinor: 0,
-      overpaidMinor: 0,
-    };
-    if (row.kind === 'LEND' || row.kind === 'BORROW') total.principalMinor += row.amountMinor;
-    else if (writeoff(row.kind)) total.writtenOffMinor += row.amountMinor;
-    else total.repaidMinor += row.amountMinor;
-    const balance = total.principalMinor - total.repaidMinor - total.writtenOffMinor;
-    total.outstandingMinor = Math.max(0, balance);
-    total.overpaidMinor = Math.max(0, -balance);
-    if (
-      ![total.principalMinor, total.repaidMinor, total.writtenOffMinor].every(Number.isSafeInteger)
-    )
-      throw new Error('Lending total exceeds supported range.');
-    map.set(key, total);
-  }
-  return [...map.values()].sort(
-    (a, b) =>
-      a.personId - b.personId ||
-      a.currencyCode.localeCompare(b.currencyCode) ||
-      a.direction.localeCompare(b.direction),
-  );
-}
 export async function listLendingTotals(personId?: number) {
-  return totals(await listLendingEntries(personId));
+  return lendingTotals(await listLendingEntries(personId));
 }
 function warnings(before: LendingEntry[], after: LendingEntry[]) {
-  const old = totals(before);
-  return totals(after).filter(
+  const old = lendingTotals(before);
+  return lendingTotals(after).filter(
     (t) =>
       t.overpaidMinor >
       (old.find(
