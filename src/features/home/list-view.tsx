@@ -217,6 +217,11 @@ export function DayHeader({
   now: Date;
   entering?: Entering;
 }) {
+  const weekday = new Date(date * 86400000).toLocaleDateString('en', {
+    weekday: 'short',
+    timeZone: 'UTC',
+  });
+
   return (
     <Animated.View
       entering={entering}
@@ -230,7 +235,9 @@ export function DayHeader({
         backgroundColor: colors.background,
       }}
     >
-      <Text style={{ color: colors.muted, fontWeight: '700' }}>{formatActivityDay(date, now)}</Text>
+      <Text style={{ color: colors.muted, fontWeight: '700' }}>
+        {formatActivityDay(date, now)} · {weekday}
+      </Text>
       <Totals totals={totals} />
     </Animated.View>
   );
