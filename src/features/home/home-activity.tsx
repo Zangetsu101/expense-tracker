@@ -1,4 +1,4 @@
-import { useDeferredValue, useMemo, useRef, type ReactElement, type ReactNode } from 'react';
+import { useRef, type ReactElement, type ReactNode } from 'react';
 import { ScrollView, Text, View, type SectionList } from 'react-native';
 import { router } from 'expo-router';
 import {
@@ -21,6 +21,7 @@ import {
 } from './list.ts';
 import { EmptyList, ListEnd, ListMessage, Snackbar } from './list-view.tsx';
 import { useSavedRow, useSavedRowState, useScopedSearch } from './list-hooks.ts';
+import { HoldReveal, listKey, useDeferredListInputs, type ListInputs } from './deferred-list.ts';
 import { periodKey, type PeriodSetting } from './period.ts';
 import { homeListQuery, homeSearchQuery } from './queries.ts';
 import { ActivityError, ActivitySkeleton, RefreshNotice } from './view.tsx';
@@ -42,22 +43,18 @@ type HomeActivityProps = {
 
 export function HomeActivity(props: HomeActivityProps) {
   const { reset } = useQueryErrorResetBoundary();
-  const requested = useMemo(
-    () => ({
-      key: JSON.stringify(homeListQuery(props.scope, props.setting, props.now).queryKey),
-      scope: props.scope,
-      setting: props.setting,
-      now: props.now,
-    }),
-    [props.scope, props.setting, props.now],
-  );
-  const shown = useDeferredValue(requested);
-  const search = useScopedSearch(`${props.scope.accountId}:${periodKey(props.setting)}`);
+  const searchField = useScopedSearch(`${props.scope.accountId}:${periodKey(props.setting)}`);
+  const { deferred, stale, muted, gate } = useDeferredListInputs({
+    scope: props.scope,
+    setting: props.setting,
+    now: props.now,
+    search: { text: searchField.text, allDates: searchField.allDates },
+  });
   const savedState = useSavedRowState({
     accountId: props.scope.accountId,
     accounts: props.accounts,
     onShowAccount: props.onShowAccount,
-    onShow: () => search.change(''),
+    onShow: () => searchField.change(''),
   });
   const header = (
     <>
@@ -66,8 +63,8 @@ export function HomeActivity(props: HomeActivityProps) {
         accountId={props.scope.accountId}
         setting={props.setting}
         now={props.now}
-        value={search.text}
-        onChange={search.change}
+        value={searchField.text}
+        onChange={searchField.change}
       />
     </>
   );
@@ -75,7 +72,7 @@ export function HomeActivity(props: HomeActivityProps) {
     <>
       <QueryBoundary
         reset={reset}
-        resetKey={shown.key}
+        resetKey={listKey(deferred)}
         pending={
           <ActivityFallback header={header}>
             <ActivitySkeleton />
@@ -88,15 +85,17 @@ export function HomeActivity(props: HomeActivityProps) {
         )}
       >
         <ActivityResults
-          {...props}
-          scope={shown.scope}
-          setting={shown.setting}
-          now={shown.now}
-          stale={shown.key !== requested.key}
-          search={search}
+          header={props.header}
+          scopeName={props.scopeName}
+          onAdd={props.onAdd}
+          inputs={deferred}
+          stale={stale}
+          muted={muted}
+          searchField={searchField}
           savedState={savedState}
           searchHeader={header}
         />
+        <HoldReveal gate={gate} />
       </QueryBoundary>
       {savedState.snack && <Snackbar text={savedState.snack.text} onShow={savedState.show} />}
     </>
@@ -117,21 +116,23 @@ function ActivityFallback({ header, children }: { header: ReactNode; children: R
 
 function ActivityResults({
   header,
-  scope,
   scopeName,
-  setting,
-  now,
   onAdd,
+  inputs,
   stale,
-  search,
+  muted,
+  searchField,
   savedState,
   searchHeader,
-}: HomeActivityProps & {
+}: Pick<HomeActivityProps, 'header' | 'scopeName' | 'onAdd'> & {
+  inputs: ListInputs;
   stale: boolean;
-  search: ReturnType<typeof useScopedSearch>;
+  muted: boolean;
+  searchField: ReturnType<typeof useScopedSearch>;
   savedState: ReturnType<typeof useSavedRowState>;
   searchHeader: ReactElement;
 }) {
+  const { scope, setting, now } = inputs;
   const today = epochDay(now);
   const { accountId } = scope;
   const listRef = useRef<SectionList<ListItem, ListSection>>(null);
@@ -141,13 +142,13 @@ function ActivityResults({
   const shownScope = list.data.pages[0].scope;
   const loadedFrom = periods.at(-1)?.period.start ?? today + 1;
 
-  const query = useDeferredValue(search.text);
+  const { text: query, allDates } = inputs.search;
   const searching = query.trim() !== '';
   const allDatesSearch = useQuery({
     ...homeSearchQuery(accountId, query, now),
-    enabled: searching && search.allDates,
+    enabled: searching && allDates,
   });
-  const allDatesRows = searching && search.allDates ? allDatesSearch.data : undefined;
+  const allDatesRows = searching && allDates ? allDatesSearch.data : undefined;
   const rangeRows = periods[0]?.rows.filter((row) => matchesSearch(row, query)) ?? [];
   const hasAny = firstDay !== null;
   const sections = !hasAny
@@ -155,7 +156,6 @@ function ActivityResults({
     : !searching
       ? listSections(periods, shownScope)
       : searchSections(allDatesRows ?? rangeRows);
-  const muted = stale || search.text !== query;
   const saved = useSavedRow({
     state: savedState,
     accountId,
@@ -193,9 +193,9 @@ function ActivityResults({
         <ListEnd
           text={`Showing matches in ${periods[0].period.label}.`}
           action="Search all dates"
-          loading={search.allDates && allDatesSearch.isFetching}
-          failed={search.allDates && allDatesSearch.isError ? 'Couldn’t search all dates' : null}
-          onAction={() => (search.allDates ? void allDatesSearch.refetch() : search.widen())}
+          loading={allDates && allDatesSearch.isFetching}
+          failed={allDates && allDatesSearch.isError ? 'Couldn’t search all dates' : null}
+          onAction={() => (allDates ? void allDatesSearch.refetch() : searchField.widen())}
         />
       </>
     );
@@ -222,6 +222,7 @@ function ActivityResults({
       scope={shownScope}
       now={now}
       query={searching ? query : ''}
+      stale={stale}
       muted={muted}
       slidingId={saved.slidingId}
       phase={saved.phase}

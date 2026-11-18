@@ -19,6 +19,7 @@ const mocks = {
   '@/lib/category-prediction-history': `export const listCategoryEvidence=async()=>globalThis.__entryTest.evidence??[];`,
   '@/components/loading': `export const Skeleton='Skeleton',Shimmer='Shimmer';`,
   'expo-symbols': `export const SymbolView='SymbolView';`,
+  'react-native-gesture-handler': `export const Touchable='Pressable';`,
   'expo-haptics': `export const AndroidHaptics={Keyboard_Tap:'keyboard'},ImpactFeedbackStyle={Light:'light'}; export const performAndroidHapticsAsync=async()=>{},impactAsync=async()=>{};`,
   'react-native-reanimated': `import {useRef} from 'react'; export default {View:'AnimatedView',createAnimatedComponent:component=>component}; export const FadeOut={}; export const LinearTransition={springify(){return this},dampingRatio(){return this},duration(){return this},reduceMotion(){return this}}; export const Easing={out:x=>x,cubic:x=>x},ReduceMotion={System:'system'}; export const useSharedValue=value=>useRef({value}).current,useAnimatedStyle=fn=>fn(),withTiming=value=>value;`,
   'react-native': `export const BackHandler={addEventListener:(_,callback)=>{globalThis.__entryTest.backHandler=callback;return {remove(){globalThis.__entryTest.backHandler=undefined}}}}; export const Keyboard={dismiss() {globalThis.__entryTest.keyboardDismissed=true}}; export const KeyboardAvoidingView='KeyboardAvoidingView',View='View',Text='Text',Pressable='Pressable',ScrollView='ScrollView',TextInput='TextInput',ActivityIndicator='ActivityIndicator',FlatList='FlatList'; export const useWindowDimensions=()=>({width:390,height:844,scale:1,fontScale:1}); export const Alert={alert:(...args)=>globalThis.__entryTest.alert=args};`,
@@ -98,9 +99,21 @@ async function change(label, value, finalize = true) {
         .find((n) => n.props.accessibilityLabel === 'Amount')
         .props.onPress(),
     );
-    await act(async () =>
-      renderer.root.find((n) => n.type?.name === 'AmountCalculator').props.onChange(value),
-    );
+    const keyLabels = {
+      '+': 'Add',
+      '-': 'Subtract',
+      '−': 'Subtract',
+      '*': 'Multiply',
+      '×': 'Multiply',
+      '/': 'Divide',
+      '÷': 'Divide',
+    };
+    for (const label of ['Clear calculation', ...[...value].map((char) => keyLabels[char] ?? char)])
+      await act(async () =>
+        nodes('Pressable')
+          .find((n) => n.props.accessibilityLabel === label)
+          .props.onPress(),
+      );
     if (finalize)
       await act(async () =>
         renderer.root.find((n) => n.type?.name === 'AmountCalculator').props.onDone(),

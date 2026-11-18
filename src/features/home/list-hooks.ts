@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useEffectEvent, useRef, useState, type RefObject } from 'react';
-import type { SectionList, ViewToken } from 'react-native';
+import type { SectionList, ListViewToken } from 'react-native';
 import { useFocusEffect, useIsFocused } from 'expo-router';
 import { subscribeDataChanges, type SavedTransaction } from '@/lib/data-changes';
 import type { DeckAccount } from './deck.ts';
@@ -164,7 +164,7 @@ export function useSavedRow({
     visibleRef,
   } = state;
   const onViewableItemsChanged = useCallback(
-    ({ viewableItems }: { viewableItems: ViewToken[] }) => {
+    ({ viewableItems }: { viewableItems: ListViewToken[] }) => {
       const id = pendingRef.current;
       if (
         id !== null &&

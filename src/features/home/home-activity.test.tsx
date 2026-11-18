@@ -13,7 +13,6 @@ import { createQueryClient } from '@/lib/query-client';
 import type { DeckAccount } from './deck.ts';
 import type { ListPeriod, ListRow, ListScope } from './list.ts';
 import { homeListPage, homeSearch, type HomeListPage } from './read-home.ts';
-import { AnimationClockProvider } from '@/components/animation-clock';
 import { HomeActivity } from './home-activity.tsx';
 import { homeListQuery } from './queries.ts';
 import type { PeriodSetting } from './period.ts';
@@ -33,7 +32,6 @@ jest.mock('react-native-worklets', () => jest.requireActual('react-native-workle
 jest.mock('react-native-reanimated', () => ({
   ...jest.requireActual('react-native-reanimated/mock'),
   useReducedMotion: () => false,
-  useTimestamp: () => jest.requireActual('react-native-reanimated/mock').useSharedValue(0),
 }));
 jest.mock('./read-home.ts', () => ({ homeListPage: jest.fn(), homeSearch: jest.fn() }));
 
@@ -88,20 +86,16 @@ function ListContent({
   setting?: PeriodSetting;
 }) {
   return (
-    <AnimationClockProvider>
-      <HomeActivity
-        header={header}
-        scope={scope}
-        scopeName={
-          accounts.find((account) => account.id === scope.accountId)?.name ?? 'All accounts'
-        }
-        setting={setting}
-        now={now}
-        accounts={accounts}
-        onShowAccount={onSelect}
-        onAdd={onAdd}
-      />
-    </AnimationClockProvider>
+    <HomeActivity
+      header={header}
+      scope={scope}
+      scopeName={accounts.find((account) => account.id === scope.accountId)?.name ?? 'All accounts'}
+      setting={setting}
+      now={now}
+      accounts={accounts}
+      onShowAccount={onSelect}
+      onAdd={onAdd}
+    />
   );
 }
 const list = (scope: ListScope, header = <View />) => (
@@ -654,3 +648,25 @@ test.each(['pending', 'failed'] as const)(
     expect(scrolled()).toEqual([expect.objectContaining({ sectionIndex: 0, itemIndex: 0 })]);
   },
 );
+
+test('an Account change keeps the old list with its search until the new period arrives', async () => {
+  const user = userEvent.setup();
+  let resolve: (value: HomeListPage) => void = () => {};
+  jest.mocked(homeListPage).mockImplementation(async (account) =>
+    account === 2
+      ? new Promise((done) => {
+          resolve = done;
+        })
+      : page([row(1, { note: 'with Rahim' }), row(2)]),
+  );
+  await render(<ControlledList initialScope={trend(1)} />);
+  await user.type(await screen.findByRole('search'), 'rahim');
+  expect(await screen.findByText('1 result')).toBeOnTheScreen();
+  await user.press(screen.getByRole('button', { name: 'Show Bank' }));
+  expect(screen.getByRole('search')).toHaveDisplayValue('');
+  expect(screen.getByText('1 result')).toBeOnTheScreen();
+  expect(screen.queryByText('Lunch 2')).not.toBeOnTheScreen();
+  await act(async () => resolve(page([row(3, { accountId: 2, accountName: 'Bank' })])));
+  expect(await screen.findByText('Lunch 3')).toBeOnTheScreen();
+  expect(screen.queryByText('1 result')).not.toBeOnTheScreen();
+});

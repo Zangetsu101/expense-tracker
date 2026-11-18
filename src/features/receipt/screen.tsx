@@ -85,9 +85,9 @@ function ReceiptSession({ id }: { id: number }) {
     },
     [dirty, deleting],
   );
-  usePreventRemove(editing && !closing && (dirty || saving || deleting), ({ data: removal }) => {
+  usePreventRemove(editing && !closing && (dirty || saving || deleting), ({ repeat }) => {
     confirmDiscard(() => {
-      pendingNavigation.current = () => navigation.dispatch(removal.action);
+      pendingNavigation.current = repeat;
       exitEditing();
     });
   });

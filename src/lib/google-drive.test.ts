@@ -218,8 +218,9 @@ test('a request that cannot reach Drive is a network failure', async () => {
   const drive = createGoogleDrive({
     accessToken: async () => 'token',
     invalidate: async () => {},
-    fetch: nodeFetch,
-    baseUrl: 'http://127.0.0.1:1',
+    fetch: async () => {
+      throw new TypeError('Failed to fetch');
+    },
   });
   await expect(drive.download('a')).rejects.toMatchObject({ kind: 'network' });
 });

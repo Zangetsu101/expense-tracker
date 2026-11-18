@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useId, useState, type ReactNode } from 'react';
+import { useEffect, useEffectEvent, useId, useRef, useState, type ReactNode } from 'react';
 import { BackHandler, Keyboard, Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery } from '@tanstack/react-query';
@@ -10,7 +10,7 @@ import {
   type TransferField,
 } from '@/lib/transfer-amounts';
 import { loadFirstTransferRate } from '@/lib/transfer-rate-store';
-import { calculateAmount } from '@/lib/amount-calculator';
+import { calculateAmount, pressAmountKey, type AmountEntry } from '@/lib/amount-calculator';
 import { formatLineItemAmount } from '@/lib/line-item-amount';
 import { currencySymbol } from '@/lib/currency';
 import { AmountCalculator } from './amount-calculator.tsx';
@@ -82,7 +82,10 @@ export function TransferAmountInput({
   const [focus, setFocus] = useState<TransferField | null>(
     initialPaid || initialReceived || receivedPreset ? null : 'pay',
   );
-  const [buffer, setBuffer] = useState('');
+  const [entry, setEntry] = useState<AmountEntry>({ amount: '', evaluated: false, error: '' });
+  // Rapid keys can arrive before a render. Each key reads the entry that the key before it made.
+  const latestEntry = useRef(entry);
+  const buffer = entry.amount;
   const [changed, setChanged] = useState(false);
   const [error, setError] = useState('');
   const insets = useSafeAreaInsets();
@@ -164,7 +167,7 @@ export function TransferAmountInput({
       cross
     )
       setFocus(null);
-    setBuffer('');
+    setEntry({ amount: '', evaluated: false, error: '' });
   }
   const ready = !cross || !!rateRead.data;
   useEffect(() => {
@@ -178,9 +181,6 @@ export function TransferAmountInput({
     );
   }
   function change(value: string) {
-    setBuffer(value);
-    setChanged(true);
-    setError('');
     if (!value) {
       if (focus !== 'rate') apply(focus!, undefined);
       return;
@@ -220,13 +220,18 @@ export function TransferAmountInput({
     if (focus) dismiss();
     Keyboard.dismiss();
     const value = state[field];
-    setBuffer(
-      value === undefined
-        ? ''
-        : field === 'rate'
-          ? formatTransferRate(value)
-          : formatLineItemAmount(value),
-    );
+    // The first digit replaces the saved value, as after the equals key.
+    latestEntry.current = {
+      amount:
+        value === undefined
+          ? ''
+          : field === 'rate'
+            ? formatTransferRate(value)
+            : formatLineItemAmount(value),
+      evaluated: true,
+      error: '',
+    };
+    setEntry(latestEntry.current);
     setFocus(field);
     setChanged(false);
   }
@@ -327,13 +332,18 @@ export function TransferAmountInput({
     keypad: (
       <AmountCalculator
         key={focus ?? 'closed'}
-        value={buffer}
-        onChange={change}
+        error={entry.error}
+        onKey={(key) => {
+          const next = pressAmountKey(latestEntry.current, key, focus === 'rate' ? 4 : 2);
+          latestEntry.current = next;
+          setEntry(next);
+          setChanged(true);
+          setError('');
+          change(next.amount);
+        }}
         onDone={dismiss}
         open={focus !== null && !disabled && ready}
         bottomInset={insets.bottom}
-        precision={focus === 'rate' ? 4 : 2}
-        replaceOnOpen
       />
     ),
   });

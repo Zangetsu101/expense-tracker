@@ -64,33 +64,8 @@ jest.mock('@/lib/transfer-rate-store', () => ({ loadFirstTransferRate: jest.fn()
 jest.mock('@/lib/credit-cards', () => ({ creditCardBills: jest.fn(async () => []) }));
 jest.mock('@/lib/transfers', () => ({ loadTransfer: jest.fn(), saveTransferEdit: jest.fn() }));
 jest.mock('@/lib/transaction-delete', () => ({ deleteTransaction: jest.fn() }));
-jest.mock('react-native-reanimated', () => {
-  const { View } = jest.requireActual<typeof import('react-native')>('react-native');
-  return {
-    __esModule: true,
-    default: { View },
-    LinearTransition: {
-      duration() {
-        return this;
-      },
-      reduceMotion() {
-        return this;
-      },
-      springify() {
-        return this;
-      },
-      dampingRatio() {
-        return this;
-      },
-    },
-    FadeOut: {},
-    Easing: { out: (easing: unknown) => easing, cubic: (value: number) => value },
-    ReduceMotion: { System: 'system' },
-    useSharedValue: <T,>(value: T) => ({ value }),
-    useAnimatedStyle: (style: () => object) => style(),
-    withTiming: <T,>(value: T) => value,
-  };
-});
+jest.mock('react-native-worklets', () => jest.requireActual('react-native-worklets/src/mock'));
+jest.mock('react-native-reanimated', () => jest.requireActual('react-native-reanimated/mock'));
 jest.mock('@/components/quick-add-date', () => {
   const { Pressable, Text } = jest.requireActual<typeof import('react-native')>('react-native');
   return {
@@ -420,20 +395,17 @@ describe('Transaction edit', () => {
   });
 
   test('a navigation discard resumes the original action', async () => {
+    const repeat = jest.fn();
     const user = userEvent.setup();
     await renderScreen();
     await openEditor(user);
     await user.type(screen.getByLabelText('Tags'), 'food');
 
     expect(preventRemove()[0]).toBe(true);
-    await act(async () =>
-      preventRemove()[1]({ data: { action: { type: 'GO_BACK' } } } as Parameters<
-        Parameters<typeof usePreventRemove>[1]
-      >[0]),
-    );
+    await act(async () => preventRemove()[1]!({ data: { action: { type: 'GO_BACK' } }, repeat }));
     await chooseAlert('Discard');
 
-    expect(mockNavigation.dispatch).toHaveBeenCalledWith({ type: 'GO_BACK' });
+    expect(repeat).toHaveBeenCalledTimes(1);
   });
 
   test('a clean Cancel returns to the receipt without confirmation', async () => {
@@ -500,6 +472,7 @@ describe('Transaction edit', () => {
   }
 
   test('a pending save blocks back and navigation, and a failed save keeps a draft that can save again', async () => {
+    const repeat = jest.fn();
     const user = userEvent.setup();
     await renderScreen();
     await openEditor(user);
@@ -510,13 +483,10 @@ describe('Transaction edit', () => {
 
     expect(preventRemove()[0]).toBe(true);
     await pressHardwareBack();
-    await act(async () =>
-      preventRemove()[1]({ data: { action: { type: 'GO_BACK' } } } as Parameters<
-        Parameters<typeof usePreventRemove>[1]
-      >[0]),
-    );
+    await act(async () => preventRemove()[1]!({ data: { action: { type: 'GO_BACK' } }, repeat }));
     expect(alert).not.toHaveBeenCalled();
     expect(mockNavigation.dispatch).not.toHaveBeenCalled();
+    expect(repeat).not.toHaveBeenCalled();
     expect(noteInput()).not.toBeEnabled();
     await act(async () => save.reject(new Error('Save failed')));
 

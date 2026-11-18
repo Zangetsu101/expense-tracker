@@ -5,6 +5,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  type ScrollViewInstance,
   Text,
   useWindowDimensions,
   View,
@@ -158,7 +159,7 @@ export function PeriodControls({
   onChooseYear: () => void;
   onChooseMonth: (month: number) => void;
 }) {
-  const monthStrip = useRef<ScrollView>(null);
+  const monthStrip = useRef<ScrollViewInstance>(null);
   const stripWidth = useRef(0);
   const centerStrip = () =>
     monthStrip.current?.scrollTo({
