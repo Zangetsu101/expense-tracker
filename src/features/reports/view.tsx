@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import NativeDatePicker from '@expo/ui/community/datetime-picker';
 import { Stack } from 'expo-router';
+import { SymbolView } from 'expo-symbols';
 import { Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppSheet } from '@/components/app-sheet';
@@ -158,12 +159,24 @@ export function RangeHeader({
           opacity: pressed ? 0.65 : 1,
         })}
       >
-        <Text
-          accessibilityLiveRegion="polite"
-          style={{ color: c.accent, fontSize: theme.type.heading, fontWeight: '700' }}
-        >
-          {name} ⌄
-        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+          <Text
+            accessibilityLiveRegion="polite"
+            style={{
+              color: c.accent,
+              fontSize: theme.type.heading,
+              fontWeight: '700',
+              flexShrink: 1,
+            }}
+          >
+            {name}
+          </Text>
+          <SymbolView
+            name={{ ios: 'chevron.down', android: 'expand_more' }}
+            size={20}
+            tintColor={c.accent}
+          />
+        </View>
         <Note>{dates}</Note>
       </Pressable>
       <ArrowButton label="Next range" text="›" disabled={nextDisabled} onPress={onNext} />
