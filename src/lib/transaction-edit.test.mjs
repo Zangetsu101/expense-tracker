@@ -9,7 +9,7 @@ CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT, currencyCode TEXT);
 CREATE TABLE categories (id INTEGER PRIMARY KEY, name TEXT);
 CREATE TABLE transactions (id INTEGER PRIMARY KEY, type TEXT, amountMinor INTEGER, date INTEGER, accountId INTEGER, categoryId INTEGER, note TEXT, excludeFromReport INTEGER);
 CREATE TABLE people (id INTEGER PRIMARY KEY, name TEXT);
-CREATE TABLE lending_entries (id INTEGER PRIMARY KEY, transactionId INTEGER UNIQUE, personId INTEGER, kind TEXT);
+CREATE TABLE lending_entries (id INTEGER PRIMARY KEY, transactionId INTEGER UNIQUE, personId INTEGER, kind TEXT, currencyCode TEXT, amountMinor INTEGER, date INTEGER, note TEXT);
 CREATE TABLE tags (id INTEGER PRIMARY KEY, name TEXT UNIQUE);
 CREATE TABLE line_items (id INTEGER PRIMARY KEY, transactionId INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE, name TEXT NOT NULL, amountMinor INTEGER NOT NULL, quantity REAL);
 CREATE TABLE transaction_tags (transactionId INTEGER REFERENCES transactions(id), tagId INTEGER REFERENCES tags(id), PRIMARY KEY(transactionId, tagId));
@@ -24,7 +24,7 @@ let failLink = false;
 let failItem = false;
 const tx = {
   getFirstAsync: async (sql, params) => sqlite.prepare(sql).get(...params) ?? null,
-  getAllAsync: async (sql, params) => sqlite.prepare(sql).all(...params),
+  getAllAsync: async (sql, params = []) => sqlite.prepare(sql).all(...params),
   runAsync: async (sql, params) => {
     if (failLink && sql.startsWith('INSERT INTO transaction_tags')) throw new Error('link failed');
     if (failItem && sql.startsWith('INSERT INTO line_items')) throw new Error('item failed');
@@ -77,10 +77,12 @@ const { transactionTitle } = await import('./transaction-format.ts');
 
 test('receipt data includes linked lending kind and person even for categorized history', async () => {
   sqlite.exec(
-    "INSERT INTO people VALUES (1, 'Sam'); INSERT INTO lending_entries VALUES (10, 1, 1, 'LEND')",
+    "INSERT INTO people VALUES (1, 'Sam'); INSERT INTO lending_entries (id, transactionId, personId, kind) VALUES (10, 1, 1, 'LEND')",
   );
   try {
-    assert.equal(transactionTitle(await loadEditableTransaction(1)), 'Lent to Sam');
+    const receipt = await loadEditableTransaction(1);
+    assert.equal(transactionTitle(receipt), 'Lent to Sam');
+    assert.equal(receipt.personId, 1);
     assert.equal(await loadEditableTransaction(2), null);
   } finally {
     sqlite.exec('DELETE FROM lending_entries; DELETE FROM people');
@@ -285,4 +287,37 @@ test('rolls back note, links and new tags on SQLite failure', async () => {
     before,
   );
   assert.equal(sqlite.prepare('SELECT count(*) AS n FROM tags').get().n, count);
+});
+
+test('Receipt amount edits require confirmation only when they increase overpaid credit', async () => {
+  sqlite.exec(`INSERT INTO people VALUES (70, 'Edit test');
+    INSERT INTO transactions (id, type, amountMinor, date, accountId, excludeFromReport)
+    VALUES (70, 'EXPENSE', 1000, 20000, 1, 1), (71, 'INCOME', 800, 20001, 1, 1);
+    INSERT INTO lending_entries (id, transactionId, personId, kind)
+    VALUES (70, 70, 70, 'LEND'), (71, 71, 70, 'RECEIVE_REPAYMENT');`);
+  try {
+    let receipt = await loadEditableTransaction(70);
+    await saveTransactionEdit(receipt, '', false, '', [], 900);
+    receipt = await loadEditableTransaction(70);
+    assert.equal(receipt.amountMinor, 900);
+    const warning = await saveTransactionEdit(receipt, 'Changed', false, 'Trip', [], 700);
+    assert.equal(warning.status, 'confirmation_required');
+    assert.equal(warning.warnings[0].overpaidMinor, 100);
+    assert.deepEqual(await loadEditableTransaction(70), receipt);
+    await saveTransactionEdit(receipt, 'Changed', false, 'Trip', [], 700, {
+      confirmOverpayment: true,
+    });
+    const edited = await loadEditableTransaction(70);
+    assert.equal(edited.amountMinor, 700);
+    assert.equal(edited.excludeFromReport, 1);
+    assert.deepEqual(
+      edited.tags.map((tag) => tag.name),
+      ['Trip'],
+    );
+    assert.equal(edited.note, 'Changed');
+  } finally {
+    sqlite.exec(
+      'DELETE FROM transaction_tags WHERE transactionId=70; DELETE FROM lending_entries WHERE personId=70; DELETE FROM transactions WHERE id IN (70,71); DELETE FROM people WHERE id=70;',
+    );
+  }
 });
