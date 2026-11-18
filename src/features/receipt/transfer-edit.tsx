@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSuspenseQuery } from '@tanstack/react-query';
 import { ScrollView, Text, View } from 'react-native';
 import { QueryBoundary } from '@/components/query-error-boundary';
+import { Skeleton } from '@/components/loading';
 import { FormButton, FormInput } from '@/components/form-controls';
 import { QuickAddDate } from '@/components/quick-add-date';
 import { AccountChoices } from '@/components/entry-choices';
@@ -200,19 +201,44 @@ function ReadyForm({
     </TransferAmountInput>
   );
 }
+function AccountPillsSkeleton({ label }: { label: string }) {
+  return (
+    <View style={{ gap: 10 }}>
+      <Text style={{ color: c.muted }}>{label}</Text>
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        {[0, 1, 2].map((column) => (
+          <View key={column} style={{ flex: 1 }}>
+            <Skeleton width="100%" height={48} borderRadius={14} />
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+function TransferFormSkeleton() {
+  return (
+    <View
+      accessibilityRole="progressbar"
+      accessibilityLabel="Loading accounts"
+      style={{ padding: 22, gap: 18 }}
+    >
+      <Skeleton width="55%" height={44} />
+      <AccountPillsSkeleton label="From" />
+      <AccountPillsSkeleton label="To" />
+      <Skeleton width="100%" height={theme.controlHeight} borderRadius={theme.radius.control} />
+      <Skeleton width="100%" height={theme.controlHeight} borderRadius={theme.radius.control} />
+    </View>
+  );
+}
 export function TransferFormSection(props: Props) {
   return (
     <QueryBoundary
-      pending={
-        <Text
-          accessibilityRole="progressbar"
-          accessibilityLabel="Loading accounts"
-          style={{ color: c.muted }}
-        >
-          Loading accounts…
-        </Text>
-      }
-      error={(retry) => <FormButton label="Could not load accounts. Retry" onPress={retry} />}
+      pending={<TransferFormSkeleton />}
+      error={(retry) => (
+        <View style={{ padding: 22 }}>
+          <FormButton label="Could not load accounts. Retry" onPress={retry} />
+        </View>
+      )}
     >
       <ReadyForm {...props} />
     </QueryBoundary>

@@ -718,6 +718,7 @@ describe('Transfer', () => {
     await openEditor(user);
 
     expect(screen.getByLabelText('Loading accounts')).toBeOnTheScreen();
+    expect(screen.queryByText('Loading accounts…')).not.toBeOnTheScreen();
     expect(headerCancel()).toBeEnabled();
     await act(async () => read.resolve(accounts));
     expect(screen.getByRole('button', { name: 'Amount' })).toHaveAccessibilityValue({
