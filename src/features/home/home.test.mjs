@@ -36,7 +36,7 @@ const mocks = {
   './read-home.ts': `const r=(...a)=>globalThis.__homeScreenTest.read(...a);
     export const homeDeckData=today=>r('deck',today); export const homeTrend=(id,start,today)=>r('trend',id,start,today);
     export const homePace=(id)=>r('pace',id); export const homeListPage=(id,setting,today,steps)=>r('list',id,steps);
-    export const homeSearch=()=>[];
+    export const homeSearch=()=>[]; export const homeSpendDays=(id,start,end)=>r('spend',id,start,end);
     export const savePeriodSetting=setting=>r('save',setting);`,
 };
 const hooks = registerHooks({
@@ -112,10 +112,25 @@ const page = (rows) => ({
 });
 const list = (id) => page([row(id ?? 0)]);
 const pace = [{ currencyCode: 'BDT', spentMinor: 6000, sameMinor: 5000, previousMinor: 9000 }];
+const now = new Date();
+const today = Math.floor(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) / 86400000);
+/** Daily spending for the comparison with usual: one Expense today. */
+const spend = (amountMinor = 6000) => [
+  {
+    currencyCode: 'BDT',
+    categoryId: 1,
+    categoryName: 'Food',
+    topId: 1,
+    topName: 'Food',
+    date: today,
+    amountMinor,
+  },
+];
 const ready = {
   deck: () => deck(),
   trend: () => [1000, 1200, 1100],
   pace: () => pace,
+  spend: () => spend(),
   list: (id) => list(id),
   save: () => undefined,
 };
@@ -237,12 +252,38 @@ test('Home boundaries', async (t) => {
     },
   );
 
+  await t.test('the month compares with usual, and a tap opens Pace in Reports', async () => {
+    reads();
+    await mount();
+    assert.ok(cardTexts('All accounts').includes('Usual needs 3 more full months ›'));
+    await act(async () => renderer.unmount());
+    const day = 86400000;
+    const history = [1, 2, 3].map((back) => {
+      const date = new Date(now.getFullYear(), now.getMonth() - back, 1);
+      return {
+        ...spend(2000)[0],
+        date: Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), 1) / day),
+      };
+    });
+    reads({ spend: () => [...history, ...spend()] });
+    await mount();
+    assert.ok(cardTexts('All accounts').includes('৳40.00 more than usual by this point ›'));
+    const open = card('All accounts')
+      .findAllByType('Pressable')
+      .find((n) => n.props.accessibilityHint === 'Opens Pace in Reports');
+    await act(async () => open.props.onPress());
+    assert.deepEqual(state.pushed.at(-1), {
+      pathname: '/reports/pace',
+      params: { currency: 'BDT' },
+    });
+  });
+
   await t.test('a failed card keeps its balance and retries on its own', async () => {
     let fail = true;
     const log = reads({
-      pace: () => {
-        if (fail) throw Error('pace unavailable');
-        return pace;
+      spend: () => {
+        if (fail) throw Error('spend unavailable');
+        return spend();
       },
     });
     await mount();
@@ -348,7 +389,7 @@ test('Home boundaries', async (t) => {
     async () => {
       reads();
       await mount();
-      const { calls, log } = pending('pace');
+      const { calls, log } = pending('spend');
       await act(async () => button('Period, November').props.onPress());
       await act(async () => button('This week').props.onPress());
       assert.equal(renderer.root.findAllByType('AppSheet').length, 0, 'selection closes the sheet');
@@ -363,11 +404,14 @@ test('Home boundaries', async (t) => {
         log.some(([key, setting]) => key === 'save' && setting.range === 'week'),
         'the range is saved',
       );
-      await act(async () =>
-        calls[0].resolve([
-          { currencyCode: 'BDT', spentMinor: 1000, sameMinor: 2000, previousMinor: 3000 },
-        ]),
-      );
+      await act(async () => calls[0].resolve(spend(1000)));
+      // The new card shows after a deferred render. Wait for it, up to one second.
+      for (
+        let tries = 0;
+        tries < 100 && !cardTexts('All accounts').includes('Spent ৳10.00');
+        tries++
+      )
+        await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
       assert.ok(cardTexts('All accounts').includes('Spent ৳10.00'));
       assert.equal(
         renderer.root
@@ -386,7 +430,7 @@ test('Home boundaries', async (t) => {
 
   await t.test('a range change clears a card error', async () => {
     reads({
-      pace: () => {
+      spend: () => {
         throw Error('unavailable');
       },
     });

@@ -1,20 +1,24 @@
 import { Suspense, useState, type ReactNode, type Ref } from 'react';
 import { ActivityIndicator, FlatList, Pressable, Text, View, type TextStyle } from 'react-native';
 import { useSuspenseQuery } from '@tanstack/react-query';
+import { router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { ErrorBoundary } from '@/components/query-error-boundary';
 import { Skeleton } from '@/components/loading';
 import { RollingNumber } from '@/components/motion';
 import { currencySymbol } from '@/lib/currency';
+import { epochDay } from '@/lib/database';
 import { formatActivityDay, formatBalance } from '@/lib/transaction-format';
-import { validDisplayRate, type DisplayRate } from '@/lib/display-rate';
+import { convertTo, validDisplayRate, type DisplayRate } from '@/lib/display-rate';
 import { theme } from '@/theme';
 import { homeBalances } from './balances.ts';
 import { pageDots, type DeckAccount, type DeckCard } from './deck.ts';
-import { convertTo, paceSummary } from './pace.ts';
+import { paceSummary, rowsInCurrency } from './pace.ts';
 import { periodKey, shortDay, type HomePeriod, type PeriodSetting } from './period.ts';
-import { homePaceQuery, homeTrendQuery } from './queries.ts';
+import { homePaceQuery, homeTrendQuery, homeUsualQuery } from './queries.ts';
 import { TrendChart } from './trend-chart.tsx';
+import { trendHref } from '../reports/links.ts';
+import { paceResult } from '../reports/usual.ts';
 
 const c = theme.colors;
 export const cardHeight = 206;
@@ -355,6 +359,13 @@ function CardBody({
               context={context}
               onScrub={onScrub}
             />
+          ) : shownSetting.range === 'week' || shownSetting.range === 'month' ? (
+            <UsualPaceBody
+              key={periodKey(shownSetting)}
+              accountId={card.accountId}
+              setting={{ ...shownSetting, range: shownSetting.range }}
+              context={context}
+            />
           ) : (
             <PaceBody key={periodKey(shownSetting)} accountId={card.accountId} context={context} />
           )}
@@ -412,6 +423,86 @@ function TrendBody({
         <Text style={{ color: c.muted, fontSize: 11 }}>high {compactMoney(high, currency)}</Text>
       </View>
     </View>
+  );
+}
+
+/** Spending so far against the usual amount by this day. A tap opens the Pace page. */
+function UsualPaceBody({
+  accountId,
+  setting,
+  context,
+}: {
+  accountId: number | null;
+  setting: PeriodSetting & { range: 'week' | 'month' };
+  context: CardContext;
+}) {
+  const { data } = useSuspenseQuery(homeUsualQuery(accountId, setting, context.now));
+  const scoped =
+    accountId === null ? context.accounts : context.accounts.filter((a) => a.id === accountId);
+  const currency = scoped.length === 1 ? scoped[0].currencyCode : context.mainCurrency;
+  const converted = rowsInCurrency(data.rows, context.displayRate, currency);
+  const pace = paceResult(converted.rows, data.periods, epochDay(context.now), currency);
+  const ready = pace.status === 'ready';
+  const usualMinor = ready ? pace.usualMinor : 0;
+  const over = ready && pace.spentMinor > usualMinor;
+  const max = Math.max(ready ? pace.usualFullMinor : 0, pace.spentMinor, 1);
+  const difference = formatBalance(Math.abs(pace.spentMinor - usualMinor), currency);
+  const comparison = !ready
+    ? `Usual needs ${pace.needed} more full ${setting.range}${pace.needed === 1 ? '' : 's'}`
+    : pace.spentMinor === usualMinor
+      ? 'Same as usual by this point'
+      : `${difference} ${over ? 'more' : 'less'} than usual by this point`;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Spent ${formatBalance(pace.spentMinor, currency)}. ${comparison}`}
+      accessibilityHint="Opens Pace in Reports"
+      onPress={() => router.push(trendHref('pace', accountId, currency, setting.range))}
+      style={({ pressed }) => ({ gap: 6, opacity: pressed ? 0.65 : 1 })}
+    >
+      <Text style={{ color: c.text, fontSize: 13 }}>
+        Spent{' '}
+        <Text style={{ fontWeight: '700', fontVariant: ['tabular-nums'] }}>
+          {formatBalance(pace.spentMinor, currency)}
+        </Text>
+      </Text>
+      <View style={{ height: 8, borderRadius: 4, backgroundColor: 'rgba(0,0,0,0.3)' }}>
+        <View
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: `${(pace.spentMinor / max) * 100}%`,
+            borderRadius: 4,
+            backgroundColor: over ? c.warning : c.accent,
+          }}
+        />
+        {ready && (
+          <View
+            style={{
+              position: 'absolute',
+              top: -4,
+              bottom: -4,
+              width: 2,
+              left: `${(usualMinor / max) * 100}%`,
+              backgroundColor: c.text,
+            }}
+          />
+        )}
+      </View>
+      <Text
+        numberOfLines={1}
+        style={{ color: !ready ? c.muted : over ? c.warning : c.accent, fontSize: 12.5 }}
+      >
+        {comparison} ›
+      </Text>
+      {converted.only && new Set(scoped.map((a) => a.currencyCode)).size > 1 && (
+        <Text style={{ color: c.muted, fontSize: 11.5 }}>
+          Spending counts {currency} accounts only
+        </Text>
+      )}
+    </Pressable>
   );
 }
 

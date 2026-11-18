@@ -41,7 +41,17 @@ registerHooks({
   },
 });
 const { database, epochDay } = await import('./database.ts');
-const { accountBalances, monthlyReport } = await import('./reports.ts');
+const { accountBalances, rangeReport } = await import('./reports.ts');
+// setUTCFullYear keeps years 1–99, unlike the Date constructor with many arguments.
+const monthRange = (year, month) => {
+  const boundary = new Date(0);
+  boundary.setUTCFullYear(year, month - 1, 1);
+  const start = boundary.getTime() / 86400000;
+  boundary.setUTCFullYear(year, month, 1);
+  return [start, boundary.getTime() / 86400000];
+};
+const monthlyReport = (year, month, ...account) =>
+  rangeReport(...monthRange(year, month), ...account);
 const { combinedMinor, combinedCategorySpending } = await import('./display-rate.ts');
 await database();
 sqlite.exec(`DELETE FROM transactions; DELETE FROM categories; DELETE FROM accounts;
@@ -133,13 +143,41 @@ test('default balance cutoff follows the local date across midnight in different
   }
 });
 
-test('monthly reports separate currencies, income and spending, omit excluded rows and transfers, and keep null categories', async () => {
+test('range reports separate currencies, income and spending, omit excluded rows and transfers, and keep null categories', async () => {
   assert.deepEqual(await monthlyReport(2025, 1), {
     spending: [
-      { categoryId: 1, categoryName: 'Food', currencyCode: 'BDT', amountMinor: 10000 },
-      { categoryId: 3, categoryName: 'Rent', currencyCode: 'BDT', amountMinor: 5000 },
-      { categoryId: 1, categoryName: 'Food', currencyCode: 'USD', amountMinor: 100 },
-      { categoryId: null, categoryName: null, currencyCode: 'USD', amountMinor: 50 },
+      {
+        categoryId: 1,
+        categoryName: 'Food',
+        topId: 1,
+        topName: 'Food',
+        currencyCode: 'BDT',
+        amountMinor: 10000,
+      },
+      {
+        categoryId: 3,
+        categoryName: 'Rent',
+        topId: 3,
+        topName: 'Rent',
+        currencyCode: 'BDT',
+        amountMinor: 5000,
+      },
+      {
+        categoryId: 1,
+        categoryName: 'Food',
+        topId: 1,
+        topName: 'Food',
+        currencyCode: 'USD',
+        amountMinor: 100,
+      },
+      {
+        categoryId: null,
+        categoryName: null,
+        topId: null,
+        topName: null,
+        currencyCode: 'USD',
+        amountMinor: 50,
+      },
     ],
     summaries: [
       { currencyCode: 'BDT', incomeMinor: 20000, expenseMinor: 15000 },
@@ -147,21 +185,53 @@ test('monthly reports separate currencies, income and spending, omit excluded ro
     ],
   });
   assert.deepEqual(await monthlyReport(2024, 12), {
-    spending: [{ categoryId: 1, categoryName: 'Food', currencyCode: 'USD', amountMinor: 10 }],
+    spending: [
+      {
+        categoryId: 1,
+        categoryName: 'Food',
+        topId: 1,
+        topName: 'Food',
+        currencyCode: 'USD',
+        amountMinor: 10,
+      },
+    ],
     summaries: [{ currencyCode: 'USD', incomeMinor: 0, expenseMinor: 10 }],
   });
   assert.deepEqual(await monthlyReport(2025, 2), {
-    spending: [{ categoryId: 1, categoryName: 'Food', currencyCode: 'USD', amountMinor: 15 }],
+    spending: [
+      {
+        categoryId: 1,
+        categoryName: 'Food',
+        topId: 1,
+        topName: 'Food',
+        currencyCode: 'USD',
+        amountMinor: 15,
+      },
+    ],
     summaries: [{ currencyCode: 'USD', incomeMinor: 0, expenseMinor: 15 }],
   });
   assert.deepEqual(await monthlyReport(2025, 3), { spending: [], summaries: [] });
 });
 
-test('monthly reports scope both totals to one Account, excluding transfers and excluded Transactions', async () => {
+test('range reports scope both totals to one Account, excluding transfers and excluded Transactions', async () => {
   assert.deepEqual(await monthlyReport(2025, 1, 1), {
     spending: [
-      { categoryId: 1, categoryName: 'Food', currencyCode: 'USD', amountMinor: 100 },
-      { categoryId: null, categoryName: null, currencyCode: 'USD', amountMinor: 50 },
+      {
+        categoryId: 1,
+        categoryName: 'Food',
+        topId: 1,
+        topName: 'Food',
+        currencyCode: 'USD',
+        amountMinor: 100,
+      },
+      {
+        categoryId: null,
+        categoryName: null,
+        topId: null,
+        topName: null,
+        currencyCode: 'USD',
+        amountMinor: 50,
+      },
     ],
     summaries: [{ currencyCode: 'USD', incomeMinor: 400, expenseMinor: 150 }],
   });
@@ -175,7 +245,16 @@ test('Account scope does not combine another Account using the same Currency', a
     add(90, 'EXPENSE', 700, day(2025, 1, 15), 2, 1);
     add(91, 'INCOME', 900, day(2025, 1, 15), 2, 2);
     assert.deepEqual(await monthlyReport(2025, 1, 2), {
-      spending: [{ categoryId: 1, categoryName: 'Food', currencyCode: 'USD', amountMinor: 700 }],
+      spending: [
+        {
+          categoryId: 1,
+          categoryName: 'Food',
+          topId: 1,
+          topName: 'Food',
+          currencyCode: 'USD',
+          amountMinor: 700,
+        },
+      ],
       summaries: [{ currencyCode: 'USD', incomeMinor: 900, expenseMinor: 700 }],
     });
   } finally {
@@ -204,7 +283,14 @@ test('calendar months include leap days and December rollover, including years 1
     ]) {
       assert.deepEqual(await monthlyReport(year, month, 1), {
         spending: [
-          { categoryId: 1, categoryName: 'Food', currencyCode: 'USD', amountMinor: amount },
+          {
+            categoryId: 1,
+            categoryName: 'Food',
+            topId: 1,
+            topName: 'Food',
+            currencyCode: 'USD',
+            amountMinor: amount,
+          },
         ],
         summaries: [{ currencyCode: 'USD', incomeMinor: 0, expenseMinor: amount }],
       });
@@ -214,12 +300,15 @@ test('calendar months include leap days and December rollover, including years 1
   }
 });
 
-test('monthly reports reject invalid calendar periods and Account identifiers', async () => {
-  for (const year of [0, -1, 10000, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER]) {
-    await assert.rejects(monthlyReport(year, 1), /Invalid month/);
-  }
-  for (const month of [0, 13, 1.5, NaN, Infinity]) {
-    await assert.rejects(monthlyReport(2025, month), /Invalid month/);
+test('range reports reject invalid ranges and Account identifiers', async () => {
+  for (const [start, end] of [
+    [10, 10],
+    [11, 10],
+    [1.5, 10],
+    [NaN, 10],
+    [0, Infinity],
+  ]) {
+    await assert.rejects(rangeReport(start, end), /Invalid range/);
   }
   for (const accountId of [0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, null, '1']) {
     await assert.rejects(monthlyReport(2025, 1, accountId), /Invalid account/);
@@ -231,7 +320,36 @@ test('monthly reports reject invalid calendar periods and Account identifiers', 
   });
 });
 
-test('monthly report boundaries do not shift with the local timezone', async () => {
+test('range reports give each Category the Category at the top of its tree', async () => {
+  try {
+    sqlite.exec(`INSERT INTO categories (id, name, type, parentId) VALUES
+      (40, 'Groceries', 'EXPENSE', 1), (41, 'Fruit', 'EXPENSE', 40),
+      (42, 'Loop A', 'EXPENSE', 43), (43, 'Loop B', 'EXPENSE', 42)`);
+    add(110, 'EXPENSE', 30, day(2025, 3, 2), 1, 40);
+    add(111, 'EXPENSE', 20, day(2025, 3, 3), 1, 41);
+    add(112, 'EXPENSE', 5, day(2025, 3, 4), 1, 42);
+    add(113, 'EXPENSE', 7, day(2025, 3, 31), 1, 1);
+    const { spending } = await rangeReport(day(2025, 3, 2), day(2025, 4, 1));
+    assert.deepEqual(
+      spending.map((row) => [row.categoryName, row.topId, row.topName, row.amountMinor]),
+      [
+        ['Groceries', 1, 'Food', 30],
+        ['Fruit', 1, 'Food', 20],
+        ['Food', 1, 'Food', 7],
+        ['Loop A', 42, 'Loop A', 5],
+      ],
+    );
+    const firstDay = await rangeReport(day(2025, 3, 2), day(2025, 3, 3));
+    assert.deepEqual(
+      firstDay.spending.map((row) => row.amountMinor),
+      [30],
+    );
+  } finally {
+    sqlite.exec('DELETE FROM transactions WHERE id >= 110; DELETE FROM categories WHERE id >= 40');
+  }
+});
+
+test('range report boundaries do not shift with the local timezone', async () => {
   const original = process.env.TZ;
   try {
     for (const zone of ['UTC', 'America/Los_Angeles', 'Asia/Dhaka', 'Pacific/Kiritimati']) {
@@ -240,8 +358,22 @@ test('monthly report boundaries do not shift with the local timezone', async () 
         await monthlyReport(2025, 1, 1),
         {
           spending: [
-            { categoryId: 1, categoryName: 'Food', currencyCode: 'USD', amountMinor: 100 },
-            { categoryId: null, categoryName: null, currencyCode: 'USD', amountMinor: 50 },
+            {
+              categoryId: 1,
+              categoryName: 'Food',
+              topId: 1,
+              topName: 'Food',
+              currencyCode: 'USD',
+              amountMinor: 100,
+            },
+            {
+              categoryId: null,
+              categoryName: null,
+              topId: null,
+              topName: null,
+              currencyCode: 'USD',
+              amountMinor: 50,
+            },
           ],
           summaries: [{ currencyCode: 'USD', incomeMinor: 400, expenseMinor: 150 }],
         },

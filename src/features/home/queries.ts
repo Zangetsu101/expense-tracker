@@ -1,6 +1,14 @@
 import { infiniteQueryOptions, queryOptions, type QueryClient } from '@tanstack/react-query';
 import { epochDay } from '@/lib/database';
-import { homeDeckData, homeListPage, homePace, homeSearch, homeTrend } from './read-home.ts';
+import { periodsBack, usualPeriods } from '../reports/usual.ts';
+import {
+  homeDeckData,
+  homeListPage,
+  homePace,
+  homeSearch,
+  homeSpendDays,
+  homeTrend,
+} from './read-home.ts';
 import type { ListScope } from './list.ts';
 import { homePeriod, periodKey, type PeriodSetting } from './period.ts';
 
@@ -39,6 +47,25 @@ export function homePaceQuery(accountId: number | null, setting: PeriodSetting, 
     queryFn: async () => {
       const period = homePeriod(setting, today);
       return { period, rows: await homePace(accountId, period) };
+    },
+  });
+}
+
+/** Daily spending for this week or month and the 6 before it, for the comparison with usual. */
+export function homeUsualQuery(
+  accountId: number | null,
+  setting: PeriodSetting & { range: 'week' | 'month' },
+  now: Date,
+) {
+  const today = epochDay(now);
+  return queryOptions({
+    queryKey: [...homeQueryKey, 'usual', accountId, periodKey(setting), today],
+    queryFn: async () => {
+      const periods = periodsBack(setting.range, today, setting.monthStart, usualPeriods);
+      return {
+        periods,
+        rows: await homeSpendDays(accountId, periods.at(-1)!.start, periods[0].end),
+      };
     },
   });
 }

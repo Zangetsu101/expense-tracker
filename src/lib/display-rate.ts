@@ -67,3 +67,24 @@ export function combinedCategorySpending(
     .map((row) => ({ ...row, amountMinor: Math.round(row.amountMinor) }))
     .sort((a, b) => b.amountMinor - a.amountMinor);
 }
+
+/**
+ * The sum of the amounts in the target Currency. A Display Rate of `rate` means one `base` equals
+ * `rate` of `quote`. Returns null when an amount cannot be converted.
+ */
+export function convertTo(
+  rows: { currencyCode: string; amountMinor: number }[],
+  rate: DisplayRate | null,
+  target: string,
+): number | null {
+  let total = 0;
+  for (const row of rows) {
+    if (row.currencyCode === target) total += row.amountMinor;
+    else if (rate && row.currencyCode === rate.base && target === rate.quote)
+      total += row.amountMinor * rate.rate;
+    else if (rate && row.currencyCode === rate.quote && target === rate.base)
+      total += row.amountMinor / rate.rate;
+    else return null;
+  }
+  return Math.round(total);
+}

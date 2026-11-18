@@ -9,7 +9,21 @@ export type AccountBalance = {
 export type CategorySpending = {
   categoryId: number | null;
   categoryName: string | null;
+  /** The Category at the top of the tree. It is the Category itself when it has no parent. */
+  topId: number | null;
+  topName: string | null;
   currencyCode: string;
+  amountMinor: number;
+};
+/** Reportable Expenses on one day, in one Currency and one Category. */
+export type SpendRow = {
+  currencyCode: string;
+  categoryId: number | null;
+  categoryName: string | null;
+  /** The Category at the top of the tree, or null when the Expense has no Category. */
+  topId: number | null;
+  topName: string | null;
+  date: number;
   amountMinor: number;
 };
 export type MonthlySummary = { currencyCode: string; incomeMinor: number; expenseMinor: number };
@@ -30,36 +44,33 @@ export async function accountBalances(today = epochDay(new Date())): Promise<Acc
   );
 }
 
-export async function monthlyReport(
-  year: number,
-  month: number,
+/** Each Category with the Category at the top of its tree. A Category in a loop has no top. */
+const categoryTops = `WITH RECURSIVE tops(id, topId) AS (
+  SELECT id, id FROM categories WHERE parentId IS NULL
+  UNION ALL SELECT c.id, tops.topId FROM categories c JOIN tops ON c.parentId = tops.id)`;
+
+/** Income, Expense and spending by Category for the local days from `start` to `end` (exclusive). */
+export async function rangeReport(
+  start: number,
+  end: number,
   accountId?: number,
 ): Promise<{ spending: CategorySpending[]; summaries: MonthlySummary[] }> {
-  if (
-    !Number.isInteger(year) ||
-    year < 1 ||
-    year > 9999 ||
-    !Number.isInteger(month) ||
-    month < 1 ||
-    month > 12
-  )
-    throw new Error('Invalid month.');
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start >= end)
+    throw new Error('Invalid range.');
   if (accountId !== undefined && (!Number.isSafeInteger(accountId) || accountId <= 0))
     throw new Error('Invalid account.');
-  // setUTCFullYear preserves years 1–99, unlike the multi-argument Date constructor.
-  const boundary = new Date(0);
-  boundary.setUTCFullYear(year, month - 1, 1);
-  const start = boundary.getTime() / 86400000;
-  boundary.setUTCFullYear(year, month, 1);
-  const end = boundary.getTime() / 86400000;
   const accountFilter = accountId === undefined ? '' : ' AND t.accountId = ?';
   const params = accountId === undefined ? [start, end] : [start, end, accountId];
   const db = await database();
   const [spending, summaries] = await Promise.all([
     db.getAllAsync<CategorySpending>(
-      `SELECT t.categoryId, c.name AS categoryName, a.currencyCode, SUM(t.amountMinor) AS amountMinor
+      `${categoryTops}
+      SELECT t.categoryId, c.name AS categoryName, COALESCE(tops.topId, t.categoryId) AS topId,
+      COALESCE(top.name, c.name) AS topName, a.currencyCode, SUM(t.amountMinor) AS amountMinor
       FROM transactions t JOIN accounts a ON a.id = t.accountId
       LEFT JOIN categories c ON c.id = t.categoryId
+      LEFT JOIN tops ON tops.id = t.categoryId
+      LEFT JOIN categories top ON top.id = tops.topId
       WHERE t.type = 'EXPENSE' AND t.excludeFromReport = 0 AND t.date >= ? AND t.date < ?${accountFilter}
       GROUP BY a.currencyCode, t.categoryId ORDER BY a.currencyCode, amountMinor DESC, categoryName`,
       params,
@@ -75,4 +86,27 @@ export async function monthlyReport(
     ),
   ]);
   return { spending, summaries };
+}
+
+/** Reportable Expenses for each day, Currency and Category from `start` to `end` (exclusive). */
+export async function spendDays(
+  accountId: number | null,
+  start: number,
+  end: number,
+): Promise<SpendRow[]> {
+  const db = await database();
+  return db.getAllAsync<SpendRow>(
+    `${categoryTops}
+    SELECT a.currencyCode, t.categoryId, c.name AS categoryName,
+    COALESCE(tops.topId, t.categoryId) AS topId, COALESCE(top.name, c.name) AS topName,
+    t.date, SUM(t.amountMinor) AS amountMinor
+    FROM transactions t JOIN accounts a ON a.id = t.accountId
+    LEFT JOIN categories c ON c.id = t.categoryId
+    LEFT JOIN tops ON tops.id = t.categoryId
+    LEFT JOIN categories top ON top.id = tops.topId
+    WHERE t.type = 'EXPENSE' AND t.excludeFromReport = 0 AND t.date >= ? AND t.date < ?
+    ${accountId === null ? '' : 'AND t.accountId = ?'}
+    GROUP BY a.currencyCode, t.categoryId, t.date`,
+    accountId === null ? [start, end] : [start, end, accountId],
+  );
 }

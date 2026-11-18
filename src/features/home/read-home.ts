@@ -7,6 +7,8 @@ import type { PaceRow } from './pace.ts';
 import { parsePeriodSetting, type HomePeriod, type PeriodSetting } from './period.ts';
 import { periodBack, type ListPeriod, type ListRow, type PeriodRows } from './list.ts';
 
+export { spendDays as homeSpendDays } from '@/lib/reports';
+
 const listRead = `SELECT t.id, t.type, t.amountMinor, t.date, t.accountId, t.transferAccountId,
   a.name AS accountName, destination.name AS transferAccountName, a.currencyCode,
   c.name AS categoryName, parent.name AS parentCategoryName,
