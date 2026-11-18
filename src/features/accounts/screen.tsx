@@ -10,9 +10,11 @@ import {
 } from '@/lib/accounts';
 import { epochDay } from '@/lib/database';
 import { QueryTimeContext } from '@/lib/query-time';
+import { LendingCard } from '@/features/lending/overview-screen';
 import { accountsOverviewQuery } from './queries.ts';
 import {
   AccountGroups,
+  AccountsBalanceSkeleton,
   AccountsError,
   AccountsHeader,
   AccountsLayout,
@@ -36,7 +38,6 @@ function AccountsContent({ today, writes }: { today: number; writes: Writes }) {
   const { data, error, isFetching, refetch } = useSuspenseQuery(accountsOverviewQuery(today));
   return (
     <>
-      {data.accounts.length > 0 && <BalanceOverview overview={data} />}
       <AccountsHeader count={data.accounts.length} pending={writes.pending} onAdd={writes.onAdd} />
       {!!error && !isFetching && <RefreshAlert retry={() => void refetch()} />}
       {writes.favoriteError && <WriteError message={writes.favoriteError} />}
@@ -50,17 +51,27 @@ function AccountsContent({ today, writes }: { today: number; writes: Writes }) {
   );
 }
 
+function AccountBalanceCard({ today }: { today: number }) {
+  const { data, isPending } = useQuery({ ...accountsOverviewQuery(today), enabled: false });
+  if (isPending) return <AccountsBalanceSkeleton />;
+  return data?.accounts.length ? <BalanceOverview overview={data} /> : null;
+}
+
 function AccountsSection({ writes }: { writes: Writes }) {
   const today = useDeferredValue(epochDay(use(QueryTimeContext)));
   const header = <AccountsHeader pending={writes.pending} onAdd={writes.onAdd} />;
   return (
-    <QueryBoundary
-      resetKey={String(today)}
-      pending={<AccountsSkeleton header={header} />}
-      error={(retry) => <AccountsError header={header} retry={retry} />}
-    >
-      <AccountsContent key={today} today={today} writes={writes} />
-    </QueryBoundary>
+    <>
+      <AccountBalanceCard today={today} />
+      <LendingCard />
+      <QueryBoundary
+        resetKey={String(today)}
+        pending={<AccountsSkeleton header={header} />}
+        error={(retry) => <AccountsError header={header} retry={retry} />}
+      >
+        <AccountsContent key={today} today={today} writes={writes} />
+      </QueryBoundary>
+    </>
   );
 }
 

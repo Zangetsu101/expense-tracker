@@ -7,7 +7,7 @@ import {
 } from '@tanstack/react-query';
 import { useLocalSearchParams } from 'expo-router';
 import { QueryBoundary } from '@/components/query-error-boundary';
-import { parseAccountId } from '@/lib/account-selection';
+import { parseRouteId } from '@/lib/account-selection';
 import { validDate, type SearchFilters } from '@/lib/transaction-search';
 import { managedCategoriesQuery } from '@/features/categories';
 import { accountsQuery } from '@/lib/account-queries';
@@ -47,8 +47,8 @@ function routeFilters(params: RouteFilters): SearchFilters {
   return {
     ...initialFilters,
     query: params.query ?? '',
-    accountId: parseAccountId(params.accountId) ?? null,
-    categoryId: parseAccountId(params.categoryId) ?? null,
+    accountId: parseRouteId(params.accountId) ?? null,
+    categoryId: parseRouteId(params.categoryId) ?? null,
     type: types.find((type) => type === params.type) ?? 'ALL',
     ...(dates ? { datePreset: 'CUSTOM' as const, startDate, endDate } : {}),
   };

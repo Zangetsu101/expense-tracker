@@ -4,7 +4,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { Text, useWindowDimensions, View } from 'react-native';
 import { QueryBoundary } from '@/components/query-error-boundary';
 import { Skeleton } from '@/components/loading';
-import { parseAccountId } from '@/lib/account-selection';
+import { parseRouteId } from '@/lib/account-selection';
 import { defaultCurrencyCode } from '@/lib/currency';
 import { epochDay } from '@/lib/database';
 import { QueryTimeContext } from '@/lib/query-time';
@@ -51,7 +51,7 @@ function useToday() {
 /** The Account, the Currency and the kind of period from the route. */
 function useTrendScope() {
   const params = useLocalSearchParams<TrendParams>();
-  const accountId = parseAccountId(params.accountId);
+  const accountId = parseRouteId(params.accountId);
   const [{ data: accounts }, { data: settings }] = useSuspenseQueries({
     queries: [managedAccountsQuery(), reportSettingsQuery()],
   });

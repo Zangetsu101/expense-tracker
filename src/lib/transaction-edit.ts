@@ -1,4 +1,5 @@
 import { notifyDataChanged } from './data-changes.ts';
+import { linkedAmountWarnings, type LendingResult } from './lending.ts';
 import { database } from './database';
 import type { LendingLabel } from './transaction-format';
 import { parseQuickAddTags } from './quick-add-tags';
@@ -10,6 +11,7 @@ export type EditableTransaction = LendingLabel & {
   amountMinor: number;
   date: number;
   accountId: number;
+  personId?: number | null;
   categoryId: number | null;
   accountName: string;
   currencyCode: string;
@@ -54,7 +56,7 @@ export async function loadEditableTransaction(id: number): Promise<EditableTrans
   const row = await db.getFirstAsync<Omit<EditableTransaction, 'tags' | 'lineItems'>>(
     `SELECT t.id, t.type, t.amountMinor, t.date, t.accountId, t.categoryId, a.name AS accountName,
     a.currencyCode, c.name AS categoryName, t.note, t.excludeFromReport,
-    lending.kind AS lendingKind, person.name AS personName,
+    lending.personId, lending.kind AS lendingKind, person.name AS personName,
     CASE WHEN ${principalReportExclusion} THEN 1 ELSE 0 END AS reportExclusionLocked
     FROM transactions t JOIN accounts a ON a.id = t.accountId
     LEFT JOIN categories c ON c.id = t.categoryId
@@ -83,21 +85,28 @@ export async function saveTransactionEdit(
   tagText: string,
   lineItems: LineItem[] = original.lineItems,
   amountMinor: number = original.amountMinor,
-) {
+  options: { confirmOverpayment?: boolean } = {},
+): Promise<Extract<LendingResult, { status: 'confirmation_required' }> | void> {
   validId(original.id);
   if (original.type !== 'EXPENSE' && original.type !== 'INCOME')
     throw new Error('Transfers cannot be edited here.');
   if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0)
     throw new Error('Enter a positive amount.');
-  if (amountMinor !== original.amountMinor && original.lendingKind)
-    throw new Error('Change the amount of a lending entry from Lending.');
   validateLineItems(lineItems);
   const originalIds = new Set(original.lineItems.map((item) => item.id));
   if (lineItems.some((item) => item.id !== undefined && !originalIds.has(item.id)))
     throw new Error('Unknown line item ID.');
   const names = tagText.trim() ? parseQuickAddTags(tagText) : [];
   const db = await database();
+  let outcome: Extract<LendingResult, { status: 'confirmation_required' }> | undefined;
   await db.withExclusiveTransactionAsync(async (tx) => {
+    if (amountMinor !== original.amountMinor && !options.confirmOverpayment) {
+      const warnings = await linkedAmountWarnings(tx, original.id, amountMinor);
+      if (warnings.length) {
+        outcome = { status: 'confirmation_required', warnings };
+        return;
+      }
+    }
     const current = await tx.getAllAsync<{ id: number; name: string }>(
       `SELECT tags.id, tags.name FROM tags
       JOIN transaction_tags tt ON tt.tagId = tags.id WHERE tt.transactionId = ? ORDER BY tags.id`,
@@ -131,7 +140,8 @@ export async function saveTransactionEdit(
         WHEN ${principalReportExclusion} THEN 1 ELSE ? END
       WHERE id = ? AND type = ? AND amountMinor = ? AND date = ? AND accountId = ?
         AND categoryId IS ? AND note IS ? AND excludeFromReport = ?
-        AND NOT (? <> amountMinor AND EXISTS (SELECT 1 FROM lending_entries WHERE transactionId = t.id))`,
+        AND (SELECT personId FROM lending_entries WHERE transactionId = t.id) IS ?
+        AND (SELECT kind FROM lending_entries WHERE transactionId = t.id) IS ?`,
       [
         amountMinor,
         note.trim() || null,
@@ -144,7 +154,8 @@ export async function saveTransactionEdit(
         original.categoryId,
         original.note,
         original.excludeFromReport,
-        amountMinor,
+        original.personId ?? null,
+        original.lendingKind ?? null,
       ],
     );
     if (result.changes !== 1)
@@ -174,5 +185,6 @@ export async function saveTransactionEdit(
       );
     }
   });
-  notifyDataChanged();
+  if (!outcome) notifyDataChanged();
+  return outcome;
 }

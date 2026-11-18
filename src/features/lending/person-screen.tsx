@@ -1,137 +1,281 @@
-import { useSuspenseQuery } from '@tanstack/react-query';
+import { useRef, useState } from 'react';
+import { useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
-import { FlatList, Text, View } from 'react-native';
-import { FormButton } from '@/components/form-controls';
-import { Skeleton } from '@/components/loading';
-import { formatEpochDay } from '@/lib/transaction-format';
-import { theme } from '@/theme';
+import { Pressable, Text, View } from 'react-native';
+import { FormButton, FormInput } from '@/components/form-controls';
+import { renamePerson } from '@/lib/lending';
+import type { LendingTotal } from '@/lib/lending-totals';
+import { formatBalance } from '@/lib/transaction-format';
 import { personLedgerQuery } from './queries.ts';
-import { QueryBoundary } from '@/components/query-error-boundary';
+import { WriteOffForm } from './write-off-form.tsx';
 import {
-  ButtonSkeleton,
-  EntryCardSkeleton,
-  FallbackScroll,
+  AddEntryButton,
+  EmptyLedger,
+  Heading,
+  HistoryList,
+  LedgerSheet,
   LendingAlert,
-  LoadingGroup,
+  LendingBoundary,
+  MoneyText,
+  Muted,
+  SheetAction,
+  colors,
+  directionColor,
+  divider,
+  panel,
+  spacedRow,
 } from './view.tsx';
 
-const c = theme.colors;
+function Balance({ total, onPress }: { total: LendingTotal; onPress: () => void }) {
+  const lent = total.direction === 'LENT';
+  const color = directionColor(total.direction);
+  const money = (amount: number) => formatBalance(amount, total.currencyCode);
+  const progress = total.principalMinor
+    ? Math.min(100, ((total.repaidMinor + total.writtenOffMinor) / total.principalMinor) * 100)
+    : 0;
+  return (
+    <Pressable accessibilityRole="button" onPress={onPress} style={{ gap: 8 }}>
+      <View style={{ ...spacedRow, alignItems: 'baseline' }}>
+        <Muted>
+          {lent ? 'Owes you' : 'You owe'} · {total.currencyCode}
+        </Muted>
+        <MoneyText size={lent ? 22 : 18} color={color}>
+          {money(total.outstandingMinor)}{' '}
+          <Text style={{ color: colors.muted, fontWeight: '400' }}>›</Text>
+        </MoneyText>
+      </View>
+      <View style={{ height: 6, borderRadius: 3, backgroundColor: colors.raised }}>
+        <View
+          style={{ height: 6, borderRadius: 3, width: `${progress}%`, backgroundColor: color }}
+        />
+      </View>
+      <Text style={{ color: colors.muted, fontSize: 12 }}>
+        {money(total.repaidMinor)} repaid · {money(total.writtenOffMinor)} written off of{' '}
+        {money(total.principalMinor)}
+      </Text>
+      {!!total.overpaidMinor && (
+        <Text style={{ color: color }}>Overpaid credit {money(total.overpaidMinor)}</Text>
+      )}
+    </Pressable>
+  );
+}
 
 function PersonLedger({ personId }: { personId: number }) {
-  const { data, error, isFetching, refetch } = useSuspenseQuery(personLedgerQuery(personId));
+  const client = useQueryClient();
+  const query = personLedgerQuery(personId);
+  const { data, error, isFetching, refetch } = useSuspenseQuery(query);
   const { person, entries, totals } = data;
+  const [balance, setBalance] = useState<LendingTotal>();
+  const [sheet, setSheet] = useState<'balance' | 'write-off' | 'rename'>();
+  const [menu, setMenu] = useState(false);
+  const [name, setName] = useState('');
+  const [pending, setPending] = useState(false);
+  const [writeError, setWriteError] = useState('');
+  const saving = useRef(false);
+  const lent = balance?.direction === 'LENT';
+  const writeOffTitle = lent ? 'Write off what they owe' : 'Write off what you owe';
+  function quickAdd(action: 'LEND' | 'BORROW' | 'RECEIVE_REPAYMENT' | 'REPAY') {
+    setSheet(undefined);
+    router.push({
+      pathname: '/quick-add',
+      params: { personId, mode: 'PERSON', action, currency: balance?.currencyCode },
+    });
+  }
+  async function rename() {
+    if (saving.current) return;
+    saving.current = true;
+    setPending(true);
+    setWriteError('');
+    try {
+      const updated = await renamePerson(person.id, name);
+      client.setQueryData(query.queryKey, (current) => current && { ...current, person: updated });
+      router.setParams({ name: updated.name });
+      setSheet(undefined);
+    } catch (cause) {
+      setWriteError(String(cause));
+    } finally {
+      saving.current = false;
+      setPending(false);
+    }
+  }
   return (
-    <>
-      <Stack.Screen options={{ title: person.name }} />
-      <FlatList
-        style={{ backgroundColor: c.background }}
-        contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={{ padding: 20, gap: 16, paddingBottom: 48 }}
-        data={entries}
-        keyExtractor={(entry) => String(entry.id)}
-        ListHeaderComponent={
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <Stack.Screen
+        options={{
+          title: person.name,
+          headerRight: () => (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Person options"
+              accessibilityState={{ expanded: menu }}
+              onPress={() => setMenu(!menu)}
+              style={{
+                minWidth: 44,
+                minHeight: 44,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Text style={{ color: colors.text, fontSize: 22 }}>⋮</Text>
+            </Pressable>
+          ),
+        }}
+      />
+      <HistoryList
+        rows={entries}
+        header={
           <View style={{ gap: 16 }}>
             {!!error && !isFetching && (
-              <LendingAlert message="Could not refresh this person." retry={() => void refetch()} />
+              <LendingAlert
+                refresh
+                message="Could not refresh this person"
+                retry={() => void refetch()}
+              />
             )}
-            <FormButton
-              label="Add entry"
-              onPress={() => router.push({ pathname: '/lending/entry', params: { personId } })}
-            />
-            <Text style={{ color: c.muted }}>
-              Historical assignments may be incomplete. These balances are not a reconciliation.
-            </Text>
-            {totals.map((total) => (
-              <View
-                key={`${total.direction}-${total.currencyCode}`}
-                style={{ padding: 16, backgroundColor: c.surface, borderRadius: 16, gap: 8 }}
-              >
-                <Text style={{ color: c.muted }}>
-                  {total.direction === 'LENT' ? 'They owe you' : 'You owe them'} ·{' '}
-                  {total.currencyCode}
-                </Text>
-                <Text
-                  selectable
-                  style={{ color: c.text, fontSize: 24, fontVariant: ['tabular-nums'] }}
-                >
-                  {(total.outstandingMinor / 100).toFixed(2)}
-                </Text>
-                <Text selectable style={{ color: c.accent }}>
-                  Overpaid credit: {(total.overpaidMinor / 100).toFixed(2)} {total.currencyCode}
-                </Text>
-              </View>
-            ))}
-            <Text style={{ color: c.text, fontSize: 20 }}>Full dated history</Text>
-            {entries.length === 0 && <Text style={{ color: c.muted }}>No entries yet.</Text>}
+            {totals.length ? (
+              <>
+                <View style={panel}>
+                  {[...totals]
+                    .sort((a, b) => b.direction.localeCompare(a.direction))
+                    .map((total, index) => (
+                      <View key={`${total.direction}:${total.currencyCode}`} style={{ gap: 12 }}>
+                        {index > 0 && <View style={divider} />}
+                        <Balance
+                          total={total}
+                          onPress={() => {
+                            setBalance(total);
+                            setSheet('balance');
+                          }}
+                        />
+                      </View>
+                    ))}
+                </View>
+                <View style={{ marginTop: 4 }}>
+                  <Heading>History</Heading>
+                </View>
+              </>
+            ) : (
+              <EmptyLedger title="No entries yet" hint="Tap + to add an entry for this person." />
+            )}
           </View>
         }
-        renderItem={({ item }) => (
-          <View style={{ backgroundColor: c.surface, padding: 16, borderRadius: 16, gap: 8 }}>
-            <Text selectable style={{ color: c.text }}>
-              {item.kind.replaceAll('_', ' ')} · {(item.amountMinor / 100).toFixed(2)}{' '}
-              {item.currencyCode}
-            </Text>
-            <Text selectable style={{ color: c.muted }}>
-              {formatEpochDay(item.date)} · {item.accountName ?? 'No Account movement'}
-            </Text>
-            {!!item.note && (
-              <Text selectable style={{ color: c.text }}>
-                {item.note}
-              </Text>
-            )}
-            <FormButton
-              label="Edit entry"
-              variant="secondary"
-              onPress={() =>
-                router.push({ pathname: '/lending/entry', params: { id: item.id, personId } })
-              }
+        onPress={(entry) =>
+          router.push(
+            entry.transactionId === null
+              ? { pathname: '/transaction/[id]', params: { id: entry.id, kind: 'write-off' } }
+              : { pathname: '/transaction/[id]', params: { id: entry.transactionId } },
+          )
+        }
+      />
+      <AddEntryButton personId={person.id} />
+      {menu && (
+        <View style={{ position: 'absolute', inset: 0 }}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss person options"
+            onPress={() => setMenu(false)}
+            style={{ flex: 1 }}
+          />
+          <View
+            style={{
+              position: 'absolute',
+              top: 0,
+              right: 12,
+              minWidth: 200,
+              paddingHorizontal: 16,
+              borderRadius: 12,
+              backgroundColor: colors.raised,
+              elevation: 6,
+            }}
+          >
+            <SheetAction
+              label="Rename"
+              onPress={() => {
+                setMenu(false);
+                setName(person.name);
+                setWriteError('');
+                setSheet('rename');
+              }}
             />
           </View>
-        )}
-      />
-    </>
-  );
-}
-
-function PersonSkeleton() {
-  return (
-    <FallbackScroll>
-      <Stack.Screen options={{ title: 'Person' }} />
-      <LoadingGroup label="Loading person">
-        <ButtonSkeleton />
-        <Skeleton width="85%" />
-        <View style={{ padding: 16, backgroundColor: c.surface, borderRadius: 16, gap: 10 }}>
-          <Skeleton width="40%" />
-          <Skeleton width="30%" height={28} />
-          <Skeleton width="55%" />
         </View>
-        <Text style={{ color: c.text, fontSize: 20 }}>Full dated history</Text>
-        <EntryCardSkeleton />
-        <EntryCardSkeleton />
-      </LoadingGroup>
-    </FallbackScroll>
-  );
-}
-
-function PersonError({ retry }: { retry: () => void }) {
-  return (
-    <FallbackScroll>
-      <Stack.Screen options={{ title: 'Person' }} />
-      <LendingAlert message="Could not load this person." retry={retry} />
-    </FallbackScroll>
+      )}
+      {sheet && (
+        <LedgerSheet dismiss={() => setSheet(undefined)} pending={pending}>
+          {sheet === 'rename' ? (
+            <>
+              <Heading>Rename</Heading>
+              <FormInput
+                accessibilityLabel="Person name"
+                value={name}
+                onChangeText={setName}
+                editable={!pending}
+              />
+              {!!writeError && (
+                <Text accessibilityRole="alert" style={{ color: colors.warning }}>
+                  {writeError}
+                </Text>
+              )}
+              <FormButton
+                label="Save name"
+                loading={pending}
+                disabled={!name.trim()}
+                onPress={() => void rename()}
+              />
+            </>
+          ) : (
+            balance &&
+            (sheet === 'balance' ? (
+              <>
+                <Heading>
+                  {lent ? 'Owes you' : 'You owe'} · {balance.currencyCode}
+                </Heading>
+                <Muted>{formatBalance(balance.outstandingMinor, balance.currencyCode)}</Muted>
+                {!!balance.outstandingMinor && (
+                  <SheetAction
+                    label={lent ? 'Receive repayment' : 'Repay'}
+                    onPress={() => quickAdd(lent ? 'RECEIVE_REPAYMENT' : 'REPAY')}
+                  />
+                )}
+                <SheetAction
+                  label={lent ? 'Lend more' : 'Borrow more'}
+                  onPress={() => quickAdd(lent ? 'LEND' : 'BORROW')}
+                />
+                {!!balance.outstandingMinor && (
+                  <SheetAction label={writeOffTitle} accent onPress={() => setSheet('write-off')} />
+                )}
+              </>
+            ) : (
+              <>
+                <Heading>{writeOffTitle}</Heading>
+                <Muted>
+                  {person.name} · {balance.currencyCode} · no Account movement
+                </Muted>
+                <WriteOffForm
+                  personId={person.id}
+                  kind={lent ? 'WRITE_OFF_LENT' : 'WRITE_OFF_BORROWED'}
+                  currency={balance.currencyCode}
+                  initialAmount={balance.outstandingMinor}
+                  onSavingChange={setPending}
+                  onSaved={() => setSheet(undefined)}
+                />
+              </>
+            ))
+          )}
+        </LedgerSheet>
+      )}
+    </View>
   );
 }
 
 export default function PersonScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
-  const personId = Number(id);
+  const { id, name } = useLocalSearchParams<{ id: string; name?: string }>();
   return (
-    <QueryBoundary
-      key={String(personId)}
-      pending={<PersonSkeleton />}
-      error={(retry) => <PersonError retry={retry} />}
-    >
-      <PersonLedger personId={personId} />
-    </QueryBoundary>
+    <>
+      <Stack.Screen options={{ title: name || 'Person' }} />
+      <LendingBoundary key={id} title="person" section="History" subject="this person">
+        <PersonLedger personId={Number(id)} />
+      </LendingBoundary>
+    </>
   );
 }
