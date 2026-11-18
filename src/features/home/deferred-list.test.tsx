@@ -32,11 +32,20 @@ function Shown({ value }: { value: { name: string } }) {
 
 /** The list on screen and its muting, as each commit shows them. */
 let commits: { shown: string; muted: boolean }[];
+/** Runs in the commit that shows a list, before React runs the passive effects of that commit. */
+let onShow: ((shown: string) => void) | null;
+function Loading() {
+  useLayoutEffect(() => {
+    commits.push({ shown: 'Loading', muted: false });
+  });
+  return <Text>Loading</Text>;
+}
 function Harness({ value }: { value: string }) {
   // A new object on each render, as a parent gives its inputs.
   const { deferred, stale, muted, gate } = useDeferredSnapshot({ name: value }, value);
   useLayoutEffect(() => {
     commits.push({ shown: deferred.name, muted });
+    onShow?.(deferred.name);
   });
   return (
     <>
@@ -51,7 +60,7 @@ function Harness({ value }: { value: string }) {
           </Pressable>
         )}
       >
-        <Suspense fallback={<Text>Loading</Text>}>
+        <Suspense fallback={<Loading />}>
           <Shown value={deferred} />
           <HoldReveal gate={gate} />
         </Suspense>
@@ -81,6 +90,7 @@ const isMuted = (muted: boolean) =>
 beforeEach(() => {
   reads = new Map();
   commits = [];
+  onShow = null;
   jest.useFakeTimers();
 });
 afterEach(async () => {
@@ -108,6 +118,28 @@ test('results ready within grace replace the list without muting', async () => {
   isMuted(false);
   await wait(HOLD_MS);
   isMuted(false);
+});
+
+test('a hold that starts after the results show does not hide them', async () => {
+  await start();
+  await ask('b');
+  await wait(GRACE_MS - 1);
+  commits = [];
+  // On a slow device, the grace timer can fire while React renders the new list. React
+  // then shows that list, and the hold starts after the list is on screen.
+  onShow = (shown) => {
+    if (shown !== 'b') return;
+    onShow = null;
+    jest.advanceTimersByTime(1);
+  };
+  await ready('b');
+  shows('b');
+  isMuted(false);
+  await wait(HOLD_MS);
+  shows('b');
+  isMuted(false);
+  expect(commits).toContainEqual({ shown: 'b', muted: false });
+  expect(commits.every((commit) => commit.shown === 'b' && !commit.muted)).toBe(true);
 });
 
 test('results ready during the hold stay gated until the hold ends', async () => {

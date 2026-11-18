@@ -1,4 +1,4 @@
-import { use, useDeferredValue, useEffect, useRef, useState } from 'react';
+import { use, useDeferredValue, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ListScope } from './list.ts';
 import type { PeriodSetting } from './period.ts';
 import { homeListQuery } from './queries.ts';
@@ -45,6 +45,14 @@ export function useDeferredSnapshot<T>(value: T, key: string) {
   const stale = deferred.key !== requested.key;
   const grace = stale && hold === null;
 
+  // The key of the snapshot on screen. A layout effect sets it, so that it changes before
+  // the next render after the commit that shows a new snapshot.
+  const [shown, setShown] = useState(key);
+  useLayoutEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Only a commit tells which snapshot is on screen.
+    setShown(deferred.key);
+  }, [deferred.key]);
+
   const holdTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(holdTimer.current), []);
 
@@ -68,8 +76,10 @@ export function useDeferredSnapshot<T>(value: T, key: string) {
     deferred: deferred.value,
     stale,
     muted: stale && hold !== null,
-    // Only the render of a new snapshot waits. The snapshot on screen must not suspend.
-    gate: holdOfEarlierList ? hold.gate : null,
+    // Only the render that replaces the snapshot of the hold waits. The timer can fire after
+    // React rendered the new snapshot and before React shows it. Then the hold comes too late,
+    // and the snapshot on screen must not suspend.
+    gate: holdOfEarlierList && hold.from === shown ? hold.gate : null,
   };
 }
 
