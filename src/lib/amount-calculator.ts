@@ -64,7 +64,7 @@ export function pressAmountKey(entry: AmountEntry, key: string, precision = 2): 
       ? ''
       : key === '⌫'
         ? amount.slice(0, -1)
-        : entry.evaluated && /^[0-9.]$/.test(key)
+        : entry.evaluated && /^(?:[0-9.]|00)$/.test(key)
           ? key
           : amount + key;
   if (['+', '−', '×', '÷'].includes(key) && /[+−×÷]$/.test(amount))

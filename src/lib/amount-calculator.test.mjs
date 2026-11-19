@@ -43,6 +43,12 @@ test('a digit after equals starts a new amount, and an operator continues the re
   assert.equal(type(['4', '+', '5', '=', '+', '1']).amount, '9.00+1');
 });
 
+test('double zero appends two zeros and starts a new amount after equals', () => {
+  assert.equal(type(['5', '00']).amount, '500');
+  assert.equal(type(['5', '.', '00']).amount, '5.00');
+  assert.equal(type(['5', '=', '00', '7']).amount, '007');
+});
+
 test('equals on an incomplete calculation keeps the amount and reports the error', () => {
   const failed = type(['4', '+', '=']);
   assert.equal(failed.amount, '4+');

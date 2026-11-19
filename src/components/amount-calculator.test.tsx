@@ -23,7 +23,8 @@ test('keypad remains usable when haptics fail', async () => {
   await render(<AmountCalculator error="" open bottomInset={24} onKey={onKey} onDone={onDone} />);
   await user.press(key('3'));
   await user.press(key('3'));
-  expect(onKey.mock.calls).toEqual([['3'], ['3']]);
+  await user.press(key('00'));
+  expect(onKey.mock.calls).toEqual([['3'], ['3'], ['00']]);
   await user.press(key('Done'));
   await user.press(key('Hide amount keypad'));
   expect(onDone).toHaveBeenCalledTimes(2);
