@@ -17,7 +17,7 @@ const rows = [
   ['7', '8', '9', '−'],
   ['4', '5', '6', '+'],
   ['1', '2', '3', '='],
-  ['.', '0', 'Done'],
+  ['.', '0', '00', 'Done'],
 ];
 const labels: Record<string, string> = {
   C: 'Clear calculation',
@@ -210,7 +210,7 @@ function KeyButton({
   ComponentProps<typeof Touchable>,
   'onPress' | 'onPressIn' | 'onPressOut' | 'onLongPress'
 >) {
-  const digit = /^[0-9.]$/.test(label);
+  const digit = /^(?:[0-9.]|00)$/.test(label);
   return (
     <Touchable
       accessible
@@ -246,7 +246,7 @@ function DoneKey({ onFeedback, onDone }: { onFeedback: () => void; onDone: () =>
       onPress={onDone}
       style={({ pressed }) => [
         keyStyle,
-        { flex: 2, backgroundColor: pressed ? c.line : c.selected },
+        { flex: 1, backgroundColor: pressed ? c.line : c.selected },
       ]}
     >
       <Text style={{ color: c.text, fontSize: 17, fontWeight: '500' }}>Done</Text>
