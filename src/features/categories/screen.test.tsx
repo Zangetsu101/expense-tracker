@@ -1,5 +1,10 @@
 import { act, screen, userEvent, waitFor } from '@testing-library/react-native';
-import { listManagedCategories, type ManagedCategory } from '@/lib/categories';
+import {
+  applyCategoryEmojiSuggestions,
+  listManagedCategories,
+  createCategory,
+  type ManagedCategory,
+} from '@/lib/categories';
 import { notifyDataChanged } from '@/lib/data-changes';
 import { renderWithQueries } from '@/test/render-with-queries';
 import { CategoriesScreen } from './index';
@@ -13,6 +18,9 @@ jest.mock('@/components/app-sheet', () => {
   return { AppSheet: ({ children }: { children: React.ReactNode }) => <View>{children}</View> };
 });
 jest.mock('@/lib/categories', () => ({
+  ...jest.requireActual('@/lib/categories'),
+  applyCategoryEmojiSuggestions: jest.fn(),
+  listCategoryEmojiDismissals: jest.fn().mockResolvedValue([]),
   listManagedCategories: jest.fn(),
   createCategory: jest.fn(),
   updateCategory: jest.fn(),
@@ -114,4 +122,44 @@ test('a failed refresh keeps the categories and shows an alert with Retry', asyn
 
   expect(await screen.findByRole('button', { name: /^Salary, INCOME/ })).toBeOnTheScreen();
   expect(screen.queryByText('Could not refresh categories.')).not.toBeOnTheScreen();
+});
+
+test('batch review starts checked and applies only the categories still selected', async () => {
+  const user = userEvent.setup();
+  const deposit = category(3, 'Deposit', 'INCOME');
+  jest.mocked(listManagedCategories).mockResolvedValue([salary, deposit]);
+  jest.mocked(applyCategoryEmojiSuggestions).mockResolvedValueOnce(1);
+  await renderScreen();
+
+  await user.press(await screen.findByRole('button', { name: 'Review suggested icons' }));
+  const salaryRow = screen.getByRole('checkbox', { name: /^Salary, Income/, checked: true });
+  await user.press(salaryRow);
+  await user.press(screen.getByRole('button', { name: 'Apply 1' }));
+
+  expect(applyCategoryEmojiSuggestions).toHaveBeenCalledWith(
+    [expect.objectContaining({ id: salary.id }), expect.objectContaining({ id: deposit.id })],
+    [deposit.id],
+  );
+  expect(await screen.findByText('1 category icon applied.')).toBeOnTheScreen();
+});
+
+test('choosing an editor suggestion fills the Emoji field and waits for Save', async () => {
+  const user = userEvent.setup();
+  jest.mocked(listManagedCategories).mockResolvedValue([]);
+  await renderScreen();
+
+  await user.press(await screen.findByRole('button', { name: 'Add' }));
+  await user.type(screen.getByLabelText('New category name'), 'Supermarket');
+  await user.press(screen.getByRole('button', { name: 'Use 🥦' }));
+
+  expect(screen.getByLabelText('Emoji')).toHaveDisplayValue('🥦');
+  expect(createCategory).not.toHaveBeenCalled();
+  await user.press(screen.getByRole('button', { name: 'Save' }));
+
+  expect(createCategory).toHaveBeenCalledWith({
+    name: 'Supermarket',
+    type: 'EXPENSE',
+    parentId: null,
+    emoji: '🥦',
+  });
 });

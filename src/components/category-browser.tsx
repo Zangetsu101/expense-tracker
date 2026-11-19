@@ -11,7 +11,12 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CategoryForm } from './category-form';
 import { categoryPath, visibleTaxonomy, type VisibleCategory } from '../lib/category-taxonomy';
-import type { ManagedCategory, CategoryType, CreateCategoryInput } from '../lib/categories';
+import {
+  categoryDisplayEmoji,
+  type ManagedCategory,
+  type CategoryType,
+  type CreateCategoryInput,
+} from '../lib/categories';
 import { theme as t } from '../theme';
 
 type Kind = CategoryType;
@@ -30,11 +35,15 @@ export function CategoryBrowser({
   items,
   onSave,
   disabled = false,
+  onReviewIcons,
+  iconNotice,
 }: {
   items: ManagedCategory[];
   onSave: (input: CreateCategoryInput, editing?: ManagedCategory) => Promise<void>;
   /** Disables Add and Edit, for example while the items refresh. */
   disabled?: boolean;
+  onReviewIcons?: () => void;
+  iconNotice?: string;
 }) {
   const longPressSelected = useRef(false);
   const [focused, setFocused] = useState(false);
@@ -174,6 +183,10 @@ export function CategoryBrowser({
       (child) => child.parentId === item.id && child.type === item.type,
     );
     const expanded = reveal || open.includes(item.id);
+    const emoji = categoryDisplayEmoji(
+      item,
+      items.find((parent) => parent.id === item.parentId),
+    );
     const childCount = items.filter((child) => child.parentId === item.id).length;
     const toggle = () => {
       if (hasChildren && !reveal) {
@@ -327,6 +340,7 @@ export function CategoryBrowser({
             >
               {item.name}
             </Text>
+            {!!emoji && <Text style={{ fontSize: t.type.body }}>{emoji}</Text>}
             {!!item.needsReview && <Text style={{ color: c.warning, fontSize: 12 }}>Review</Text>}
           </Pressable>
           <View
@@ -484,6 +498,16 @@ export function CategoryBrowser({
             ? `Results for "${query.trim()}" · matching branches expand automatically`
             : 'All categories · expansion stays local'}
         </Text>
+        {onReviewIcons && (
+          <View style={{ alignItems: 'flex-start' }}>
+            {button('Review suggested icons', onReviewIcons, false, disabled)}
+          </View>
+        )}
+        {!!iconNotice && (
+          <Text accessibilityRole="alert" style={{ color: c.accent }}>
+            {iconNotice}
+          </Text>
+        )}
         {group('EXPENSE')}
         {group('INCOME')}
         {!hasResults && (
