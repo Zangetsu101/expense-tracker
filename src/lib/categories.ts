@@ -1,3 +1,5 @@
+import { normalizeCategoryEmojiPath, suggestCategoryEmoji } from './category-emoji-suggestions.ts';
+import { categoryPath } from './category-taxonomy.ts';
 import { notifyDataChanged } from './data-changes.ts';
 import { database } from './database';
 
@@ -43,11 +45,109 @@ export async function listCategoriesByRecentUse(type: CategoryType): Promise<Man
   );
 }
 
+const managedCategoriesSql = `SELECT c.id, c.name, c.type, c.parentId, p.name AS parentName, c.iconKey AS emoji, c.needsReview
+  FROM categories c LEFT JOIN categories p ON p.id = c.parentId
+  ORDER BY c.type, c.name COLLATE NOCASE, c.id`;
+
 export async function listManagedCategories(): Promise<ManagedCategory[]> {
+  return (await database()).getAllAsync<ManagedCategory>(managedCategoriesSql);
+}
+
+type SettingsReader = Pick<Awaited<ReturnType<typeof database>>, 'getFirstAsync'>;
+const emojiDismissalsKey = 'categoryEmojiDismissals';
+
+async function readEmojiDismissals(db: SettingsReader): Promise<string[]> {
+  const row = await db.getFirstAsync<{ value: string }>(
+    'SELECT value FROM app_settings WHERE key = ?',
+    [emojiDismissalsKey],
+  );
+  return row ? JSON.parse(row.value) : [];
+}
+
+export async function listCategoryEmojiDismissals(): Promise<string[]> {
+  return readEmojiDismissals(await database());
+}
+
+export type CategoryEmojiSuggestion = {
+  id: number;
+  type: CategoryType;
+  name: string;
+  path: string;
+  emoji: string;
+};
+
+/** Home uses the immediate parent's explicit icon as its fallback. */
+export function categoryDisplayEmoji(
+  item: ManagedCategory,
+  parent?: ManagedCategory,
+): string | null {
+  return item.emoji || parent?.emoji || null;
+}
+
+export function categoryEmojiSuggestions(
+  items: ManagedCategory[],
+  dismissals: readonly string[],
+): CategoryEmojiSuggestion[] {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const skipped = new Set(dismissals);
+  return items.flatMap((item) => {
+    const parent = item.parentId === null ? undefined : byId.get(item.parentId);
+    if (categoryDisplayEmoji(item, parent)) return [];
+    const path = categoryPath(items, item);
+    const [emoji] = suggestCategoryEmoji(item.type, path, item.name);
+    if (!emoji || skipped.has(emojiDismissalKey(item.id, item.type, emoji))) return [];
+    return [{ id: item.id, type: item.type, name: item.name, path, emoji }];
+  });
+}
+
+function emojiDismissalKey(id: number, type: CategoryType, emoji: string): string {
+  return JSON.stringify([id, type, emoji]);
+}
+
+export async function applyCategoryEmojiSuggestions(
+  reviewed: readonly CategoryEmojiSuggestion[],
+  selectedIds: readonly number[],
+): Promise<number> {
+  if (!selectedIds.length) return 0;
+  const selected = new Set(selectedIds);
   const db = await database();
-  return db.getAllAsync<ManagedCategory>(`SELECT c.id, c.name, c.type, c.parentId, p.name AS parentName, c.iconKey AS emoji, c.needsReview
-    FROM categories c LEFT JOIN categories p ON p.id = c.parentId
-    ORDER BY c.type, c.name COLLATE NOCASE, c.id`);
+  let applied = 0;
+  await db.withExclusiveTransactionAsync(async (tx) => {
+    const items = await tx.getAllAsync<ManagedCategory>(managedCategoriesSql);
+    const dismissals = new Set(await readEmojiDismissals(tx));
+    const current = new Map(
+      categoryEmojiSuggestions(items, [...dismissals]).map((suggestion) => [
+        suggestion.id,
+        suggestion,
+      ]),
+    );
+    for (const suggestion of reviewed) {
+      const match = current.get(suggestion.id);
+      if (
+        !match ||
+        match.type !== suggestion.type ||
+        match.emoji !== suggestion.emoji ||
+        normalizeCategoryEmojiPath(match.path) !== normalizeCategoryEmojiPath(suggestion.path)
+      )
+        continue;
+      current.delete(match.id);
+      if (selected.has(match.id)) {
+        await tx.runAsync('UPDATE categories SET iconKey = ? WHERE id = ?', [
+          match.emoji,
+          match.id,
+        ]);
+        applied++;
+      } else {
+        dismissals.add(emojiDismissalKey(match.id, match.type, match.emoji));
+      }
+    }
+    await tx.runAsync('INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)', [
+      emojiDismissalsKey,
+      JSON.stringify([...dismissals]),
+    ]);
+  });
+  notifyDataChanged();
+  return applied;
 }
 
 export async function createCategory(input: CreateCategoryInput): Promise<void> {

@@ -37,7 +37,13 @@ function RetryButton({ label, retry }: { label: string; retry: () => void }) {
   );
 }
 
-export function RefreshAlert({ retry }: { retry: () => void }) {
+export function RefreshAlert({
+  retry,
+  label = 'Could not refresh categories.',
+}: {
+  retry: () => void;
+  label?: string;
+}) {
   return (
     <View
       style={{
@@ -50,7 +56,7 @@ export function RefreshAlert({ retry }: { retry: () => void }) {
       }}
     >
       <Text accessibilityRole="alert" style={{ flex: 1, color: c.warning }}>
-        Could not refresh categories.
+        {label}
       </Text>
       <RetryButton label="Retry" retry={retry} />
     </View>

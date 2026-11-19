@@ -11,6 +11,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FormButton, FormInput, JoinedChoice } from './form-controls';
 import { AppSheet } from './app-sheet';
+import { suggestCategoryEmoji } from '../lib/category-emoji-suggestions';
 import { categoryPath } from '../lib/category-taxonomy';
 import {
   maxCategoryEmojiLength,
@@ -41,6 +42,11 @@ export function CategoryForm({ items, initialParentId = null, editing, onSave, o
   const parentId = parent?.id ?? null;
   const [error, setError] = useState('');
   const path = (item: ManagedCategory) => categoryPath(items, item);
+  const emojiSuggestions = suggestCategoryEmoji(
+    kind,
+    parent ? `${path(parent)} / ${name.trim()}` : name,
+    name,
+  );
   const [pending, setPending] = useState(false);
   const saving = useRef(false);
   const close = () => {
@@ -146,6 +152,27 @@ export function CategoryForm({ items, initialParentId = null, editing, onSave, o
             maxLength={maxCategoryEmojiLength}
             returnKeyType="done"
           />
+          {emojiSuggestions.length > 0 && (
+            <View style={{ gap: t.spacing.xs }}>
+              <Text style={{ color: c.muted }}>Suggested emoji</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: t.spacing.sm }}>
+                {emojiSuggestions.map((option) => (
+                  <FormButton
+                    key={option}
+                    label={option}
+                    accessibilityLabel={`Use ${option}`}
+                    variant={emoji === option ? 'primary' : 'secondary'}
+                    disabled={pending}
+                    style={{ minWidth: t.controlHeight }}
+                    onPress={() => {
+                      setEmoji(option);
+                      setError('');
+                    }}
+                  />
+                ))}
+              </View>
+            </View>
+          )}
           {editing || parent ? (
             <Text style={{ color: c.muted }}>
               Type: {kind === 'EXPENSE' ? 'Expense' : 'Income'} ·{' '}

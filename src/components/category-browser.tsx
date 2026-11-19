@@ -11,7 +11,12 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CategoryForm } from './category-form';
 import { categoryPath, visibleTaxonomy, type VisibleCategory } from '../lib/category-taxonomy';
-import type { ManagedCategory, CategoryType, CreateCategoryInput } from '../lib/categories';
+import {
+  categoryDisplayEmoji,
+  type ManagedCategory,
+  type CategoryType,
+  type CreateCategoryInput,
+} from '../lib/categories';
 import { theme as t } from '../theme';
 
 type Kind = CategoryType;
@@ -30,11 +35,15 @@ export function CategoryBrowser({
   items,
   onSave,
   disabled = false,
+  onReviewIcons,
+  iconNotice,
 }: {
   items: ManagedCategory[];
   onSave: (input: CreateCategoryInput, editing?: ManagedCategory) => Promise<void>;
   /** Disables Add and Edit, for example while the items refresh. */
   disabled?: boolean;
+  onReviewIcons?: () => void;
+  iconNotice?: string;
 }) {
   const longPressSelected = useRef(false);
   const [focused, setFocused] = useState(false);
@@ -174,6 +183,11 @@ export function CategoryBrowser({
       (child) => child.parentId === item.id && child.type === item.type,
     );
     const expanded = reveal || open.includes(item.id);
+    const emoji = categoryDisplayEmoji(
+      item,
+      items.find((parent) => parent.id === item.parentId),
+    );
+    const isSelected = selected === item.id;
     const childCount = items.filter((child) => child.parentId === item.id).length;
     const toggle = () => {
       if (hasChildren && !reveal) {
@@ -250,7 +264,7 @@ export function CategoryBrowser({
               minHeight: 48,
               paddingVertical: 8,
               paddingLeft: 16 + depth * 24,
-              paddingRight: 56,
+              paddingRight: isSelected ? 56 : 16,
               flexDirection: 'row',
               alignItems: 'center',
               gap: 10,
@@ -320,62 +334,55 @@ export function CategoryBrowser({
             >
               {hasChildren ? (expanded ? '▾' : '▸') : '•'}
             </Text>
-            <Text
-              numberOfLines={1}
-              ellipsizeMode="tail"
-              style={{ flex: 1, color: c.ink, fontSize: 16, fontWeight: depth ? '400' : '700' }}
+            <View
+              style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm }}
             >
-              {item.name}
-            </Text>
-            {!!item.needsReview && <Text style={{ color: c.warning, fontSize: 12 }}>Review</Text>}
-          </Pressable>
-          <View
-            pointerEvents={selected === item.id ? 'auto' : 'none'}
-            style={{
-              position: 'absolute',
-              right: 0,
-              top: 0,
-              bottom: 0,
-              width: 48,
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            {selected === item.id ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`Clear selection of ${item.name}`}
-                onPress={deselect}
-                style={({ pressed }) => ({
-                  width: 48,
-                  flex: 1,
-                  minHeight: 48,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  backgroundColor: c.raised,
-                  opacity: pressed ? 0.6 : 1,
-                })}
+              <Text
+                numberOfLines={1}
+                ellipsizeMode="tail"
+                style={{
+                  flexShrink: 1,
+                  color: c.ink,
+                  fontSize: 16,
+                  fontWeight: depth ? '400' : '700',
+                }}
               >
-                <Text accessible={false} style={{ color: c.accent, fontSize: 24 }}>
-                  ×
-                </Text>
-              </Pressable>
-            ) : hasChildren ? (
+                {item.name}
+              </Text>
+              {!!emoji && <Text style={{ fontSize: t.type.body }}>{emoji}</Text>}
+            </View>
+            {!!item.needsReview && <Text style={{ color: c.warning, fontSize: 12 }}>Review</Text>}
+            {hasChildren && !isSelected && (
               <Text
                 accessibilityLabel={`${childCount} direct children total`}
-                style={{
-                  width: 48,
-                  textAlign: 'right',
-                  paddingRight: 16,
-                  color: c.muted,
-                  fontSize: 12,
-                  fontVariant: ['tabular-nums'],
-                }}
+                style={{ color: c.muted, fontSize: 12, fontVariant: ['tabular-nums'] }}
               >
                 {childCount}
               </Text>
-            ) : null}
-          </View>
+            )}
+          </Pressable>
+          {isSelected && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Clear selection of ${item.name}`}
+              onPress={deselect}
+              style={({ pressed }) => ({
+                position: 'absolute',
+                right: 0,
+                top: 0,
+                bottom: 0,
+                width: 48,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: c.raised,
+                opacity: pressed ? 0.6 : 1,
+              })}
+            >
+              <Text accessible={false} style={{ color: c.accent, fontSize: 24 }}>
+                ×
+              </Text>
+            </Pressable>
+          )}
         </View>
         {!!item.needsReview && (reviewOpen === item.id || (hasChildren && expanded)) && (
           <View
@@ -484,6 +491,16 @@ export function CategoryBrowser({
             ? `Results for "${query.trim()}" · matching branches expand automatically`
             : 'All categories · expansion stays local'}
         </Text>
+        {onReviewIcons && (
+          <View style={{ alignItems: 'flex-start' }}>
+            {button('Review suggested icons', onReviewIcons, false, disabled)}
+          </View>
+        )}
+        {!!iconNotice && (
+          <Text accessibilityRole="alert" style={{ color: c.accent }}>
+            {iconNotice}
+          </Text>
+        )}
         {group('EXPENSE')}
         {group('INCOME')}
         {!hasResults && (

@@ -7,6 +7,7 @@ const db = new DatabaseSync(':memory:');
 db.exec(
   'CREATE TABLE categories (id INTEGER PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, parentId INTEGER REFERENCES categories(id), iconKey TEXT, needsReview INTEGER NOT NULL DEFAULT 0)',
 );
+db.exec('CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
 const adapter = {
   runAsync: async (sql, params) => db.prepare(sql).run(...params),
   getAllAsync: async (sql, params = []) => db.prepare(sql).all(...params),
@@ -48,7 +49,10 @@ registerHooks({
   },
 });
 const {
+  applyCategoryEmojiSuggestions,
+  categoryEmojiSuggestions,
   createCategory,
+  listCategoryEmojiDismissals,
   updateCategory,
   listManagedCategories,
   listCategoriesByRecentUse,
@@ -182,4 +186,43 @@ test('typed managed Categories retain metadata in recent-first order', async () 
   assert.ok(rows.every((row) => row.type === 'EXPENSE'));
   assert.equal(rows.find((row) => row.id === 2).parentId, 1);
   assert.equal(rows.find((row) => row.id === 2).parentName, rows.find((row) => row.id === 1).name);
+});
+
+test('applies selected icons and remembers skips without replacing existing or inherited icons', async () => {
+  await createCategory({ name: 'Home', type: 'EXPENSE', emoji: '🏠' });
+  const home = (await listManagedCategories()).find(({ name }) => name === 'Home');
+  await createCategory({ name: 'Groceries', type: 'EXPENSE', parentId: home.id });
+  await createCategory({ name: 'Deposit', type: 'INCOME' });
+  await createCategory({ name: 'Supermarket', type: 'EXPENSE' });
+  await createCategory({ name: 'Qurbani', type: 'EXPENSE' });
+
+  const reviewed = categoryEmojiSuggestions(await listManagedCategories(), []);
+  assert.deepEqual(
+    reviewed.map(({ name, emoji }) => [name, emoji]),
+    [
+      ['Qurbani', '🐄'],
+      ['Supermarket', '🛒'],
+      ['Deposit', '➕'],
+    ],
+  );
+  const [qurbani, supermarket, deposit] = reviewed;
+  await updateCategory(qurbani.id, 'Qurbani', '🐐');
+  assert.equal(await applyCategoryEmojiSuggestions(reviewed, [qurbani.id, deposit.id]), 1);
+
+  await updateCategory(supermarket.id, 'Grocery');
+  const categories = await listManagedCategories();
+  assert.equal(categories.find(({ name }) => name === 'Qurbani').emoji, '🐐');
+  assert.equal(categories.find(({ name }) => name === 'Deposit').emoji, '➕');
+  assert.equal(categories.find(({ name }) => name === 'Grocery').emoji, null);
+  assert.deepEqual(categoryEmojiSuggestions(categories, await listCategoryEmojiDismissals()), []);
+});
+
+test('matches common names outside their exported paths while preserving contextual matches', async () => {
+  const { suggestCategoryEmoji } = await import('./category-emoji-suggestions.ts');
+  assert.deepEqual(suggestCategoryEmoji('EXPENSE', 'Transport / Parking', 'Parking'), ['🅿️', '🚗']);
+  assert.deepEqual(
+    suggestCategoryEmoji('EXPENSE', 'Subscriptions / Entertainment', 'Entertainment'),
+    ['📺', '🎬', '🎵'],
+  );
+  assert.deepEqual(suggestCategoryEmoji('EXPENSE', 'Other / Entertainment', 'Entertainment'), []);
 });
