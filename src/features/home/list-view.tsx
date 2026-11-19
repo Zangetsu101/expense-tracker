@@ -15,6 +15,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { SymbolView } from 'expo-symbols';
+import Svg, { Path } from 'react-native-svg';
 import { formatActivityDay } from '@/lib/transaction-format';
 import { theme } from '@/theme';
 import {
@@ -72,7 +73,16 @@ function Icon({ icon }: { icon: RowIcon }) {
           justifyContent: 'center',
         }}
       >
-        <Text style={{ color: colors.muted, fontSize: 17 }}>⇄</Text>
+        <Svg width={18} height={18} viewBox="0 0 18 18" accessible={false}>
+          <Path
+            d="M3 6h12 M12 3l3 3-3 3 M15 12H3 M6 9l-3 3 3 3"
+            fill="none"
+            stroke={colors.muted}
+            strokeWidth={1.5}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </Svg>
       </View>
     );
   return (
