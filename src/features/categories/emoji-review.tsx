@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppSheet } from '@/components/app-sheet';
 import { FormButton } from '@/components/form-controls';
@@ -18,6 +18,7 @@ export function EmojiReview({
   onClose: () => void;
 }) {
   const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
   const [selected, setSelected] = useState(() => new Set(suggestions.map(({ id }) => id)));
   const [pending, setPending] = useState(false);
   const [error, setError] = useState(false);
@@ -52,7 +53,8 @@ export function EmojiReview({
     <AppSheet pending={pending} onDismiss={onClose}>
       <View
         style={{
-          maxHeight: '82%',
+          width,
+          maxHeight: height * 0.82,
           backgroundColor: c.surface,
           borderTopLeftRadius: 24,
           borderTopRightRadius: 24,
