@@ -1,7 +1,9 @@
-import { act, cleanup, screen, userEvent, waitFor } from '@testing-library/react-native';
-import { notifyManager } from '@tanstack/react-query';
+import { act, cleanup, fireEvent, screen, userEvent, waitFor } from '@testing-library/react-native';
+import { notifyManager, type QueryClient } from '@tanstack/react-query';
 import { AccessibilityInfo, Alert, BackHandler, Keyboard } from 'react-native';
 import { router } from 'expo-router';
+import { accountsQuery } from '@/lib/account-queries';
+import { createQueryClient } from '@/lib/query-client';
 import { epochDay, listAccounts } from '@/lib/database';
 import { creditCardBills } from '@/lib/credit-cards';
 import { notifyDataChanged } from '@/lib/data-changes';
@@ -12,6 +14,9 @@ import { listCategoriesByRecentUse, type ManagedCategory } from '@/lib/categorie
 import { listPeople, listLendingTotals, createPerson, saveLendingEntry } from '@/lib/lending';
 import { usePreventRemove } from 'expo-router/react-navigation';
 import { renderWithQueries } from '@/test/render-with-queries';
+import { expenseReimbursements, expensesForReimbursement } from '@/features/home/read-home';
+import type { ListRow } from '@/features/home/list';
+import { categoriesQuery, peopleQuery } from './queries';
 import QuickAdd from './screen';
 
 const mockDispatch = jest.fn();
@@ -41,7 +46,10 @@ jest.mock('expo-router/react-navigation', () => ({
   useNavigation: () => ({ dispatch: mockDispatch }),
   usePreventRemove: jest.fn(),
 }));
-jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ bottom: 0 }) }));
+jest.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ bottom: 0 }),
+  SafeAreaView: jest.requireActual<typeof import('react-native')>('react-native').View,
+}));
 jest.mock('expo-symbols', () => ({ SymbolView: () => null }));
 jest.mock('react-native-worklets', () => jest.requireActual('react-native-worklets/src/mock'));
 jest.mock('react-native-reanimated', () => jest.requireActual('react-native-reanimated/mock'));
@@ -51,6 +59,10 @@ jest.mock('@/lib/database', () => ({
 }));
 jest.mock('@/lib/credit-cards', () => ({ creditCardBills: jest.fn() }));
 jest.mock('@/lib/transfer-rate-store', () => ({ loadFirstTransferRate: jest.fn() }));
+jest.mock('@/features/home/read-home', () => ({
+  expenseReimbursements: jest.fn(),
+  expensesForReimbursement: jest.fn(),
+}));
 jest.mock('@/lib/quick-add-tags', () => ({ addQuickTransaction: jest.fn() }));
 jest.mock('@/lib/transfers', () => ({ addTransfer: jest.fn() }));
 jest.mock('@/lib/categories', () => ({ listCategoriesByRecentUse: jest.fn(async () => []) }));
@@ -107,10 +119,10 @@ beforeEach(() => {
   jest.mocked(loadFirstTransferRate).mockResolvedValue({ base: 'USD', quote: 'BDT', rate: 122 });
 });
 const button = (name: string | RegExp) => screen.getByRole('button', { name });
-async function open() {
+async function open(client?: QueryClient) {
   const user = userEvent.setup();
   await act(async () => {
-    await renderWithQueries(<QuickAdd />);
+    await renderWithQueries(<QuickAdd />, client);
   });
   const press = (name: string) => user.press(button(name));
   const mode = (name: string) => user.press(screen.getByRole('radio', { name }));
@@ -139,11 +151,11 @@ test('ranking changes after Done and saving requires choosing a category', async
   expect(order()).toEqual(['Food', 'Travel']);
   await press('Done');
   await waitFor(() => expect(order()).toEqual(['Travel', 'Food']));
-  expect(button('Save')).toBeDisabled();
+  expect(button('Save expense')).toBeDisabled();
   await press('Food');
   await type('Note', 'Lunch');
   await type('Tags, separated by commas', 'food');
-  await press('Save');
+  await press('Save expense');
   expect(addQuickTransaction).toHaveBeenCalledWith(
     expect.objectContaining({
       type: 'EXPENSE',
@@ -164,9 +176,9 @@ test.each([undefined, '99'])(
     await screen.findByRole('button', { name: 'Food' });
     await amount(['1']);
     await press('Food');
-    expect(button('Save')).toBeDisabled();
+    expect(button('Save expense')).toBeDisabled();
     await press('Bank, USD');
-    expect(button('Save')).toBeEnabled();
+    expect(button('Save expense')).toBeEnabled();
   },
 );
 test('refresh preserves the Home selection after a rename and allows changing accounts', async () => {
@@ -179,7 +191,7 @@ test('refresh preserves the Home selection after a rename and allows changing ac
   await press('Cash, USD, favorite');
   await amount(['1']);
   await press('Food');
-  await press('Save');
+  await press('Save expense');
   expect(addQuickTransaction).toHaveBeenCalledWith(expect.objectContaining({ accountId: 1 }), '');
 });
 test('editing blocks stale submissions; hardware back commits the latest expression', async () => {
@@ -193,15 +205,15 @@ test('editing blocks stale submissions; hardware back commits the latest express
   const active = back.mock.lastCall;
   await press('2');
   expect(back.mock.lastCall).toBe(active);
-  expect(button('Save')).toBeDisabled();
-  await press('Save');
+  expect(button('Save expense')).toBeDisabled();
+  await press('Save expense');
   expect(addQuickTransaction).not.toHaveBeenCalled();
   expect(keyboard).toHaveBeenCalled();
   await act(() => {
     expect(active?.[1]({ type: 'hardwareBackPress', timeStamp: Date.now() })).toBe(true);
   });
   expect(screen.queryByRole('button', { name: 'Done' })).toBeNull();
-  await press('Save');
+  await press('Save expense');
   expect(addQuickTransaction).toHaveBeenCalledWith(
     expect.objectContaining({ amountMinor: 900 }),
     '',
@@ -212,7 +224,7 @@ test('invalid expressions clear the amount; keypad errors can be corrected and s
   await screen.findByRole('button', { name: 'Food' });
   await press('Food');
   await amount(['1', 'Divide', '0']);
-  expect(button('Save')).toBeDisabled();
+  expect(button('Save expense')).toBeDisabled();
   expect(screen.getByText(/Enter a positive amount/)).toBeOnTheScreen();
   await amount(['1', 'Add', '3', 'Equals', '7']);
   expect(button('Amount')).toHaveAccessibilityValue({ text: '7.00' });
@@ -236,10 +248,10 @@ test('a rejected save keeps the draft and blocks another submission while pendin
   await type('Note', 'Draft');
   const request = Promise.withResolvers<Awaited<ReturnType<typeof addQuickTransaction>>>();
   jest.mocked(addQuickTransaction).mockReturnValueOnce(request.promise);
-  await press('Save');
-  await press('Save');
+  await press('Save expense');
+  await press('Save expense');
   expect(addQuickTransaction).toHaveBeenCalledTimes(1);
-  expect(button('Save')).toBeBusy();
+  expect(button('Save expense')).toBeBusy();
   const removal = jest.mocked(usePreventRemove).mock.lastCall;
   await act(() => removal?.[1]?.({ data: { action: { type: 'GO_BACK' } }, repeat: jest.fn() }));
   expect(mockDispatch).not.toHaveBeenCalled();
@@ -249,7 +261,7 @@ test('a rejected save keeps the draft and blocks another submission while pendin
   expect(screen.getByLabelText('Note')).toHaveDisplayValue('Draft');
   expect(button('Amount')).toHaveAccessibilityValue({ text: '12.00' });
   expect(router.back).not.toHaveBeenCalled();
-  await press('Save');
+  await press('Save expense');
   expect(router.back).toHaveBeenCalled();
 });
 test('draft remains editable during independent account and category reads', async () => {
@@ -263,9 +275,9 @@ test('draft remains editable during independent account and category reads', asy
   expect(listPeople).not.toHaveBeenCalled();
   await act(async () => categories.resolve([food]));
   await press('Food');
-  expect(button('Save')).toBeDisabled();
+  expect(button('Save expense')).toBeDisabled();
   await act(async () => bank.resolve(accounts));
-  await press('Save');
+  await press('Save expense');
   expect(addQuickTransaction).toHaveBeenCalledWith(
     expect.objectContaining({ note: 'Pending', amountMinor: 1200 }),
     '',
@@ -280,20 +292,20 @@ test('late Expense choices cannot enable Income or overwrite its selection', asy
   await amount(['9']);
   await mode('Income');
   await screen.findByRole('button', { name: 'Salary' });
-  expect(button('Save')).toBeDisabled();
+  expect(button('Save income')).toBeDisabled();
   await press('Salary');
   await act(async () => pending.resolve([food]));
   await mode('Expense');
-  expect(button('Save')).toBeDisabled();
+  expect(button('Save expense')).toBeDisabled();
   await press('Food');
   jest
     .mocked(listCategoriesByRecentUse)
     .mockImplementation(async (type) => (type === 'INCOME' ? [salary] : []));
   await act(async () => notifyDataChanged());
-  await waitFor(() => expect(button('Save')).toBeDisabled());
+  await waitFor(() => expect(button('Save expense')).toBeDisabled());
   await mode('Income');
   await screen.findByRole('button', { name: 'Salary', selected: true });
-  await press('Save');
+  await press('Save income');
   expect(addQuickTransaction).toHaveBeenCalledWith(
     expect.objectContaining({ type: 'INCOME', categoryId: 5 }),
     '',
@@ -311,7 +323,7 @@ test('a failed people read can recover on returning to Person with the draft int
   expect(button('Save lending')).toBeDisabled();
   await type('Search people', 'Ra');
   await mode('Expense');
-  expect(button('Save')).toBeEnabled();
+  expect(button('Save expense')).toBeEnabled();
   await mode('Person');
   await screen.findByRole('button', { name: 'Rafi' });
   await press('Rafi');
@@ -325,7 +337,7 @@ test('initial account errors offer Retry; refresh failures retain cached selecti
   const { amount, type, press } = await open();
   await screen.findByRole('button', { name: 'Retry accounts' });
   expect(screen.queryByRole('button', { name: /Cash, USD/ })).toBeNull();
-  expect(button('Save')).toBeDisabled();
+  expect(button('Save expense')).toBeDisabled();
   jest.mocked(listAccounts).mockResolvedValue(accounts);
   await press('Retry accounts');
   await screen.findByRole('button', { name: /Cash, USD/ });
@@ -335,13 +347,13 @@ test('initial account errors offer Retry; refresh failures retain cached selecti
   jest.mocked(listAccounts).mockRejectedValueOnce(Error('offline'));
   await act(async () => notifyDataChanged());
   await screen.findByRole('button', { name: 'Retry accounts' });
-  expect(button('Save')).toBeEnabled();
+  expect(button('Save expense')).toBeEnabled();
   expect(screen.getByLabelText('Note')).toHaveDisplayValue('Keep');
   jest.mocked(listAccounts).mockResolvedValue([accounts[1]]);
   await press('Retry accounts');
-  await waitFor(() => expect(button('Save')).toBeDisabled());
+  await waitFor(() => expect(button('Save expense')).toBeDisabled());
   await press('Bank, USD');
-  expect(button('Save')).toBeEnabled();
+  expect(button('Save expense')).toBeEnabled();
 });
 test('creating a person blocks duplicate requests and selects them without losing the draft', async () => {
   const { amount, press, type, mode } = await open();
@@ -427,4 +439,93 @@ test('opening a lending balance prefills the person and repayment action and fil
   expect(screen.getByRole('radio', { name: 'They paid back' })).toBeChecked();
   expect(button(/Cash, USD/)).toBeOnTheScreen();
   expect(screen.queryByRole('button', { name: /Bank, BDT/ })).toBeNull();
+});
+
+function openWithChoices(people: Awaited<ReturnType<typeof listPeople>>) {
+  const client = createQueryClient();
+  client.setQueryData(accountsQuery().queryKey, accounts);
+  client.setQueryData(categoriesQuery('EXPENSE').queryKey, [food, travel]);
+  client.setQueryData(categoriesQuery('INCOME').queryKey, [salary]);
+  client.setQueryData(peopleQuery().queryKey, { people, totals: [] });
+  return open(client);
+}
+
+test('adds a split with fixed shares and allows shares above the account movement', async () => {
+  const { amount, press } = await openWithChoices([
+    { id: 1, name: 'Rafi' },
+    { id: 2, name: 'Nabila' },
+  ]);
+  await screen.findByRole('button', { name: 'Food' });
+  expect(screen.queryByLabelText('Find or add a person')).toBeNull();
+  await amount(['3', '0']);
+  await press('Food');
+  await press('Split with people');
+  await press('Rafi');
+  await press('Nabila');
+  expect(screen.getByLabelText('Share for Rafi')).toHaveDisplayValue('10.00');
+  await fireEvent.changeText(screen.getByLabelText('Share for Rafi'), '40');
+  expect(screen.getByText(/The shares are .* more than the expense/)).toBeOnTheScreen();
+  expect(screen.getByLabelText('Share for Nabila')).toHaveDisplayValue('0.00');
+  await press('Save expense');
+  expect(addQuickTransaction).toHaveBeenCalledWith(
+    expect.objectContaining({
+      type: 'EXPENSE',
+      amountMinor: 3000,
+      shares: [
+        { personId: 1, amountMinor: 4000 },
+        { personId: 2, amountMinor: 0 },
+      ],
+    }),
+    '',
+  );
+});
+
+test('links Income through the expense picker, fills the only outstanding share and saves an overpayment', async () => {
+  const dinner: ListRow = {
+    id: 40,
+    type: 'EXPENSE',
+    amountMinor: 3000,
+    date: epochDay(new Date(2025, 10, 19)),
+    accountId: 1,
+    transferAccountId: null,
+    accountName: 'Cash',
+    transferAccountName: null,
+    currencyCode: 'USD',
+    categoryName: 'Dining out',
+    parentCategoryName: 'Food',
+    categoryEmoji: '🍽',
+    note: 'Dinner',
+    excludeFromReport: 0,
+    owedMinor: 600,
+  };
+  jest.mocked(expensesForReimbursement).mockResolvedValue([dinner]);
+  jest.mocked(expenseReimbursements).mockResolvedValue({
+    shares: [
+      { personId: 1, name: 'Rafi', amountMinor: 1000, paidMinor: 400, leftMinor: 600 },
+      { personId: 2, name: 'Nabila', amountMinor: 1000, paidMinor: 1000, leftMinor: 0 },
+    ],
+    payments: [],
+  });
+  const { mode, amount, press, user, type } = await openWithChoices([]);
+  await mode('Income');
+  await screen.findByRole('button', { name: 'Salary' });
+  await amount(['2']);
+  await press('Link to expense');
+  await type('Search expenses', '19 Nov');
+  expect(screen.getByRole('header', { name: 'Still owed' })).toBeOnTheScreen();
+  await user.press(await screen.findByRole('button', { name: /Food › Dining out, Dinner/ }));
+  expect(screen.queryByRole('button', { name: 'Salary' })).toBeNull();
+  expect(button('Amount')).toHaveAccessibilityValue({ text: '6.00' });
+  await amount(['9']);
+  expect(screen.getByText(/Rafi owes .* on this expense/)).toBeOnTheScreen();
+  await press('Save reimbursement');
+  expect(addQuickTransaction).toHaveBeenCalledWith(
+    expect.objectContaining({
+      type: 'INCOME',
+      amountMinor: 900,
+      categoryId: null,
+      reimbursement: { expenseId: 40, personId: 1 },
+    }),
+    '',
+  );
 });

@@ -77,3 +77,42 @@ export function personBalanceSummary(
   });
   return labels.join(' · ') || `No recorded balance in ${currencyCode}`;
 }
+
+export function ChoiceChip({
+  label,
+  detail,
+  selected,
+  disabled,
+  onPress,
+}: {
+  label: string;
+  detail?: string;
+  selected?: boolean;
+  disabled: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={[label, detail].filter(Boolean).join(', ')}
+      accessibilityState={{ selected, disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => ({
+        minHeight: 44,
+        opacity: disabled ? 0.45 : pressed ? 0.65 : 1,
+        justifyContent: 'center',
+        paddingHorizontal: 14,
+        paddingVertical: 8,
+        maxWidth: '100%',
+        borderRadius: 14,
+        backgroundColor: selected ? c.selected : c.surface,
+      })}
+    >
+      <Text style={{ color: selected ? c.onSelected : c.text, fontWeight: '600' }}>{label}</Text>
+      {!!detail && (
+        <Text style={{ color: selected ? c.onSelected : c.muted, fontSize: 12 }}>{detail}</Text>
+      )}
+    </Pressable>
+  );
+}

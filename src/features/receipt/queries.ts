@@ -1,16 +1,25 @@
+import { reimbursementReceipt } from '@/features/home/read-home';
 import { queryOptions } from '@tanstack/react-query';
 import { loadEditableTransaction, type EditableTransaction } from '@/lib/transaction-edit';
 import { loadTransfer, type EditableTransfer } from '@/lib/transfers';
 import { loadLendingEntry, type WriteOffEntry } from '@/lib/lending';
 
-export type Receipt = EditableTransaction | EditableTransfer | WriteOffEntry;
+export type Receipt =
+  | (EditableTransaction & {
+      reimbursementDetails?: Awaited<ReturnType<typeof reimbursementReceipt>>;
+    })
+  | EditableTransfer
+  | WriteOffEntry;
 
 /** Reads a Transaction or a Transfer. The result is null when neither exists. */
 export function receiptQuery(id: number) {
   return queryOptions({
     queryKey: ['receipt', id],
-    queryFn: async (): Promise<Receipt | null> =>
-      (await loadEditableTransaction(id)) ?? (await loadTransfer(id)),
+    queryFn: async (): Promise<Receipt | null> => {
+      const row = await loadEditableTransaction(id);
+      if (!row) return loadTransfer(id);
+      return { ...row, reimbursementDetails: await reimbursementReceipt(id, row.type) };
+    },
   });
 }
 

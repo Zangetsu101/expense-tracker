@@ -3,6 +3,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { categoriesQuery, peopleQuery, includeCreatedPerson } from './queries.ts';
 import { accountsQuery } from '@/lib/account-queries';
 import { ChoicesSection, layoutTransition } from './view.tsx';
+import { ExpenseLink, type LinkableExpense } from './expense-link';
+import { SplitExpense, type SplitDraft } from './split-expense';
+import { splitShares } from '@/lib/reimbursements';
 import { TransferBillChoices } from './transfer-bill-choices.tsx';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight, useNavigation, usePreventRemove } from 'expo-router/react-navigation';
@@ -165,6 +168,10 @@ function QuickAddForm() {
   const peopleMaxHeight = personChipHeight * 2 + 8;
   const peopleClipping = useClippedChips(peopleMaxHeight);
   const [action, setAction] = useState<PersonAction>(() => initialAction ?? 'LEND');
+  const [split, setSplit] = useState<SplitDraft>({ people: [], fixed: {} });
+  const [linked, setLinked] = useState<LinkableExpense | null>(null);
+  const [payer, setPayer] = useState<number | null>();
+  const reimbursement = mode === 'INCOME' ? linked : null;
   const [note, setNote] = useState('');
   const [tags, setTags] = useState('');
   const [date, setDate] = useState(() => new Date());
@@ -179,8 +186,9 @@ function QuickAddForm() {
     mode === 'PERSON' && action === initialAction && personId === routePersonId
       ? params.currency
       : undefined;
+  const accountCurrency = reimbursement?.row.currencyCode ?? currency;
   const account = accounts.find(
-    (item) => item.id === accountId && (!currency || item.currencyCode === currency),
+    (item) => item.id === accountId && (!accountCurrency || item.currencyCode === accountCurrency),
   );
   const person = people.find((item) => item.id === personId);
   const orderedCategoryIds = useRankedCategories(
@@ -201,17 +209,22 @@ function QuickAddForm() {
   const destination = destinations.find((item) => item.id === toId);
   const cross =
     mode === 'TRANSFER' && destination && destination.currencyCode !== account?.currencyCode;
-  const validAmount = amountMinor !== undefined && (!cross || receivedAmountMinor !== undefined);
+  const validAmount =
+    amountMinor !== undefined && amountMinor > 0 && (!cross || receivedAmountMinor !== undefined);
   const canSave =
     !!accountsRead.data &&
-    (mode === 'TRANSFER' || (mode === 'PERSON' ? !!peopleRead.data : !!categoryRead.data)) &&
+    (mode === 'TRANSFER' ||
+      !!reimbursement ||
+      (mode === 'PERSON' ? !!peopleRead.data : !!categoryRead.data)) &&
     validAmount &&
     !!account &&
     (mode === 'TRANSFER'
       ? destinations.some((item) => item.id === toId)
       : mode === 'PERSON'
         ? !!person
-        : !!categoryMode && categories.some((item) => item.id === categoryIds[categoryMode]));
+        : reimbursement
+          ? payer !== undefined
+          : !!categoryMode && categories.some((item) => item.id === categoryIds[categoryMode]));
   const saveLabel =
     mode === 'PERSON'
       ? {
@@ -222,24 +235,44 @@ function QuickAddForm() {
         }[action]
       : mode === 'TRANSFER'
         ? 'Save transfer'
-        : 'Save';
+        : mode === 'INCOME'
+          ? reimbursement
+            ? 'Save reimbursement'
+            : 'Save income'
+          : 'Save expense';
 
-  async function addPerson() {
+  async function addPerson(name: string) {
     if (busy.current) return;
     busy.current = true;
     setPending(true);
     setError('');
     try {
-      const created = await createPerson(query);
+      const created = await createPerson(name);
       includeCreatedPerson(client, created);
-      setPersonId(created.id);
-      setQuery('');
+      return created;
     } catch (cause) {
       setError(String(cause));
     } finally {
       busy.current = false;
       setPending(false);
     }
+  }
+
+  function selectPayer(id: number | null | undefined, left?: number) {
+    setPayer(id);
+    if (left === undefined) return;
+    setEntryAmount(left);
+    setAmountMinor(left || undefined);
+    setAmountKey((key) => key + 1);
+  }
+
+  function selectExpense(expense: LinkableExpense) {
+    setLinked(expense);
+    if (account && account.currencyCode !== expense.row.currencyCode) setAccountId(undefined);
+    const owing = expense.shares.filter((share) => share.leftMinor > 0);
+    if (owing.length === 1) selectPayer(owing[0].personId, owing[0].leftMinor);
+    else selectPayer(expense.shares.length ? undefined : null);
+    setError('');
   }
 
   async function save() {
@@ -281,7 +314,18 @@ function QuickAddForm() {
             type: mode,
             amountMinor,
             accountId: account.id,
-            categoryId: categoryIds[mode]!,
+            categoryId: reimbursement ? null : categoryIds[mode]!,
+            ...(reimbursement && {
+              reimbursement: { expenseId: reimbursement.row.id, personId: payer ?? null },
+            }),
+            ...(mode === 'EXPENSE' &&
+              split.people.length > 0 && {
+                shares: splitShares(
+                  amountMinor,
+                  split.people.map((item) => item.id),
+                  split.fixed,
+                ).shares,
+              }),
             date,
             note: note.trim() || null,
           },
@@ -301,14 +345,14 @@ function QuickAddForm() {
   const AmountEntry = mode === 'TRANSFER' ? TransferAmountInput : AmountInput;
   return (
     <AmountEntry
-      key={mode === 'TRANSFER' ? 'transfer' : amountKey}
+      key={mode === 'TRANSFER' ? 'transfer' : 'single'}
       source={account}
       destination={destination}
       receivedPreset={preset}
       presetRevision={amountKey}
       initialPaid={preset && cross ? undefined : amountMinor}
-      initialAmount={entryAmount ? (entryAmount / 100).toFixed(2) : ''}
-      initiallyOpen={!entryAmount}
+      initialAmount={entryAmount !== undefined ? (entryAmount / 100).toFixed(2) : ''}
+      initiallyOpen={entryAmount === undefined}
       currency={account?.currencyCode}
       disabled={pending}
       onChange={mode === 'TRANSFER' ? onTransferAmounts : setAmountMinor}
@@ -372,8 +416,8 @@ function QuickAddForm() {
                       <Label>{`${incoming ? 'Into' : 'From'} ${account?.name ?? 'an account'}`}</Label>
                       <AccountChoices
                         accounts={
-                          currency
-                            ? readyAccounts.filter((item) => item.currencyCode === currency)
+                          accountCurrency
+                            ? readyAccounts.filter((item) => item.currencyCode === accountCurrency)
                             : readyAccounts
                         }
                         selectedId={accountId}
@@ -385,11 +429,11 @@ function QuickAddForm() {
                         }}
                       />
                       {!readyAccounts.some(
-                        (item) => !currency || item.currencyCode === currency,
+                        (item) => !accountCurrency || item.currencyCode === accountCurrency,
                       ) && (
                         <Text style={{ color: c.muted }}>
-                          {currency
-                            ? `Create a ${currency} account in Accounts to add this entry.`
+                          {accountCurrency
+                            ? `Create a ${accountCurrency} account in Accounts to add this entry.`
                             : 'Create an account in the Accounts tab before adding a transaction.'}
                         </Text>
                       )}
@@ -517,7 +561,14 @@ function QuickAddForm() {
                               label={`Add “${query.trim()}”`}
                               variant="secondary"
                               disabled={pending}
-                              onPress={() => void addPerson()}
+                              onPress={() =>
+                                void addPerson(query).then((created) => {
+                                  if (created) {
+                                    setPersonId(created.id);
+                                    setQuery('');
+                                  }
+                                })
+                              }
                             />
                           )}
                         </View>
@@ -546,7 +597,23 @@ function QuickAddForm() {
                   </Text>
                 </View>
               )}
-              {categoryMode && (
+              {mode === 'INCOME' && (
+                <ExpenseLink
+                  key="expense-link"
+                  expense={reimbursement}
+                  payer={payer}
+                  amountMinor={amountMinor ?? 0}
+                  disabled={pending}
+                  onSelectExpense={selectExpense}
+                  onSelectPayer={selectPayer}
+                  onRemove={() => {
+                    setLinked(null);
+                    setPayer(undefined);
+                    setError('');
+                  }}
+                />
+              )}
+              {categoryMode && !reimbursement && (
                 <ChoicesSection
                   key={categoryMode}
                   layout="categories"
@@ -571,6 +638,17 @@ function QuickAddForm() {
                     </>
                   )}
                 </ChoicesSection>
+              )}
+              {mode === 'EXPENSE' && (
+                <SplitExpense
+                  key="split"
+                  draft={split}
+                  amount={amountMinor ?? 0}
+                  currency={account?.currencyCode}
+                  disabled={pending}
+                  onChange={setSplit}
+                  onAddPerson={addPerson}
+                />
               )}
               <Animated.View key="details" style={{ gap: 12 }}>
                 <Label>Note · optional</Label>

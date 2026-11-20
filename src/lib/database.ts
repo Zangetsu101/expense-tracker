@@ -32,6 +32,37 @@ export function database() {
       CREATE TABLE IF NOT EXISTS lending_entries (id INTEGER PRIMARY KEY, personId INTEGER NOT NULL REFERENCES people(id), kind TEXT NOT NULL CHECK(kind IN ('LEND','BORROW','RECEIVE_REPAYMENT','REPAY','WRITE_OFF_LENT','WRITE_OFF_BORROWED')), transactionId INTEGER UNIQUE REFERENCES transactions(id) ON DELETE CASCADE, currencyCode TEXT NOT NULL, amountMinor INTEGER NOT NULL CHECK(amountMinor > 0), date INTEGER NOT NULL, note TEXT, CHECK((kind IN ('WRITE_OFF_LENT','WRITE_OFF_BORROWED') AND transactionId IS NULL) OR (kind IN ('LEND','BORROW','RECEIVE_REPAYMENT','REPAY') AND transactionId IS NOT NULL)));
       CREATE INDEX IF NOT EXISTS lending_entries_person ON lending_entries(personId);
       CREATE TABLE IF NOT EXISTS credit_cards (accountId INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE, parentAccountId INTEGER REFERENCES accounts(id), statementDay INTEGER CHECK(statementDay BETWEEN 1 AND 31), dueDay INTEGER CHECK(dueDay BETWEEN 1 AND 31), CHECK(accountId != parentAccountId));
+      CREATE TABLE IF NOT EXISTS split_shares (expenseId INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE, personId INTEGER NOT NULL REFERENCES people(id), amountMinor INTEGER NOT NULL CHECK(amountMinor >= 0), PRIMARY KEY(expenseId, personId));
+      CREATE TABLE IF NOT EXISTS reimbursements (transactionId INTEGER PRIMARY KEY REFERENCES transactions(id) ON DELETE CASCADE, expenseId INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE, personId INTEGER, FOREIGN KEY(expenseId, personId) REFERENCES split_shares(expenseId, personId) ON DELETE CASCADE);
+      CREATE INDEX IF NOT EXISTS reimbursements_expense_person ON reimbursements(expenseId, personId);
+      CREATE VIEW IF NOT EXISTS split_share_progress AS
+        SELECT expenseId, personId, amountMinor, paidMinor, MAX(0, amountMinor - paidMinor) AS leftMinor
+        FROM (SELECT s.*, COALESCE((
+          SELECT SUM(t.amountMinor) FROM reimbursements r
+          JOIN transactions t ON t.id = r.transactionId
+          WHERE r.expenseId = s.expenseId AND r.personId = s.personId
+        ), 0) AS paidMinor FROM split_shares s);
+      CREATE VIEW IF NOT EXISTS report_transactions AS
+        SELECT t.id, t.accountId, t.date,
+          CASE WHEN r.transactionId IS NULL THEN t.categoryId ELSE expense.categoryId END AS categoryId,
+          CASE WHEN t.type = 'EXPENSE' THEN t.amountMinor
+            WHEN r.transactionId IS NOT NULL THEN -t.amountMinor END AS spendingMinor,
+          CASE WHEN t.type = 'INCOME' AND r.transactionId IS NULL THEN t.amountMinor ELSE 0 END AS incomeMinor
+        FROM transactions t LEFT JOIN reimbursements r ON r.transactionId = t.id
+        LEFT JOIN transactions expense ON expense.id = r.expenseId
+        WHERE t.type IN ('EXPENSE', 'INCOME') AND t.excludeFromReport = 0;
+      -- Expo opens a separate connection for exclusive writes, where foreign_keys may be off.
+      CREATE TRIGGER IF NOT EXISTS remove_reimbursement_metadata AFTER DELETE ON transactions BEGIN
+        DELETE FROM reimbursements WHERE transactionId = OLD.id OR expenseId = OLD.id;
+        DELETE FROM split_shares WHERE expenseId = OLD.id;
+      END;
+      CREATE TRIGGER IF NOT EXISTS preserve_reimbursement_expense BEFORE UPDATE OF type, accountId ON transactions
+        WHEN (NEW.type <> OLD.type OR
+          (SELECT currencyCode FROM accounts WHERE id = NEW.accountId) <>
+          (SELECT currencyCode FROM accounts WHERE id = OLD.accountId))
+        AND (EXISTS (SELECT 1 FROM reimbursements WHERE expenseId = OLD.id)
+          OR EXISTS (SELECT 1 FROM split_shares WHERE expenseId = OLD.id))
+        BEGIN SELECT RAISE(ABORT, 'Cannot change the type or currency of a split or reimbursed expense'); END;
       CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);`);
       const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(transactions)');
       if (!columns.some((column) => column.name === 'receivedAmountMinor'))

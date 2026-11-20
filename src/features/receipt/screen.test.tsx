@@ -73,6 +73,7 @@ jest.mock('@/lib/lending', () => ({
   saveLendingEntry: jest.fn(),
   deleteLendingEntry: jest.fn(),
 }));
+jest.mock('@/features/home/read-home', () => ({ reimbursementReceipt: jest.fn() }));
 jest.mock('@/lib/transaction-edit', () => ({
   loadEditableTransaction: jest.fn(),
   saveTransactionEdit: jest.fn(),

@@ -38,6 +38,7 @@ export function transactionsHref(
       startDate: isoDay(range.start),
       endDate: isoDay(range.end - 1),
       type: 'EXPENSE',
+      reportSpending: '1',
       ...(accountId == null ? {} : { accountId: String(accountId) }),
     },
   };

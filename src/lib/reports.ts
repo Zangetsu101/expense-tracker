@@ -16,7 +16,7 @@ export type CategorySpending = {
   currencyCode: string;
   amountMinor: number;
 };
-/** Reportable Expenses on one day, in one Currency and one Category. */
+/** Net spending on one day, in one Currency and one Category. */
 export type SpendRow = {
   currencyCode: string;
   categoryId: number | null;
@@ -67,21 +67,21 @@ export async function rangeReport(
     db.getAllAsync<CategorySpending>(
       `${categoryTops}
       SELECT t.categoryId, c.name AS categoryName, COALESCE(tops.topId, t.categoryId) AS topId,
-      COALESCE(top.name, c.name) AS topName, a.currencyCode, SUM(t.amountMinor) AS amountMinor
-      FROM transactions t JOIN accounts a ON a.id = t.accountId
+      COALESCE(top.name, c.name) AS topName, a.currencyCode, SUM(t.spendingMinor) AS amountMinor
+      FROM report_transactions t JOIN accounts a ON a.id = t.accountId
       LEFT JOIN categories c ON c.id = t.categoryId
-      LEFT JOIN tops ON tops.id = t.categoryId
+      LEFT JOIN tops ON tops.id = c.id
       LEFT JOIN categories top ON top.id = tops.topId
-      WHERE t.type = 'EXPENSE' AND t.excludeFromReport = 0 AND t.date >= ? AND t.date < ?${accountFilter}
+      WHERE t.spendingMinor IS NOT NULL AND t.date >= ? AND t.date < ?${accountFilter}
       GROUP BY a.currencyCode, t.categoryId ORDER BY a.currencyCode, amountMinor DESC, categoryName`,
       params,
     ),
     db.getAllAsync<MonthlySummary>(
       `SELECT a.currencyCode,
-      SUM(CASE WHEN t.type = 'INCOME' THEN t.amountMinor ELSE 0 END) AS incomeMinor,
-      SUM(CASE WHEN t.type = 'EXPENSE' THEN t.amountMinor ELSE 0 END) AS expenseMinor
-      FROM transactions t JOIN accounts a ON a.id = t.accountId
-      WHERE t.type IN ('INCOME', 'EXPENSE') AND t.excludeFromReport = 0 AND t.date >= ? AND t.date < ?${accountFilter}
+      SUM(t.incomeMinor) AS incomeMinor,
+      COALESCE(SUM(t.spendingMinor), 0) AS expenseMinor
+      FROM report_transactions t JOIN accounts a ON a.id = t.accountId
+      WHERE t.date >= ? AND t.date < ?${accountFilter}
       GROUP BY a.currencyCode ORDER BY a.currencyCode`,
       params,
     ),
@@ -89,7 +89,7 @@ export async function rangeReport(
   return { spending, summaries };
 }
 
-/** Reportable Expenses for each day, Currency and Category from `start` to `end` (exclusive). */
+/** Net spending for each day, Currency and Category from `start` to `end` (exclusive). */
 export async function spendDays(
   accountId: number | null,
   start: number,
@@ -100,12 +100,12 @@ export async function spendDays(
     `${categoryTops}
     SELECT a.currencyCode, t.categoryId, c.name AS categoryName,
     COALESCE(tops.topId, t.categoryId) AS topId, COALESCE(top.name, c.name) AS topName,
-    t.date, SUM(t.amountMinor) AS amountMinor
-    FROM transactions t JOIN accounts a ON a.id = t.accountId
-    LEFT JOIN categories c ON c.id = t.categoryId
-    LEFT JOIN tops ON tops.id = t.categoryId
+    t.date, SUM(t.spendingMinor) AS amountMinor
+    FROM report_transactions t JOIN accounts a ON a.id = t.accountId
+      LEFT JOIN categories c ON c.id = t.categoryId
+    LEFT JOIN tops ON tops.id = c.id
     LEFT JOIN categories top ON top.id = tops.topId
-    WHERE t.type = 'EXPENSE' AND t.excludeFromReport = 0 AND t.date >= ? AND t.date < ?
+    WHERE t.spendingMinor IS NOT NULL AND t.date >= ? AND t.date < ?
     ${accountId === null ? '' : 'AND t.accountId = ?'}
     GROUP BY a.currencyCode, t.categoryId, t.date`,
     accountId === null ? [start, end] : [start, end, accountId],

@@ -265,7 +265,11 @@ function ReceiptSession({ id, writeOff }: { id: number; writeOff: boolean }) {
           {data.type === 'TRANSFER' ? (
             <TransferReceipt key={data.id} transfer={data} />
           ) : (
-            <TransactionReceipt key={data.id} transaction={data} />
+            <TransactionReceipt
+              key={data.id}
+              transaction={data}
+              reimbursement={data.type === 'WRITE_OFF' ? undefined : data.reimbursementDetails}
+            />
           )}
         </View>
       ) : null}

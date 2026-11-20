@@ -17,7 +17,7 @@ const adapter = {
 globalThis.__reportsSqliteAdapter = adapter;
 registerHooks({
   resolve(specifier, context, next) {
-    if (specifier === '@/lib/database')
+    if (specifier === '@/lib/database' || specifier === './database')
       return { url: new URL('./database.ts', import.meta.url).href, shortCircuit: true };
     if (specifier === 'expo-sqlite') return { url: 'test:sqlite', shortCircuit: true };
     return next(specifier, context);
@@ -41,7 +41,7 @@ registerHooks({
   },
 });
 const { database, epochDay } = await import('./database.ts');
-const { accountBalances, rangeReport } = await import('./reports.ts');
+const { accountBalances, rangeReport, spendDays } = await import('./reports.ts');
 // setUTCFullYear keeps years 1–99, unlike the Date constructor with many arguments.
 const monthRange = (year, month) => {
   const boundary = new Date(0);
@@ -425,4 +425,33 @@ test('display rate combines SQLite report totals without altering per-currency a
     null,
   );
   assert.deepEqual(combinedCategorySpending(spending, null), []);
+});
+
+test('linked money lowers the original category in the month it arrived', async () => {
+  add(910, 'EXPENSE', 30000, day(2025, 10, 31), 1, 1);
+  add(911, 'INCOME', 7000, day(2025, 11, 1), 2);
+  add(912, 'INCOME', 10000, day(2025, 11, 2), 2, 2);
+  sqlite.exec('INSERT INTO reimbursements (transactionId, expenseId) VALUES (911, 910)');
+  const october = await monthlyReport(2025, 10);
+  const november = await monthlyReport(2025, 11);
+  assert.equal(october.spending.find((row) => row.categoryId === 1).amountMinor, 30000);
+  assert.equal(november.spending.find((row) => row.categoryId === 1).amountMinor, -7000);
+  assert.deepEqual(november.summaries, [
+    { currencyCode: 'USD', incomeMinor: 10000, expenseMinor: -7000 },
+  ]);
+  assert.equal((await spendDays(null, ...monthRange(2025, 11)))[0].amountMinor, -7000);
+  const { searchStatement } = await import('./transaction-search.ts');
+  const { sql, params } = searchStatement({
+    query: 'food',
+    type: 'EXPENSE',
+    categoryId: 1,
+    accountId: 2,
+    month: '2025-11',
+    reportSpending: true,
+  });
+  const matches = sqlite.prepare(sql).all(...params);
+  assert.deepEqual(
+    matches.map((row) => [row.id, row.categoryPath, row.reimbursementExpenseId]),
+    [[911, 'Food', 910]],
+  );
 });
