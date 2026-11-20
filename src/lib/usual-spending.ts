@@ -64,7 +64,11 @@ function baseline(rows: SpendRow[], past: DayRange[]) {
   const used = past.slice(0, usualPeriods);
   let count = 0;
   used.forEach((period, index) => {
-    if (sumIn(rows, period.start, period.end) > 0) count = index + 1;
+    // A refund can bring a month's net spending to zero. The month still had an Expense.
+    const spent = rows.some(
+      (row) => row.date >= period.start && row.date < period.end && row.amountMinor >= 0,
+    );
+    if (spent) count = index + 1;
   });
   return { periods: used.slice(0, count), needed: Math.max(0, minimumPeriods - count) };
 }

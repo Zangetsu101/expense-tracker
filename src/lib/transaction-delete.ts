@@ -25,6 +25,8 @@ export async function deleteTransaction(
   await db.withExclusiveTransactionAsync(async (tx) => {
     if (await tx.getFirstAsync('SELECT 1 FROM lending_entries WHERE transactionId = ?', [id]))
       throw new Error('Transaction was changed. Reload before deleting.');
+    if (await tx.getFirstAsync('SELECT 1 FROM reimbursements WHERE expenseId = ?', [id]))
+      throw new Error('This expense has linked reimbursements. Delete them first.');
     await tx.runAsync(
       'DELETE FROM transfer_candidates WHERE outgoingTxnId = ? OR incomingTxnId = ?',
       [id, id],

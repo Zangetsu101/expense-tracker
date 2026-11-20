@@ -567,6 +567,10 @@ test('split shares, person payments and refunds survive a v1 backup round trip',
     () => decodeBackup(JSON.stringify({ ...decoded, splitShares: [] })),
     /reimbursement/,
   );
+  const early = structuredClone(decoded);
+  const payment = early.transactions.find(({ id }) => id === early.reimbursements[0].transactionId);
+  payment.dateEpochDay = early.transactions.find(({ id }) => id === expenseId).dateEpochDay - 1;
+  assert.throws(() => decodeBackup(JSON.stringify(early)), /reimbursement/);
   const legacy = { ...original };
   delete legacy.splitShares;
   delete legacy.reimbursements;

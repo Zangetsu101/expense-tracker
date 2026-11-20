@@ -9,7 +9,8 @@ export function splitShares(
   const count = 1 + people.filter((id) => fixed[id] === undefined).length;
   const available = Math.max(0, remaining);
   const even = Math.floor(available / count);
-  let extra = Math.max(0, (available % count) - 1);
+  // People get the leftover minor units first; You keep what remains.
+  let extra = available % count;
   const shares = people.map((personId) => {
     const amountMinor = fixed[personId] ?? (extra > 0 ? even + 1 : even);
     if (fixed[personId] === undefined && extra > 0) extra -= 1;

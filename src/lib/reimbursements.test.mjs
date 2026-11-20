@@ -5,18 +5,22 @@ import { splitShares } from './reimbursements.ts';
 test('splits evenly in minor units and redistributes around fixed shares', () => {
   assert.deepEqual(splitShares(100, [1, 2], {}), {
     shares: [
-      { personId: 1, amountMinor: 33 },
+      { personId: 1, amountMinor: 34 },
       { personId: 2, amountMinor: 33 },
     ],
-    yours: 34,
+    yours: 33,
   });
   assert.deepEqual(splitShares(2, [1, 2, 3], {}), {
     shares: [
       { personId: 1, amountMinor: 1 },
-      { personId: 2, amountMinor: 0 },
+      { personId: 2, amountMinor: 1 },
       { personId: 3, amountMinor: 0 },
     ],
-    yours: 1,
+    yours: 0,
+  });
+  assert.deepEqual(splitShares(101, [1], {}), {
+    shares: [{ personId: 1, amountMinor: 51 }],
+    yours: 50,
   });
   assert.deepEqual(splitShares(300000, [1, 2], { 1: 150000 }), {
     shares: [

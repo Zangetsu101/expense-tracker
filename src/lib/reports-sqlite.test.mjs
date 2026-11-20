@@ -455,3 +455,29 @@ test('linked money lowers the original category in the month it arrived', async 
     [[911, 'Food', 910]],
   );
 });
+
+test('money linked to an excluded expense does not change reports', async () => {
+  add(920, 'EXPENSE', 40000, day(2025, 12, 1), 1, 1);
+  add(921, 'INCOME', 4000, day(2025, 12, 2), 2);
+  sqlite.exec('UPDATE transactions SET excludeFromReport = 1 WHERE id = 920');
+  sqlite.exec('INSERT INTO reimbursements (transactionId, expenseId) VALUES (921, 920)');
+  const december = await monthlyReport(2025, 12);
+  assert.deepEqual(december.spending, []);
+  assert.deepEqual(december.summaries, []);
+});
+
+test('an expense with linked reimbursements cannot be deleted', async () => {
+  add(930, 'EXPENSE', 5000, day(2026, 1, 3), 1, 1);
+  add(931, 'INCOME', 1000, day(2026, 1, 4), 2);
+  sqlite.exec('INSERT INTO reimbursements (transactionId, expenseId) VALUES (931, 930)');
+  assert.throws(
+    () => sqlite.exec('DELETE FROM transactions WHERE id = 930'),
+    /linked reimbursements/,
+  );
+  sqlite.exec('DELETE FROM transactions WHERE id = 931');
+  sqlite.exec('DELETE FROM transactions WHERE id = 930');
+  assert.equal(
+    sqlite.prepare('SELECT COUNT(*) AS n FROM reimbursements WHERE expenseId = 930').get().n,
+    0,
+  );
+});

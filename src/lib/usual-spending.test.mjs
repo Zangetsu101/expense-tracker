@@ -77,6 +77,18 @@ test('pace needs 3 full periods with Expenses, and counts empty periods after th
   assert.equal(pace.usualMinor, 300);
 });
 
+test('pace counts a month whose Expenses were fully refunded', () => {
+  const rows = [
+    row(day(2026, 10, 5), 300),
+    row(day(2026, 9, 5), 300),
+    row(day(2026, 8, 5), 500),
+    row(day(2026, 8, 9), -500),
+  ];
+  const pace = paceResult(rows, months, today, 'BDT');
+  assert.equal(pace.status, 'ready');
+  assert.equal(pace.periods, 3);
+});
+
 test('pace counts only the chosen Currency', () => {
   const rows = [
     ...history([100, 100, 100], [0, 0, 0], 3),

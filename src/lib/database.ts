@@ -42,7 +42,8 @@ export function database() {
           JOIN transactions t ON t.id = r.transactionId
           WHERE r.expenseId = s.expenseId AND r.personId = s.personId
         ), 0) AS paidMinor FROM split_shares s);
-      CREATE VIEW IF NOT EXISTS report_transactions AS
+      DROP VIEW IF EXISTS report_transactions;
+      CREATE VIEW report_transactions AS
         SELECT t.id, t.accountId, t.date,
           CASE WHEN r.transactionId IS NULL THEN t.categoryId ELSE expense.categoryId END AS categoryId,
           CASE WHEN t.type = 'EXPENSE' THEN t.amountMinor
@@ -50,12 +51,16 @@ export function database() {
           CASE WHEN t.type = 'INCOME' AND r.transactionId IS NULL THEN t.amountMinor ELSE 0 END AS incomeMinor
         FROM transactions t LEFT JOIN reimbursements r ON r.transactionId = t.id
         LEFT JOIN transactions expense ON expense.id = r.expenseId
-        WHERE t.type IN ('EXPENSE', 'INCOME') AND t.excludeFromReport = 0;
+        WHERE t.type IN ('EXPENSE', 'INCOME') AND t.excludeFromReport = 0
+          AND (r.transactionId IS NULL OR expense.excludeFromReport = 0);
       -- Expo opens a separate connection for exclusive writes, where foreign_keys may be off.
       CREATE TRIGGER IF NOT EXISTS remove_reimbursement_metadata AFTER DELETE ON transactions BEGIN
         DELETE FROM reimbursements WHERE transactionId = OLD.id OR expenseId = OLD.id;
         DELETE FROM split_shares WHERE expenseId = OLD.id;
       END;
+      CREATE TRIGGER IF NOT EXISTS keep_reimbursed_expense BEFORE DELETE ON transactions
+        WHEN EXISTS (SELECT 1 FROM reimbursements WHERE expenseId = OLD.id)
+        BEGIN SELECT RAISE(ABORT, 'This expense has linked reimbursements. Delete them first.'); END;
       CREATE TRIGGER IF NOT EXISTS preserve_reimbursement_expense BEFORE UPDATE OF type, accountId ON transactions
         WHEN (NEW.type <> OLD.type OR
           (SELECT currencyCode FROM accounts WHERE id = NEW.accountId) <>

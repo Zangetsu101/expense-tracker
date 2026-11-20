@@ -557,7 +557,7 @@ function PaceBody({ accountId, context }: { accountId: number | null; context: C
               top: -4,
               bottom: -4,
               width: 2,
-              left: `${(Math.max(0, sameMinor) / max) * 100}%`,
+              left: `${Math.min(1, Math.max(0, sameMinor) / max) * 100}%`,
               backgroundColor: c.text,
             }}
           />

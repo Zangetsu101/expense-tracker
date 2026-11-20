@@ -104,7 +104,7 @@ const fullCategoryPath = `(WITH RECURSIVE path(id, parentId, label, seen) AS (
 
 export async function expensesForReimbursement() {
   return (await database()).getAllAsync<ListRow>(
-    `${readRows(fullCategoryPath + ', ')} WHERE t.type = 'EXPENSE' ${listOrder}`,
+    `${readRows(fullCategoryPath + ', ')} WHERE t.type = 'EXPENSE' AND lending.id IS NULL ${listOrder}`,
   );
 }
 

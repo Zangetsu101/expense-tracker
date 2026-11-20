@@ -33,7 +33,8 @@ export async function addQuickTransaction(input: QuickAddInput, tagText: string)
         `SELECT e.date FROM transactions e
          JOIN accounts original ON original.id = e.accountId
          JOIN accounts destination ON destination.id = ?
-         WHERE e.id = ? AND e.type = 'EXPENSE' AND original.currencyCode = destination.currencyCode`,
+         WHERE e.id = ? AND e.type = 'EXPENSE' AND original.currencyCode = destination.currencyCode
+         AND NOT EXISTS (SELECT 1 FROM lending_entries WHERE transactionId = e.id)`,
         [input.accountId, expenseId],
       );
       if (input.type !== 'INCOME' || !expense)

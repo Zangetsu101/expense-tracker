@@ -386,6 +386,7 @@ function validateReimbursements(data: Record<string, unknown>) {
     if (
       expense?.type !== 'EXPENSE' ||
       payment?.type !== 'INCOME' ||
+      payment.dateEpochDay < expense.dateEpochDay ||
       !currencies.has(expense.accountId) ||
       currencies.get(expense.accountId) !== currencies.get(payment.accountId) ||
       (row.personId !== null && !shares.has(`${row.expenseId}:${row.personId}`)) ||
