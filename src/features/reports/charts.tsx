@@ -40,8 +40,9 @@ export function LineChart({
   const all = [
     ...lines.flatMap((line) => line.values),
     ...(band ? [...band.low, ...band.high] : []),
+    ...(zeroBased ? [0] : []),
   ];
-  const low = zeroBased ? 0 : Math.min(...all);
+  const low = Math.min(...all);
   const high = Math.max(...all, low + 1);
   const x = (index: number) => left + (index / Math.max(1, slots - 1)) * (width - left - 2);
   const y = (value: number) => 4 + (1 - (value - low) / (high - low)) * (height - bottom - 8);

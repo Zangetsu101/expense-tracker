@@ -44,12 +44,12 @@ export function currencyTotals(
     expenseMinor: 0,
   };
   const share = (amountMinor: number) =>
-    summary.expenseMinor === 0
+    summary.expenseMinor <= 0
       ? 0
       : Math.min(100, Math.max(0, (amountMinor / summary.expenseMinor) * 100));
   const parents = new Map<number | null, CategoryNode>();
   for (const row of report.spending) {
-    if (row.currencyCode !== currencyCode || row.amountMinor <= 0) continue;
+    if (row.currencyCode !== currencyCode || row.amountMinor === 0) continue;
     const node = parents.get(row.topId) ?? {
       id: row.topId,
       name: row.topName,

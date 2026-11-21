@@ -20,6 +20,8 @@ import {
 } from '@/lib/transaction-edit';
 import { loadFirstTransferRate } from '@/lib/transfer-rate-store';
 import { loadTransfer, saveTransferEdit, type EditableTransfer } from '@/lib/transfers';
+import { reimbursementReceipt } from '@/features/home/read-home';
+import type { ListRow } from '@/features/home/list';
 import { renderWithQueries } from '@/test/render-with-queries';
 import TransactionScreen from './screen';
 
@@ -31,6 +33,7 @@ type HeaderOptions = {
 const MockParamsContext = createContext<{ id?: string; kind?: string }>({});
 let mockHeader: HeaderOptions = {};
 const mockNavigation = { dispatch: jest.fn(), goBack: jest.fn() };
+const mockRouterPush = jest.fn();
 jest.mock('expo-router', () => {
   const { View, Text } = jest.requireActual<typeof import('react-native')>('react-native');
   return {
@@ -39,6 +42,7 @@ jest.mock('expo-router', () => {
         {children}
       </Text>
     ),
+    router: { push: (...args: unknown[]) => mockRouterPush(...args) },
     useLocalSearchParams: () =>
       jest.requireActual<typeof import('react')>('react').use(MockParamsContext),
     Stack: {
@@ -73,6 +77,7 @@ jest.mock('@/lib/lending', () => ({
   saveLendingEntry: jest.fn(),
   deleteLendingEntry: jest.fn(),
 }));
+jest.mock('@/features/home/read-home', () => ({ reimbursementReceipt: jest.fn() }));
 jest.mock('@/lib/transaction-edit', () => ({
   loadEditableTransaction: jest.fn(),
   saveTransactionEdit: jest.fn(),
@@ -218,6 +223,8 @@ beforeEach(() => {
     usePreventRemove,
     mockNavigation.dispatch,
     mockNavigation.goBack,
+    mockRouterPush,
+    reimbursementReceipt,
   ])
     jest.mocked(mock).mockReset();
   jest.mocked(loadEditableTransaction).mockResolvedValue(transaction);
@@ -1096,4 +1103,87 @@ test('opening and closing a rounded rate leaves both saved amounts unchanged', a
   });
   await user.press(bottomCancel());
   expect(alert).not.toHaveBeenCalled();
+});
+
+const listRow = (row: Partial<ListRow>): ListRow => ({
+  id: 1,
+  type: 'EXPENSE',
+  amountMinor: 1000,
+  receivedAmountMinor: null,
+  destinationCurrencyCode: null,
+  date: 20000,
+  accountId: 1,
+  transferAccountId: null,
+  accountName: 'Cash',
+  transferAccountName: null,
+  currencyCode: 'USD',
+  categoryName: 'Food',
+  categoryPath: 'Food',
+  parentCategoryName: null,
+  categoryEmoji: null,
+  note: null,
+  excludeFromReport: 0,
+  lendingKind: null,
+  personName: null,
+  ...row,
+});
+
+test('a split expense shows its shares and a collapsed list of linked reimbursements', async () => {
+  const user = userEvent.setup();
+  jest.mocked(reimbursementReceipt).mockResolvedValue({
+    shares: [{ personId: 7, name: 'Rafi', amountMinor: 400, paidMinor: 150, leftMinor: 250 }],
+    payments: [
+      listRow({
+        id: 2,
+        type: 'INCOME',
+        amountMinor: 150,
+        date: 20001,
+        accountName: 'Bank',
+        reimbursementExpenseId: 1,
+        reimbursementPerson: 'Rafi',
+      }),
+    ],
+    expense: null,
+    payer: null,
+  });
+  await renderScreen();
+
+  expect(await screen.findByText('Split · USD')).toBeOnTheScreen();
+  expect(screen.getByText('Rafi')).toBeOnTheScreen();
+  const panel = screen.getByRole('button', { name: 'Reimbursements · 1' });
+  expect(panel).not.toBeExpanded();
+  expect(screen.queryByText('Reimbursement from Rafi ›')).not.toBeOnTheScreen();
+
+  await user.press(panel);
+  expect(screen.getByText('Reimbursement from Rafi ›')).toBeOnTheScreen();
+  expect(
+    screen.getAllByRole('link').some((link) => link.props.accessibilityHint?.includes('"id":"2"')),
+  ).toBe(true);
+});
+
+test('a reimbursement names who paid and links back to its expense', async () => {
+  const user = userEvent.setup();
+  jest.mocked(loadEditableTransaction).mockResolvedValue({
+    ...transaction,
+    id: 2,
+    type: 'INCOME',
+    amountMinor: 150,
+    categoryId: null,
+    categoryName: null,
+  });
+  jest.mocked(reimbursementReceipt).mockResolvedValue({
+    shares: [],
+    payments: [],
+    expense: { ...listRow({ note: 'Dinner' }), payer: 'Rafi' },
+    payer: 'Rafi',
+  });
+  await renderScreen('2');
+
+  expect(await screen.findByText('Reimbursement from Rafi')).toBeOnTheScreen();
+  expect(screen.getByText('Reimbursement for')).toBeOnTheScreen();
+  await user.press(screen.getByRole('button', { name: /^Food, Dinner/ }));
+  expect(mockRouterPush).toHaveBeenCalledWith({
+    pathname: '/transaction/[id]',
+    params: { id: '1' },
+  });
 });

@@ -512,3 +512,70 @@ test('first-rate lookup finds the newest Transfer in either direction and gives 
     rate: 0.0082,
   });
 });
+
+test('split shares, person payments and refunds survive a v1 backup round trip', async () => {
+  const original = await backupStore.snapshot();
+  const account = original.accounts[0];
+  const { addQuickTransaction } = await import('./quick-add-tags.ts');
+  const { createPerson } = await import('./lending.ts');
+  const person = await createPerson('Split backup person');
+  const entry = { accountId: account.id, categoryId: null, date: new Date(2025, 0, 1), note: null };
+  await addQuickTransaction(
+    {
+      ...entry,
+      type: 'EXPENSE',
+      amountMinor: 3000,
+      shares: [{ personId: person.id, amountMinor: 2000 }],
+    },
+    'dinner',
+  );
+  const expenseId = sql.prepare('SELECT MAX(id) AS id FROM transactions').get().id;
+  await assert.rejects(
+    addQuickTransaction(
+      {
+        ...entry,
+        type: 'INCOME',
+        amountMinor: 1500,
+        date: new Date(2024, 11, 31),
+        reimbursement: { expenseId, personId: person.id },
+      },
+      '',
+    ),
+    /on or after the expense/,
+  );
+  await addQuickTransaction(
+    {
+      ...entry,
+      type: 'INCOME',
+      amountMinor: 1500,
+      reimbursement: { expenseId, personId: person.id },
+    },
+    '',
+  );
+  await addQuickTransaction(
+    { ...entry, type: 'INCOME', amountMinor: 200, reimbursement: { expenseId, personId: null } },
+    '',
+  );
+  const snapshot = await backupStore.snapshot();
+  const decoded = decodeBackup(encodeBackup(snapshot));
+  assert.deepEqual(decoded.splitShares, [{ expenseId, personId: person.id, amountMinor: 2000 }]);
+  assert.deepEqual(
+    decoded.reimbursements.map(({ personId }) => personId),
+    [person.id, null],
+  );
+  assert.throws(
+    () => decodeBackup(JSON.stringify({ ...decoded, splitShares: [] })),
+    /reimbursement/,
+  );
+  const early = structuredClone(decoded);
+  const payment = early.transactions.find(({ id }) => id === early.reimbursements[0].transactionId);
+  payment.dateEpochDay = early.transactions.find(({ id }) => id === expenseId).dateEpochDay - 1;
+  assert.throws(() => decodeBackup(JSON.stringify(early)), /reimbursement/);
+  const legacy = { ...original };
+  delete legacy.splitShares;
+  delete legacy.reimbursements;
+  await backupStore.replace(decodeBackup(encodeBackup(legacy)));
+  assert.deepEqual((await backupStore.snapshot()).reimbursements, []);
+  await backupStore.replace(decoded);
+  assert.deepEqual(decodeBackup(encodeBackup(await backupStore.snapshot())), decoded);
+});

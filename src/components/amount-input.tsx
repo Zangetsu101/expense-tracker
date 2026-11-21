@@ -11,6 +11,7 @@ const c = theme.colors;
 export function AmountInput({
   currency,
   initialAmount = '',
+  presetRevision = 0,
   initiallyOpen = true,
   disabled: pending = false,
   onChange,
@@ -19,6 +20,7 @@ export function AmountInput({
   currency?: string;
   /** A valid amount that is shown before the user changes it. */
   initialAmount?: string;
+  presetRevision?: number;
   initiallyOpen?: boolean;
   disabled?: boolean;
   onChange: (amountMinor: number | undefined) => void;
@@ -33,6 +35,13 @@ export function AmountInput({
   const { amount } = entry;
   const [calculatorOpen, setCalculatorOpen] = useState(initiallyOpen);
   const [validAmount, setValidAmount] = useState(!!initialAmount);
+  const [appliedRevision, setAppliedRevision] = useState(presetRevision);
+  if (appliedRevision !== presetRevision) {
+    setAppliedRevision(presetRevision);
+    setEntry({ amount: initialAmount, evaluated: false, error: '' });
+    setCalculatorOpen(initiallyOpen);
+    setValidAmount(!!initialAmount);
+  }
   const insets = useSafeAreaInsets();
   function dismiss() {
     if (!calculatorOpen) return;

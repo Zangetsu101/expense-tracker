@@ -582,7 +582,7 @@ function ShareRow({
       <View style={{ height: 6, backgroundColor: c.raised, borderRadius: theme.radius.elbow }}>
         <View
           style={{
-            width: `${top === 0 ? 0 : (row.amountMinor / top) * 100}%`,
+            width: `${top === 0 ? 0 : Math.min(100, Math.max(0, (row.amountMinor / Math.abs(top)) * 100))}%`,
             height: 6,
             backgroundColor: c.accent,
             borderRadius: theme.radius.elbow,

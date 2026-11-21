@@ -67,6 +67,16 @@ export const backupStore: BackupStore = {
         'SELECT accountId, parentAccountId, statementDay, dueDay FROM credit_cards ORDER BY accountId',
       );
       data.people = await tx.getAllAsync('SELECT id, name FROM people ORDER BY id');
+      const [splitShares, reimbursements] = await Promise.all([
+        tx.getAllAsync(
+          'SELECT expenseId, personId, amountMinor FROM split_shares ORDER BY expenseId, personId',
+        ),
+        tx.getAllAsync(
+          'SELECT transactionId, expenseId, personId FROM reimbursements ORDER BY transactionId',
+        ),
+      ]);
+      data.splitShares = splitShares;
+      data.reimbursements = reimbursements;
       data.lendingEntries = await tx.getAllAsync(`SELECT e.id, e.personId, e.kind, e.transactionId,
       CASE WHEN t.id IS NULL THEN e.currencyCode ELSE a.currencyCode END AS currencyCode,
       COALESCE(t.amountMinor, e.amountMinor) AS amountMinor, COALESCE(t.date, e.date) AS dateEpochDay,
@@ -90,7 +100,7 @@ export const backupStore: BackupStore = {
     const db = await database();
     await db.withExclusiveTransactionAsync(async (tx) => {
       await tx.execAsync(
-        'DELETE FROM credit_cards; DELETE FROM lending_entries; DELETE FROM people; DELETE FROM moneylover_import_rows',
+        'DELETE FROM reimbursements; DELETE FROM split_shares; DELETE FROM credit_cards; DELETE FROM lending_entries; DELETE FROM people; DELETE FROM moneylover_import_rows',
       );
       for (const table of [
         'transaction_tags',
@@ -144,6 +154,18 @@ export const backupStore: BackupStore = {
       }
       for (const person of data.people ?? []) {
         await tx.runAsync('INSERT INTO people (id, name) VALUES (?, ?)', [person.id, person.name]);
+      }
+      for (const share of data.splitShares ?? []) {
+        await tx.runAsync(
+          'INSERT INTO split_shares (expenseId, personId, amountMinor) VALUES (?, ?, ?)',
+          [share.expenseId, share.personId, share.amountMinor],
+        );
+      }
+      for (const payment of data.reimbursements ?? []) {
+        await tx.runAsync(
+          'INSERT INTO reimbursements (transactionId, expenseId, personId) VALUES (?, ?, ?)',
+          [payment.transactionId, payment.expenseId, payment.personId],
+        );
       }
       for (const entry of data.lendingEntries ?? []) {
         await tx.runAsync(

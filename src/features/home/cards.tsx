@@ -473,7 +473,7 @@ function UsualPaceBody({
             left: 0,
             top: 0,
             bottom: 0,
-            width: `${(pace.spentMinor / max) * 100}%`,
+            width: `${(Math.max(0, pace.spentMinor) / max) * 100}%`,
             borderRadius: 4,
             backgroundColor: over ? c.warning : c.accent,
           }}
@@ -485,7 +485,7 @@ function UsualPaceBody({
               top: -4,
               bottom: -4,
               width: 2,
-              left: `${(usualMinor / max) * 100}%`,
+              left: `${(Math.max(0, usualMinor) / max) * 100}%`,
               backgroundColor: c.text,
             }}
           />
@@ -545,7 +545,7 @@ function PaceBody({ accountId, context }: { accountId: number | null; context: C
             left: 0,
             top: 0,
             bottom: 0,
-            width: `${(spentMinor / max) * 100}%`,
+            width: `${(Math.max(0, spentMinor) / max) * 100}%`,
             borderRadius: 4,
             backgroundColor: over ? c.warning : c.accent,
           }}
@@ -557,7 +557,7 @@ function PaceBody({ accountId, context }: { accountId: number | null; context: C
               top: -4,
               bottom: -4,
               width: 2,
-              left: `${(sameMinor / max) * 100}%`,
+              left: `${Math.min(1, Math.max(0, sameMinor) / max) * 100}%`,
               backgroundColor: c.text,
             }}
           />

@@ -126,6 +126,10 @@ export function TransactionRow({
   row,
   scope,
   query,
+  detail,
+  title,
+  navigates,
+  showOwed = true,
   disabled,
   slide,
   onPress,
@@ -133,11 +137,18 @@ export function TransactionRow({
   row: ListRow;
   scope: ListScope;
   query: string;
+  detail?: string;
+  title?: string;
+  navigates?: boolean;
+  showOwed?: boolean;
   disabled: boolean;
   slide?: SlidePhase;
   onPress: () => void;
 }) {
   const view = rowView(row, scope);
+  const shownTitle = title ?? view.title;
+  const shownDetail = detail ?? view.detail;
+  const owed = showOwed ? view.owed : undefined;
   const slideStyle = useSlide(slide);
   return (
     <Animated.View style={slideStyle}>
@@ -146,7 +157,7 @@ export function TransactionRow({
         accessibilityState={{ disabled }}
         onPress={onPress}
         accessibilityRole="button"
-        accessibilityLabel={[view.title, view.detail, view.amount, view.otherAmount]
+        accessibilityLabel={[shownTitle, shownDetail, view.amount, view.otherAmount, owed]
           .filter(Boolean)
           .join(', ')}
         style={({ pressed }) => ({
@@ -163,12 +174,12 @@ export function TransactionRow({
         <Icon icon={view.icon} />
         <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
           <Marked
-            text={view.title}
+            text={shownTitle}
             query={query}
             style={{ color: colors.text, fontSize: 16, fontWeight: '600' }}
           />
-          {view.detail && (
-            <Marked text={view.detail} query={query} style={{ color: colors.muted }} />
+          {shownDetail && (
+            <Marked text={shownDetail} query={query} style={{ color: colors.muted }} />
           )}
         </View>
         <View style={{ alignItems: 'flex-end', gap: 3 }}>
@@ -181,12 +192,14 @@ export function TransactionRow({
           >
             {view.amount}
           </Text>
+          {owed && <Text style={{ color: colors.warning, fontSize: 12 }}>{owed}</Text>}
           {view.otherAmount && (
             <Text style={{ color: colors.muted, fontSize: 12.5, fontVariant: ['tabular-nums'] }}>
               {view.otherAmount}
             </Text>
           )}
         </View>
+        {navigates && <Text style={{ color: colors.accent }}>›</Text>}
       </Pressable>
     </Animated.View>
   );

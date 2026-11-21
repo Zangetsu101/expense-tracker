@@ -14,6 +14,7 @@ export type SearchFilters = {
   amountMode?: AmountMode;
   amount?: string;
   maximum?: string;
+  reportSpending?: boolean;
   month?: string; // Legacy callers.
 };
 export type SearchRow = LendingLabel & {
@@ -29,6 +30,8 @@ export type SearchRow = LendingLabel & {
   transferAccountName: string | null;
   categoryName: string | null;
   categoryPath: string | null;
+  reimbursementExpenseId?: number | null;
+  reimbursementPerson?: string | null;
   currencyCode: string;
 };
 export const PAGE_SIZE = 50;
@@ -79,12 +82,14 @@ function dateBounds(filters: SearchFilters, now: Date): [number, number] | null 
 export function searchStatement(filters: SearchFilters, offset = 0, now = new Date()) {
   const clauses: string[] = [];
   const params: (string | number)[] = [];
+  const spending = filters.reportSpending && filters.type === 'EXPENSE';
+  const category = spending ? 'report.categoryId' : 't.categoryId';
   const query = filters.query.trim();
   if (query) {
     const pattern = `%${query.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
     const text = [
       "t.note LIKE ? ESCAPE '\\' COLLATE NOCASE",
-      "EXISTS (WITH RECURSIVE ancestors(id, parentId, name) AS (SELECT id, parentId, name FROM categories WHERE id = t.categoryId UNION ALL SELECT p.id, p.parentId, p.name FROM categories p JOIN ancestors child ON child.parentId = p.id) SELECT 1 FROM ancestors WHERE name LIKE ? ESCAPE '\\' COLLATE NOCASE)",
+      `EXISTS (WITH RECURSIVE ancestors(id, parentId, name) AS (SELECT id, parentId, name FROM categories WHERE id = ${category} UNION ALL SELECT p.id, p.parentId, p.name FROM categories p JOIN ancestors child ON child.parentId = p.id) SELECT 1 FROM ancestors WHERE name LIKE ? ESCAPE '\\' COLLATE NOCASE)`,
       "a.name LIKE ? ESCAPE '\\' COLLATE NOCASE",
       "dest.name LIKE ? ESCAPE '\\' COLLATE NOCASE",
     ];
@@ -112,7 +117,7 @@ export function searchStatement(filters: SearchFilters, offset = 0, now = new Da
     } else params.push(pattern, pattern, pattern, pattern);
     clauses.push(`(${text.join(' OR ')})`);
   }
-  if (filters.type !== 'ALL') {
+  if (!spending && filters.type !== 'ALL') {
     clauses.push('t.type = ?');
     params.push(filters.type);
   }
@@ -121,7 +126,7 @@ export function searchStatement(filters: SearchFilters, offset = 0, now = new Da
     params.push(filters.accountId, filters.accountId);
   }
   if (filters.categoryId != null) {
-    clauses.push(`t.categoryId IN (WITH RECURSIVE descendants(id, type) AS (
+    clauses.push(`${category} IN (WITH RECURSIVE descendants(id, type) AS (
       SELECT id, type FROM categories WHERE id = ?
       UNION ALL SELECT child.id, child.type FROM categories child JOIN descendants parent ON child.parentId = parent.id WHERE child.type = parent.type
     ) SELECT id FROM descendants)`);
@@ -152,14 +157,17 @@ export function searchStatement(filters: SearchFilters, offset = 0, now = new Da
   if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('Invalid offset');
   return {
     sql: `SELECT t.id, t.type, t.amountMinor, t.receivedAmountMinor, t.transferAccountId, dest.currencyCode AS destinationCurrencyCode, t.date, t.note, a.name AS accountName, a.currencyCode, dest.name AS transferAccountName, c.name AS categoryName, (WITH RECURSIVE path(id, parentId, label) AS (
-        SELECT id, parentId, name FROM categories WHERE id = t.categoryId
+        SELECT id, parentId, name FROM categories WHERE id = ${category}
         UNION ALL SELECT p.id, p.parentId, p.name || ' › ' || path.label FROM categories p JOIN path ON path.parentId = p.id
       ) SELECT label FROM path WHERE parentId IS NULL) AS categoryPath, lending.kind AS lendingKind, person.name AS personName
+      ${spending ? ', r.expenseId AS reimbursementExpenseId, payer.name AS reimbursementPerson' : ''}
       FROM transactions t JOIN accounts a ON a.id = t.accountId
+      ${spending ? 'JOIN report_transactions report ON report.id = t.id AND report.spendingMinor IS NOT NULL' : ''}
       LEFT JOIN accounts dest ON dest.id = t.transferAccountId
-      LEFT JOIN categories c ON c.id = t.categoryId
+      LEFT JOIN categories c ON c.id = ${category}
       LEFT JOIN lending_entries lending ON lending.transactionId = t.id
       LEFT JOIN people person ON person.id = lending.personId
+      ${spending ? 'LEFT JOIN reimbursements r ON r.transactionId = t.id LEFT JOIN people payer ON payer.id = r.personId' : ''}
       ${clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''}
       ORDER BY t.date DESC, t.id DESC LIMIT ? OFFSET ?`,
     params: [...params, PAGE_SIZE, offset],

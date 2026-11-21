@@ -1,3 +1,4 @@
+import { reimbursementTitle } from '../../lib/reimbursements.ts';
 import {
   formatMoney,
   transferAmounts,
@@ -21,10 +22,16 @@ export type ListRow = LendingLabel & {
   transferAccountName: string | null;
   currencyCode: string;
   categoryName: string | null;
+  categoryPath?: string | null;
   parentCategoryName: string | null;
   categoryEmoji: string | null;
   note: string | null;
   excludeFromReport: number;
+  owedMinor?: number | null;
+  reimbursementExpenseId?: number | null;
+  reimbursementExpenseDate?: number | null;
+  reimbursementPerson?: string | null;
+  reimbursementCategory?: string | null;
 };
 
 /**
@@ -46,6 +53,7 @@ export type RowView = {
   detail: string | null;
   amount: string;
   otherAmount?: string;
+  owed?: string;
   tone: Tone;
   icon: RowIcon;
 };
@@ -79,8 +87,27 @@ function transferFace(
   return { ...amounts, title: `To ${row.transferAccountName}`, tone: 'normal' };
 }
 
-/** On a Pace card, a grey amount is not in the day total. Only All accounts names the Account of a row. */
+export function categoryPath(row: ListRow) {
+  return (
+    (row.categoryPath ?? [row.parentCategoryName, row.categoryName].filter(Boolean).join(' › ')) ||
+    'Expense'
+  );
+}
+
+export function expenseDetail(row: ListRow) {
+  return [row.note, shortDay(row.date), row.accountName].filter(Boolean).join(' · ');
+}
+
+/** On Pace cards, ordinary Transactions excluded from the day total have muted amounts. */
 export function rowView(row: ListRow, scope: ListScope): RowView {
+  if (row.reimbursementExpenseId != null)
+    return {
+      title: reimbursementTitle(row.reimbursementPerson),
+      detail: `for ${row.reimbursementCategory ?? 'Expense'} · ${shortDay(row.reimbursementExpenseDate!)} · ${row.accountName}`,
+      amount: formatMoney('INCOME', row.amountMinor, row.currencyCode),
+      tone: 'income',
+      icon: { kind: 'category', text: '↩' },
+    };
   if (row.type === 'TRANSFER')
     return {
       ...transferFace(row, scope.accountId),
@@ -92,6 +119,9 @@ export function rowView(row: ListRow, scope: ListScope): RowView {
     scope.accountId === null ? [row.accountName, row.note].filter(Boolean).join(' · ') : row.note;
   return {
     title,
+    ...(row.owedMinor
+      ? { owed: `${formatMoney('TRANSFER', row.owedMinor, row.currencyCode)} owed` }
+      : {}),
     detail: detail || null,
     amount: formatMoney(row.type, row.amountMinor, row.currencyCode),
     tone:
@@ -113,7 +143,7 @@ function add(totals: Map<string, number>, currency: string, minor: number) {
 const byCurrency = (totals: Map<string, number>) =>
   [...totals].sort(([a], [b]) => a.localeCompare(b));
 
-/** The rule of the Pace card: reportable Expenses and Income, without Transfers. */
+/** Day totals show outgoing and incoming movements separately, with Transfers and excluded rows omitted. */
 function paceTotals(rows: readonly ListRow[]): TotalPart[] {
   const spent = new Map<string, number>();
   const earned = new Map<string, number>();
@@ -231,6 +261,8 @@ const searchFields = (row: ListRow) => [
   row.accountName,
   row.transferAccountName,
   row.personName,
+  row.reimbursementPerson,
+  row.reimbursementCategory,
 ];
 
 export function matchesSearch(row: ListRow, query: string): boolean {
