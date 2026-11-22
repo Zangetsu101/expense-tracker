@@ -1139,8 +1139,12 @@ test('a split expense shows its shares and a collapsed list of linked reimbursem
         amountMinor: 150,
         date: 20001,
         accountName: 'Bank',
-        reimbursementExpenseId: 1,
-        reimbursementPerson: 'Rafi',
+        reimbursement: {
+          expenseId: 1,
+          expenseDate: transaction.date,
+          personName: 'Rafi',
+          categoryName: 'Food',
+        },
       }),
     ],
     expense: null,
@@ -1174,7 +1178,7 @@ test('a reimbursement names who paid and links back to its expense', async () =>
   jest.mocked(reimbursementReceipt).mockResolvedValue({
     shares: [],
     payments: [],
-    expense: { ...listRow({ note: 'Dinner' }), payer: 'Rafi' },
+    expense: listRow({ note: 'Dinner' }),
     payer: 'Rafi',
   });
   await renderScreen('2');

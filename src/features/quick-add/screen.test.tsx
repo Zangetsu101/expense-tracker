@@ -364,6 +364,7 @@ test('creating a person blocks duplicate requests and selects them without losin
   const person = Promise.withResolvers<{ id: number; name: string }>();
   jest.mocked(createPerson).mockReturnValueOnce(person.promise);
   await press('Add “New person”');
+  expect(screen.getByRole('button', { name: 'New person', selected: true })).toBeDisabled();
   await press('Add “New person”');
   expect(createPerson).toHaveBeenCalledTimes(1);
   expect(jest.mocked(usePreventRemove).mock.lastCall?.[0]).toBe(true);
@@ -498,7 +499,8 @@ test('links Income through the expense picker, fills the only outstanding share 
     excludeFromReport: 0,
     owedMinor: 600,
   };
-  jest.mocked(expensesForReimbursement).mockResolvedValue([dinner]);
+  const expenses = Promise.withResolvers<ListRow[]>();
+  jest.mocked(expensesForReimbursement).mockReturnValueOnce(expenses.promise);
   jest.mocked(expenseReimbursements).mockResolvedValue({
     shares: [
       { personId: 1, name: 'Rafi', amountMinor: 1000, paidMinor: 400, leftMinor: 600 },
@@ -511,7 +513,9 @@ test('links Income through the expense picker, fills the only outstanding share 
   await screen.findByRole('button', { name: 'Salary' });
   await amount(['2']);
   await press('Link to expense');
+  expect(screen.getByText('Loading expenses…')).toBeOnTheScreen();
   await type('Search expenses', '19 Nov');
+  await act(async () => expenses.resolve([dinner]));
   expect(screen.getByRole('header', { name: 'Still owed' })).toBeOnTheScreen();
   await user.press(await screen.findByRole('button', { name: /Food › Dining out, Dinner/ }));
   expect(screen.queryByRole('button', { name: 'Salary' })).toBeNull();

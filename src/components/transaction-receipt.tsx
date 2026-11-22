@@ -122,25 +122,24 @@ function receiptAmount(row: Props['transaction'], reimbursement: Props['reimburs
   return format(row.type, row.amountMinor, row.currencyCode);
 }
 export function TransactionReceipt({ transaction: row, reimbursement }: Props) {
-  const expense = reimbursement?.expense;
+  const reimbursedExpense = reimbursement?.expense;
   const writeOff = row.type === 'WRITE_OFF';
   const kind = writeOff ? row.kind : row.lendingKind;
-  const label = writeOff
-    ? 'Write-off'
-    : expense
-      ? 'Reimbursement'
-      : kind
-        ? lendingKindLabels[kind]
-        : row.type === 'EXPENSE'
-          ? 'Expense'
-          : 'Income';
-  const title = writeOff
-    ? row.kind === 'WRITE_OFF_LENT'
-      ? `Wrote off what ${row.personName} owes`
-      : `Wrote off what you owe ${row.personName}`
-    : expense
-      ? reimbursementTitle(reimbursement.payer)
-      : transactionTitle(row);
+  let label = row.type === 'EXPENSE' ? 'Expense' : 'Income';
+  let title: string;
+  if (writeOff) {
+    label = 'Write-off';
+    title =
+      row.kind === 'WRITE_OFF_LENT'
+        ? `Wrote off what ${row.personName} owes`
+        : `Wrote off what you owe ${row.personName}`;
+  } else if (reimbursedExpense) {
+    label = 'Reimbursement';
+    title = reimbursementTitle(reimbursement.payer);
+  } else {
+    if (kind) label = lendingKindLabels[kind];
+    title = transactionTitle(row);
+  }
   return (
     <ScrollView
       contentInsetAdjustmentBehavior="automatic"
@@ -175,7 +174,7 @@ export function TransactionReceipt({ transaction: row, reimbursement }: Props) {
           </View>
         </View>
       </View>
-      {expense && <ReimbursedExpense expense={expense} />}
+      {reimbursedExpense && <ReimbursedExpense expense={reimbursedExpense} />}
       {row.type === 'EXPENSE' && reimbursement && (
         <ExpenseReimbursementPanels
           details={reimbursement}
@@ -183,7 +182,7 @@ export function TransactionReceipt({ transaction: row, reimbursement }: Props) {
           currency={row.currencyCode}
         />
       )}
-      {!expense && !!row.personId && !!row.personName && (
+      {!reimbursedExpense && !!row.personId && !!row.personName && (
         <View style={{ gap: 8 }}>
           <Label>Person</Label>
           <Link
@@ -203,7 +202,7 @@ export function TransactionReceipt({ transaction: row, reimbursement }: Props) {
       </View>
       {!writeOff && (
         <>
-          {((!kind && !expense) || !!row.tags.length) && (
+          {((!kind && !reimbursedExpense) || !!row.tags.length) && (
             <View style={{ gap: 8 }}>
               <Label>Tags</Label>
               <Value muted={!row.tags.length}>
@@ -211,14 +210,14 @@ export function TransactionReceipt({ transaction: row, reimbursement }: Props) {
               </Value>
             </View>
           )}
-          {((!kind && !expense) || !!row.lineItems.length) && <ItemSection row={row} />}
+          {((!kind && !reimbursedExpense) || !!row.lineItems.length) && <ItemSection row={row} />}
           <View style={{ gap: 8 }}>
             <Label>Reports</Label>
             <Value>
               {row.excludeFromReport || row.reportExclusionLocked
                 ? 'Excluded from reports'
-                : expense
-                  ? `Lowers ${categoryPath(expense)} in ${receiptMonth.format(row.date * 86400000)}`
+                : reimbursedExpense
+                  ? `Lowers ${categoryPath(reimbursedExpense)} in ${receiptMonth.format(row.date * 86400000)}`
                   : 'Included in reports'}
             </Value>
           </View>

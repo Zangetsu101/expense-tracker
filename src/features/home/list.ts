@@ -28,10 +28,12 @@ export type ListRow = LendingLabel & {
   note: string | null;
   excludeFromReport: number;
   owedMinor?: number | null;
-  reimbursementExpenseId?: number | null;
-  reimbursementExpenseDate?: number | null;
-  reimbursementPerson?: string | null;
-  reimbursementCategory?: string | null;
+  reimbursement?: {
+    expenseId: number;
+    expenseDate: number;
+    personName: string | null;
+    categoryName: string | null;
+  };
 };
 
 /**
@@ -100,10 +102,11 @@ export function expenseDetail(row: ListRow) {
 
 /** On Pace cards, ordinary Transactions excluded from the day total have muted amounts. */
 export function rowView(row: ListRow, scope: ListScope): RowView {
-  if (row.reimbursementExpenseId != null)
+  const reimbursement = row.reimbursement;
+  if (reimbursement)
     return {
-      title: reimbursementTitle(row.reimbursementPerson),
-      detail: `for ${row.reimbursementCategory ?? 'Expense'} · ${shortDay(row.reimbursementExpenseDate!)} · ${row.accountName}`,
+      title: reimbursementTitle(reimbursement.personName),
+      detail: `for ${reimbursement.categoryName ?? 'Expense'} · ${shortDay(reimbursement.expenseDate)} · ${row.accountName}`,
       amount: formatMoney('INCOME', row.amountMinor, row.currencyCode),
       tone: 'income',
       icon: { kind: 'category', text: '↩' },
@@ -261,8 +264,8 @@ const searchFields = (row: ListRow) => [
   row.accountName,
   row.transferAccountName,
   row.personName,
-  row.reimbursementPerson,
-  row.reimbursementCategory,
+  row.reimbursement?.personName,
+  row.reimbursement?.categoryName,
 ];
 
 export function matchesSearch(row: ListRow, query: string): boolean {

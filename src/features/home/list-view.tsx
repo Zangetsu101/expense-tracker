@@ -1,4 +1,4 @@
-import { useEffect, type ComponentProps } from 'react';
+import { useEffect, type ComponentProps, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -23,6 +23,7 @@ import {
   rowView,
   type ListRow,
   type RowIcon,
+  type RowView,
   type ListScope,
   type TotalPart,
 } from './list.ts';
@@ -122,33 +123,33 @@ function useSlide(phase: SlidePhase | undefined) {
   );
 }
 
-export function TransactionRow({
-  row,
-  scope,
-  query,
-  detail,
-  title,
-  navigates,
-  showOwed = true,
-  disabled,
-  slide,
-  onPress,
-}: {
-  row: ListRow;
-  scope: ListScope;
+type RowInteraction = {
   query: string;
-  detail?: string;
-  title?: string;
-  navigates?: boolean;
-  showOwed?: boolean;
   disabled: boolean;
   slide?: SlidePhase;
   onPress: () => void;
+};
+
+export function TransactionRow({
+  row,
+  scope,
+  ...interaction
+}: RowInteraction & {
+  row: ListRow;
+  scope: ListScope;
 }) {
-  const view = rowView(row, scope);
-  const shownTitle = title ?? view.title;
-  const shownDetail = detail ?? view.detail;
-  const owed = showOwed ? view.owed : undefined;
+  return <TransactionRowLayout view={rowView(row, scope)} {...interaction} />;
+}
+
+function TransactionRowLayout({
+  view,
+  query,
+  disabled,
+  slide,
+  onPress,
+  children,
+}: RowInteraction & { view: RowView; children?: ReactNode }) {
+  const { title, detail, owed } = view;
   const slideStyle = useSlide(slide);
   return (
     <Animated.View style={slideStyle}>
@@ -157,7 +158,7 @@ export function TransactionRow({
         accessibilityState={{ disabled }}
         onPress={onPress}
         accessibilityRole="button"
-        accessibilityLabel={[shownTitle, shownDetail, view.amount, view.otherAmount, owed]
+        accessibilityLabel={[title, detail, view.amount, view.otherAmount, owed]
           .filter(Boolean)
           .join(', ')}
         style={({ pressed }) => ({
@@ -174,13 +175,11 @@ export function TransactionRow({
         <Icon icon={view.icon} />
         <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
           <Marked
-            text={shownTitle}
+            text={title}
             query={query}
             style={{ color: colors.text, fontSize: 16, fontWeight: '600' }}
           />
-          {shownDetail && (
-            <Marked text={shownDetail} query={query} style={{ color: colors.muted }} />
-          )}
+          {detail && <Marked text={detail} query={query} style={{ color: colors.muted }} />}
         </View>
         <View style={{ alignItems: 'flex-end', gap: 3 }}>
           <Text
@@ -199,11 +198,16 @@ export function TransactionRow({
             </Text>
           )}
         </View>
-        {navigates && <Text style={{ color: colors.accent }}>›</Text>}
+        {children}
       </Pressable>
     </Animated.View>
   );
 }
+
+TransactionRow.Layout = TransactionRowLayout;
+TransactionRow.Chevron = function TransactionRowChevron() {
+  return <Text style={{ color: colors.accent }}>›</Text>;
+};
 
 function Totals({ totals }: { totals: TotalPart[] }) {
   return (

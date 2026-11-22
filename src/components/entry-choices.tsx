@@ -89,7 +89,7 @@ export function ChoiceChip({
   detail?: string;
   selected?: boolean;
   disabled: boolean;
-  onPress: () => void;
+  onPress?: () => void;
 }) {
   return (
     <Pressable

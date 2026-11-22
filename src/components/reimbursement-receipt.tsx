@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { Link, router } from 'expo-router';
 import { Pressable, Text, View } from 'react-native';
-import { categoryPath, expenseDetail, type ListRow } from '@/features/home/list';
+import { categoryPath, expenseDetail, rowView, type ListRow } from '@/features/home/list';
 import { TransactionRow } from '@/features/home/list-view';
 import { shortDay } from '@/features/home/period';
 import type { reimbursementReceipt } from '@/features/home/read-home';
@@ -85,7 +85,10 @@ function SplitTable({
   const yours = amount - shares.reduce((sum, s) => sum + s.amountMinor, 0);
   const left = shares.reduce((sum, s) => sum + s.leftMinor, 0);
   const paid = payments.reduce((sum, p) => sum + p.amountMinor, 0);
-  const refunds = payments.reduce((sum, p) => sum + (p.reimbursementPerson ? 0 : p.amountMinor), 0);
+  const refunds = payments.reduce(
+    (sum, p) => sum + (p.reimbursement?.personName ? 0 : p.amountMinor),
+    0,
+  );
   const number = new Intl.NumberFormat('en', { maximumFractionDigits: 2 });
   const value = (minor: number) => number.format(minor / 100);
   const back = (minor: number) => (minor ? value(minor) : '–');
@@ -160,7 +163,7 @@ export function ExpenseReimbursementPanels({
                 >
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
                     <Text style={{ flex: 1, color: c.accent }}>
-                      {reimbursementTitle(payment.reimbursementPerson)} ›
+                      {reimbursementTitle(payment.reimbursement?.personName)} ›
                     </Text>
                     <Text style={{ color: c.text, fontVariant: ['tabular-nums'] }}>
                       {formatMoney('INCOME', payment.amountMinor, payment.currencyCode)}
@@ -187,17 +190,19 @@ export function ReimbursedExpense({ expense }: { expense: ListRow }) {
     <View style={{ gap: 8 }}>
       <Caption>Reimbursement for</Caption>
       <View style={{ backgroundColor: c.surface, borderRadius: 16, paddingHorizontal: 14 }}>
-        <TransactionRow
-          row={expense}
-          scope={scope}
+        <TransactionRow.Layout
+          view={{
+            ...rowView(expense, scope),
+            detail: expenseDetail(expense),
+            title: categoryPath(expense),
+            owed: undefined,
+          }}
           query=""
-          detail={expenseDetail(expense)}
-          title={categoryPath(expense)}
           disabled={false}
-          navigates
-          showOwed={false}
           onPress={() => router.push(href(expense.id))}
-        />
+        >
+          <TransactionRow.Chevron />
+        </TransactionRow.Layout>
       </View>
     </View>
   );

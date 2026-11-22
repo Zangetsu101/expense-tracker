@@ -56,13 +56,15 @@ export function SplitExpense({
   disabled,
   onChange,
   onAddPerson,
+  optimisticPersonName,
 }: {
   draft: SplitDraft;
   amount: number;
   currency?: string;
   disabled: boolean;
   onChange: (draft: SplitDraft) => void;
-  onAddPerson: (name: string) => Promise<Person | undefined>;
+  onAddPerson: (name: string, onCreated: (person: Person) => void) => void;
+  optimisticPersonName: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -120,17 +122,19 @@ export function SplitExpense({
                       onPress={() => toggle(person)}
                     />
                   ))}
+                {optimisticPersonName &&
+                  !available.some((person) => person.name === optimisticPersonName) && (
+                    <ChoiceChip label={optimisticPersonName} selected disabled />
+                  )}
                 {!!needle &&
                   !available.some((person) => person.name.toLocaleLowerCase() === needle) && (
                     <ChoiceChip
                       label={`Add “${search.trim()}”`}
                       disabled={disabled}
                       onPress={() => {
-                        void onAddPerson(search).then((created) => {
-                          if (created) {
-                            toggle(created);
-                            setSearch('');
-                          }
+                        onAddPerson(search, (created) => {
+                          toggle(created);
+                          setSearch('');
                         });
                       }}
                     />

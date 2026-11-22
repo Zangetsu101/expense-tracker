@@ -1,14 +1,16 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useSuspenseQuery } from '@tanstack/react-query';
 import { Modal, Pressable, SectionList, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ChoiceChip } from '@/components/entry-choices';
+import { QueryBoundary } from '@/components/query-error-boundary';
 import { Disclosure, FormButton, FormInput } from '@/components/form-controls';
 import { formatBalance, formatEpochDay, formatMoney } from '@/lib/transaction-format';
 import {
   categoryPath,
   expenseDetail,
   matchesSearch,
+  rowView,
   searchSections,
   type ListRow,
 } from '@/features/home/list';
@@ -34,34 +36,6 @@ function ExpensePicker({
   const [query, setQuery] = useState('');
   const [selecting, setSelecting] = useState(false);
   const [selectionError, setSelectionError] = useState('');
-  const read = useQuery({
-    queryKey: ['reimbursement-expenses'],
-    queryFn: expensesForReimbursement,
-  });
-  const needle = query.trim().toLowerCase();
-  const matches = (read.data ?? []).filter(
-    (row) =>
-      !needle ||
-      matchesSearch(row, needle) ||
-      categoryPath(row).toLowerCase().includes(needle) ||
-      [
-        shortDay(row.date),
-        formatEpochDay(row.date),
-        formatMoney('TRANSFER', row.amountMinor, row.currencyCode),
-      ].some((value) => value.toLowerCase().replace(/,/g, '').includes(needle.replace(/,/g, ''))),
-  );
-  const owed = matches.filter((row) => (row.owedMinor ?? 0) > 0);
-  const other = searchSections(matches.filter((row) => !row.owedMinor));
-  const sections = [
-    ...(owed.length ? [{ key: 'owed', label: 'Still owed', date: null, data: owed }] : []),
-    { key: 'all', label: 'All expenses', date: null, data: [] as ListRow[] },
-    ...other.map((section) => ({
-      key: section.key,
-      date: section.date,
-      label: null,
-      data: section.data.flatMap((item) => (item.kind === 'row' ? [item.row] : [])),
-    })),
-  ];
   async function select(row: ListRow) {
     setSelecting(true);
     setSelectionError('');
@@ -105,53 +79,14 @@ function ExpensePicker({
           onChangeText={setQuery}
           autoCorrect={false}
         />
-        {read.isPending ? (
-          <Text style={{ color: c.muted, paddingVertical: 12 }}>Loading expenses…</Text>
-        ) : read.isError ? (
-          <FormButton
-            label="Retry loading expenses"
-            variant="secondary"
-            onPress={() => void read.refetch()}
-          />
-        ) : (
-          <SectionList
-            keyboardShouldPersistTaps="handled"
-            sections={sections}
-            stickySectionHeadersEnabled={false}
-            keyExtractor={(row) => String(row.id)}
-            renderSectionHeader={({ section }) =>
-              section.label ? (
-                <Text accessibilityRole="header" style={{ color: c.muted, marginTop: 18 }}>
-                  {section.label}
-                </Text>
-              ) : (
-                section.date !== null && (
-                  <DayHeader date={section.date} totals={[]} now={new Date()} />
-                )
-              )
-            }
-            renderItem={({ item, section }) => (
-              <TransactionRow
-                row={item}
-                scope={scope}
-                query={query}
-                title={categoryPath(item)}
-                detail={[item.note, item.accountName, section.key === 'owed' && shortDay(item.date)]
-                  .filter(Boolean)
-                  .join(' · ')}
-                disabled={selecting}
-                onPress={() => void select(item)}
-              />
-            )}
-            ListFooterComponent={
-              !other.length ? (
-                <Text style={{ color: c.muted, paddingVertical: 12 }}>
-                  {owed.length ? 'No other matching expenses.' : 'No matching expenses.'}
-                </Text>
-              ) : undefined
-            }
-          />
-        )}
+        <QueryBoundary
+          pending={<Text style={{ color: c.muted, paddingVertical: 12 }}>Loading expenses…</Text>}
+          error={(retry) => (
+            <FormButton label="Retry loading expenses" variant="secondary" onPress={retry} />
+          )}
+        >
+          <ExpensePickerResults query={query} selecting={selecting} onSelect={select} />
+        </QueryBoundary>
         {!!selectionError && (
           <Text accessibilityRole="alert" style={{ color: c.warning }}>
             {selectionError}
@@ -159,6 +94,84 @@ function ExpensePicker({
         )}
       </SafeAreaView>
     </Modal>
+  );
+}
+
+function ExpensePickerResults({
+  query,
+  selecting,
+  onSelect,
+}: {
+  query: string;
+  selecting: boolean;
+  onSelect: (row: ListRow) => void;
+}) {
+  const { data, error, isFetching } = useSuspenseQuery({
+    queryKey: ['reimbursement-expenses'],
+    queryFn: expensesForReimbursement,
+  });
+  if (error && !isFetching) throw error;
+  const needle = query.trim().toLowerCase();
+  const matches = data.filter(
+    (row) =>
+      !needle ||
+      matchesSearch(row, needle) ||
+      categoryPath(row).toLowerCase().includes(needle) ||
+      [
+        shortDay(row.date),
+        formatEpochDay(row.date),
+        formatMoney('TRANSFER', row.amountMinor, row.currencyCode),
+      ].some((value) => value.toLowerCase().replace(/,/g, '').includes(needle.replace(/,/g, ''))),
+  );
+  const owed = matches.filter((row) => (row.owedMinor ?? 0) > 0);
+  const other = searchSections(matches.filter((row) => !row.owedMinor));
+  const sections = [
+    ...(owed.length ? [{ key: 'owed', label: 'Still owed', date: null, data: owed }] : []),
+    { key: 'all', label: 'All expenses', date: null, data: [] as ListRow[] },
+    ...other.map((section) => ({
+      key: section.key,
+      date: section.date,
+      label: null,
+      data: section.data.flatMap((item) => (item.kind === 'row' ? [item.row] : [])),
+    })),
+  ];
+  return (
+    <SectionList
+      keyboardShouldPersistTaps="handled"
+      sections={sections}
+      stickySectionHeadersEnabled={false}
+      keyExtractor={(row) => String(row.id)}
+      renderSectionHeader={({ section }) =>
+        section.label ? (
+          <Text accessibilityRole="header" style={{ color: c.muted, marginTop: 18 }}>
+            {section.label}
+          </Text>
+        ) : (
+          section.date !== null && <DayHeader date={section.date} totals={[]} now={new Date()} />
+        )
+      }
+      renderItem={({ item, section }) => (
+        <TransactionRow.Layout
+          query={query}
+          view={{
+            ...rowView(item, scope),
+            title: categoryPath(item),
+            detail: [item.note, item.accountName, section.key === 'owed' && shortDay(item.date)]
+              .filter(Boolean)
+              .join(' · '),
+          }}
+          disabled={selecting}
+          onPress={() => onSelect(item)}
+        />
+      )}
+      ListFooterComponent={
+        !other.length ? (
+          <Text style={{ color: c.muted, paddingVertical: 12 }}>
+            {owed.length ? 'No other matching expenses.' : 'No matching expenses.'}
+          </Text>
+        ) : undefined
+      }
+    />
   );
 }
 

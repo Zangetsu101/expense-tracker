@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useOptimistic, useRef, useState, useTransition } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { categoriesQuery, peopleQuery, includeCreatedPerson } from './queries.ts';
 import { accountsQuery } from '@/lib/account-queries';
@@ -22,14 +22,14 @@ import Animated from 'react-native-reanimated';
 import { epochDay } from '@/lib/database';
 import { addQuickTransaction } from '@/lib/quick-add-tags';
 import { addTransfer } from '@/lib/transfers';
-import { createPerson, saveLendingEntry, type LendingKind } from '@/lib/lending';
+import { createPerson, saveLendingEntry, type LendingKind, type Person } from '@/lib/lending';
 import type { LendingTotal } from '@/lib/lending-totals';
 import { TransferAmountInput } from '@/components/transfer-amount-input';
-import { AmountInput } from '@/components/amount-input';
+import { ControlledAmountInput, useAmountInputDraft } from '@/components/amount-input';
 import { useRankedCategories } from './use-ranked-categories.ts';
 import { QuickAddDate } from '@/components/quick-add-date';
 import { QuickSelectCategory } from '@/components/quick-select-category';
-import { AccountChoices, personBalanceSummary } from '@/components/entry-choices';
+import { AccountChoices, ChoiceChip, personBalanceSummary } from '@/components/entry-choices';
 import { FormButton, FormInput, JoinedChoice } from '@/components/form-controls';
 import { parseRouteId } from '@/lib/account-selection';
 import { useClippedChips } from '@/components/use-clipped-chips';
@@ -137,8 +137,11 @@ function QuickAddForm() {
     const amount = Number(params.amountMinor);
     return Number.isSafeInteger(amount) && amount > 0 ? amount : undefined;
   });
-  const [entryAmount, setEntryAmount] = useState(preset);
-  const [amountKey, setAmountKey] = useState(0);
+  const amountDraft = useAmountInputDraft(
+    preset === undefined ? '' : (preset / 100).toFixed(2),
+    preset === undefined,
+  );
+  const [transferPresetRevision, setTransferPresetRevision] = useState(0);
   const categoryMode = mode === 'EXPENSE' || mode === 'INCOME' ? mode : undefined;
   const categoryRead = useQuery({ ...categoriesQuery(categoryMode ?? 'EXPENSE'), enabled: false });
   const peopleRead = useQuery({ ...peopleQuery(), enabled: false });
@@ -175,12 +178,16 @@ function QuickAddForm() {
   const [note, setNote] = useState('');
   const [tags, setTags] = useState('');
   const [date, setDate] = useState(() => new Date());
-  const [pending, setPending] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [creatingPerson, startCreatingPerson] = useTransition();
+  const [optimisticPersonName, setOptimisticPersonName] = useOptimistic<string | null>(null);
+  const pending = saving || creatingPerson;
   const [error, setError] = useState('');
-  const busy = useRef(false);
+  // A second press can arrive before React renders the pending state.
+  const writeInFlight = useRef(false);
   const navigation = useNavigation();
   usePreventRemove(pending, ({ data: removal }) => {
-    if (!busy.current) navigation.dispatch(removal.action);
+    if (!writeInFlight.current) navigation.dispatch(removal.action);
   });
   const currency =
     mode === 'PERSON' && action === initialAction && personId === routePersonId
@@ -211,59 +218,56 @@ function QuickAddForm() {
     mode === 'TRANSFER' && destination && destination.currencyCode !== account?.currencyCode;
   const validAmount =
     amountMinor !== undefined && amountMinor > 0 && (!cross || receivedAmountMinor !== undefined);
-  const canSave =
-    !!accountsRead.data &&
-    (mode === 'TRANSFER' ||
-      !!reimbursement ||
-      (mode === 'PERSON' ? !!peopleRead.data : !!categoryRead.data)) &&
-    validAmount &&
-    !!account &&
-    (mode === 'TRANSFER'
-      ? destinations.some((item) => item.id === toId)
-      : mode === 'PERSON'
-        ? !!person
-        : reimbursement
-          ? payer !== undefined
-          : !!categoryMode && categories.some((item) => item.id === categoryIds[categoryMode]));
-  const saveLabel =
-    mode === 'PERSON'
-      ? {
-          LEND: 'Save lending',
-          BORROW: 'Save borrowing',
-          RECEIVE_REPAYMENT: 'Save repayment received',
-          REPAY: 'Save repayment made',
-        }[action]
-      : mode === 'TRANSFER'
-        ? 'Save transfer'
-        : mode === 'INCOME'
-          ? reimbursement
-            ? 'Save reimbursement'
-            : 'Save income'
-          : 'Save expense';
+  let selectionReady = false;
+  let saveLabel: string;
+  switch (mode) {
+    case 'TRANSFER':
+      selectionReady = !!destination;
+      saveLabel = 'Save transfer';
+      break;
+    case 'PERSON':
+      selectionReady = !!person;
+      saveLabel = {
+        LEND: 'Save lending',
+        BORROW: 'Save borrowing',
+        RECEIVE_REPAYMENT: 'Save repayment received',
+        REPAY: 'Save repayment made',
+      }[action];
+      break;
+    case 'INCOME':
+    case 'EXPENSE':
+      selectionReady = reimbursement
+        ? payer !== undefined
+        : categories.some((item) => item.id === categoryIds[mode]);
+      saveLabel = mode === 'EXPENSE' ? 'Save expense' : 'Save income';
+      if (reimbursement) saveLabel = 'Save reimbursement';
+      break;
+  }
+  const canSave = validAmount && !!account && selectionReady;
 
-  async function addPerson(name: string) {
-    if (busy.current) return;
-    busy.current = true;
-    setPending(true);
+  function addPerson(name: string, onCreated: (person: Person) => void) {
+    if (writeInFlight.current) return;
+    writeInFlight.current = true;
     setError('');
-    try {
-      const created = await createPerson(name);
-      includeCreatedPerson(client, created);
-      return created;
-    } catch (cause) {
-      setError(String(cause));
-    } finally {
-      busy.current = false;
-      setPending(false);
-    }
+    startCreatingPerson(async () => {
+      setOptimisticPersonName(name.trim());
+      try {
+        const created = await createPerson(name);
+        includeCreatedPerson(client, created);
+        onCreated(created);
+      } catch (cause) {
+        setError(String(cause));
+      } finally {
+        writeInFlight.current = false;
+      }
+    });
   }
 
   function selectPayer(id: number | null | undefined, left?: number) {
     setPayer(id);
     if (left === undefined) return;
-    setEntryAmount(left);
+    amountDraft.reset((left / 100).toFixed(2), false);
     setAmountMinor(left || undefined);
-    setAmountKey((key) => key + 1);
   }
 
   function selectExpense(expense: LinkableExpense) {
@@ -276,9 +280,9 @@ function QuickAddForm() {
   }
 
   async function save() {
-    if (busy.current || !canSave || !account || amountMinor === undefined) return;
-    busy.current = true;
-    setPending(true);
+    if (writeInFlight.current || !canSave || !account || amountMinor === undefined) return;
+    writeInFlight.current = true;
+    setSaving(true);
     setError('');
     try {
       if (!Number.isFinite(date.getTime()) || epochDay(date) > epochDay(new Date()))
@@ -332,27 +336,25 @@ function QuickAddForm() {
           tags,
         );
       }
-      busy.current = false;
+      writeInFlight.current = false;
       router.back();
     } catch (cause) {
       setError(String(cause));
     } finally {
-      busy.current = false;
-      setPending(false);
+      writeInFlight.current = false;
+      setSaving(false);
     }
   }
 
-  const AmountEntry = mode === 'TRANSFER' ? TransferAmountInput : AmountInput;
+  const AmountEntry = mode === 'TRANSFER' ? TransferAmountInput : ControlledAmountInput;
   return (
     <AmountEntry
-      key={mode === 'TRANSFER' ? 'transfer' : 'single'}
       source={account}
       destination={destination}
       receivedPreset={preset}
-      presetRevision={amountKey}
+      presetRevision={transferPresetRevision}
       initialPaid={preset && cross ? undefined : amountMinor}
-      initialAmount={entryAmount !== undefined ? (entryAmount / 100).toFixed(2) : ''}
-      initiallyOpen={entryAmount === undefined}
+      draft={amountDraft}
       currency={account?.currencyCode}
       disabled={pending}
       onChange={mode === 'TRANSFER' ? onTransferAmounts : setAmountMinor}
@@ -393,7 +395,10 @@ function QuickAddForm() {
                 disabled={pending}
                 onChange={(value) => {
                   if (mode === 'TRANSFER' && value !== 'TRANSFER') {
-                    setEntryAmount(amountMinor);
+                    amountDraft.reset(
+                      amountMinor === undefined ? '' : (amountMinor / 100).toFixed(2),
+                      amountMinor === undefined,
+                    );
                     setPreset(undefined);
                   }
                   setMode(value);
@@ -452,7 +457,7 @@ function QuickAddForm() {
                           disabled={pending}
                           onPreset={(amount) => {
                             setPreset(amount);
-                            setAmountKey((key) => key + 1);
+                            setTransferPresetRevision((key) => key + 1);
                           }}
                         />
                         {!destinations.length && (
@@ -547,8 +552,12 @@ function QuickAddForm() {
                             }}
                           >
                             {matches.map(personChip)}
+                            {optimisticPersonName &&
+                              !people.some((item) => item.name === optimisticPersonName) && (
+                                <ChoiceChip label={optimisticPersonName} selected disabled />
+                              )}
                           </Animated.View>
-                          {!matches.length && (
+                          {!matches.length && !optimisticPersonName && (
                             <Text style={{ color: c.muted }}>
                               {search
                                 ? 'No matching people.'
@@ -562,11 +571,9 @@ function QuickAddForm() {
                               variant="secondary"
                               disabled={pending}
                               onPress={() =>
-                                void addPerson(query).then((created) => {
-                                  if (created) {
-                                    setPersonId(created.id);
-                                    setQuery('');
-                                  }
+                                addPerson(query, (created) => {
+                                  setPersonId(created.id);
+                                  setQuery('');
                                 })
                               }
                             />
@@ -648,6 +655,7 @@ function QuickAddForm() {
                   disabled={pending}
                   onChange={setSplit}
                   onAddPerson={addPerson}
+                  optimisticPersonName={optimisticPersonName}
                 />
               )}
               <Animated.View key="details" style={{ gap: 12 }}>
@@ -677,8 +685,8 @@ function QuickAddForm() {
               <FormButton
                 key="save"
                 label={saveLabel}
-                loading={pending}
-                disabled={!canSave || editing}
+                loading={saving}
+                disabled={pending || !canSave || editing}
                 onPress={() => {
                   if (!editing) void save();
                 }}

@@ -28,6 +28,24 @@ const readRows = (
   LEFT JOIN transactions expense ON expense.id = r.expenseId
   LEFT JOIN categories expenseCategory ON expenseCategory.id = expense.categoryId`;
 const listRead = readRows();
+type ActivityRecord = Omit<ListRow, 'reimbursement'> & {
+  reimbursementExpenseId: number | null;
+  reimbursementExpenseDate: number | null;
+  reimbursementPerson: string | null;
+  reimbursementCategory: string | null;
+};
+
+function activityRow({
+  reimbursementExpenseId: expenseId,
+  reimbursementExpenseDate: expenseDate,
+  reimbursementPerson: personName,
+  reimbursementCategory: categoryName,
+  ...row
+}: ActivityRecord): ListRow {
+  return expenseId !== null && expenseDate !== null
+    ? { ...row, reimbursement: { expenseId, expenseDate, personName, categoryName } }
+    : row;
+}
 const listOrder = 'ORDER BY t.date DESC, t.id DESC';
 const scopeFilter = (accountId: number | null) =>
   accountId === null
@@ -63,11 +81,11 @@ export async function homeListPage(
   const periods: PeriodRows[] = [];
   for (let step = steps; ; step++) {
     const period = periodBack(setting, today, step);
-    const rows = await db.getAllAsync<ListRow>(
+    const rows = await db.getAllAsync<ActivityRecord>(
       `${listRead} WHERE ${scope.sql} AND t.date >= ? AND t.date < ? ${listOrder}`,
       [...scope.params, period.start, period.end],
     );
-    periods.push({ period, rows });
+    periods.push({ period, rows: rows.map(activityRow) });
     if (step > 0 || rows.length || !olderExists(period)) break;
   }
   const last = periods.at(-1)!;
@@ -89,10 +107,11 @@ export async function homeSearch(accountId: number | null, query: string): Promi
     'payer.name',
     'expenseCategory.name',
   ];
-  return db.getAllAsync<ListRow>(
+  const rows = await db.getAllAsync<ActivityRecord>(
     `${listRead} WHERE ${scope.sql} AND (${fields.map((field) => `${field} LIKE ? ESCAPE '\\'`).join(' OR ')}) ${listOrder}`,
     [...scope.params, ...fields.map(() => like)],
   );
+  return rows.map(activityRow);
 }
 
 const fullCategoryPath = `(WITH RECURSIVE path(id, parentId, label, seen) AS (
@@ -103,9 +122,12 @@ const fullCategoryPath = `(WITH RECURSIVE path(id, parentId, label, seen) AS (
 ) SELECT label FROM path WHERE parentId IS NULL) AS categoryPath`;
 
 export async function expensesForReimbursement() {
-  return (await database()).getAllAsync<ListRow>(
+  const rows = await (
+    await database()
+  ).getAllAsync<ActivityRecord>(
     `${readRows(fullCategoryPath + ', ')} WHERE t.type = 'EXPENSE' AND lending.id IS NULL ${listOrder}`,
   );
+  return rows.map(activityRow);
 }
 
 export type ShareProgress = {
@@ -125,9 +147,9 @@ export async function expenseReimbursements(expenseId: number) {
        JOIN people p ON p.id = s.personId WHERE s.expenseId = ? ORDER BY p.name, p.id`,
       [expenseId],
     ),
-    db.getAllAsync<ListRow>(`${listRead} WHERE r.expenseId = ? ${listOrder}`, [expenseId]),
+    db.getAllAsync<ActivityRecord>(`${listRead} WHERE r.expenseId = ? ${listOrder}`, [expenseId]),
   ]);
-  return { shares, payments };
+  return { shares, payments: payments.map(activityRow) };
 }
 
 export async function reimbursementReceipt(id: number, type: 'EXPENSE' | 'INCOME') {
@@ -137,14 +159,16 @@ export async function reimbursementReceipt(id: number, type: 'EXPENSE' | 'INCOME
   }
   const linked = await (
     await database()
-  ).getFirstAsync<ListRow & { payer: string | null }>(
+  ).getFirstAsync<ActivityRecord & { payer: string | null }>(
     `${readRows(`${fullCategoryPath}, personWhoPaid.name AS payer, `)}
     JOIN reimbursements payment ON payment.expenseId = t.id
     LEFT JOIN people personWhoPaid ON personWhoPaid.id = payment.personId
     WHERE payment.transactionId = ?`,
     [id],
   );
-  return { shares: [], payments: [], expense: linked, payer: linked?.payer ?? null };
+  if (!linked) return { shares: [], payments: [], expense: null, payer: null };
+  const { payer, ...expense } = linked;
+  return { shares: [], payments: [], expense: activityRow(expense), payer };
 }
 
 const periodSettingKey = 'homePeriod';
