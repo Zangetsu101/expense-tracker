@@ -85,6 +85,10 @@ export function WriteOffForm({
       onSavingChange(false);
     }
   }
+  let buttonLabel = 'Write off';
+  if (committed) buttonLabel = 'Retry receipt';
+  else if (id) buttonLabel = 'Save changes';
+  else if (minor) buttonLabel = `Write off ${formatBalance(minor, currency)}`;
   return (
     <View style={{ gap: 12 }}>
       <View
@@ -163,15 +167,7 @@ export function WriteOffForm({
         </Text>
       )}
       <LendingButton
-        label={
-          committed
-            ? 'Retry receipt'
-            : id
-              ? 'Save changes'
-              : minor
-                ? `Write off ${formatBalance(minor, currency)}`
-                : 'Write off'
-        }
+        label={buttonLabel}
         disabled={disabled || !minor || (id === undefined && minor > initialAmount)}
         pending={pending}
         onPress={() => {

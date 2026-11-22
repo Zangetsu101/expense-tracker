@@ -16,7 +16,10 @@ import { c, LoadError, Note } from './view.tsx';
 const art = { width: 96, height: 44 };
 
 export function signed(minor: number, currency: string) {
-  return `${minor > 0 ? '+' : minor < 0 ? '−' : ''}${formatBalance(Math.abs(minor), currency)}`;
+  let sign = '';
+  if (minor > 0) sign = '+';
+  else if (minor < 0) sign = '−';
+  return `${sign}${formatBalance(Math.abs(minor), currency)}`;
 }
 export function aboveText(nowMinor: number, usualMinor: number, currency: string) {
   const difference = nowMinor - usualMinor;

@@ -56,7 +56,7 @@ function OpenTotals({ totals, compact = false }: { totals: LendingTotal[]; compa
                 .map(([currency, amount], index) => (
                   <MoneyText
                     key={currency}
-                    size={compact ? 18 : index === 0 ? 22 : 14}
+                    size={amountSize(compact, index)}
                     color={directionColor(direction)}
                   >
                     {formatBalance(amount, currency)}
@@ -72,6 +72,11 @@ function OpenTotals({ totals, compact = false }: { totals: LendingTotal[]; compa
   );
 }
 
+function amountSize(compact: boolean, index: number) {
+  if (compact) return 18;
+  return index === 0 ? 22 : 14;
+}
+
 function largestOpenAmount(totals: LendingTotal[]) {
   return totals.reduce((largest, total) => Math.max(largest, total.outstandingMinor), 0);
 }
@@ -80,17 +85,17 @@ function PersonRow({ person, settled = false }: { person: PersonWithTotals; sett
   const credit = person.totals
     .filter((total) => total.overpaidMinor)
     .map((total) => formatBalance(total.overpaidMinor, total.currencyCode));
-  const detail = settled
-    ? credit.length
-      ? `Overpaid credit ${credit.join(' · ')}`
-      : 'Settled'
-    : [
-        person.totals.some((t) => t.outstandingMinor && t.direction === 'LENT') && 'Owes you',
-        person.totals.some((t) => t.outstandingMinor && t.direction === 'BORROWED') && 'You owe',
-        person.lastDate !== undefined && formatActivityDay(person.lastDate),
-      ]
-        .filter(Boolean)
-        .join(' · ');
+  let detail: string;
+  if (!settled)
+    detail = [
+      person.totals.some((t) => t.outstandingMinor && t.direction === 'LENT') && 'Owes you',
+      person.totals.some((t) => t.outstandingMinor && t.direction === 'BORROWED') && 'You owe',
+      person.lastDate !== undefined && formatActivityDay(person.lastDate),
+    ]
+      .filter(Boolean)
+      .join(' · ');
+  else if (credit.length) detail = `Overpaid credit ${credit.join(' · ')}`;
+  else detail = 'Settled';
   return (
     <LedgerRow
       title={person.name}

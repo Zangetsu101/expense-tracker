@@ -1,4 +1,4 @@
-import { useEffect, type ComponentProps } from 'react';
+import { useEffect, type ComponentProps, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -318,25 +318,28 @@ export function ListEnd({
   failed: string | null;
   onAction: () => void;
 }) {
+  let control: ReactNode = action && <EndButton label={action} onPress={onAction} />;
+  if (loading)
+    control = (
+      <ActivityIndicator
+        accessibilityLabel="Loading"
+        color={colors.accent}
+        style={{ minHeight: 44 }}
+      />
+    );
+  else if (failed)
+    control = (
+      <>
+        <Text accessibilityRole="alert" style={{ color: colors.warning }}>
+          {failed}
+        </Text>
+        <EndButton label="Retry" onPress={onAction} />
+      </>
+    );
   return (
     <View style={{ alignItems: 'center', gap: 10, paddingVertical: 24 }}>
       <Text style={{ color: colors.muted, textAlign: 'center' }}>{text}</Text>
-      {loading ? (
-        <ActivityIndicator
-          accessibilityLabel="Loading"
-          color={colors.accent}
-          style={{ minHeight: 44 }}
-        />
-      ) : failed ? (
-        <>
-          <Text accessibilityRole="alert" style={{ color: colors.warning }}>
-            {failed}
-          </Text>
-          <EndButton label="Retry" onPress={onAction} />
-        </>
-      ) : (
-        action && <EndButton label={action} onPress={onAction} />
-      )}
+      {control}
     </View>
   );
 }

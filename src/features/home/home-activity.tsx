@@ -166,11 +166,11 @@ function ActivityResults({
   const allDatesRows = searching && allDates ? allDatesSearch.data : undefined;
   const rangeRows = periods[0]?.rows.filter((row) => matchesSearch(row, query)) ?? [];
   const hasAny = firstDay !== null;
-  const sections = !hasAny
-    ? []
-    : !searching
-      ? listSections(periods, shownScope)
-      : searchSections(allDatesRows ?? rangeRows);
+  let sections: ListSection[] = [];
+  if (hasAny)
+    sections = searching
+      ? searchSections(allDatesRows ?? rangeRows)
+      : listSections(periods, shownScope);
   const saved = useSavedRow({
     state: savedState,
     accountId,

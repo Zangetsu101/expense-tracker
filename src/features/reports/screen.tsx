@@ -1,4 +1,4 @@
-import { use, useDeferredValue, useState } from 'react';
+import { use, useDeferredValue, useState, type ReactNode } from 'react';
 import {
   QueryErrorResetBoundary,
   useQuery,
@@ -146,48 +146,51 @@ function ReportsBody({ reset, today }: { reset: () => void; today: number }) {
     client.setQueryData(reportSettingsQuery().queryKey, next);
     void saveFiscalStart(month).catch(() => void client.invalidateQueries(reportSettingsQuery()));
   };
+  let sheetContent: ReactNode = null;
+  if (sheet === 'range')
+    sheetContent = (
+      <RangeSheet
+        range={range}
+        today={today}
+        settings={settings}
+        onChange={change}
+        onFiscalStart={changeFiscalStart}
+        onClose={() => setSheet(null)}
+      />
+    );
+  else if (sheet === 'scope')
+    sheetContent = (
+      <AccountSheet
+        onAddAccount={() => {
+          setSheet(null);
+          router.push('/accounts');
+        }}
+        onDismiss={() => setSheet(null)}
+      >
+        <AccountSheet.Option
+          name="All accounts"
+          selected={accountId === undefined}
+          onPress={() => selectAccount(undefined)}
+        />
+        {accounts.map((item) => (
+          <AccountSheet.Option
+            key={item.id}
+            name={item.name}
+            detail={item.currencyCode}
+            favorite={!!item.isFavorite}
+            selected={accountId === item.id}
+            onPress={() => selectAccount(item.id)}
+          />
+        ))}
+      </AccountSheet>
+    );
   return (
     <ReportPage
       title="Reports"
       headerTitle={
         <AccountTitle name={account?.name ?? 'All accounts'} onPress={() => setSheet('scope')} />
       }
-      sheet={
-        sheet === 'range' ? (
-          <RangeSheet
-            range={range}
-            today={today}
-            settings={settings}
-            onChange={change}
-            onFiscalStart={changeFiscalStart}
-            onClose={() => setSheet(null)}
-          />
-        ) : sheet === 'scope' ? (
-          <AccountSheet
-            onAddAccount={() => {
-              setSheet(null);
-              router.push('/accounts');
-            }}
-            onDismiss={() => setSheet(null)}
-          >
-            <AccountSheet.Option
-              name="All accounts"
-              selected={accountId === undefined}
-              onPress={() => selectAccount(undefined)}
-            />
-            {accounts.map((item) => (
-              <AccountSheet.Option
-                key={item.id}
-                name={item.name}
-                detail={item.currencyCode}
-                favorite={!!item.isFavorite}
-                selected={accountId === item.id}
-                onPress={() => selectAccount(item.id)}
-              />
-            ))}
-          </AccountSheet>
-        ) : null
-      }
+      sheet={sheetContent}
     >
       <RangeHeader
         name={title.name}

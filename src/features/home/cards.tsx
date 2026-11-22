@@ -12,7 +12,7 @@ import { formatActivityDay, formatBalance } from '@/lib/transaction-format';
 import { convertTo, rowsInCurrency, validDisplayRate, type DisplayRate } from '@/lib/display-rate';
 import { theme } from '@/theme';
 import { homeBalances } from './balances.ts';
-import { pageDots, type DeckAccount, type DeckCard } from './deck.ts';
+import { pageDots, type DeckAccount, type DeckCard, type PageDot } from './deck.ts';
 import { paceSummary } from './pace.ts';
 import { periodKey, shortDay, type HomePeriod, type PeriodSetting } from './period.ts';
 import { homePaceQuery, homeTrendQuery, homeUsualQuery } from './queries.ts';
@@ -35,17 +35,20 @@ const hues = [
   '#3a2c6b',
   '#6b3a2c',
 ];
+const dotSizes: Record<PageDot['size'], number> = { full: 6, medium: 4.5, small: 3 };
+
+function comparisonColor(known: boolean, over: boolean) {
+  if (!known) return c.muted;
+  return over ? c.warning : c.accent;
+}
 
 /** A short amount for chart labels: ৳2.4L, $1.2k. */
 export function compactMoney(minor: number, currency: string) {
   const value = Math.abs(minor) / 100;
   const symbol = currencySymbol(currency);
-  const text =
-    currency === 'BDT' && value >= 1e5
-      ? `${(value / 1e5).toFixed(1)}L`
-      : value >= 1000
-        ? `${(value / 1000).toFixed(1)}k`
-        : String(Math.round(value));
+  let text = String(Math.round(value));
+  if (currency === 'BDT' && value >= 1e5) text = `${(value / 1e5).toFixed(1)}L`;
+  else if (value >= 1000) text = `${(value / 1000).toFixed(1)}k`;
   return `${minor < 0 ? '−' : ''}${symbol}${text}`;
 }
 
@@ -90,6 +93,20 @@ export function HomeCard({
     rate: displayRate,
     mainCurrency,
   });
+  let amount: ReactNode;
+  if (card.face === 'trend' && scrub !== null)
+    amount = <Amount minor={scrub} currency={card.account.currencyCode} still />;
+  else if (account)
+    amount = (
+      <Amount
+        minor={
+          account.bill ? account.bill.creditMinor || account.bill.billMinor : account.balanceMinor
+        }
+        currency={account.currencyCode}
+        credit={!!account.bill?.creditMinor}
+      />
+    );
+  else amount = <AllBalance summary={summary} />;
   return (
     <View
       accessibilityLabel={account?.name ?? 'All accounts'}
@@ -141,19 +158,7 @@ export function HomeCard({
         </Pressable>
       </View>
       {!account && <Text style={{ color: c.muted, fontSize: 12 }}>In your accounts</Text>}
-      {card.face === 'trend' && scrub !== null ? (
-        <Amount minor={scrub} currency={card.account.currencyCode} still />
-      ) : account ? (
-        <Amount
-          minor={
-            account.bill ? account.bill.creditMinor || account.bill.billMinor : account.balanceMinor
-          }
-          currency={account.currencyCode}
-          credit={!!account.bill?.creditMinor}
-        />
-      ) : (
-        <AllBalance summary={summary} />
-      )}
+      {amount}
       {account?.bill ? (
         <CreditCardBody account={account} onSettle={() => context.onSettle(account)} />
       ) : (
@@ -174,15 +179,12 @@ export function HomeCard({
 
 function CreditCardBody({ account, onSettle }: { account: DeckAccount; onSettle: () => void }) {
   const bill = account.bill!;
+  let billLabel = 'Bill to settle';
+  if (bill.creditMinor) billLabel = 'Credit';
+  else if (bill.statementDate !== null) billLabel = `Statement ${shortDay(bill.statementDate)}`;
   return (
     <View style={{ gap: 8 }}>
-      <Text style={{ color: bill.creditMinor ? c.accent : c.muted }}>
-        {bill.creditMinor
-          ? 'Credit'
-          : bill.statementDate === null
-            ? 'Bill to settle'
-            : `Statement ${shortDay(bill.statementDate)}`}
-      </Text>
+      <Text style={{ color: bill.creditMinor ? c.accent : c.muted }}>{billLabel}</Text>
       {bill.dueDate !== null && bill.billMinor > 0 && (
         <Text
           style={{
@@ -339,6 +341,27 @@ function CardBody({
   onScrub: (scrub: Scrub) => void;
 }) {
   const { shownSetting, stale, reset } = context;
+  let body: ReactNode;
+  if (card.face === 'trend')
+    body = (
+      <TrendBody
+        key={periodKey(shownSetting)}
+        account={card.account}
+        context={context}
+        onScrub={onScrub}
+      />
+    );
+  else if (shownSetting.range === 'week' || shownSetting.range === 'month')
+    body = (
+      <UsualPaceBody
+        key={periodKey(shownSetting)}
+        accountId={card.accountId}
+        setting={{ ...shownSetting, range: shownSetting.range }}
+        context={context}
+      />
+    );
+  else
+    body = <PaceBody key={periodKey(shownSetting)} accountId={card.accountId} context={context} />;
   return (
     <View
       pointerEvents={stale ? 'none' : 'auto'}
@@ -351,25 +374,7 @@ function CardBody({
         onReset={reset}
         fallback={(retry) => <CardBodyError retry={retry} />}
       >
-        <Suspense fallback={<CardBodySkeleton face={card.face} />}>
-          {card.face === 'trend' ? (
-            <TrendBody
-              key={periodKey(shownSetting)}
-              account={card.account}
-              context={context}
-              onScrub={onScrub}
-            />
-          ) : shownSetting.range === 'week' || shownSetting.range === 'month' ? (
-            <UsualPaceBody
-              key={periodKey(shownSetting)}
-              accountId={card.accountId}
-              setting={{ ...shownSetting, range: shownSetting.range }}
-              context={context}
-            />
-          ) : (
-            <PaceBody key={periodKey(shownSetting)} accountId={card.accountId} context={context} />
-          )}
-        </Suspense>
+        <Suspense fallback={<CardBodySkeleton face={card.face} />}>{body}</Suspense>
       </ErrorBoundary>
     </View>
   );
@@ -392,11 +397,13 @@ function TrendBody({
   const high = Math.max(...points);
   const currency = account.currencyCode;
   const chartWidth = context.width - cardPadding * 2;
+  let changeColor: string = c.muted;
+  if (scrubbed === null) changeColor = change >= 0 ? c.accent : c.warning;
   return (
     <View style={{ gap: 4 }}>
       <Text
         style={{
-          color: scrubbed === null ? (change >= 0 ? c.accent : c.warning) : c.muted,
+          color: changeColor,
           fontSize: 13,
           fontVariant: ['tabular-nums'],
         }}
@@ -447,11 +454,10 @@ function UsualPaceBody({
   const over = ready && pace.spentMinor > usualMinor;
   const max = Math.max(ready ? pace.usualFullMinor : 0, pace.spentMinor, 1);
   const difference = formatBalance(Math.abs(pace.spentMinor - usualMinor), currency);
-  const comparison = !ready
-    ? needsText(setting.range, pace.needed)
-    : pace.spentMinor === usualMinor
-      ? 'Same as usual by this point'
-      : `${difference} ${over ? 'more' : 'less'} than usual by this point`;
+  let comparison: string;
+  if (!ready) comparison = needsText(setting.range, pace.needed);
+  else if (pace.spentMinor === usualMinor) comparison = 'Same as usual by this point';
+  else comparison = `${difference} ${over ? 'more' : 'less'} than usual by this point`;
   return (
     <Pressable
       accessibilityRole="button"
@@ -491,10 +497,7 @@ function UsualPaceBody({
           />
         )}
       </View>
-      <Text
-        numberOfLines={1}
-        style={{ color: !ready ? c.muted : over ? c.warning : c.accent, fontSize: 12.5 }}
-      >
+      <Text numberOfLines={1} style={{ color: comparisonColor(ready, over), fontSize: 12.5 }}>
         {comparison} ›
       </Text>
       {converted.leftOutOthers && new Set(scoped.map((a) => a.currencyCode)).size > 1 && (
@@ -566,7 +569,7 @@ function PaceBody({ accountId, context }: { accountId: number | null; context: C
       <Text
         numberOfLines={1}
         style={{
-          color: previousMinor === 0 ? c.muted : over ? c.warning : c.accent,
+          color: comparisonColor(previousMinor !== 0, over),
           fontSize: 12.5,
         }}
       >
@@ -725,7 +728,7 @@ export function PageDots({ count, index }: { count: number; index: number }) {
       }}
     >
       {dots.map((dot) => {
-        const size = dot.size === 'full' ? 6 : dot.size === 'medium' ? 4.5 : 3;
+        const size = dotSizes[dot.size];
         return (
           <View
             key={dot.index}

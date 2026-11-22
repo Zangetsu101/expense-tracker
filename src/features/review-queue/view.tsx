@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import { FlatList, Pressable, Text, View } from 'react-native';
 import type { ReviewCandidate } from '@/lib/review-queue';
 import { FormButton } from '@/components/form-controls';
@@ -71,19 +71,18 @@ export function CandidatesView({
   onConfirm: (id: number) => void;
   onReject: (id: number) => void;
 }) {
+  let header: ReactElement | undefined;
+  if (refreshFailed)
+    header = <ReviewQueueAlert message="Could not refresh transfer candidates." retry={onRetry} />;
+  else if (candidates.length === 0)
+    header = <Text style={{ color: c.text }}>No transfer candidates to review.</Text>;
   return (
     <FlatList
       contentInsetAdjustmentBehavior="automatic"
       contentContainerStyle={listStyle}
       data={candidates}
       keyExtractor={(row) => String(row.id)}
-      ListHeaderComponent={
-        refreshFailed ? (
-          <ReviewQueueAlert message="Could not refresh transfer candidates." retry={onRetry} />
-        ) : candidates.length === 0 ? (
-          <Text style={{ color: c.text }}>No transfer candidates to review.</Text>
-        ) : undefined
-      }
+      ListHeaderComponent={header}
       renderItem={({ item }) => (
         <CandidateCard
           candidate={item}

@@ -30,7 +30,7 @@ import { AccountChoices, personBalanceSummary } from '@/components/entry-choices
 import { FormButton, FormInput, JoinedChoice } from '@/components/form-controls';
 import { parseRouteId } from '@/lib/account-selection';
 import { useClippedChips } from '@/components/use-clipped-chips';
-import { theme } from '@/theme';
+import { pressableOpacity, theme } from '@/theme';
 
 const AnimatedFormButton = Animated.createAnimatedComponent(FormButton);
 const c = theme.colors;
@@ -128,7 +128,7 @@ function QuickAddForm() {
     (option) => option.value === params.action,
   )?.value;
   const [mode, setMode] = useState<Mode>(() =>
-    params.mode === 'PERSON' ? 'PERSON' : params.mode === 'TRANSFER' ? 'TRANSFER' : 'EXPENSE',
+    params.mode === 'PERSON' || params.mode === 'TRANSFER' ? params.mode : 'EXPENSE',
   );
   const [preset, setPreset] = useState(() => {
     const amount = Number(params.amountMinor);
@@ -202,27 +202,27 @@ function QuickAddForm() {
   const cross =
     mode === 'TRANSFER' && destination && destination.currencyCode !== account?.currencyCode;
   const validAmount = amountMinor !== undefined && (!cross || receivedAmountMinor !== undefined);
+  let targetSelected: boolean;
+  if (mode === 'TRANSFER') targetSelected = destinations.some((item) => item.id === toId);
+  else if (mode === 'PERSON') targetSelected = !!person;
+  else
+    targetSelected =
+      !!categoryMode && categories.some((item) => item.id === categoryIds[categoryMode]);
   const canSave =
     !!accountsRead.data &&
     (mode === 'TRANSFER' || (mode === 'PERSON' ? !!peopleRead.data : !!categoryRead.data)) &&
     validAmount &&
     !!account &&
-    (mode === 'TRANSFER'
-      ? destinations.some((item) => item.id === toId)
-      : mode === 'PERSON'
-        ? !!person
-        : !!categoryMode && categories.some((item) => item.id === categoryIds[categoryMode]));
-  const saveLabel =
-    mode === 'PERSON'
-      ? {
-          LEND: 'Save lending',
-          BORROW: 'Save borrowing',
-          RECEIVE_REPAYMENT: 'Save repayment received',
-          REPAY: 'Save repayment made',
-        }[action]
-      : mode === 'TRANSFER'
-        ? 'Save transfer'
-        : 'Save';
+    targetSelected;
+  let saveLabel = 'Save';
+  if (mode === 'PERSON')
+    saveLabel = {
+      LEND: 'Save lending',
+      BORROW: 'Save borrowing',
+      RECEIVE_REPAYMENT: 'Save repayment received',
+      REPAY: 'Save repayment made',
+    }[action];
+  else if (mode === 'TRANSFER') saveLabel = 'Save transfer';
 
   async function addPerson() {
     if (busy.current) return;
@@ -457,7 +457,10 @@ function QuickAddForm() {
                                 maxWidth: '100%',
                                 borderRadius: 14,
                                 backgroundColor: selected ? c.selected : c.surface,
-                                opacity: pending ? 0.45 : pressed ? 0.7 : 1,
+                                opacity: pressableOpacity(
+                                  { disabled: pending, pressed },
+                                  { disabled: 0.45, pressed: 0.7 },
+                                ),
                                 gap: 4,
                               })}
                             >
