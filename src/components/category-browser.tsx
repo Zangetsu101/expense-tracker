@@ -17,11 +17,16 @@ import {
   type CategoryType,
   type CreateCategoryInput,
 } from '../lib/categories';
-import { theme as t } from '../theme';
+import { pressableOpacity, theme as t } from '../theme';
 
 type Kind = CategoryType;
 type Category = ManagedCategory;
 const c = { ...t.colors, bg: t.colors.background, ink: t.colors.text };
+
+function treeMarker(hasChildren: boolean, expanded: boolean) {
+  if (!hasChildren) return '•';
+  return expanded ? '▾' : '▸';
+}
 
 const grouping = { radius: t.radius.group, root: t.colors.root };
 // Clip whole groups, not individual rows; keep sibling joins and row geometry intact.
@@ -97,7 +102,7 @@ export function CategoryBrowser({
         minHeight: 48,
         minWidth: 48,
         justifyContent: 'center',
-        opacity: disabled ? 0.4 : pressed ? 0.65 : 1,
+        opacity: pressableOpacity({ disabled, pressed }, { disabled: 0.4, pressed: 0.65 }),
       })}
     >
       <View
@@ -332,7 +337,7 @@ export function CategoryBrowser({
               accessible={false}
               style={{ width: 16, color: selected === item.id ? c.accent : c.muted, fontSize: 16 }}
             >
-              {hasChildren ? (expanded ? '▾' : '▸') : '•'}
+              {treeMarker(hasChildren, expanded)}
             </Text>
             <View
               style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm }}

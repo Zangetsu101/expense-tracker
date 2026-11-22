@@ -1,5 +1,5 @@
 import { BottomSheet, Button, Column, Host, Text as NativeText } from '@expo/ui';
-import { useEffect, useEffectEvent, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from 'react';
 import { Alert, Image, Platform, Text, View, useWindowDimensions } from 'react-native';
 import { FormButton } from '@/components/form-controls';
 import { Skeleton } from '@/components/loading';
@@ -299,6 +299,65 @@ export function BackupSettings({
     else scheduleNote = `Backs up ${state.interval}. Keeps the latest 7 backups.`;
   }
 
+  let cardContent: ReactNode;
+  if (loading) cardContent = <Skeleton width={200} height={14} animated={false} />;
+  else if (loadError)
+    cardContent = <FormButton label="Retry" variant="secondary" onPress={() => void refresh()} />;
+  else if (account)
+    cardContent = (
+      <>
+        <View style={{ flexDirection: 'row', gap: theme.spacing.md }}>
+          <AccountAvatar {...account} />
+          <View style={{ flex: 1, gap: theme.spacing.xs }}>
+            <Text style={{ color: theme.colors.text, fontSize: theme.type.body }}>
+              {account.email}
+            </Text>
+            <Text
+              accessibilityRole={status?.warning ? 'alert' : undefined}
+              style={{
+                ...caption,
+                color: status?.warning ? theme.colors.warning : theme.colors.muted,
+              }}
+            >
+              {status?.text}
+            </Text>
+          </View>
+        </View>
+        <FormButton
+          label={status ? actionLabels[status.action] : 'Back up now'}
+          loading={operation === 'backup' || operation === 'connect'}
+          disabled={busy}
+          onPress={cardAction}
+        />
+      </>
+    );
+  else
+    cardContent = (
+      <>
+        <View style={{ gap: theme.spacing.xs }}>
+          <Text
+            style={{
+              color: theme.colors.text,
+              fontSize: theme.type.body,
+              fontWeight: '600',
+            }}
+          >
+            Back up to Google Drive
+          </Text>
+          <Text style={caption}>
+            Keep automatic copies of your data in your Drive. The app can only see files that it
+            creates.
+          </Text>
+        </View>
+        <FormButton
+          label="Connect Google Drive"
+          loading={operation === 'connect'}
+          disabled={busy}
+          onPress={connect}
+        />
+      </>
+    );
+
   return (
     <View>
       <SettingsGroup
@@ -331,61 +390,7 @@ export function BackupSettings({
               borderColor: theme.colors.line,
             }}
           >
-            {loading ? (
-              <Skeleton width={200} height={14} animated={false} />
-            ) : loadError ? (
-              <FormButton label="Retry" variant="secondary" onPress={() => void refresh()} />
-            ) : account ? (
-              <>
-                <View style={{ flexDirection: 'row', gap: theme.spacing.md }}>
-                  <AccountAvatar {...account} />
-                  <View style={{ flex: 1, gap: theme.spacing.xs }}>
-                    <Text style={{ color: theme.colors.text, fontSize: theme.type.body }}>
-                      {account.email}
-                    </Text>
-                    <Text
-                      accessibilityRole={status?.warning ? 'alert' : undefined}
-                      style={{
-                        ...caption,
-                        color: status?.warning ? theme.colors.warning : theme.colors.muted,
-                      }}
-                    >
-                      {status?.text}
-                    </Text>
-                  </View>
-                </View>
-                <FormButton
-                  label={status ? actionLabels[status.action] : 'Back up now'}
-                  loading={operation === 'backup' || operation === 'connect'}
-                  disabled={busy}
-                  onPress={cardAction}
-                />
-              </>
-            ) : (
-              <>
-                <View style={{ gap: theme.spacing.xs }}>
-                  <Text
-                    style={{
-                      color: theme.colors.text,
-                      fontSize: theme.type.body,
-                      fontWeight: '600',
-                    }}
-                  >
-                    Back up to Google Drive
-                  </Text>
-                  <Text style={caption}>
-                    Keep automatic copies of your data in your Drive. The app can only see files
-                    that it creates.
-                  </Text>
-                </View>
-                <FormButton
-                  label="Connect Google Drive"
-                  loading={operation === 'connect'}
-                  disabled={busy}
-                  onPress={connect}
-                />
-              </>
-            )}
+            {cardContent}
           </View>
         )}
         {connected && (

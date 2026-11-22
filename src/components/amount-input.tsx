@@ -7,6 +7,11 @@ import { AmountCalculator } from './amount-calculator.tsx';
 import { theme } from '@/theme';
 
 const c = theme.colors;
+function amountSymbol(currency: string | undefined) {
+  if (currency === 'BDT') return '৳';
+  if (currency === 'USD') return '$';
+  return '';
+}
 
 export function AmountInput({
   currency,
@@ -72,7 +77,7 @@ export function AmountInput({
         }}
       >
         <Text style={{ color: c.text, fontSize: 48, fontWeight: '300' }}>
-          {currency === 'BDT' ? '৳' : currency === 'USD' ? '$' : ''}
+          {amountSymbol(currency)}
         </Text>
         <Pressable
           accessibilityRole="button"
