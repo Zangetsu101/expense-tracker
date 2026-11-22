@@ -26,7 +26,6 @@ const activity = (pending: boolean, label = 'Current results') => (
     now={new Date(2026, 10, 12)}
     query=""
     stale={pending}
-    muted={false}
     slidingId={null}
     phase={() => undefined}
     onOpen={() => {}}
