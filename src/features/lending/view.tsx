@@ -25,12 +25,6 @@ export const colors = theme.colors;
 export const panel = { backgroundColor: colors.surface, borderRadius: 16, padding: 18, gap: 12 };
 export const divider = { height: 1, backgroundColor: colors.line };
 
-/** The icon, the color and the amount sign of a row in a lending history. */
-function entryFlow(writeOff: boolean, incoming: boolean) {
-  if (writeOff) return { icon: '✕', color: colors.muted, type: 'TRANSFER' } as const;
-  if (incoming) return { icon: '↙', color: colors.accent, type: 'INCOME' } as const;
-  return { icon: '↗', color: colors.text, type: 'EXPENSE' } as const;
-}
 export const spacedRow = {
   flexDirection: 'row',
   justifyContent: 'space-between',
@@ -375,6 +369,12 @@ export function BalanceAmounts({ totals }: { totals: LendingTotal[] }) {
 
 type HistoryEntry = LendingEntry | UnassignedLendingTransaction;
 
+function entryFlow(writeOff: boolean, incoming: boolean) {
+  if (writeOff) return { icon: '✕', color: colors.muted, signAs: 'TRANSFER' } as const;
+  if (incoming) return { icon: '↙', color: colors.accent, signAs: 'INCOME' } as const;
+  return { icon: '↗', color: colors.text, signAs: 'EXPENSE' } as const;
+}
+
 export function HistoryList<T extends HistoryEntry>({
   rows,
   header,
@@ -430,7 +430,7 @@ export function HistoryList<T extends HistoryEntry>({
             onPress={() => onPress(item)}
             amounts={
               <MoneyText color={flow.color}>
-                {formatMoney(flow.type, item.amountMinor, item.currencyCode)}
+                {formatMoney(flow.signAs, item.amountMinor, item.currencyCode)}
               </MoneyText>
             }
           />
