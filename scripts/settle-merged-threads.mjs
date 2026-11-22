@@ -96,6 +96,15 @@ export function selectMergedThreads(
   });
 }
 
+function settlementSkipReason(thread, input) {
+  if (!thread) return 'thread-missing';
+  if (thread.latestRunId !== input.runId) return 'run-replaced';
+  if (thread.branch !== input.branch) return 'thread-branch-changed';
+  if (thread.status !== 'completed') return 'run-not-completed';
+  if (thread.settledAt != null || thread.settledOverride === 'settled') return 'already-settled';
+  return null;
+}
+
 function diagnostics(input, options) {
   const log = options.log ?? console.log;
   return (event, fields = {}) =>
@@ -188,17 +197,7 @@ export async function waitForMergedThread(input, options = {}) {
 
     const snapshot = await request('/api/orchestration/shell');
     const thread = snapshot.threads.find((t) => t.id === input.threadId);
-    const reason = !thread
-      ? 'thread-missing'
-      : thread.latestRunId !== input.runId
-        ? 'run-replaced'
-        : thread.branch !== input.branch
-          ? 'thread-branch-changed'
-          : thread.status !== 'completed'
-            ? 'run-not-completed'
-            : thread.settledAt != null || thread.settledOverride === 'settled'
-              ? 'already-settled'
-              : null;
+    const reason = settlementSkipReason(thread, input);
     if (reason) {
       report('settlement-skipped', {
         reason,

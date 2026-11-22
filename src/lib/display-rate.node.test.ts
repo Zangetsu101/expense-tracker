@@ -4,8 +4,10 @@ import { registerHooks, stripTypeScriptTypes } from 'node:module';
 
 let stored;
 const tx = {
-  getFirstAsync: async (sql) =>
-    sql.includes('app_settings') ? (stored ? { value: stored } : null) : { id: 42 },
+  getFirstAsync: async (sql) => {
+    if (!sql.includes('app_settings')) return { id: 42 };
+    return stored ? { value: stored } : null;
+  },
   runAsync: async (_sql, values) => {
     stored = values[0];
   },

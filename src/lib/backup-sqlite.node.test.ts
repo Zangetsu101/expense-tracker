@@ -45,11 +45,10 @@ registerHooks({
       'expo-sharing': 'sharing',
     };
     if (mocks[specifier]) return { url: `test:${mocks[specifier]}`, shortCircuit: true };
-    const path = specifier.startsWith('@/lib/')
-      ? resolve(root, specifier.slice(6))
-      : specifier.startsWith('.') && context.parentURL?.endsWith('.ts')
-        ? resolve(dirname(fileURLToPath(context.parentURL)), specifier)
-        : null;
+    let path = null;
+    if (specifier.startsWith('@/lib/')) path = resolve(root, specifier.slice(6));
+    else if (specifier.startsWith('.') && context.parentURL?.endsWith('.ts'))
+      path = resolve(dirname(fileURLToPath(context.parentURL)), specifier);
     if (path)
       return nextResolve(pathToFileURL(path.endsWith('.ts') ? path : `${path}.ts`).href, context);
     return nextResolve(specifier, context);

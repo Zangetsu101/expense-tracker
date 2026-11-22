@@ -64,14 +64,9 @@ export function applyTransferAmount(
     return true;
   };
   const other = field === 'pay' ? 'receive' : 'pay';
-  const target =
-    field === 'rate'
-      ? next.typed.receive || !next.typed.pay
-        ? 'pay'
-        : 'receive'
-      : next.typed[other] && next[other]
-        ? 'rate'
-        : other;
+  let target: TransferField;
+  if (field === 'rate') target = next.typed.receive || !next.typed.pay ? 'pay' : 'receive';
+  else target = next.typed[other] && next[other] ? 'rate' : other;
   if (value !== undefined && !follow(target)) {
     const fallback = (['pay', 'receive', 'rate'] as const).find(
       (key) => key !== field && key !== target,

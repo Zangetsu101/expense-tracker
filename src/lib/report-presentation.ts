@@ -88,5 +88,6 @@ export function hasChildren(node: { id: number | null; children: { id: number | 
 export function changeMark(nowMinor: number, usualMinor: number): 'up' | 'down' | null {
   if (usualMinor <= 0) return nowMinor > 0 ? 'up' : null;
   const change = (nowMinor - usualMinor) / usualMinor;
-  return change >= markerChange ? 'up' : change <= -markerChange ? 'down' : null;
+  if (change >= markerChange) return 'up';
+  return change <= -markerChange ? 'down' : null;
 }

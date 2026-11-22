@@ -16,6 +16,12 @@ let base: string;
 let seen: Seen[];
 let replies: (Reply | ((request: Seen) => Reply))[];
 
+function replyBody(body: unknown): string {
+  if (body === undefined) return '';
+  if (typeof body === 'string') return body;
+  return JSON.stringify(body);
+}
+
 beforeAll(async () => {
   server = http.createServer((req, res) => {
     let body = '';
@@ -31,13 +37,7 @@ beforeAll(async () => {
       const next = replies.shift() ?? { status: 500 };
       const reply = typeof next === 'function' ? next(request) : next;
       res.statusCode = reply.status;
-      res.end(
-        reply.body === undefined
-          ? ''
-          : typeof reply.body === 'string'
-            ? reply.body
-            : JSON.stringify(reply.body),
-      );
+      res.end(replyBody(reply.body));
     });
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
