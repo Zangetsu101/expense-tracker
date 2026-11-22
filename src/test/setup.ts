@@ -1,8 +1,4 @@
-import { act } from 'react';
-import { notifyManager } from '@tanstack/react-query';
 import type * as TestRenderer from 'test-renderer';
-
-const actEnvironment = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
 
 // Reanimated 4.7's mock imports native CSS initialization, which requires a UI runtime.
 jest.mock('react-native-reanimated/src/initializers', () => ({
@@ -28,13 +24,4 @@ jest.mock('test-renderer', () => {
     createRoot: (options?: TestRenderer.RootOptions) =>
       actual.createRoot({ onCaughtError: () => {}, ...options }),
   };
-});
-
-// TanStack Query gives results to its observers from a timer. Without `act`, a result
-// that arrives after the last step of a test causes a React warning in some runs.
-// `waitFor` and `findBy*` turn the act environment off while they poll. React gives
-// no warning then, and a call to `act` would cause one.
-notifyManager.setNotifyFunction((notify) => {
-  if (actEnvironment.IS_REACT_ACT_ENVIRONMENT) act(notify);
-  else notify();
 });
