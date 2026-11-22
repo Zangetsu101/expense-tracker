@@ -12,7 +12,12 @@ import {
   runScheduledBackup,
   subscribeBackupSchedule,
 } from '@/lib/backup-background-task';
-import { actionLabels, backupStatus, backupTime } from '@/lib/backup-presentation';
+import {
+  actionLabels,
+  backupStatus,
+  backupTime,
+  type BackupStatus,
+} from '@/lib/backup-presentation';
 import { driveBackups } from '@/lib/drive-backup-adapter';
 import type {
   BackupInterval,
@@ -76,6 +81,84 @@ function AccountAvatar({ email, photoUrl }: GoogleAccount) {
         {email.charAt(0).toUpperCase()}
       </Text>
     </View>
+  );
+}
+
+function ConnectedAccountCard({
+  account,
+  status,
+  loading,
+  disabled,
+  onAction,
+}: {
+  account: GoogleAccount;
+  status: BackupStatus | undefined;
+  loading: boolean;
+  disabled: boolean;
+  onAction: () => void;
+}) {
+  return (
+    <>
+      <View style={{ flexDirection: 'row', gap: theme.spacing.md }}>
+        <AccountAvatar {...account} />
+        <View style={{ flex: 1, gap: theme.spacing.xs }}>
+          <Text style={{ color: theme.colors.text, fontSize: theme.type.body }}>
+            {account.email}
+          </Text>
+          <Text
+            accessibilityRole={status?.warning ? 'alert' : undefined}
+            style={{
+              ...caption,
+              color: status?.warning ? theme.colors.warning : theme.colors.muted,
+            }}
+          >
+            {status?.text}
+          </Text>
+        </View>
+      </View>
+      <FormButton
+        label={status ? actionLabels[status.action] : 'Back up now'}
+        loading={loading}
+        disabled={disabled}
+        onPress={onAction}
+      />
+    </>
+  );
+}
+
+function ConnectDrivePrompt({
+  loading,
+  disabled,
+  onConnect,
+}: {
+  loading: boolean;
+  disabled: boolean;
+  onConnect: () => void;
+}) {
+  return (
+    <>
+      <View style={{ gap: theme.spacing.xs }}>
+        <Text
+          style={{
+            color: theme.colors.text,
+            fontSize: theme.type.body,
+            fontWeight: '600',
+          }}
+        >
+          Back up to Google Drive
+        </Text>
+        <Text style={caption}>
+          Keep automatic copies of your data in your Drive. The app can only see files that it
+          creates.
+        </Text>
+      </View>
+      <FormButton
+        label="Connect Google Drive"
+        loading={loading}
+        disabled={disabled}
+        onPress={onConnect}
+      />
+    </>
   );
 }
 
@@ -305,57 +388,17 @@ export function BackupSettings({
     cardContent = <FormButton label="Retry" variant="secondary" onPress={() => void refresh()} />;
   else if (account)
     cardContent = (
-      <>
-        <View style={{ flexDirection: 'row', gap: theme.spacing.md }}>
-          <AccountAvatar {...account} />
-          <View style={{ flex: 1, gap: theme.spacing.xs }}>
-            <Text style={{ color: theme.colors.text, fontSize: theme.type.body }}>
-              {account.email}
-            </Text>
-            <Text
-              accessibilityRole={status?.warning ? 'alert' : undefined}
-              style={{
-                ...caption,
-                color: status?.warning ? theme.colors.warning : theme.colors.muted,
-              }}
-            >
-              {status?.text}
-            </Text>
-          </View>
-        </View>
-        <FormButton
-          label={status ? actionLabels[status.action] : 'Back up now'}
-          loading={operation === 'backup' || operation === 'connect'}
-          disabled={busy}
-          onPress={cardAction}
-        />
-      </>
+      <ConnectedAccountCard
+        account={account}
+        status={status}
+        loading={operation === 'backup' || operation === 'connect'}
+        disabled={busy}
+        onAction={cardAction}
+      />
     );
   else
     cardContent = (
-      <>
-        <View style={{ gap: theme.spacing.xs }}>
-          <Text
-            style={{
-              color: theme.colors.text,
-              fontSize: theme.type.body,
-              fontWeight: '600',
-            }}
-          >
-            Back up to Google Drive
-          </Text>
-          <Text style={caption}>
-            Keep automatic copies of your data in your Drive. The app can only see files that it
-            creates.
-          </Text>
-        </View>
-        <FormButton
-          label="Connect Google Drive"
-          loading={operation === 'connect'}
-          disabled={busy}
-          onPress={connect}
-        />
-      </>
+      <ConnectDrivePrompt loading={operation === 'connect'} disabled={busy} onConnect={connect} />
     );
 
   return (
