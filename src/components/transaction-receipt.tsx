@@ -1,5 +1,5 @@
 import { savedTransferRate, formatTransferRate } from '@/lib/transfer-amounts';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link } from 'expo-router';
 import type { WriteOffEntry } from '@/lib/lending';
 import { lendingKindLabels } from '@/lib/lending-labels';
@@ -15,13 +15,9 @@ import {
   transactionTitle,
 } from '@/lib/transaction-format';
 import { formatLineItemAmount } from '@/lib/line-item-amount';
-import { categoryPath } from '@/features/home/list';
+import { categoryPath, type ListRow } from '@/features/home/list';
 import { reimbursementTitle } from '@/lib/reimbursements';
-import {
-  ExpenseReimbursementPanels,
-  ReimbursedExpense,
-  type ReimbursementDetails,
-} from './reimbursement-receipt';
+import { type ReimbursementDetails } from './reimbursement-receipt';
 import { theme } from '@/theme';
 
 const color = { ...theme.colors, panel: theme.colors.surface, ink: theme.colors.text };
@@ -121,7 +117,19 @@ function receiptAmount(row: Props['transaction'], reimbursement: Props['reimburs
     row.lendingKind || reimbursement?.shares.length ? formatMoney : formatTransactionAmount;
   return format(row.type, row.amountMinor, row.currencyCode);
 }
-export function TransactionReceipt({ transaction: row, reimbursement }: Props) {
+export function TransactionReceipt({ children }: { children: ReactNode }) {
+  return (
+    <ScrollView
+      contentInsetAdjustmentBehavior="automatic"
+      style={{ flex: 1, backgroundColor: color.background }}
+      contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 24, paddingBottom: 32, gap: 24 }}
+    >
+      {children}
+    </ScrollView>
+  );
+}
+
+function TransactionSummary({ transaction: row, reimbursement }: Props) {
   const reimbursedExpense = reimbursement?.expense;
   const writeOff = row.type === 'WRITE_OFF';
   const kind = writeOff ? row.kind : row.lendingKind;
@@ -141,91 +149,102 @@ export function TransactionReceipt({ transaction: row, reimbursement }: Props) {
     title = transactionTitle(row);
   }
   return (
-    <ScrollView
-      contentInsetAdjustmentBehavior="automatic"
-      style={{ flex: 1, backgroundColor: color.background }}
-      contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 24, paddingBottom: 32, gap: 24 }}
-    >
-      <View style={{ backgroundColor: color.panel, borderRadius: 18, padding: 22, gap: 16 }}>
-        <Label>{`${label} · ${row.currencyCode}`}</Label>
-        <Text
-          selectable
-          style={{
-            color: writeOff ? color.muted : row.type === 'INCOME' ? color.accent : color.ink,
-            fontSize: 40,
-            fontWeight: '300',
-            fontVariant: ['tabular-nums'],
-          }}
-        >
-          {receiptAmount(row, reimbursement)}
-        </Text>
-        <Text selectable style={{ color: color.ink, fontSize: 20, fontWeight: '700' }}>
-          {title}
-        </Text>
-        <View style={{ height: 1, backgroundColor: color.line }} />
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 20 }}>
-          <View style={{ gap: 8 }}>
-            <Label>Account</Label>
-            <Value muted={writeOff}>{row.accountName ?? 'No Account movement'}</Value>
-          </View>
-          <View style={{ gap: 8 }}>
-            <Label>Date</Label>
-            <Value>{kind ? formatActivityDay(row.date) : formatEpochDay(row.date)}</Value>
-          </View>
-        </View>
-      </View>
-      {reimbursedExpense && <ReimbursedExpense expense={reimbursedExpense} />}
-      {row.type === 'EXPENSE' && reimbursement && (
-        <ExpenseReimbursementPanels
-          details={reimbursement}
-          amount={row.amountMinor}
-          currency={row.currencyCode}
-        />
-      )}
-      {!reimbursedExpense && !!row.personId && !!row.personName && (
+    <View style={{ backgroundColor: color.panel, borderRadius: 18, padding: 22, gap: 16 }}>
+      <Label>{`${label} · ${row.currencyCode}`}</Label>
+      <Text
+        selectable
+        style={{
+          color: writeOff ? color.muted : row.type === 'INCOME' ? color.accent : color.ink,
+          fontSize: 40,
+          fontWeight: '300',
+          fontVariant: ['tabular-nums'],
+        }}
+      >
+        {receiptAmount(row, reimbursement)}
+      </Text>
+      <Text selectable style={{ color: color.ink, fontSize: 20, fontWeight: '700' }}>
+        {title}
+      </Text>
+      <View style={{ height: 1, backgroundColor: color.line }} />
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 20 }}>
         <View style={{ gap: 8 }}>
-          <Label>Person</Label>
-          <Link
-            href={{
-              pathname: '/person',
-              params: { id: row.personId, name: row.personName },
-            }}
-            style={{ color: color.accent, fontSize: 16 }}
-          >
-            {row.personName} ›
-          </Link>
+          <Label>Account</Label>
+          <Value muted={writeOff}>{row.accountName ?? 'No Account movement'}</Value>
         </View>
-      )}
-      <View style={{ gap: 8 }}>
-        <Label>Note</Label>
-        <Value muted={!row.note}>{row.note || 'No note'}</Value>
+        <View style={{ gap: 8 }}>
+          <Label>Date</Label>
+          <Value>{kind ? formatActivityDay(row.date) : formatEpochDay(row.date)}</Value>
+        </View>
       </View>
-      {!writeOff && (
-        <>
-          {((!kind && !reimbursedExpense) || !!row.tags.length) && (
-            <View style={{ gap: 8 }}>
-              <Label>Tags</Label>
-              <Value muted={!row.tags.length}>
-                {row.tags.map((tag) => `#${tag.name}`).join('  ') || 'No tags'}
-              </Value>
-            </View>
-          )}
-          {((!kind && !reimbursedExpense) || !!row.lineItems.length) && <ItemSection row={row} />}
-          <View style={{ gap: 8 }}>
-            <Label>Reports</Label>
-            <Value>
-              {row.excludeFromReport || row.reportExclusionLocked
-                ? 'Excluded from reports'
-                : reimbursedExpense
-                  ? `Lowers ${categoryPath(reimbursedExpense)} in ${receiptMonth.format(row.date * 86400000)}`
-                  : 'Included in reports'}
-            </Value>
-          </View>
-        </>
-      )}
-    </ScrollView>
+    </View>
   );
 }
+
+function ReceiptPerson({ id, name }: { id: number; name: string }) {
+  return (
+    <View style={{ gap: 8 }}>
+      <Label>Person</Label>
+      <Link
+        href={{ pathname: '/person', params: { id, name } }}
+        style={{ color: color.accent, fontSize: 16 }}
+      >
+        {name} ›
+      </Link>
+    </View>
+  );
+}
+
+function ReceiptNote({ note }: { note: string | null }) {
+  return (
+    <View style={{ gap: 8 }}>
+      <Label>Note</Label>
+      <Value muted={!note}>{note || 'No note'}</Value>
+    </View>
+  );
+}
+
+function ReceiptTags({ tags }: { tags: EditableTransaction['tags'] }) {
+  return (
+    <View style={{ gap: 8 }}>
+      <Label>Tags</Label>
+      <Value muted={!tags.length}>
+        {tags.map((tag) => `#${tag.name}`).join('  ') || 'No tags'}
+      </Value>
+    </View>
+  );
+}
+
+function ReceiptReports({
+  transaction,
+  reimbursedExpense,
+}: {
+  transaction: EditableTransaction;
+  reimbursedExpense?: ListRow | null;
+}) {
+  let status = 'Included in reports';
+  if (
+    transaction.excludeFromReport ||
+    transaction.reportExclusionLocked ||
+    reimbursedExpense?.excludeFromReport
+  )
+    status = 'Excluded from reports';
+  else if (reimbursedExpense)
+    status = `Lowers ${categoryPath(reimbursedExpense)} in ${receiptMonth.format(transaction.date * 86400000)}`;
+  return (
+    <View style={{ gap: 8 }}>
+      <Label>Reports</Label>
+      <Value>{status}</Value>
+    </View>
+  );
+}
+
+TransactionReceipt.Summary = TransactionSummary;
+TransactionReceipt.Person = ReceiptPerson;
+TransactionReceipt.Note = ReceiptNote;
+TransactionReceipt.Tags = ReceiptTags;
+TransactionReceipt.Items = ItemSection;
+TransactionReceipt.Reports = ReceiptReports;
+
 export function TransferReceipt({ transfer: row }: { transfer: EditableTransfer }) {
   const cross = row.currencyCode !== row.destinationCurrencyCode;
   const received = row.receivedAmountMinor ?? row.amountMinor;
@@ -238,11 +257,7 @@ export function TransferReceipt({ transfer: row }: { transfer: EditableTransfer 
       })
     : null;
   return (
-    <ScrollView
-      contentInsetAdjustmentBehavior="automatic"
-      style={{ flex: 1, backgroundColor: color.background }}
-      contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 24, paddingBottom: 32, gap: 24 }}
-    >
+    <TransactionReceipt>
       <View style={{ backgroundColor: color.panel, borderRadius: 18, padding: 22, gap: 16 }}>
         <Label>{`Transfer · ${row.currencyCode}${cross ? ` → ${row.destinationCurrencyCode}` : ''}`}</Label>
         <Text
@@ -287,10 +302,7 @@ export function TransferReceipt({ transfer: row }: { transfer: EditableTransfer 
           </View>
         </View>
       </View>
-      <View style={{ gap: 8 }}>
-        <Label>Note</Label>
-        <Value muted={!row.note}>{row.note || 'No note'}</Value>
-      </View>
-    </ScrollView>
+      <TransactionReceipt.Note note={row.note} />
+    </TransactionReceipt>
   );
 }

@@ -1165,29 +1165,35 @@ test('a split expense shows its shares and a collapsed list of linked reimbursem
   ).toBe(true);
 });
 
-test('a reimbursement names who paid and links back to its expense', async () => {
-  const user = userEvent.setup();
-  jest.mocked(loadEditableTransaction).mockResolvedValue({
-    ...transaction,
-    id: 2,
-    type: 'INCOME',
-    amountMinor: 150,
-    categoryId: null,
-    categoryName: null,
-  });
-  jest.mocked(reimbursementReceipt).mockResolvedValue({
-    shares: [],
-    payments: [],
-    expense: listRow({ note: 'Dinner' }),
-    payer: 'Rafi',
-  });
-  await renderScreen('2');
+test.each([0, 1])(
+  'a reimbursement links back to its expense and respects report exclusion %i',
+  async (excludeFromReport) => {
+    const user = userEvent.setup();
+    jest.mocked(loadEditableTransaction).mockResolvedValue({
+      ...transaction,
+      id: 2,
+      type: 'INCOME',
+      amountMinor: 150,
+      categoryId: null,
+      categoryName: null,
+    });
+    jest.mocked(reimbursementReceipt).mockResolvedValue({
+      shares: [],
+      payments: [],
+      expense: listRow({ note: 'Dinner', excludeFromReport }),
+      payer: 'Rafi',
+    });
+    await renderScreen('2');
 
-  expect(await screen.findByText('Reimbursement from Rafi')).toBeOnTheScreen();
-  expect(screen.getByText('Reimbursement for')).toBeOnTheScreen();
-  await user.press(screen.getByRole('button', { name: /^Food, Dinner/ }));
-  expect(mockRouterPush).toHaveBeenCalledWith({
-    pathname: '/transaction/[id]',
-    params: { id: '1' },
-  });
-});
+    expect(await screen.findByText('Reimbursement from Rafi')).toBeOnTheScreen();
+    expect(screen.getByText('Reimbursement for')).toBeOnTheScreen();
+    expect(
+      screen.getByText(excludeFromReport ? 'Excluded from reports' : /^Lowers Food in /),
+    ).toBeOnTheScreen();
+    await user.press(screen.getByRole('button', { name: /^Food, Dinner/ }));
+    expect(mockRouterPush).toHaveBeenCalledWith({
+      pathname: '/transaction/[id]',
+      params: { id: '1' },
+    });
+  },
+);

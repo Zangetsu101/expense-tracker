@@ -10,6 +10,7 @@ import { ChoicesSection } from './view';
 import { peopleQuery } from './queries';
 
 const c = theme.colors;
+export type PersonChoice = Person | { id: null; name: string };
 export type SplitDraft = { people: Person[]; fixed: Partial<Record<number, number>> };
 
 function ShareField({
@@ -56,19 +57,17 @@ export function SplitExpense({
   disabled,
   onChange,
   onAddPerson,
-  optimisticPersonName,
 }: {
-  draft: SplitDraft;
+  draft: Omit<SplitDraft, 'people'> & { people: PersonChoice[] };
   amount: number;
   currency?: string;
   disabled: boolean;
   onChange: (draft: SplitDraft) => void;
   onAddPerson: (name: string, onCreated: (person: Person) => void) => void;
-  optimisticPersonName: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
-  const people = draft.people;
+  const people = draft.people.filter((person) => person.id !== null);
   const { shares, yours } = splitShares(
     amount,
     people.map((person) => person.id),
@@ -109,38 +108,43 @@ export function SplitExpense({
             editable={!disabled}
           />
           <ChoicesSection options={peopleQuery()} label="people" layout="people">
-            {({ people: available }) => (
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                {available
-                  .filter((person) => person.name.toLocaleLowerCase().includes(needle))
-                  .map((person) => (
-                    <ChoiceChip
-                      key={person.id}
-                      label={person.name}
-                      disabled={disabled}
-                      selected={people.some(({ id }) => id === person.id)}
-                      onPress={() => toggle(person)}
-                    />
-                  ))}
-                {optimisticPersonName &&
-                  !available.some((person) => person.name === optimisticPersonName) && (
-                    <ChoiceChip label={optimisticPersonName} selected disabled />
-                  )}
-                {!!needle &&
-                  !available.some((person) => person.name.toLocaleLowerCase() === needle) && (
-                    <ChoiceChip
-                      label={`Add “${search.trim()}”`}
-                      disabled={disabled}
-                      onPress={() => {
-                        onAddPerson(search, (created) => {
-                          toggle(created);
-                          setSearch('');
-                        });
-                      }}
-                    />
-                  )}
-              </View>
-            )}
+            {({ people: available }) => {
+              const provisional = draft.people.filter((person) => person.id === null);
+              const choices: PersonChoice[] = [
+                ...available.filter(
+                  (person) => !provisional.some((choice) => choice.name === person.name),
+                ),
+                ...provisional,
+              ];
+              return (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                  {choices
+                    .filter((person) => person.name.toLocaleLowerCase().includes(needle))
+                    .map((person) => (
+                      <ChoiceChip
+                        key={person.id ?? person.name}
+                        label={person.name}
+                        disabled={disabled || person.id === null}
+                        selected={draft.people.some(({ id }) => id === person.id)}
+                        onPress={person.id === null ? undefined : () => toggle(person)}
+                      />
+                    ))}
+                  {!!needle &&
+                    !available.some((person) => person.name.toLocaleLowerCase() === needle) && (
+                      <ChoiceChip
+                        label={`Add “${search.trim()}”`}
+                        disabled={disabled}
+                        onPress={() => {
+                          onAddPerson(search, (created) => {
+                            toggle(created);
+                            setSearch('');
+                          });
+                        }}
+                      />
+                    )}
+                </View>
+              );
+            }}
           </ChoicesSection>
           {people.length ? (
             <>
@@ -165,7 +169,7 @@ export function SplitExpense({
                       disabled={disabled}
                       fixed={draft.fixed[share.personId] !== undefined}
                       onChange={(minor) =>
-                        onChange({ ...draft, fixed: { ...draft.fixed, [share.personId]: minor } })
+                        onChange({ people, fixed: { ...draft.fixed, [share.personId]: minor } })
                       }
                     />
                   </View>
@@ -191,9 +195,9 @@ export function SplitExpense({
                 shows {formatMoney('EXPENSE', amount, currency ?? 'BDT')}.
               </Text>
             </>
-          ) : (
+          ) : draft.people.length === 0 ? (
             <Text style={{ color: c.muted }}>Pick people to split with.</Text>
-          )}
+          ) : null}
         </>
       )}
     </View>

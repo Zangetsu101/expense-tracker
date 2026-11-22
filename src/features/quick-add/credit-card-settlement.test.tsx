@@ -123,6 +123,12 @@ test('Settle prefills Transfer and offers bill or all owed, paid from another Ac
   ).toBeOnTheScreen();
   expect(screen.getByRole('button', { name: 'Amount' })).toHaveAccessibilityValue({ text: '7.00' });
   await user.press(await screen.findByRole('button', { name: 'All owed · $11.00' }));
+  await enter(user, 'Amount', '9');
+  expect(screen.getByRole('button', { name: 'Amount' })).toHaveAccessibilityValue({ text: '9.00' });
+  await user.press(screen.getByRole('button', { name: 'All owed · $11.00' }));
+  expect(screen.getByRole('button', { name: 'Amount' })).toHaveAccessibilityValue({
+    text: '11.00',
+  });
   await user.press(
     within(screen.getByLabelText('Source account')).getByRole('button', {
       name: 'Another bank, USD',

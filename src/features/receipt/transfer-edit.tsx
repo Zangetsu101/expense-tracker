@@ -63,8 +63,6 @@ function ReadyForm({
   const [date, setDate] = useState(initial.date);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
-  const [preset, setPreset] = useState<number>();
-  const [presetRevision, setPresetRevision] = useState(0);
   const source = accounts.find((a) => a.id === fromId);
   const destination = accounts.find((a) => a.id === toId);
   const cross = source?.currencyCode !== destination?.currencyCode;
@@ -110,11 +108,9 @@ function ReadyForm({
       initialPaid={initial.amountMinor}
       initialReceived={initial.receivedAmountMinor ?? undefined}
       disabled={locked}
-      receivedPreset={preset}
-      presetRevision={presetRevision}
       onChange={amounts}
     >
-      {({ input, keypad, dismiss, editing }) => (
+      {({ input, keypad, dismiss, editing, applyReceivedPreset }) => (
         <View style={{ flex: 1 }}>
           <ScrollView
             contentInsetAdjustmentBehavior="automatic"
@@ -153,10 +149,7 @@ function ReadyForm({
                 <TransferBillChoices
                   destination={destination}
                   disabled={locked}
-                  onPreset={(amount) => {
-                    setPreset(amount);
-                    setPresetRevision((revision) => revision + 1);
-                  }}
+                  onPreset={applyReceivedPreset}
                 />
               </View>
               <QuickAddDate value={date} onChange={setDate} disabled={locked} />

@@ -4,7 +4,7 @@ import { categoriesQuery, peopleQuery, includeCreatedPerson } from './queries.ts
 import { accountsQuery } from '@/lib/account-queries';
 import { ChoicesSection, layoutTransition } from './view.tsx';
 import { ExpenseLink, type LinkableExpense } from './expense-link';
-import { SplitExpense, type SplitDraft } from './split-expense';
+import { SplitExpense, type PersonChoice, type SplitDraft } from './split-expense';
 import { splitShares } from '@/lib/reimbursements';
 import { TransferBillChoices } from './transfer-bill-choices.tsx';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
@@ -141,7 +141,6 @@ function QuickAddForm() {
     preset === undefined ? '' : (preset / 100).toFixed(2),
     preset === undefined,
   );
-  const [transferPresetRevision, setTransferPresetRevision] = useState(0);
   const categoryMode = mode === 'EXPENSE' || mode === 'INCOME' ? mode : undefined;
   const categoryRead = useQuery({ ...categoriesQuery(categoryMode ?? 'EXPENSE'), enabled: false });
   const peopleRead = useQuery({ ...peopleQuery(), enabled: false });
@@ -180,7 +179,7 @@ function QuickAddForm() {
   const [date, setDate] = useState(() => new Date());
   const [saving, setSaving] = useState(false);
   const [creatingPerson, startCreatingPerson] = useTransition();
-  const [optimisticPersonName, setOptimisticPersonName] = useOptimistic<string | null>(null);
+
   const pending = saving || creatingPerson;
   const [error, setError] = useState('');
   // A second press can arrive before React renders the pending state.
@@ -198,6 +197,17 @@ function QuickAddForm() {
     (item) => item.id === accountId && (!accountCurrency || item.currencyCode === accountCurrency),
   );
   const person = people.find((item) => item.id === personId);
+  const [selection, selectNewPerson] = useOptimistic<
+    { person: PersonChoice | undefined; split: PersonChoice[] },
+    PersonChoice
+  >({ person, split: split.people }, (previous, choice: PersonChoice) =>
+    mode === 'PERSON'
+      ? { ...previous, person: choice }
+      : {
+          ...previous,
+          split: [...previous.split, choice],
+        },
+  );
   const orderedCategoryIds = useRankedCategories(
     categoryRead.data,
     categoryMode,
@@ -210,7 +220,11 @@ function QuickAddForm() {
     mode === 'INCOME' ||
     (mode === 'PERSON' && (action === 'BORROW' || action === 'RECEIVE_REPAYMENT'));
   const search = query.trim().toLocaleLowerCase();
-  const matches = people.filter((item) => item.name.toLocaleLowerCase().includes(search));
+  const personChoices: PersonChoice[] =
+    selection.person?.id === null
+      ? [...people.filter((item) => item.name !== selection.person?.name), selection.person]
+      : people;
+  const matches = personChoices.filter((item) => item.name.toLocaleLowerCase().includes(search));
   const canCreatePerson =
     !!search && !people.some((item) => item.name.toLocaleLowerCase() === search);
   const destination = destinations.find((item) => item.id === toId);
@@ -250,7 +264,7 @@ function QuickAddForm() {
     writeInFlight.current = true;
     setError('');
     startCreatingPerson(async () => {
-      setOptimisticPersonName(name.trim());
+      selectNewPerson({ id: null, name: name.trim() });
       try {
         const created = await createPerson(name);
         includeCreatedPerson(client, created);
@@ -351,15 +365,14 @@ function QuickAddForm() {
     <AmountEntry
       source={account}
       destination={destination}
-      receivedPreset={preset}
-      presetRevision={transferPresetRevision}
-      initialPaid={preset && cross ? undefined : amountMinor}
+      initialReceived={preset}
+      initialPaid={preset === undefined ? amountMinor : undefined}
       draft={amountDraft}
       currency={account?.currencyCode}
       disabled={pending}
       onChange={mode === 'TRANSFER' ? onTransferAmounts : setAmountMinor}
     >
-      {({ input, keypad, dismiss: dismissCalculator, editing }) => (
+      {({ input, keypad, dismiss: dismissCalculator, editing, ...amountActions }) => (
         <KeyboardAvoidingView
           style={{ flex: 1 }}
           behavior={process.env.EXPO_OS === 'ios' ? 'padding' : 'height'}
@@ -452,14 +465,13 @@ function QuickAddForm() {
                           disabled={pending}
                           onSelect={setToId}
                         />
-                        <TransferBillChoices
-                          destination={destination}
-                          disabled={pending}
-                          onPreset={(amount) => {
-                            setPreset(amount);
-                            setTransferPresetRevision((key) => key + 1);
-                          }}
-                        />
+                        {'applyReceivedPreset' in amountActions && (
+                          <TransferBillChoices
+                            destination={destination}
+                            disabled={pending}
+                            onPreset={amountActions.applyReceivedPreset}
+                          />
+                        )}
                         {!destinations.length && (
                           <Text style={{ color: c.muted }}>
                             No other account. Create one in Accounts or choose a different source.
@@ -473,7 +485,7 @@ function QuickAddForm() {
               {mode === 'PERSON' && (
                 <View key="person" style={{ gap: 18 }}>
                   <View style={{ gap: 10 }}>
-                    <Label>{`With ${person?.name ?? 'a person'}`}</Label>
+                    <Label>{`With ${selection.person?.name ?? 'a person'}`}</Label>
                     <FormInput
                       accessibilityLabel="Search people"
                       placeholder="Find or add a person"
@@ -484,8 +496,17 @@ function QuickAddForm() {
                   </View>
                   <ChoicesSection options={peopleQuery()} label="people" layout="people">
                     {(readyPeople) => {
-                      const personChip = (item: (typeof people)[number]) => {
-                        const selected = item.id === personId;
+                      const personChip = (item: PersonChoice) => {
+                        const selected = item.id === selection.person?.id;
+                        if (item.id === null)
+                          return (
+                            <ChoiceChip
+                              key={item.name}
+                              label={item.name}
+                              selected={selected}
+                              disabled
+                            />
+                          );
                         return (
                           <Animated.View
                             key={item.id}
@@ -552,12 +573,8 @@ function QuickAddForm() {
                             }}
                           >
                             {matches.map(personChip)}
-                            {optimisticPersonName &&
-                              !people.some((item) => item.name === optimisticPersonName) && (
-                                <ChoiceChip label={optimisticPersonName} selected disabled />
-                              )}
                           </Animated.View>
-                          {!matches.length && !optimisticPersonName && (
+                          {!matches.length && (
                             <Text style={{ color: c.muted }}>
                               {search
                                 ? 'No matching people.'
@@ -649,13 +666,12 @@ function QuickAddForm() {
               {mode === 'EXPENSE' && (
                 <SplitExpense
                   key="split"
-                  draft={split}
+                  draft={{ ...split, people: selection.split }}
                   amount={amountMinor ?? 0}
                   currency={account?.currencyCode}
                   disabled={pending}
                   onChange={setSplit}
                   onAddPerson={addPerson}
-                  optimisticPersonName={optimisticPersonName}
                 />
               )}
               <Animated.View key="details" style={{ gap: 12 }}>

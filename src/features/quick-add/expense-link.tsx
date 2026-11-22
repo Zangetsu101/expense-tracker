@@ -106,11 +106,10 @@ function ExpensePickerResults({
   selecting: boolean;
   onSelect: (row: ListRow) => void;
 }) {
-  const { data, error, isFetching } = useSuspenseQuery({
+  const { data, error, isFetching, refetch } = useSuspenseQuery({
     queryKey: ['reimbursement-expenses'],
     queryFn: expensesForReimbursement,
   });
-  if (error && !isFetching) throw error;
   const needle = query.trim().toLowerCase();
   const matches = data.filter(
     (row) =>
@@ -136,42 +135,51 @@ function ExpensePickerResults({
     })),
   ];
   return (
-    <SectionList
-      keyboardShouldPersistTaps="handled"
-      sections={sections}
-      stickySectionHeadersEnabled={false}
-      keyExtractor={(row) => String(row.id)}
-      renderSectionHeader={({ section }) =>
-        section.label ? (
-          <Text accessibilityRole="header" style={{ color: c.muted, marginTop: 18 }}>
-            {section.label}
-          </Text>
-        ) : (
-          section.date !== null && <DayHeader date={section.date} totals={[]} now={new Date()} />
-        )
-      }
-      renderItem={({ item, section }) => (
-        <TransactionRow.Layout
-          query={query}
-          view={{
-            ...rowView(item, scope),
-            title: categoryPath(item),
-            detail: [item.note, item.accountName, section.key === 'owed' && shortDay(item.date)]
-              .filter(Boolean)
-              .join(' · '),
-          }}
-          disabled={selecting}
-          onPress={() => onSelect(item)}
+    <>
+      {error && !isFetching && (
+        <FormButton
+          label="Retry refreshing expenses"
+          variant="secondary"
+          onPress={() => void refetch()}
         />
       )}
-      ListFooterComponent={
-        !other.length ? (
-          <Text style={{ color: c.muted, paddingVertical: 12 }}>
-            {owed.length ? 'No other matching expenses.' : 'No matching expenses.'}
-          </Text>
-        ) : undefined
-      }
-    />
+      <SectionList
+        keyboardShouldPersistTaps="handled"
+        sections={sections}
+        stickySectionHeadersEnabled={false}
+        keyExtractor={(row) => String(row.id)}
+        renderSectionHeader={({ section }) =>
+          section.label ? (
+            <Text accessibilityRole="header" style={{ color: c.muted, marginTop: 18 }}>
+              {section.label}
+            </Text>
+          ) : (
+            section.date !== null && <DayHeader date={section.date} totals={[]} now={new Date()} />
+          )
+        }
+        renderItem={({ item, section }) => (
+          <TransactionRow.Layout
+            query={query}
+            view={{
+              ...rowView(item, scope),
+              title: categoryPath(item),
+              detail: [item.note, item.accountName, section.key === 'owed' && shortDay(item.date)]
+                .filter(Boolean)
+                .join(' · '),
+            }}
+            disabled={selecting}
+            onPress={() => onSelect(item)}
+          />
+        )}
+        ListFooterComponent={
+          !other.length ? (
+            <Text style={{ color: c.muted, paddingVertical: 12 }}>
+              {owed.length ? 'No other matching expenses.' : 'No matching expenses.'}
+            </Text>
+          ) : undefined
+        }
+      />
+    </>
   );
 }
 
@@ -270,7 +278,9 @@ export function ExpenseLink({
             <Text style={{ color: c.muted }}>Not split · this is a refund</Text>
           )}
           <Text style={{ color: c.muted, fontSize: 12 }}>
-            Uses the expense’s Category in reports.
+            {row.excludeFromReport
+              ? 'Excluded from reports, like the linked expense.'
+              : 'Uses the expense’s Category in reports.'}
           </Text>
         </>
       ) : (
