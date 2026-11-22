@@ -258,8 +258,10 @@ export function useSavedRow({
     [listRef, retryRef, retryTimerRef],
   );
 
-  const phase = (id: number): SlidePhase | undefined =>
-    slide?.id !== id ? undefined : slide.seen && focused ? 'play' : 'hidden';
+  const phase = (id: number): SlidePhase | undefined => {
+    if (slide?.id !== id) return undefined;
+    return slide.seen && focused ? 'play' : 'hidden';
+  };
   return {
     phase,
     slidingId: slide?.id ?? null,

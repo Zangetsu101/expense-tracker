@@ -1,11 +1,13 @@
 import { currencySymbol } from './currency.ts';
 
+const amountSign = { EXPENSE: '−', INCOME: '+', TRANSFER: '' } as const;
+
 export function formatTransactionAmount(
   type: 'EXPENSE' | 'INCOME' | 'TRANSFER',
   amountMinor: number,
   currencyCode: string,
 ): string {
-  const sign = type === 'EXPENSE' ? '−' : type === 'INCOME' ? '+' : '';
+  const sign = amountSign[type];
   let value: string;
   try {
     value = new Intl.NumberFormat(undefined, { style: 'currency', currency: currencyCode }).format(
@@ -70,7 +72,7 @@ export function formatMoney(
   currency: string,
 ): string {
   if (currency !== 'BDT') return formatTransactionAmount(type, minor, currency);
-  const sign = type === 'EXPENSE' ? '−' : type === 'INCOME' ? '+' : '';
+  const sign = amountSign[type];
   return `${sign}${currencySymbol(currency)}${new Intl.NumberFormat('en-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(minor / 100)}`;
 }
 
@@ -96,8 +98,10 @@ export function transferAmounts(
     row.receivedAmountMinor ?? row.amountMinor,
     row.destinationCurrencyCode ?? row.currencyCode,
   );
+  let amount = paid;
+  if (accountId !== null) amount = into ? `+${received}` : `−${paid}`;
   return {
-    amount: accountId === null ? paid : into ? `+${received}` : `−${paid}`,
+    amount,
     ...(row.destinationCurrencyCode && row.destinationCurrencyCode !== row.currencyCode
       ? { otherAmount: into ? paid : received }
       : {}),

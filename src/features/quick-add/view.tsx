@@ -52,33 +52,39 @@ function ChoicesSkeleton({
   layout: ChoicesLayout;
   pendingLabel?: string;
 }) {
+  let content: ReactNode;
+  if (layout === 'bills')
+    content = (
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <Skeleton width={130} height={48} />
+        <Skeleton width={130} height={48} />
+      </View>
+    );
+  else if (layout === 'categories')
+    content = (
+      <>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Text style={{ color: theme.colors.text }}>Selected:</Text>
+          <Skeleton width="35%" height={16} />
+        </View>
+        <CategorySearchInput disabled />
+        <PillSkeletonRows height={38} borderRadius={12} columns={4} />
+      </>
+    );
+  else if (layout === 'accounts')
+    content = (
+      <>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Text style={{ color: theme.colors.muted, fontSize: 12 }}>{pendingLabel}</Text>
+          <Skeleton width="35%" height={12} />
+        </View>
+        <PillSkeletonRows height={48} borderRadius={14} columns={3} />
+      </>
+    );
+  else content = <PillSkeletonRows height={48} borderRadius={14} columns={2} />;
   return (
     <View accessibilityLabel={`Loading ${label}`} style={{ gap: 10 }}>
-      {layout === 'bills' ? (
-        <View style={{ flexDirection: 'row', gap: 8 }}>
-          <Skeleton width={130} height={48} />
-          <Skeleton width={130} height={48} />
-        </View>
-      ) : layout === 'categories' ? (
-        <>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <Text style={{ color: theme.colors.text }}>Selected:</Text>
-            <Skeleton width="35%" height={16} />
-          </View>
-          <CategorySearchInput disabled />
-          <PillSkeletonRows height={38} borderRadius={12} columns={4} />
-        </>
-      ) : layout === 'accounts' ? (
-        <>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <Text style={{ color: theme.colors.muted, fontSize: 12 }}>{pendingLabel}</Text>
-            <Skeleton width="35%" height={12} />
-          </View>
-          <PillSkeletonRows height={48} borderRadius={14} columns={3} />
-        </>
-      ) : (
-        <PillSkeletonRows height={48} borderRadius={14} columns={2} />
-      )}
+      {content}
     </View>
   );
 }

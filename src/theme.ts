@@ -18,3 +18,11 @@ export const theme = {
   type: { body: 16, detail: 14, caption: 12, heading: 18 },
   controlHeight: 48,
 } as const;
+
+export function pressableOpacity(
+  state: { disabled?: boolean | null; pressed: boolean },
+  opacity: { disabled: number; pressed: number },
+): number {
+  if (state.disabled) return opacity.disabled;
+  return state.pressed ? opacity.pressed : 1;
+}

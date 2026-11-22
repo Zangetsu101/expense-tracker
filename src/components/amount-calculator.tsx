@@ -94,15 +94,15 @@ export function AmountCalculator({
           )}
           {rows.map((row, index) => (
             <View key={index} style={{ flexDirection: 'row', gap: 6 }}>
-              {row.map((key) =>
-                key === 'Done' ? (
-                  <DoneKey key={key} onFeedback={feedback} onDone={onDone} />
-                ) : key === '⌫' ? (
-                  <BackspaceKey key={key} onFeedback={feedback} onKey={onKey} enabled={open} />
-                ) : (
-                  <Key key={key} label={key} onFeedback={feedback} onKey={onKey} />
-                ),
-              )}
+              {row.map((key) => {
+                if (key === 'Done')
+                  return <DoneKey key={key} onFeedback={feedback} onDone={onDone} />;
+                if (key === '⌫')
+                  return (
+                    <BackspaceKey key={key} onFeedback={feedback} onKey={onKey} enabled={open} />
+                  );
+                return <Key key={key} label={key} onFeedback={feedback} onKey={onKey} />;
+              })}
             </View>
           ))}
         </View>

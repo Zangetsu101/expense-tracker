@@ -259,7 +259,9 @@ function MoverValue({
   small: boolean;
 }) {
   const change = row.nowMinor - row.usualMinor;
-  const color = change > 0 ? c.warning : change < 0 ? c.accent : c.text;
+  let color: string = c.text;
+  if (change > 0) color = c.warning;
+  else if (change < 0) color = c.accent;
   const size = `${(Math.abs(change) / Math.max(1, largest)) * 50}%` as const;
   return (
     <View style={{ gap: 6 }}>
@@ -456,6 +458,12 @@ function NetWorthContent() {
     `${monthNames[dayParts(first).month].slice(0, 3)} ${dayParts(first).year}`,
     'Today',
   ];
+  const headlineLabel = (currencyCode: string) => {
+    if (singleAccount) return scope.label;
+    if (combined && result.accounts.some((a) => a.currencyCode !== currencyCode))
+      return `All Accounts, in ${currencyCode} at your Display Rate`;
+    return `All Accounts in ${currencyCode}`;
+  };
   return (
     <>
       <View style={{ flexDirection: 'row', gap: theme.spacing.sm }}>
@@ -471,13 +479,7 @@ function NetWorthContent() {
       {result.series.map((series) => (
         <View key={series.currencyCode} style={{ gap: theme.spacing.lg }}>
           <Headline
-            label={
-              singleAccount
-                ? scope.label
-                : combined && result.accounts.some((a) => a.currencyCode !== series.currencyCode)
-                  ? `All Accounts, in ${series.currencyCode} at your Display Rate`
-                  : `All Accounts in ${series.currencyCode}`
-            }
+            label={headlineLabel(series.currencyCode)}
             head={formatBalance(series.totalMinor, series.currencyCode)}
             color={c.accent}
             note={`${signed(series.totalMinor - series.accounts[0], series.currencyCode)} since ${labels[0]}`}

@@ -99,21 +99,26 @@ function receiptAmount(row: Props['transaction']) {
   const format = row.lendingKind ? formatMoney : formatTransactionAmount;
   return format(row.type, row.amountMinor, row.currencyCode);
 }
+function receiptLabel(row: Props['transaction']) {
+  if (row.type === 'WRITE_OFF') return 'Write-off';
+  if (row.lendingKind) return lendingKindLabels[row.lendingKind];
+  return row.type === 'EXPENSE' ? 'Expense' : 'Income';
+}
+function receiptTitle(row: Props['transaction']) {
+  if (row.type !== 'WRITE_OFF') return transactionTitle(row);
+  return row.kind === 'WRITE_OFF_LENT'
+    ? `Wrote off what ${row.personName} owes`
+    : `Wrote off what you owe ${row.personName}`;
+}
+function receiptAmountColor(row: Props['transaction']) {
+  if (row.type === 'WRITE_OFF') return color.muted;
+  return row.type === 'INCOME' ? color.accent : color.ink;
+}
 export function TransactionReceipt({ transaction: row }: Props) {
   const writeOff = row.type === 'WRITE_OFF';
   const kind = writeOff ? row.kind : row.lendingKind;
-  const label = writeOff
-    ? 'Write-off'
-    : kind
-      ? lendingKindLabels[kind]
-      : row.type === 'EXPENSE'
-        ? 'Expense'
-        : 'Income';
-  const title = writeOff
-    ? row.kind === 'WRITE_OFF_LENT'
-      ? `Wrote off what ${row.personName} owes`
-      : `Wrote off what you owe ${row.personName}`
-    : transactionTitle(row);
+  const label = receiptLabel(row);
+  const title = receiptTitle(row);
   return (
     <ScrollView
       contentInsetAdjustmentBehavior="automatic"
@@ -125,7 +130,7 @@ export function TransactionReceipt({ transaction: row }: Props) {
         <Text
           selectable
           style={{
-            color: writeOff ? color.muted : row.type === 'INCOME' ? color.accent : color.ink,
+            color: receiptAmountColor(row),
             fontSize: 40,
             fontWeight: '300',
             fontVariant: ['tabular-nums'],

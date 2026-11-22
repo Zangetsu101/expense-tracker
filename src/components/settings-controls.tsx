@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
-import { theme } from '@/theme';
+import { pressableOpacity, theme } from '@/theme';
 import { Skeleton } from '@/components/loading';
 
 const { colors, spacing } = theme;
@@ -26,6 +26,22 @@ export function SettingsRow({
   pendingValue?: boolean;
   warning?: boolean;
 }) {
+  let trailing: ReactNode;
+  if (pendingValue) trailing = <Skeleton width={70} height={14} animated={false} />;
+  else if (loading) trailing = <ActivityIndicator size="small" color={colors.muted} />;
+  else
+    trailing = value && (
+      <Text
+        numberOfLines={1}
+        style={{
+          maxWidth: '50%',
+          color: warning ? colors.warning : colors.muted,
+          fontSize: theme.type.detail,
+        }}
+      >
+        {value}
+      </Text>
+    );
   return (
     <Pressable
       accessibilityRole="button"
@@ -43,7 +59,7 @@ export function SettingsRow({
         flexDirection: 'row',
         alignItems: 'center',
         gap: spacing.md,
-        opacity: disabled ? 0.45 : pressed ? 0.6 : 1,
+        opacity: pressableOpacity({ disabled, pressed }, { disabled: 0.45, pressed: 0.6 }),
       })}
     >
       <View style={{ flex: 1, gap: spacing.xs }}>
@@ -54,24 +70,7 @@ export function SettingsRow({
           </Text>
         )}
       </View>
-      {pendingValue ? (
-        <Skeleton width={70} height={14} animated={false} />
-      ) : loading ? (
-        <ActivityIndicator size="small" color={colors.muted} />
-      ) : (
-        value && (
-          <Text
-            numberOfLines={1}
-            style={{
-              maxWidth: '50%',
-              color: warning ? colors.warning : colors.muted,
-              fontSize: theme.type.detail,
-            }}
-          >
-            {value}
-          </Text>
-        )
-      )}
+      {trailing}
       <Text style={{ color: colors.muted, fontSize: 20 }}>›</Text>
     </Pressable>
   );

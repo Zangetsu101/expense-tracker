@@ -23,6 +23,8 @@ function field(value: string, userText = false): string {
   return `"${safe.replace(/"/g, '""')}"`;
 }
 
+const csvSign: Record<ExportRow['type'], string> = { EXPENSE: '-', INCOME: '+', TRANSFER: '' };
+
 function decimalMinor(value: number): string {
   if (!Number.isSafeInteger(value) || value < 0)
     throw new Error('CSV contains an unsupported amount.');
@@ -35,8 +37,7 @@ export function formatTransactionsCsv(rows: ExportRow[]): string {
       CSV_HEADER,
       ...rows.map((row) => {
         const amount = decimalMinor(row.amountMinor);
-        const signed =
-          row.type === 'EXPENSE' ? `-${amount}` : row.type === 'INCOME' ? `+${amount}` : amount;
+        const signed = `${csvSign[row.type]}${amount}`;
         const date = new Date(row.date * 86400000).toISOString().slice(0, 10);
         return [
           field(row.type),
