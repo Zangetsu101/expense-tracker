@@ -4,7 +4,9 @@
 
 Write UI tests with Jest and React Native Testing Library (RNTL). Place each
 `.test.tsx` file beside the component or feature it exercises, outside Expo
-Router's route directory. For Node tests, follow the nearby `.test.mjs` suites.
+Router's route directory. For Node tests, use `.node.test.ts` and run
+`pnpm test:node`. Node strips TypeScript syntax at runtime. The migrated Node
+suites have legacy fixtures and stay outside the app's typecheck for now.
 
 Run a focused UI suite with `pnpm test:ui --runTestsByPath <path>`, or a Node
 suite with `node --test <path>`. Run `pnpm typecheck` separately because Jest
@@ -42,10 +44,10 @@ app launches, use a fresh client and read from the backing store.
 ## Console output
 
 A passing run prints no React errors. [`src/test/setup.ts`](../src/test/setup.ts) does
-not log an error that an error boundary catches, and it gives TanStack Query results
-to React inside `act`. Assert the error fallback on the screen. Do not replace
-`console.error` in a test, because that also hides `act` warnings. When a test leaves
-a read pending, clear the query client inside `act` in the teardown.
+not log an error that an error boundary catches. Assert the error fallback on
+the screen. Do not replace `console.error` in a test, because that also hides
+`act` warnings. When a test leaves a read pending, clear the query client inside
+`act` in the teardown.
 
 ## Native interactions
 
