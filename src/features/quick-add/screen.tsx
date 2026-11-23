@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useOptimistic, useRef, useState, useTransition } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { categoriesQuery, peopleQuery, includeCreatedPerson } from './queries.ts';
 import { accountsQuery } from '@/lib/account-queries';
@@ -6,7 +6,6 @@ import { ChoicesSection, layoutTransition } from './view.tsx';
 import { ExpenseLink, type LinkableExpense } from './expense-link';
 import {
   removeSplitPerson,
-  replaceSplitPerson,
   SplitExpense,
   withPendingPerson,
   type SplitDraft,
@@ -185,13 +184,15 @@ function QuickAddForm() {
   const [tags, setTags] = useState('');
   const [date, setDate] = useState(() => new Date());
   const [saving, setSaving] = useState(false);
-  const [pendingPerson, setPendingPerson] = useState<Person | null>(null);
-  const creatingPerson = pendingPerson !== null;
+  const [creatingPerson, startCreatingPerson] = useTransition();
+  const [pendingPerson, showPendingPerson] = useOptimistic<Person | null, Person>(
+    null,
+    (_, person) => person,
+  );
   const writePending = saving || creatingPerson;
   const [error, setError] = useState('');
   // Block a second write before React shows the pending state.
   const writeInFlight = useRef(false);
-  const nextTemporaryPersonId = useRef(0);
   const navigation = useNavigation();
   usePreventRemove(writePending, ({ data: removal }) => {
     if (!writeInFlight.current) navigation.dispatch(removal.action);
@@ -250,35 +251,31 @@ function QuickAddForm() {
   }
   const canSave = validAmount && !!account && selectionReady && !creatingPerson;
 
-  async function addPerson(name: string, target: 'PERSON' | 'SPLIT') {
+  function addPerson(name: string, target: 'PERSON' | 'SPLIT') {
     const trimmed = name.trim();
     if (!trimmed || writeInFlight.current) return;
     writeInFlight.current = true;
     setError('');
-    const temporary: Person = { id: -++nextTemporaryPersonId.current, name: trimmed };
-    setPendingPerson(temporary);
+    // The form uses the final ID at once, so nothing changes when the row is saved.
+    const person: Person = { id: Math.max(0, ...people.map(({ id }) => id)) + 1, name: trimmed };
     if (target === 'PERSON') {
-      setPersonId(temporary.id);
+      setPersonId(person.id);
       setQuery('');
     } else {
-      setSplit((current) => ({
-        ...current,
-        people: [...current.people, temporary],
-      }));
+      setSplit((current) => ({ ...current, people: [...current.people, person] }));
     }
-    try {
-      const created = await createPerson(trimmed);
-      includeCreatedPerson(client, created);
-      setPersonId((current) => (current === temporary.id ? created.id : current));
-      setSplit((current) => replaceSplitPerson(current, temporary.id, created));
-    } catch (cause) {
-      setPersonId((current) => (current === temporary.id ? undefined : current));
-      setSplit((current) => removeSplitPerson(current, temporary.id));
-      setError(String(cause));
-    } finally {
-      writeInFlight.current = false;
-      setPendingPerson((current) => (current?.id === temporary.id ? null : current));
-    }
+    startCreatingPerson(async () => {
+      showPendingPerson(person);
+      try {
+        includeCreatedPerson(client, await createPerson(person.name, person.id));
+      } catch (cause) {
+        setPersonId((current) => (current === person.id ? undefined : current));
+        setSplit((current) => removeSplitPerson(current, person.id));
+        setError(String(cause));
+      } finally {
+        writeInFlight.current = false;
+      }
+    });
   }
 
   function selectPayer(id: number | null | undefined, left?: number) {
@@ -599,7 +596,7 @@ function QuickAddForm() {
                               label={`Add “${query.trim()}”`}
                               variant="secondary"
                               disabled={writePending}
-                              onPress={() => void addPerson(query, 'PERSON')}
+                              onPress={() => addPerson(query, 'PERSON')}
                             />
                           )}
                         </View>
@@ -679,7 +676,7 @@ function QuickAddForm() {
                   disabled={saving}
                   pendingPerson={pendingPerson}
                   onChange={setSplit}
-                  onAddPerson={(name) => void addPerson(name, 'SPLIT')}
+                  onAddPerson={(name) => addPerson(name, 'SPLIT')}
                 />
               )}
               <Animated.View key="details" style={{ gap: 12 }}>

@@ -14,32 +14,9 @@ export type SplitDraft = { people: Person[]; fixed: Partial<Record<number, numbe
 
 export function withPendingPerson(people: readonly Person[], pending: Person | null): Person[] {
   if (!pending) return [...people];
-  const needle = pending.name.toLocaleLowerCase();
-  return [
-    ...people.filter((item) => item.id !== pending.id && item.name.toLocaleLowerCase() !== needle),
-    pending,
-  ].sort((a, b) => a.name.localeCompare(b.name));
-}
-
-export function replaceSplitPerson(
-  draft: SplitDraft,
-  temporaryId: number,
-  saved: Person,
-): SplitDraft {
-  const hasTemporary = draft.people.some((person) => person.id === temporaryId);
-  const hasFixed = draft.fixed[temporaryId] !== undefined;
-  if (!hasTemporary && !hasFixed) return draft;
-  const hasSaved = draft.people.some((person) => person.id === saved.id);
-  const people = draft.people.flatMap((person) => {
-    if (person.id !== temporaryId) return [person];
-    return hasSaved ? [] : [saved];
-  });
-  const fixed = { ...draft.fixed };
-  if (hasFixed) {
-    if (fixed[saved.id] === undefined) fixed[saved.id] = fixed[temporaryId];
-    delete fixed[temporaryId];
-  }
-  return { people, fixed };
+  return [...people.filter((item) => item.id !== pending.id), pending].sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
 }
 
 export function removeSplitPerson(draft: SplitDraft, personId: number): SplitDraft {

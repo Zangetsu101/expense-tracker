@@ -276,6 +276,13 @@ test('quick lending tags follow the linked Transaction and confirmation writes n
   );
 });
 
+test('create stores the ID that the caller chose and rejects an ID that is in use', async () => {
+  assert.deepEqual(await api.createPerson(' Chosen ', 41), { id: 41, name: 'Chosen' });
+  assert.equal(sqlite.prepare('SELECT name FROM people WHERE id=41').get().name, 'Chosen');
+  await assert.rejects(api.createPerson('Other', 41));
+  await assert.rejects(api.createPerson('Zero', 0), /positive integer/);
+});
+
 test('rename trims the name and keeps the person and their totals', async () => {
   const p = await api.createPerson('Old name');
   await api.saveLendingEntry(input(p.id, 'BORROW', 100));

@@ -56,11 +56,16 @@ function positive(value: number) {
   if (!Number.isSafeInteger(value) || value <= 0)
     throw new Error('Enter a positive integer amount or ID.');
 }
-export async function createPerson(name: string): Promise<Person> {
+/** Quick Add chooses the ID so that its optimistic person is the same row that it saves. */
+export async function createPerson(name: string, id?: number): Promise<Person> {
   name = name.trim();
   if (!name) throw new Error('Enter a person name.');
+  if (id !== undefined) positive(id);
   const db = await database();
-  const result = await db.runAsync('INSERT INTO people (name) VALUES (?)', [name]);
+  const result = await db.runAsync('INSERT INTO people (id, name) VALUES (?, ?)', [
+    id ?? null,
+    name,
+  ]);
   notifyDataChanged();
   return { id: result.lastInsertRowId, name };
 }

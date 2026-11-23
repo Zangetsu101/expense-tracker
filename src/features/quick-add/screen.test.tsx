@@ -355,7 +355,7 @@ test('initial account errors offer Retry; refresh failures retain cached selecti
   await press('Bank, USD');
   expect(button('Save expense')).toBeEnabled();
 });
-test('creating a person lets the user keep editing, disables save until settled, and maps the temporary ID', async () => {
+test('creating a person lets the user keep editing, disables save until settled, and saves the chosen ID', async () => {
   const { amount, press, type, mode } = await openWithChoices([{ id: 1, name: 'Rafi' }]);
   await amount(['8']);
   await type('Note', 'Person draft');
@@ -380,6 +380,7 @@ test('creating a person lets the user keep editing, disables save until settled,
   expect(button('Add “Second person”')).toBeDisabled();
   await press('Add “Second person”');
   expect(createPerson).toHaveBeenCalledTimes(1);
+  expect(createPerson).toHaveBeenCalledWith('New person', 2);
 
   await act(async () => person.resolve({ id: 2, name: 'New person' }));
   await waitFor(() => expect(button('Save borrowing')).toBeEnabled());
@@ -422,7 +423,8 @@ test('a pending person creation preserves a switched selection and rolls back on
   await press('Add “Another”');
   await press('Rafi');
   expect(button('Save lending')).toBeDisabled();
-  await act(async () => second.resolve({ id: 3, name: 'Another' }));
+  expect(createPerson).toHaveBeenLastCalledWith('Another', 2);
+  await act(async () => second.resolve({ id: 2, name: 'Another' }));
 
   expect(screen.getByRole('button', { name: 'Rafi', selected: true })).toBeOnTheScreen();
   expect(screen.getByRole('button', { name: 'Another', selected: false })).toBeOnTheScreen();
@@ -533,7 +535,7 @@ test('adds a split with fixed shares and allows shares above the account movemen
   );
 });
 
-test('creating a person in Split lets the user edit shares while pending and maps the share to the saved ID', async () => {
+test('creating a person in Split lets the user edit shares while pending and saves the share under the chosen ID', async () => {
   const { amount, press, type } = await openWithChoices([{ id: 1, name: 'Rafi' }]);
   await screen.findByRole('button', { name: 'Food' });
   await amount(['3', '0']);
@@ -560,8 +562,9 @@ test('creating a person in Split lets the user edit shares while pending and map
   expect(button('Add “Tariq”')).toBeDisabled();
   await press('Add “Tariq”');
   expect(createPerson).toHaveBeenCalledTimes(1);
+  expect(createPerson).toHaveBeenCalledWith('Sara', 2);
 
-  await act(async () => person.resolve({ id: 7, name: 'Sara' }));
+  await act(async () => person.resolve({ id: 2, name: 'Sara' }));
   await waitFor(() => expect(button('Save expense')).toBeEnabled());
   expect(screen.getByLabelText('Share for Sara')).toHaveDisplayValue('12');
   await fireEvent.changeText(screen.getByLabelText('Find or add a person'), '');
@@ -575,7 +578,7 @@ test('creating a person in Split lets the user edit shares while pending and map
       note: 'Dinner split',
       shares: [
         { personId: 1, amountMinor: 900 },
-        { personId: 7, amountMinor: 1200 },
+        { personId: 2, amountMinor: 1200 },
       ],
     }),
     '',
