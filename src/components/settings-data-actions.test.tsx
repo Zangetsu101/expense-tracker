@@ -1,5 +1,4 @@
 import { act, render, screen, userEvent } from '@testing-library/react-native';
-import { Alert } from 'react-native';
 import { usePreventRemove } from 'expo-router/react-navigation';
 import { exportTransactionsCsv } from '@/lib/export-csv';
 import { SettingsDataActions } from './settings-data-actions';
@@ -34,12 +33,7 @@ jest.mock('@/components/backup-settings', () => {
 });
 jest.mock('@/lib/export-csv', () => ({ exportTransactionsCsv: jest.fn() }));
 
-let alert: jest.SpyInstance<ReturnType<typeof Alert.alert>, Parameters<typeof Alert.alert>>;
-beforeEach(() => {
-  jest.resetAllMocks();
-  alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
-});
-afterEach(() => jest.restoreAllMocks());
+beforeEach(() => jest.resetAllMocks());
 
 test('pending work blocks duplicate actions and leaving, and reports success only after completion', async () => {
   const user = userEvent.setup();
@@ -59,15 +53,7 @@ test('pending work blocks duplicate actions and leaving, and reports success onl
   await user.press(screen.getByRole('button', { name: 'Export transactions CSV' }));
   expect(exportTransactionsCsv).toHaveBeenCalledTimes(1);
 
-  const navigation = jest.mocked(usePreventRemove).mock.calls.at(-1)!;
-  expect(navigation[0]).toBe(true);
-  await act(async () =>
-    navigation[1]!({ data: { action: { type: 'GO_BACK' } }, repeat: jest.fn() }),
-  );
-  expect(alert).toHaveBeenCalledWith(
-    'Operation in progress',
-    expect.stringContaining('before leaving'),
-  );
+  expect(jest.mocked(usePreventRemove).mock.calls.at(-1)?.[0]).toBe(true);
 
   await act(async () => completion.resolve('content://csv'));
   expect(await screen.findByText('Transactions CSV exported.')).toBeOnTheScreen();

@@ -62,5 +62,7 @@ layout.
 
 For search and controlled selection, see
 [`screen.test.tsx`](../src/features/transaction-search/screen.test.tsx). For pending
-operations, retry, and native confirmation callbacks, see
+operations and retry, see
 [`settings-data-actions.test.tsx`](../src/components/settings-data-actions.test.tsx).
+For native confirmation callbacks, see
+[`backup-settings.test.tsx`](../src/components/backup-settings.test.tsx).

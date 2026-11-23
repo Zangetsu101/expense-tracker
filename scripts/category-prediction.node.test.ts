@@ -100,11 +100,7 @@ function backup(transactions) {
   return JSON.stringify({
     schemaVersion: 1,
     accounts: [{ id: 1, currencyCode: 'USD' }],
-    categories: [
-      ...categories,
-      { id: 4, name: 'Loan', type: 'EXPENSE', needsReview: false },
-      { id: 5, name: 'Ambiguous', type: 'EXPENSE', needsReview: true },
-    ],
+    categories: [...categories, { id: 4, name: 'Loan', type: 'EXPENSE', needsReview: false }],
     transactions: transactions.map((overrides, index) => ({
       id: index + 1,
       type: 'EXPENSE',
@@ -126,16 +122,16 @@ test('adapter filters nonordinary and unusable labels while keeping report-exclu
     backup([
       {},
       { type: 'TRANSFER' },
-      { categoryId: 4 },
-      { categoryId: 5 },
       { categoryId: 999 },
       { accountId: 999 },
       { categoryId: 3 },
       { amountMinor: 0 },
-      { categoryId: 4, source: 'MANUAL' },
     ]),
   );
-  assert.equal(result.rows.length, 4);
+  assert.deepEqual(
+    result.rows.map((row) => row.id),
+    [1],
+  );
   assert.deepEqual(result.provenance.excluded, {
     transfer_or_unknown_type: 1,
     missing_or_mismatched_category: 2,

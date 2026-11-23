@@ -286,12 +286,10 @@ export function LedgerRow({
           alignItems: 'center',
           justifyContent: 'center',
           backgroundColor: colors.raised,
-          borderColor: colors.line,
         }}
       >
         <Text style={{ color: colors.text, fontSize: 18, fontWeight: '700' }}>{icon}</Text>
       </View>
-
       <View style={{ flex: 1, gap: 4 }}>
         <Text
           style={{ color: settled ? colors.muted : colors.text, fontSize: 16, fontWeight: '600' }}

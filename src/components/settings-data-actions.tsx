@@ -70,7 +70,7 @@ export function SettingsDataActions({ onBusyChange }: { onBusyChange?: (busy: bo
         <SettingsRow
           first
           label={exportLabel}
-          description="For spreadsheets. Use backups to restore your data."
+          description="For spreadsheets; not a full backup"
           disabled={busy}
           loading={status?.kind === 'pending'}
           onPress={() => void runExport()}
