@@ -1,13 +1,14 @@
-import { useCallback, useOptimistic, useRef, useState, useTransition } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { categoriesQuery, peopleQuery, includeCreatedPerson } from './queries.ts';
 import { accountsQuery } from '@/lib/account-queries';
 import { ChoicesSection, layoutTransition } from './view.tsx';
 import { ExpenseLink, type LinkableExpense } from './expense-link';
 import {
-  isConfirmedPerson,
+  removeSplitPerson,
+  replaceSplitPerson,
   SplitExpense,
-  type PersonChoice,
+  withPendingPerson,
   type SplitDraft,
 } from './split-expense';
 import { splitShares } from '@/lib/reimbursements';
@@ -15,6 +16,7 @@ import { TransferBillChoices } from './transfer-bill-choices.tsx';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight, useNavigation, usePreventRemove } from 'expo-router/react-navigation';
 import {
+  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Pressable,
@@ -34,7 +36,7 @@ import { ControlledAmountInput, useAmountInputDraft } from '@/components/amount-
 import { useRankedCategories } from './use-ranked-categories.ts';
 import { QuickAddDate } from '@/components/quick-add-date';
 import { QuickSelectCategory } from '@/components/quick-select-category';
-import { AccountChoices, ChoiceChip, personBalanceSummary } from '@/components/entry-choices';
+import { AccountChoices, personBalanceSummary } from '@/components/entry-choices';
 import { FormButton, FormInput, JoinedChoice } from '@/components/form-controls';
 import { parseRouteId } from '@/lib/account-selection';
 import { useClippedChips } from '@/components/use-clipped-chips';
@@ -183,15 +185,15 @@ function QuickAddForm() {
   const [tags, setTags] = useState('');
   const [date, setDate] = useState(() => new Date());
   const [saving, setSaving] = useState(false);
-  const [creatingPerson, startCreatingPerson] = useTransition();
-
-  const pending = saving || creatingPerson;
+  const [pendingPerson, setPendingPerson] = useState<Person | null>(null);
+  const creatingPerson = pendingPerson !== null;
+  const writePending = saving || creatingPerson;
   const [error, setError] = useState('');
-  // A second press can arrive before React renders the pending state.
+  // Block a second write before React shows the pending state.
   const writeInFlight = useRef(false);
   const nextTemporaryPersonId = useRef(0);
   const navigation = useNavigation();
-  usePreventRemove(pending, ({ data: removal }) => {
+  usePreventRemove(writePending, ({ data: removal }) => {
     if (!writeInFlight.current) navigation.dispatch(removal.action);
   });
   const currency =
@@ -202,18 +204,8 @@ function QuickAddForm() {
   const account = accounts.find(
     (item) => item.id === accountId && (!accountCurrency || item.currencyCode === accountCurrency),
   );
-  const person = people.find((item) => item.id === personId);
-  const [selection, selectNewPerson] = useOptimistic<
-    { person: PersonChoice | undefined; split: PersonChoice[] },
-    PersonChoice
-  >({ person, split: split.people }, (previous, choice: PersonChoice) =>
-    mode === 'PERSON'
-      ? { ...previous, person: choice }
-      : {
-          ...previous,
-          split: [...previous.split, choice],
-        },
-  );
+  const allPeople = withPendingPerson(people, pendingPerson);
+  const person = allPeople.find((item) => item.id === personId);
   const orderedCategoryIds = useRankedCategories(
     categoryRead.data,
     categoryMode,
@@ -226,13 +218,6 @@ function QuickAddForm() {
     mode === 'INCOME' ||
     (mode === 'PERSON' && (action === 'BORROW' || action === 'RECEIVE_REPAYMENT'));
   const search = query.trim().toLocaleLowerCase();
-  const personChoices: PersonChoice[] =
-    typeof selection.person?.id === 'string'
-      ? [...people.filter((item) => item.name !== selection.person?.name), selection.person]
-      : people;
-  const matches = personChoices.filter((item) => item.name.toLocaleLowerCase().includes(search));
-  const canCreatePerson =
-    !!search && !people.some((item) => item.name.toLocaleLowerCase() === search);
   const destination = destinations.find((item) => item.id === toId);
   const cross =
     mode === 'TRANSFER' && destination && destination.currencyCode !== account?.currencyCode;
@@ -263,25 +248,37 @@ function QuickAddForm() {
       if (reimbursement) saveLabel = 'Save reimbursement';
       break;
   }
-  const canSave = validAmount && !!account && selectionReady;
+  const canSave = validAmount && !!account && selectionReady && !creatingPerson;
 
-  function addPerson(name: string, onCreated: (person: Person) => void) {
-    if (writeInFlight.current) return;
+  async function addPerson(name: string, target: 'PERSON' | 'SPLIT') {
+    const trimmed = name.trim();
+    if (!trimmed || writeInFlight.current) return;
     writeInFlight.current = true;
     setError('');
-    const temporaryId = `new-person-${++nextTemporaryPersonId.current}`;
-    startCreatingPerson(async () => {
-      selectNewPerson({ id: temporaryId, name: name.trim() });
-      try {
-        const created = await createPerson(name);
-        includeCreatedPerson(client, created);
-        onCreated(created);
-      } catch (cause) {
-        setError(String(cause));
-      } finally {
-        writeInFlight.current = false;
-      }
-    });
+    const temporary: Person = { id: -++nextTemporaryPersonId.current, name: trimmed };
+    setPendingPerson(temporary);
+    if (target === 'PERSON') {
+      setPersonId(temporary.id);
+      setQuery('');
+    } else {
+      setSplit((current) => ({
+        ...current,
+        people: [...current.people, temporary],
+      }));
+    }
+    try {
+      const created = await createPerson(trimmed);
+      includeCreatedPerson(client, created);
+      setPersonId((current) => (current === temporary.id ? created.id : current));
+      setSplit((current) => replaceSplitPerson(current, temporary.id, created));
+    } catch (cause) {
+      setPersonId((current) => (current === temporary.id ? undefined : current));
+      setSplit((current) => removeSplitPerson(current, temporary.id));
+      setError(String(cause));
+    } finally {
+      writeInFlight.current = false;
+      setPendingPerson((current) => (current?.id === temporary.id ? null : current));
+    }
   }
 
   function selectPayer(id: number | null | undefined, left?: number) {
@@ -376,7 +373,7 @@ function QuickAddForm() {
       initialPaid={preset === undefined ? amountMinor : undefined}
       draft={amountDraft}
       currency={account?.currencyCode}
-      disabled={pending}
+      disabled={saving}
       onChange={mode === 'TRANSFER' ? onTransferAmounts : setAmountMinor}
     >
       {({ input, keypad, dismiss: dismissCalculator, editing, ...amountActions }) => (
@@ -387,8 +384,8 @@ function QuickAddForm() {
         >
           <Stack.Screen
             options={{
-              headerLeft: () => <CancelAction disabled={pending} />,
-              gestureEnabled: !pending,
+              headerLeft: () => <CancelAction disabled={writePending} />,
+              gestureEnabled: !writePending,
             }}
           />
           <ScrollView
@@ -412,7 +409,7 @@ function QuickAddForm() {
                 key="mode"
                 value={mode}
                 options={modes}
-                disabled={pending}
+                disabled={saving}
                 onChange={(value) => {
                   if (mode === 'TRANSFER' && value !== 'TRANSFER') {
                     amountDraft.reset(
@@ -446,7 +443,7 @@ function QuickAddForm() {
                             : readyAccounts
                         }
                         selectedId={accountId}
-                        disabled={pending}
+                        disabled={saving}
                         onSelect={(id) => {
                           setAccountId(id);
                           setToId((current) => (current !== id ? current : undefined));
@@ -469,13 +466,13 @@ function QuickAddForm() {
                         <AccountChoices
                           accounts={destinations}
                           selectedId={toId}
-                          disabled={pending}
+                          disabled={saving}
                           onSelect={setToId}
                         />
                         {'applyReceivedPreset' in amountActions && (
                           <TransferBillChoices
                             destination={destination}
-                            disabled={pending}
+                            disabled={saving}
                             onPreset={amountActions.applyReceivedPreset}
                           />
                         )}
@@ -492,28 +489,27 @@ function QuickAddForm() {
               {mode === 'PERSON' && (
                 <View key="person" style={{ gap: 18 }}>
                   <View style={{ gap: 10 }}>
-                    <Label>{`With ${selection.person?.name ?? 'a person'}`}</Label>
+                    <Label>{`With ${person?.name ?? 'a person'}`}</Label>
                     <FormInput
                       accessibilityLabel="Search people"
                       placeholder="Find or add a person"
                       value={query}
                       onChangeText={setQuery}
-                      editable={!pending}
+                      editable={!saving}
                     />
                   </View>
                   <ChoicesSection options={peopleQuery()} label="people" layout="people">
                     {(readyPeople) => {
-                      const personChip = (item: PersonChoice) => {
-                        const selected = item.id === selection.person?.id;
-                        if (!isConfirmedPerson(item))
-                          return (
-                            <ChoiceChip
-                              key={item.id}
-                              label={item.name}
-                              selected={selected}
-                              disabled
-                            />
-                          );
+                      const personChoices = withPendingPerson(readyPeople.people, pendingPerson);
+                      const matches = personChoices.filter((item) =>
+                        item.name.toLocaleLowerCase().includes(search),
+                      );
+                      const canCreatePerson =
+                        !!search &&
+                        !personChoices.some((item) => item.name.toLocaleLowerCase() === search);
+                      const personChip = (item: Person) => {
+                        const selected = item.id === personId;
+                        const isPending = item.id === pendingPerson?.id;
                         return (
                           <Animated.View
                             key={item.id}
@@ -524,8 +520,8 @@ function QuickAddForm() {
                             <Pressable
                               accessibilityRole="button"
                               accessibilityLabel={item.name}
-                              accessibilityState={{ selected, disabled: pending }}
-                              {...peopleClipping.accessibilityProps(item.id, pending)}
+                              accessibilityState={{ selected, disabled: saving, busy: isPending }}
+                              {...peopleClipping.accessibilityProps(item.id, saving)}
                               onPress={() => setPersonId(item.id)}
                               style={({ pressed }) => ({
                                 paddingHorizontal: 14,
@@ -534,21 +530,30 @@ function QuickAddForm() {
                                 maxWidth: '100%',
                                 borderRadius: 14,
                                 backgroundColor: selected ? c.selected : c.surface,
-                                opacity: pending ? 0.45 : pressed ? 0.7 : 1,
+                                opacity: saving ? 0.45 : pressed || isPending ? 0.7 : 1,
                                 gap: 4,
                               })}
                             >
-                              <Text
-                                numberOfLines={1}
-                                style={{
-                                  color: c.text,
-                                  fontSize: 15,
-                                  lineHeight: 20,
-                                  fontWeight: selected ? '700' : '500',
-                                }}
-                              >
-                                {item.name}
-                              </Text>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                <Text
+                                  numberOfLines={1}
+                                  style={{
+                                    color: c.text,
+                                    fontSize: 15,
+                                    lineHeight: 20,
+                                    fontWeight: selected ? '700' : '500',
+                                    flexShrink: 1,
+                                  }}
+                                >
+                                  {item.name}
+                                </Text>
+                                {isPending && (
+                                  <ActivityIndicator
+                                    size="small"
+                                    color={selected ? c.onSelected : c.muted}
+                                  />
+                                )}
+                              </View>
                               <Text
                                 numberOfLines={1}
                                 style={{
@@ -593,13 +598,8 @@ function QuickAddForm() {
                               layout={layoutTransition}
                               label={`Add “${query.trim()}”`}
                               variant="secondary"
-                              disabled={pending}
-                              onPress={() =>
-                                addPerson(query, (created) => {
-                                  setPersonId(created.id);
-                                  setQuery('');
-                                })
-                              }
+                              disabled={writePending}
+                              onPress={() => void addPerson(query, 'PERSON')}
                             />
                           )}
                         </View>
@@ -611,13 +611,13 @@ function QuickAddForm() {
                     <JoinedChoice<PersonAction>
                       value={action}
                       options={principalActions}
-                      disabled={pending}
+                      disabled={saving}
                       onChange={setAction}
                     />
                     <JoinedChoice<PersonAction>
                       value={action}
                       options={repaymentActions}
-                      disabled={pending}
+                      disabled={saving}
                       onChange={setAction}
                     />
                   </View>
@@ -634,7 +634,7 @@ function QuickAddForm() {
                   expense={reimbursement}
                   payer={payer}
                   amountMinor={amountMinor ?? 0}
-                  disabled={pending}
+                  disabled={saving}
                   onSelectExpense={selectExpense}
                   onSelectPayer={selectPayer}
                   onRemove={() => {
@@ -657,7 +657,7 @@ function QuickAddForm() {
                         categories={readyCategories}
                         orderedIds={orderedCategoryIds}
                         selectedId={categoryIds[categoryMode]}
-                        disabled={pending}
+                        disabled={saving}
                         onSelect={(id) => setCategoryIds((ids) => ({ ...ids, [categoryMode]: id }))}
                       />
                       {!readyCategories.length && (
@@ -673,12 +673,13 @@ function QuickAddForm() {
               {mode === 'EXPENSE' && (
                 <SplitExpense
                   key="split"
-                  draft={{ ...split, people: selection.split }}
+                  draft={split}
                   amount={amountMinor ?? 0}
                   currency={account?.currencyCode}
-                  disabled={pending}
+                  disabled={saving}
+                  pendingPerson={pendingPerson}
                   onChange={setSplit}
-                  onAddPerson={addPerson}
+                  onAddPerson={(name) => void addPerson(name, 'SPLIT')}
                 />
               )}
               <Animated.View key="details" style={{ gap: 12 }}>
@@ -688,7 +689,7 @@ function QuickAddForm() {
                   placeholder="Add a note"
                   value={note}
                   onChangeText={setNote}
-                  editable={!pending}
+                  editable={!saving}
                 />
                 <Label>Tags · optional</Label>
                 <FormInput
@@ -696,9 +697,9 @@ function QuickAddForm() {
                   placeholder="Comma-separated tags"
                   value={tags}
                   onChangeText={setTags}
-                  editable={!pending}
+                  editable={!saving}
                 />
-                <QuickAddDate value={date} onChange={setDate} disabled={pending} />
+                <QuickAddDate value={date} onChange={setDate} disabled={saving} />
               </Animated.View>
               {!!error && (
                 <Text key="error" selectable accessibilityRole="alert" style={{ color: c.warning }}>
@@ -709,7 +710,7 @@ function QuickAddForm() {
                 key="save"
                 label={saveLabel}
                 loading={saving}
-                disabled={pending || !canSave || editing}
+                disabled={writePending || !canSave || editing}
                 onPress={() => {
                   if (!editing) void save();
                 }}

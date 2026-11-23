@@ -355,8 +355,8 @@ test('initial account errors offer Retry; refresh failures retain cached selecti
   await press('Bank, USD');
   expect(button('Save expense')).toBeEnabled();
 });
-test('creating a person blocks duplicate requests and selects them without losing the draft', async () => {
-  const { amount, press, type, mode } = await open();
+test('creating a person lets the user keep editing, disables save until settled, and maps the temporary ID', async () => {
+  const { amount, press, type, mode } = await openWithChoices([{ id: 1, name: 'Rafi' }]);
   await amount(['8']);
   await type('Note', 'Person draft');
   await mode('Person');
@@ -364,17 +364,69 @@ test('creating a person blocks duplicate requests and selects them without losin
   const person = Promise.withResolvers<{ id: number; name: string }>();
   jest.mocked(createPerson).mockReturnValueOnce(person.promise);
   await press('Add “New person”');
-  expect(screen.getByRole('button', { name: 'New person', selected: true })).toBeDisabled();
-  await press('Add “New person”');
-  expect(createPerson).toHaveBeenCalledTimes(1);
+  const pendingChip = screen.getByRole('button', { name: 'New person', selected: true });
+  expect(pendingChip).toBeEnabled();
+  expect(pendingChip).toBeBusy();
+  expect(screen.getByText('With New person')).toBeOnTheScreen();
+  expect(button('Save lending')).toBeDisabled();
   expect(jest.mocked(usePreventRemove).mock.lastCall?.[0]).toBe(true);
+
+  await type('Note', ' edited');
+  await mode('Borrow');
+  await amount(['1', '5']);
+  expect(button('Save borrowing')).toBeDisabled();
+
+  await type('Search people', 'Second person');
+  expect(button('Add “Second person”')).toBeDisabled();
+  await press('Add “Second person”');
+  expect(createPerson).toHaveBeenCalledTimes(1);
+
   await act(async () => person.resolve({ id: 2, name: 'New person' }));
-  await screen.findByRole('button', { name: 'New person', selected: true });
+  await waitFor(() => expect(button('Save borrowing')).toBeEnabled());
+  await fireEvent.changeText(screen.getByLabelText('Search people'), '');
+  const savedChip = await screen.findByRole('button', { name: 'New person', selected: true });
+  expect(savedChip).not.toBeBusy();
+
   jest.mocked(saveLendingEntry).mockResolvedValue({ status: 'saved', id: 1 });
-  await press('Save lending');
+  await press('Save borrowing');
   expect(saveLendingEntry).toHaveBeenCalledWith(
-    expect.objectContaining({ personId: 2, note: 'Person draft', amountMinor: 800 }),
+    expect.objectContaining({
+      personId: 2,
+      kind: 'BORROW',
+      note: 'Person draft edited',
+      amountMinor: 1500,
+    }),
   );
+});
+
+test('a pending person creation preserves a switched selection and rolls back on failure', async () => {
+  const { amount, press, type, mode } = await openWithChoices([{ id: 1, name: 'Rafi' }]);
+  await amount(['8']);
+  await mode('Person');
+  await type('Search people', 'New person');
+  const first = Promise.withResolvers<{ id: number; name: string }>();
+  jest.mocked(createPerson).mockReturnValueOnce(first.promise);
+  await press('Add “New person”');
+  await type('Note', 'Keep draft');
+  await act(async () => first.reject(Error('Create failed')));
+
+  expect(await screen.findByText(/Create failed/)).toBeOnTheScreen();
+  expect(screen.queryByRole('button', { name: 'New person' })).toBeNull();
+  expect(screen.getByText('With a person')).toBeOnTheScreen();
+  expect(screen.getByLabelText('Note')).toHaveDisplayValue('Keep draft');
+  expect(button('Save lending')).toBeDisabled();
+
+  await type('Search people', 'Another');
+  const second = Promise.withResolvers<{ id: number; name: string }>();
+  jest.mocked(createPerson).mockReturnValueOnce(second.promise);
+  await press('Add “Another”');
+  await press('Rafi');
+  expect(button('Save lending')).toBeDisabled();
+  await act(async () => second.resolve({ id: 3, name: 'Another' }));
+
+  expect(screen.getByRole('button', { name: 'Rafi', selected: true })).toBeOnTheScreen();
+  expect(screen.getByRole('button', { name: 'Another', selected: false })).toBeOnTheScreen();
+  expect(button('Save lending')).toBeEnabled();
 });
 test('repayment confirmation resubmits the original draft only after Confirm', async () => {
   const { amount, press, mode } = await open();
@@ -476,6 +528,93 @@ test('adds a split with fixed shares and allows shares above the account movemen
         { personId: 1, amountMinor: 4000 },
         { personId: 2, amountMinor: 0 },
       ],
+    }),
+    '',
+  );
+});
+
+test('creating a person in Split lets the user edit shares while pending and maps the share to the saved ID', async () => {
+  const { amount, press, type } = await openWithChoices([{ id: 1, name: 'Rafi' }]);
+  await screen.findByRole('button', { name: 'Food' });
+  await amount(['3', '0']);
+  await press('Food');
+  await press('Split with people');
+  await press('Rafi');
+  await type('Find or add a person', 'Sara');
+  const person = Promise.withResolvers<{ id: number; name: string }>();
+  jest.mocked(createPerson).mockReturnValueOnce(person.promise);
+  await press('Add “Sara”');
+
+  const pendingChip = screen.getByRole('button', { name: 'Sara', selected: true });
+  expect(pendingChip).toBeEnabled();
+  expect(pendingChip).toBeBusy();
+  expect(button('Save expense')).toBeDisabled();
+  expect(screen.getByLabelText('Share for Sara')).toHaveDisplayValue('10.00');
+
+  await fireEvent.changeText(screen.getByLabelText('Share for Sara'), '12');
+  await type('Note', 'Dinner split');
+  expect(screen.getByLabelText('Share for Rafi')).toHaveDisplayValue('9.00');
+  expect(button('Save expense')).toBeDisabled();
+
+  await type('Find or add a person', 'Tariq');
+  expect(button('Add “Tariq”')).toBeDisabled();
+  await press('Add “Tariq”');
+  expect(createPerson).toHaveBeenCalledTimes(1);
+
+  await act(async () => person.resolve({ id: 7, name: 'Sara' }));
+  await waitFor(() => expect(button('Save expense')).toBeEnabled());
+  expect(screen.getByLabelText('Share for Sara')).toHaveDisplayValue('12');
+  await fireEvent.changeText(screen.getByLabelText('Find or add a person'), '');
+  expect(screen.getByRole('button', { name: 'Sara', selected: true })).not.toBeBusy();
+
+  await press('Save expense');
+  expect(addQuickTransaction).toHaveBeenCalledWith(
+    expect.objectContaining({
+      type: 'EXPENSE',
+      amountMinor: 3000,
+      note: 'Dinner split',
+      shares: [
+        { personId: 1, amountMinor: 900 },
+        { personId: 7, amountMinor: 1200 },
+      ],
+    }),
+    '',
+  );
+});
+
+test('a failed person creation in Split rolls back the pending person and keeps other shares and edits', async () => {
+  const { amount, press, type } = await openWithChoices([{ id: 1, name: 'Rafi' }]);
+  await screen.findByRole('button', { name: 'Food' });
+  await amount(['3', '0']);
+  await press('Food');
+  await press('Split with people');
+  await press('Rafi');
+  await type('Find or add a person', 'Sara');
+  const person = Promise.withResolvers<{ id: number; name: string }>();
+  jest.mocked(createPerson).mockReturnValueOnce(person.promise);
+  await press('Add “Sara”');
+
+  await fireEvent.changeText(screen.getByLabelText('Share for Sara'), '12');
+  await fireEvent.changeText(screen.getByLabelText('Share for Rafi'), '10');
+  await type('Note', 'Keep split');
+  expect(button('Save expense')).toBeDisabled();
+
+  await act(async () => person.reject(Error('Disk full')));
+  expect(await screen.findByText(/Disk full/)).toBeOnTheScreen();
+  expect(screen.queryByRole('button', { name: 'Sara' })).toBeNull();
+  expect(screen.queryByLabelText('Share for Sara')).toBeNull();
+  expect(screen.getByRole('button', { name: 'Rafi', selected: true })).toBeOnTheScreen();
+  expect(screen.getByLabelText('Share for Rafi')).toHaveDisplayValue('10');
+  expect(screen.getByLabelText('Note')).toHaveDisplayValue('Keep split');
+  expect(button('Save expense')).toBeEnabled();
+
+  await press('Save expense');
+  expect(addQuickTransaction).toHaveBeenCalledWith(
+    expect.objectContaining({
+      type: 'EXPENSE',
+      amountMinor: 3000,
+      note: 'Keep split',
+      shares: [{ personId: 1, amountMinor: 1000 }],
     }),
     '',
   );

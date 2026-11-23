@@ -1,4 +1,4 @@
-import { Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import type { Account } from '@/lib/database';
 import type { LendingTotal } from '@/lib/lending-totals';
 import { theme } from '@/theme';
@@ -83,24 +83,26 @@ export function ChoiceChip({
   detail,
   selected,
   disabled,
+  pending = false,
   onPress,
 }: {
   label: string;
   detail?: string;
   selected?: boolean;
   disabled: boolean;
+  pending?: boolean;
   onPress?: () => void;
 }) {
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={[label, detail].filter(Boolean).join(', ')}
-      accessibilityState={{ selected, disabled }}
+      accessibilityState={{ selected, disabled, busy: pending }}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => ({
         minHeight: 44,
-        opacity: disabled ? 0.45 : pressed ? 0.65 : 1,
+        opacity: disabled ? 0.45 : pressed ? 0.65 : pending ? 0.7 : 1,
         justifyContent: 'center',
         paddingHorizontal: 14,
         paddingVertical: 8,
@@ -109,7 +111,18 @@ export function ChoiceChip({
         backgroundColor: selected ? c.selected : c.surface,
       })}
     >
-      <Text style={{ color: selected ? c.onSelected : c.text, fontWeight: '600' }}>{label}</Text>
+      {pending ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Text
+            style={{ color: selected ? c.onSelected : c.text, fontWeight: '600', flexShrink: 1 }}
+          >
+            {label}
+          </Text>
+          <ActivityIndicator size="small" color={selected ? c.onSelected : c.muted} />
+        </View>
+      ) : (
+        <Text style={{ color: selected ? c.onSelected : c.text, fontWeight: '600' }}>{label}</Text>
+      )}
       {!!detail && (
         <Text style={{ color: selected ? c.onSelected : c.muted, fontSize: 12 }}>{detail}</Text>
       )}
