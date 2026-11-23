@@ -281,7 +281,13 @@ test('a parent Category opens to show its children, and a row opens its Transact
   await user.press(screen.getByRole('link', { name: 'Coffee, $10.00' }));
   expect(router.push).toHaveBeenLastCalledWith({
     pathname: '/transactions',
-    params: { categoryId: '12', startDate: '2026-03-01', endDate: '2026-03-31', type: 'EXPENSE' },
+    params: {
+      categoryId: '12',
+      startDate: '2026-03-01',
+      endDate: '2026-03-31',
+      type: 'EXPENSE',
+      reportSpending: '1',
+    },
   });
   await user.press(screen.getByText('All Food Transactions ›'));
   expect(router.push).toHaveBeenLastCalledWith(

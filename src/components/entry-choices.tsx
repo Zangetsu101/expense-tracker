@@ -1,4 +1,4 @@
-import { Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import type { Account } from '@/lib/database';
 import type { LendingTotal } from '@/lib/lending-totals';
 import { pressableOpacity, theme } from '@/theme';
@@ -76,4 +76,59 @@ export function personBalanceSummary(
     ];
   });
   return labels.join(' · ') || `No recorded balance in ${currencyCode}`;
+}
+
+export function ChoiceChip({
+  label,
+  detail,
+  selected,
+  disabled,
+  pending = false,
+  onPress,
+}: {
+  label: string;
+  detail?: string;
+  selected?: boolean;
+  disabled: boolean;
+  pending?: boolean;
+  onPress?: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={[label, detail].filter(Boolean).join(', ')}
+      accessibilityState={{ selected, disabled, busy: pending }}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => ({
+        minHeight: 44,
+        opacity: pressableOpacity(
+          { disabled, pressed: pressed || !!pending },
+          { disabled: 0.45, pressed: pressed ? 0.65 : 0.7 },
+        ),
+        justifyContent: 'center',
+        paddingHorizontal: 14,
+        paddingVertical: 8,
+        maxWidth: '100%',
+        borderRadius: 14,
+        backgroundColor: selected ? c.selected : c.surface,
+      })}
+    >
+      {pending ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Text
+            style={{ color: selected ? c.onSelected : c.text, fontWeight: '600', flexShrink: 1 }}
+          >
+            {label}
+          </Text>
+          <ActivityIndicator size="small" color={selected ? c.onSelected : c.muted} />
+        </View>
+      ) : (
+        <Text style={{ color: selected ? c.onSelected : c.text, fontWeight: '600' }}>{label}</Text>
+      )}
+      {!!detail && (
+        <Text style={{ color: selected ? c.onSelected : c.muted, fontSize: 12 }}>{detail}</Text>
+      )}
+    </Pressable>
+  );
 }

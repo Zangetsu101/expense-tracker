@@ -61,6 +61,8 @@ export interface BackupData {
     dueDay: number | null;
   }[];
   people?: { id: number; name: string }[];
+  splitShares?: { expenseId: number; personId: number; amountMinor: number }[];
+  reimbursements?: { transactionId: number; expenseId: number; personId: number | null }[];
   lendingEntries?: {
     id: number;
     personId: number;
@@ -94,6 +96,8 @@ const longFields = [
   'categoryId',
   'transactionId',
   'tagId',
+  'expenseId',
+  'personId',
   'outgoingTxnId',
   'incomingTxnId',
   'favoriteAccountId',
@@ -208,6 +212,7 @@ export function decodeBackup(json: string): BackupData {
   }
   validateCreditCards(data);
   validateLending(data);
+  validateReimbursements(data);
   const settings = (data.settings ?? {}) as BackupData['settings'];
   return {
     schemaVersion: data.schemaVersion as number,
@@ -224,6 +229,12 @@ export function decodeBackup(json: string): BackupData {
     },
     ...(data.creditCards !== undefined
       ? { creditCards: data.creditCards as BackupData['creditCards'] }
+      : {}),
+    ...(data.splitShares !== undefined
+      ? { splitShares: data.splitShares as BackupData['splitShares'] }
+      : {}),
+    ...(data.reimbursements !== undefined
+      ? { reimbursements: data.reimbursements as BackupData['reimbursements'] }
       : {}),
     ...(data.people !== undefined ? { people: data.people as BackupData['people'] } : {}),
     ...(data.lendingEntries !== undefined
@@ -337,6 +348,52 @@ function validateLending(data: Record<string, unknown>): void {
         fail();
       linked.add(row.transactionId!);
     }
+  }
+}
+
+function validateReimbursements(data: Record<string, unknown>) {
+  const { splitShares = [], reimbursements = [] } = data;
+  if (!Array.isArray(splitShares) || !Array.isArray(reimbursements))
+    throw new Error('Invalid backup split or reimbursement metadata');
+  if (!splitShares.length && !reimbursements.length) return;
+  const transactions = new Map(
+    ((data.transactions ?? []) as BackupData['transactions']).map((row) => [row.id, row]),
+  );
+  const currencies = new Map(
+    ((data.accounts ?? []) as BackupData['accounts']).map((row) => [row.id, row.currencyCode]),
+  );
+  const people = new Set(
+    ((data.people ?? []) as NonNullable<BackupData['people']>).map((p) => p.id),
+  );
+  const shares = new Set<string>();
+  for (const row of splitShares) {
+    const key = `${row?.expenseId}:${row?.personId}`;
+    if (
+      !row ||
+      transactions.get(row.expenseId)?.type !== 'EXPENSE' ||
+      !people.has(row.personId) ||
+      !Number.isSafeInteger(row.amountMinor) ||
+      row.amountMinor < 0 ||
+      shares.has(key)
+    )
+      throw new Error('Invalid backup split share');
+    shares.add(key);
+  }
+  const payments = new Set<number>();
+  for (const row of reimbursements) {
+    const expense = transactions.get(row?.expenseId);
+    const payment = transactions.get(row?.transactionId);
+    if (
+      expense?.type !== 'EXPENSE' ||
+      payment?.type !== 'INCOME' ||
+      payment.dateEpochDay < expense.dateEpochDay ||
+      !currencies.has(expense.accountId) ||
+      currencies.get(expense.accountId) !== currencies.get(payment.accountId) ||
+      (row.personId !== null && !shares.has(`${row.expenseId}:${row.personId}`)) ||
+      payments.has(row.transactionId)
+    )
+      throw new Error('Invalid backup reimbursement link');
+    payments.add(row.transactionId);
   }
 }
 

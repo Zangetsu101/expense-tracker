@@ -13,31 +13,60 @@ function amountSymbol(currency: string | undefined) {
   return '';
 }
 
+type AmountInputSlots = {
+  input: ReactNode;
+  keypad: ReactNode;
+  dismiss: () => void;
+  editing: boolean;
+};
+
+export function useAmountInputDraft(initialAmount = '', initiallyOpen = true) {
+  const [entry, setEntry] = useState({ amount: initialAmount, evaluated: false, error: '' });
+  const [calculatorOpen, setCalculatorOpen] = useState(initiallyOpen);
+  const [validAmount, setValidAmount] = useState(!!initialAmount);
+  return {
+    entry,
+    setEntry,
+    calculatorOpen,
+    setCalculatorOpen,
+    validAmount,
+    setValidAmount,
+    reset(amount: string, open: boolean) {
+      setEntry({ amount, evaluated: false, error: '' });
+      setCalculatorOpen(open);
+      setValidAmount(!!amount);
+    },
+  };
+}
+
+type Props = {
+  currency?: string;
+  disabled?: boolean;
+  onChange: (amountMinor: number | undefined) => void;
+  children: (slots: AmountInputSlots) => ReactNode;
+};
+
 export function AmountInput({
+  initialAmount,
+  initiallyOpen,
+  ...props
+}: Props & {
+  initialAmount?: string;
+  initiallyOpen?: boolean;
+}) {
+  const draft = useAmountInputDraft(initialAmount, initiallyOpen);
+  return <ControlledAmountInput {...props} draft={draft} />;
+}
+
+export function ControlledAmountInput({
   currency,
-  initialAmount = '',
-  initiallyOpen = true,
+  draft,
   disabled: pending = false,
   onChange,
   children,
-}: {
-  currency?: string;
-  /** A valid amount that is shown before the user changes it. */
-  initialAmount?: string;
-  initiallyOpen?: boolean;
-  disabled?: boolean;
-  onChange: (amountMinor: number | undefined) => void;
-  children: (slots: {
-    input: ReactNode;
-    keypad: ReactNode;
-    dismiss: () => void;
-    editing: boolean;
-  }) => ReactNode;
-}) {
-  const [entry, setEntry] = useState({ amount: initialAmount, evaluated: false, error: '' });
+}: Props & { draft: ReturnType<typeof useAmountInputDraft> }) {
+  const { entry, setEntry, calculatorOpen, setCalculatorOpen, validAmount, setValidAmount } = draft;
   const { amount } = entry;
-  const [calculatorOpen, setCalculatorOpen] = useState(initiallyOpen);
-  const [validAmount, setValidAmount] = useState(!!initialAmount);
   const insets = useSafeAreaInsets();
   function dismiss() {
     if (!calculatorOpen) return;

@@ -1,12 +1,22 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useOptimistic, useRef, useState, useTransition } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { categoriesQuery, peopleQuery, includeCreatedPerson } from './queries.ts';
+import { categoriesQuery, peopleQuery, includeCreatedPerson, nextPersonId } from './queries.ts';
 import { accountsQuery } from '@/lib/account-queries';
 import { ChoicesSection, layoutTransition } from './view.tsx';
+import { ExpenseLink, type LinkableExpense } from './expense-link';
+import {
+  removeSplitPerson,
+  SplitExpense,
+  withPendingPerson,
+  type ShownPerson,
+  type SplitDraft,
+} from './split-expense';
+import { splitShares } from '@/lib/reimbursements';
 import { TransferBillChoices } from './transfer-bill-choices.tsx';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight, useNavigation, usePreventRemove } from 'expo-router/react-navigation';
 import {
+  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Pressable,
@@ -19,10 +29,10 @@ import Animated from 'react-native-reanimated';
 import { epochDay } from '@/lib/database';
 import { addQuickTransaction } from '@/lib/quick-add-tags';
 import { addTransfer } from '@/lib/transfers';
-import { createPerson, saveLendingEntry, type LendingKind } from '@/lib/lending';
+import { createPerson, saveLendingEntry, type LendingKind, type Person } from '@/lib/lending';
 import type { LendingTotal } from '@/lib/lending-totals';
 import { TransferAmountInput } from '@/components/transfer-amount-input';
-import { AmountInput } from '@/components/amount-input';
+import { ControlledAmountInput, useAmountInputDraft } from '@/components/amount-input';
 import { useRankedCategories } from './use-ranked-categories.ts';
 import { QuickAddDate } from '@/components/quick-add-date';
 import { QuickSelectCategory } from '@/components/quick-select-category';
@@ -134,8 +144,10 @@ function QuickAddForm() {
     const amount = Number(params.amountMinor);
     return Number.isSafeInteger(amount) && amount > 0 ? amount : undefined;
   });
-  const [entryAmount, setEntryAmount] = useState(preset);
-  const [amountKey, setAmountKey] = useState(0);
+  const amountDraft = useAmountInputDraft(
+    preset === undefined ? '' : (preset / 100).toFixed(2),
+    preset === undefined,
+  );
   const categoryMode = mode === 'EXPENSE' || mode === 'INCOME' ? mode : undefined;
   const categoryRead = useQuery({ ...categoriesQuery(categoryMode ?? 'EXPENSE'), enabled: false });
   const peopleRead = useQuery({ ...peopleQuery(), enabled: false });
@@ -165,24 +177,33 @@ function QuickAddForm() {
   const peopleMaxHeight = personChipHeight * 2 + 8;
   const peopleClipping = useClippedChips(peopleMaxHeight);
   const [action, setAction] = useState<PersonAction>(() => initialAction ?? 'LEND');
+  const [split, setSplit] = useState<SplitDraft>({ people: [], fixed: {} });
+  const [linked, setLinked] = useState<LinkableExpense | null>(null);
+  const [payer, setPayer] = useState<number | null>();
+  const reimbursement = mode === 'INCOME' ? linked : null;
   const [note, setNote] = useState('');
   const [tags, setTags] = useState('');
   const [date, setDate] = useState(() => new Date());
-  const [pending, setPending] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [creatingPerson, startCreatingPerson] = useTransition();
+  const [shownPeople, showPendingPerson] = useOptimistic(people, withPendingPerson);
+  const writePending = saving || creatingPerson;
   const [error, setError] = useState('');
-  const busy = useRef(false);
+  // Block a second write before React shows the pending state.
+  const writeInFlight = useRef(false);
   const navigation = useNavigation();
-  usePreventRemove(pending, ({ data: removal }) => {
-    if (!busy.current) navigation.dispatch(removal.action);
+  usePreventRemove(writePending, ({ data: removal }) => {
+    if (!writeInFlight.current) navigation.dispatch(removal.action);
   });
   const currency =
     mode === 'PERSON' && action === initialAction && personId === routePersonId
       ? params.currency
       : undefined;
+  const accountCurrency = reimbursement?.row.currencyCode ?? currency;
   const account = accounts.find(
-    (item) => item.id === accountId && (!currency || item.currencyCode === currency),
+    (item) => item.id === accountId && (!accountCurrency || item.currencyCode === accountCurrency),
   );
-  const person = people.find((item) => item.id === personId);
+  const person = shownPeople.find((item) => item.id === personId);
   const orderedCategoryIds = useRankedCategories(
     categoryRead.data,
     categoryMode,
@@ -195,57 +216,84 @@ function QuickAddForm() {
     mode === 'INCOME' ||
     (mode === 'PERSON' && (action === 'BORROW' || action === 'RECEIVE_REPAYMENT'));
   const search = query.trim().toLocaleLowerCase();
-  const matches = people.filter((item) => item.name.toLocaleLowerCase().includes(search));
-  const canCreatePerson =
-    !!search && !people.some((item) => item.name.toLocaleLowerCase() === search);
   const destination = destinations.find((item) => item.id === toId);
   const cross =
     mode === 'TRANSFER' && destination && destination.currencyCode !== account?.currencyCode;
-  const validAmount = amountMinor !== undefined && (!cross || receivedAmountMinor !== undefined);
-  let targetSelected: boolean;
-  if (mode === 'TRANSFER') targetSelected = destinations.some((item) => item.id === toId);
-  else if (mode === 'PERSON') targetSelected = !!person;
-  else
-    targetSelected =
-      !!categoryMode && categories.some((item) => item.id === categoryIds[categoryMode]);
-  const canSave =
-    !!accountsRead.data &&
-    (mode === 'TRANSFER' || (mode === 'PERSON' ? !!peopleRead.data : !!categoryRead.data)) &&
-    validAmount &&
-    !!account &&
-    targetSelected;
-  let saveLabel = 'Save';
-  if (mode === 'PERSON')
-    saveLabel = {
-      LEND: 'Save lending',
-      BORROW: 'Save borrowing',
-      RECEIVE_REPAYMENT: 'Save repayment received',
-      REPAY: 'Save repayment made',
-    }[action];
-  else if (mode === 'TRANSFER') saveLabel = 'Save transfer';
+  const validAmount =
+    amountMinor !== undefined && amountMinor > 0 && (!cross || receivedAmountMinor !== undefined);
+  let selectionReady = false;
+  let saveLabel: string;
+  switch (mode) {
+    case 'TRANSFER':
+      selectionReady = !!destination;
+      saveLabel = 'Save transfer';
+      break;
+    case 'PERSON':
+      selectionReady = !!person;
+      saveLabel = {
+        LEND: 'Save lending',
+        BORROW: 'Save borrowing',
+        RECEIVE_REPAYMENT: 'Save repayment received',
+        REPAY: 'Save repayment made',
+      }[action];
+      break;
+    case 'INCOME':
+    case 'EXPENSE':
+      selectionReady = reimbursement
+        ? payer !== undefined
+        : categories.some((item) => item.id === categoryIds[mode]);
+      saveLabel = mode === 'EXPENSE' ? 'Save expense' : 'Save income';
+      if (reimbursement) saveLabel = 'Save reimbursement';
+      break;
+  }
+  const canSave = validAmount && !!account && selectionReady && !creatingPerson;
 
-  async function addPerson() {
-    if (busy.current) return;
-    busy.current = true;
-    setPending(true);
+  function addPerson(name: string, target: 'PERSON' | 'SPLIT') {
+    const trimmed = name.trim();
+    if (!trimmed || writeInFlight.current) return;
+    writeInFlight.current = true;
     setError('');
-    try {
-      const created = await createPerson(query);
-      includeCreatedPerson(client, created);
-      setPersonId(created.id);
+    const person: Person = { id: nextPersonId(people), name: trimmed };
+    if (target === 'PERSON') {
+      setPersonId(person.id);
       setQuery('');
-    } catch (cause) {
-      setError(String(cause));
-    } finally {
-      busy.current = false;
-      setPending(false);
+    } else {
+      setSplit((current) => ({ ...current, people: [...current.people, person] }));
     }
+    startCreatingPerson(async () => {
+      showPendingPerson(person);
+      try {
+        includeCreatedPerson(client, await createPerson(person.name, person.id));
+      } catch (cause) {
+        setPersonId((current) => (current === person.id ? undefined : current));
+        setSplit((current) => removeSplitPerson(current, person.id));
+        setError(String(cause));
+      } finally {
+        writeInFlight.current = false;
+      }
+    });
+  }
+
+  function selectPayer(id: number | null | undefined, left?: number) {
+    setPayer(id);
+    if (left === undefined) return;
+    amountDraft.reset((left / 100).toFixed(2), false);
+    setAmountMinor(left || undefined);
+  }
+
+  function selectExpense(expense: LinkableExpense) {
+    setLinked(expense);
+    if (account && account.currencyCode !== expense.row.currencyCode) setAccountId(undefined);
+    const owing = expense.shares.filter((share) => share.leftMinor > 0);
+    if (owing.length === 1) selectPayer(owing[0].personId, owing[0].leftMinor);
+    else selectPayer(expense.shares.length ? undefined : null);
+    setError('');
   }
 
   async function save() {
-    if (busy.current || !canSave || !account || amountMinor === undefined) return;
-    busy.current = true;
-    setPending(true);
+    if (writeInFlight.current || !canSave || !account || amountMinor === undefined) return;
+    writeInFlight.current = true;
+    setSaving(true);
     setError('');
     try {
       if (!Number.isFinite(date.getTime()) || epochDay(date) > epochDay(new Date()))
@@ -281,39 +329,47 @@ function QuickAddForm() {
             type: mode,
             amountMinor,
             accountId: account.id,
-            categoryId: categoryIds[mode]!,
+            categoryId: reimbursement ? null : categoryIds[mode]!,
+            ...(reimbursement && {
+              reimbursement: { expenseId: reimbursement.row.id, personId: payer ?? null },
+            }),
+            ...(mode === 'EXPENSE' &&
+              split.people.length > 0 && {
+                shares: splitShares(
+                  amountMinor,
+                  split.people.map((item) => item.id),
+                  split.fixed,
+                ).shares,
+              }),
             date,
             note: note.trim() || null,
           },
           tags,
         );
       }
-      busy.current = false;
+      writeInFlight.current = false;
       router.back();
     } catch (cause) {
       setError(String(cause));
     } finally {
-      busy.current = false;
-      setPending(false);
+      writeInFlight.current = false;
+      setSaving(false);
     }
   }
 
-  const AmountEntry = mode === 'TRANSFER' ? TransferAmountInput : AmountInput;
+  const AmountEntry = mode === 'TRANSFER' ? TransferAmountInput : ControlledAmountInput;
   return (
     <AmountEntry
-      key={mode === 'TRANSFER' ? 'transfer' : amountKey}
       source={account}
       destination={destination}
-      receivedPreset={preset}
-      presetRevision={amountKey}
-      initialPaid={preset && cross ? undefined : amountMinor}
-      initialAmount={entryAmount ? (entryAmount / 100).toFixed(2) : ''}
-      initiallyOpen={!entryAmount}
+      initialReceived={preset}
+      initialPaid={preset === undefined ? amountMinor : undefined}
+      draft={amountDraft}
       currency={account?.currencyCode}
-      disabled={pending}
+      disabled={saving}
       onChange={mode === 'TRANSFER' ? onTransferAmounts : setAmountMinor}
     >
-      {({ input, keypad, dismiss: dismissCalculator, editing }) => (
+      {({ input, keypad, dismiss: dismissCalculator, editing, ...amountActions }) => (
         <KeyboardAvoidingView
           style={{ flex: 1 }}
           behavior={process.env.EXPO_OS === 'ios' ? 'padding' : 'height'}
@@ -321,8 +377,8 @@ function QuickAddForm() {
         >
           <Stack.Screen
             options={{
-              headerLeft: () => <CancelAction disabled={pending} />,
-              gestureEnabled: !pending,
+              headerLeft: () => <CancelAction disabled={writePending} />,
+              gestureEnabled: !writePending,
             }}
           />
           <ScrollView
@@ -346,10 +402,13 @@ function QuickAddForm() {
                 key="mode"
                 value={mode}
                 options={modes}
-                disabled={pending}
+                disabled={saving}
                 onChange={(value) => {
                   if (mode === 'TRANSFER' && value !== 'TRANSFER') {
-                    setEntryAmount(amountMinor);
+                    amountDraft.reset(
+                      amountMinor === undefined ? '' : (amountMinor / 100).toFixed(2),
+                      amountMinor === undefined,
+                    );
                     setPreset(undefined);
                   }
                   setMode(value);
@@ -372,12 +431,12 @@ function QuickAddForm() {
                       <Label>{`${incoming ? 'Into' : 'From'} ${account?.name ?? 'an account'}`}</Label>
                       <AccountChoices
                         accounts={
-                          currency
-                            ? readyAccounts.filter((item) => item.currencyCode === currency)
+                          accountCurrency
+                            ? readyAccounts.filter((item) => item.currencyCode === accountCurrency)
                             : readyAccounts
                         }
                         selectedId={accountId}
-                        disabled={pending}
+                        disabled={saving}
                         onSelect={(id) => {
                           setAccountId(id);
                           setToId((current) => (current !== id ? current : undefined));
@@ -385,11 +444,11 @@ function QuickAddForm() {
                         }}
                       />
                       {!readyAccounts.some(
-                        (item) => !currency || item.currencyCode === currency,
+                        (item) => !accountCurrency || item.currencyCode === accountCurrency,
                       ) && (
                         <Text style={{ color: c.muted }}>
-                          {currency
-                            ? `Create a ${currency} account in Accounts to add this entry.`
+                          {accountCurrency
+                            ? `Create a ${accountCurrency} account in Accounts to add this entry.`
                             : 'Create an account in the Accounts tab before adding a transaction.'}
                         </Text>
                       )}
@@ -400,17 +459,16 @@ function QuickAddForm() {
                         <AccountChoices
                           accounts={destinations}
                           selectedId={toId}
-                          disabled={pending}
+                          disabled={saving}
                           onSelect={setToId}
                         />
-                        <TransferBillChoices
-                          destination={destination}
-                          disabled={pending}
-                          onPreset={(amount) => {
-                            setPreset(amount);
-                            setAmountKey((key) => key + 1);
-                          }}
-                        />
+                        {'applyReceivedPreset' in amountActions && (
+                          <TransferBillChoices
+                            destination={destination}
+                            disabled={saving}
+                            onPreset={amountActions.applyReceivedPreset}
+                          />
+                        )}
                         {!destinations.length && (
                           <Text style={{ color: c.muted }}>
                             No other account. Create one in Accounts or choose a different source.
@@ -430,13 +488,20 @@ function QuickAddForm() {
                       placeholder="Find or add a person"
                       value={query}
                       onChangeText={setQuery}
-                      editable={!pending}
+                      editable={!saving}
                     />
                   </View>
                   <ChoicesSection options={peopleQuery()} label="people" layout="people">
                     {(readyPeople) => {
-                      const personChip = (item: (typeof people)[number]) => {
+                      const matches = shownPeople.filter((item) =>
+                        item.name.toLocaleLowerCase().includes(search),
+                      );
+                      const canCreatePerson =
+                        !!search &&
+                        !shownPeople.some((item) => item.name.toLocaleLowerCase() === search);
+                      const personChip = (item: ShownPerson) => {
                         const selected = item.id === personId;
+                        const isPending = !!item.pending;
                         return (
                           <Animated.View
                             key={item.id}
@@ -447,8 +512,8 @@ function QuickAddForm() {
                             <Pressable
                               accessibilityRole="button"
                               accessibilityLabel={item.name}
-                              accessibilityState={{ selected, disabled: pending }}
-                              {...peopleClipping.accessibilityProps(item.id, pending)}
+                              accessibilityState={{ selected, disabled: saving, busy: isPending }}
+                              {...peopleClipping.accessibilityProps(item.id, saving)}
                               onPress={() => setPersonId(item.id)}
                               style={({ pressed }) => ({
                                 paddingHorizontal: 14,
@@ -458,23 +523,32 @@ function QuickAddForm() {
                                 borderRadius: 14,
                                 backgroundColor: selected ? c.selected : c.surface,
                                 opacity: pressableOpacity(
-                                  { disabled: pending, pressed },
+                                  { disabled: saving, pressed: pressed || isPending },
                                   { disabled: 0.45, pressed: 0.7 },
                                 ),
                                 gap: 4,
                               })}
                             >
-                              <Text
-                                numberOfLines={1}
-                                style={{
-                                  color: c.text,
-                                  fontSize: 15,
-                                  lineHeight: 20,
-                                  fontWeight: selected ? '700' : '500',
-                                }}
-                              >
-                                {item.name}
-                              </Text>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                <Text
+                                  numberOfLines={1}
+                                  style={{
+                                    color: c.text,
+                                    fontSize: 15,
+                                    lineHeight: 20,
+                                    fontWeight: selected ? '700' : '500',
+                                    flexShrink: 1,
+                                  }}
+                                >
+                                  {item.name}
+                                </Text>
+                                {isPending && (
+                                  <ActivityIndicator
+                                    size="small"
+                                    color={selected ? c.onSelected : c.muted}
+                                  />
+                                )}
+                              </View>
                               <Text
                                 numberOfLines={1}
                                 style={{
@@ -519,8 +593,8 @@ function QuickAddForm() {
                               layout={layoutTransition}
                               label={`Add “${query.trim()}”`}
                               variant="secondary"
-                              disabled={pending}
-                              onPress={() => void addPerson()}
+                              disabled={writePending}
+                              onPress={() => addPerson(query, 'PERSON')}
                             />
                           )}
                         </View>
@@ -532,13 +606,13 @@ function QuickAddForm() {
                     <JoinedChoice<PersonAction>
                       value={action}
                       options={principalActions}
-                      disabled={pending}
+                      disabled={saving}
                       onChange={setAction}
                     />
                     <JoinedChoice<PersonAction>
                       value={action}
                       options={repaymentActions}
-                      disabled={pending}
+                      disabled={saving}
                       onChange={setAction}
                     />
                   </View>
@@ -549,7 +623,23 @@ function QuickAddForm() {
                   </Text>
                 </View>
               )}
-              {categoryMode && (
+              {mode === 'INCOME' && (
+                <ExpenseLink
+                  key="expense-link"
+                  expense={reimbursement}
+                  payer={payer}
+                  amountMinor={amountMinor ?? 0}
+                  disabled={saving}
+                  onSelectExpense={selectExpense}
+                  onSelectPayer={selectPayer}
+                  onRemove={() => {
+                    setLinked(null);
+                    setPayer(undefined);
+                    setError('');
+                  }}
+                />
+              )}
+              {categoryMode && !reimbursement && (
                 <ChoicesSection
                   key={categoryMode}
                   layout="categories"
@@ -562,7 +652,7 @@ function QuickAddForm() {
                         categories={readyCategories}
                         orderedIds={orderedCategoryIds}
                         selectedId={categoryIds[categoryMode]}
-                        disabled={pending}
+                        disabled={saving}
                         onSelect={(id) => setCategoryIds((ids) => ({ ...ids, [categoryMode]: id }))}
                       />
                       {!readyCategories.length && (
@@ -575,6 +665,18 @@ function QuickAddForm() {
                   )}
                 </ChoicesSection>
               )}
+              {mode === 'EXPENSE' && (
+                <SplitExpense
+                  key="split"
+                  draft={split}
+                  amount={amountMinor ?? 0}
+                  currency={account?.currencyCode}
+                  disabled={saving}
+                  people={shownPeople}
+                  onChange={setSplit}
+                  onAddPerson={(name) => addPerson(name, 'SPLIT')}
+                />
+              )}
               <Animated.View key="details" style={{ gap: 12 }}>
                 <Label>Note · optional</Label>
                 <FormInput
@@ -582,7 +684,7 @@ function QuickAddForm() {
                   placeholder="Add a note"
                   value={note}
                   onChangeText={setNote}
-                  editable={!pending}
+                  editable={!saving}
                 />
                 <Label>Tags · optional</Label>
                 <FormInput
@@ -590,9 +692,9 @@ function QuickAddForm() {
                   placeholder="Comma-separated tags"
                   value={tags}
                   onChangeText={setTags}
-                  editable={!pending}
+                  editable={!saving}
                 />
-                <QuickAddDate value={date} onChange={setDate} disabled={pending} />
+                <QuickAddDate value={date} onChange={setDate} disabled={saving} />
               </Animated.View>
               {!!error && (
                 <Text key="error" selectable accessibilityRole="alert" style={{ color: c.warning }}>
@@ -602,8 +704,8 @@ function QuickAddForm() {
               <FormButton
                 key="save"
                 label={saveLabel}
-                loading={pending}
-                disabled={!canSave || editing}
+                loading={saving}
+                disabled={writePending || !canSave || editing}
                 onPress={() => {
                   if (!editing) void save();
                 }}

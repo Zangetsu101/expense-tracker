@@ -1,5 +1,5 @@
 import { savedTransferRate, formatTransferRate } from '@/lib/transfer-amounts';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link } from 'expo-router';
 import type { WriteOffEntry } from '@/lib/lending';
 import { lendingKindLabels } from '@/lib/lending-labels';
@@ -15,10 +15,16 @@ import {
   transactionTitle,
 } from '@/lib/transaction-format';
 import { formatLineItemAmount } from '@/lib/line-item-amount';
+import { categoryPath, type ListRow } from '@/features/home/list';
+import { reimbursementTitle } from '@/lib/reimbursements';
+import { type ReimbursementDetails } from './reimbursement-receipt';
 import { theme } from '@/theme';
 
 const color = { ...theme.colors, panel: theme.colors.surface, ink: theme.colors.text };
-type Props = { transaction: EditableTransaction | WriteOffEntry };
+type Props = {
+  transaction: EditableTransaction | WriteOffEntry;
+  reimbursement?: ReimbursementDetails;
+};
 function Label({ children }: { children: string }) {
   return (
     <Text
@@ -94,107 +100,154 @@ function ItemSection({ row }: { row: EditableTransaction }) {
     </View>
   );
 }
-function receiptAmount(row: Props['transaction']) {
+const receiptMonth = new Intl.DateTimeFormat('en', {
+  month: 'long',
+  year: 'numeric',
+  timeZone: 'UTC',
+});
+const receiptNumber = new Intl.NumberFormat(undefined, {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+function receiptAmount(row: Props['transaction'], reimbursement: Props['reimbursement']) {
   if (row.type === 'WRITE_OFF') return formatBalance(row.amountMinor, row.currencyCode);
-  const format = row.lendingKind ? formatMoney : formatTransactionAmount;
+  if (reimbursement?.expense) return `+${receiptNumber.format(row.amountMinor / 100)}`;
+  const format =
+    row.lendingKind || reimbursement?.shares.length ? formatMoney : formatTransactionAmount;
   return format(row.type, row.amountMinor, row.currencyCode);
 }
-function receiptLabel(row: Props['transaction']) {
-  if (row.type === 'WRITE_OFF') return 'Write-off';
-  if (row.lendingKind) return lendingKindLabels[row.lendingKind];
-  return row.type === 'EXPENSE' ? 'Expense' : 'Income';
-}
-function receiptTitle(row: Props['transaction']) {
-  if (row.type !== 'WRITE_OFF') return transactionTitle(row);
-  return row.kind === 'WRITE_OFF_LENT'
-    ? `Wrote off what ${row.personName} owes`
-    : `Wrote off what you owe ${row.personName}`;
-}
-function receiptAmountColor(row: Props['transaction']) {
-  if (row.type === 'WRITE_OFF') return color.muted;
-  return row.type === 'INCOME' ? color.accent : color.ink;
-}
-export function TransactionReceipt({ transaction: row }: Props) {
-  const writeOff = row.type === 'WRITE_OFF';
-  const kind = writeOff ? row.kind : row.lendingKind;
-  const label = receiptLabel(row);
-  const title = receiptTitle(row);
+export function TransactionReceipt({ children }: { children: ReactNode }) {
   return (
     <ScrollView
       contentInsetAdjustmentBehavior="automatic"
       style={{ flex: 1, backgroundColor: color.background }}
       contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 24, paddingBottom: 32, gap: 24 }}
     >
-      <View style={{ backgroundColor: color.panel, borderRadius: 18, padding: 22, gap: 16 }}>
-        <Label>{`${label} · ${row.currencyCode}`}</Label>
-        <Text
-          selectable
-          style={{
-            color: receiptAmountColor(row),
-            fontSize: 40,
-            fontWeight: '300',
-            fontVariant: ['tabular-nums'],
-          }}
-        >
-          {receiptAmount(row)}
-        </Text>
-        <Text selectable style={{ color: color.ink, fontSize: 20, fontWeight: '700' }}>
-          {title}
-        </Text>
-        <View style={{ height: 1, backgroundColor: color.line }} />
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 20 }}>
-          <View style={{ gap: 8 }}>
-            <Label>Account</Label>
-            <Value muted={writeOff}>{row.accountName ?? 'No Account movement'}</Value>
-          </View>
-          <View style={{ gap: 8 }}>
-            <Label>Date</Label>
-            <Value>{kind ? formatActivityDay(row.date) : formatEpochDay(row.date)}</Value>
-          </View>
-        </View>
-      </View>
-      {!!row.personId && !!row.personName && (
-        <View style={{ gap: 8 }}>
-          <Label>Person</Label>
-          <Link
-            href={{
-              pathname: '/person',
-              params: { id: row.personId, name: row.personName },
-            }}
-            style={{ color: color.accent, fontSize: 16 }}
-          >
-            {row.personName} ›
-          </Link>
-        </View>
-      )}
-      <View style={{ gap: 8 }}>
-        <Label>Note</Label>
-        <Value muted={!row.note}>{row.note || 'No note'}</Value>
-      </View>
-      {!writeOff && (
-        <>
-          {(!kind || !!row.tags.length) && (
-            <View style={{ gap: 8 }}>
-              <Label>Tags</Label>
-              <Value muted={!row.tags.length}>
-                {row.tags.map((tag) => `#${tag.name}`).join('  ') || 'No tags'}
-              </Value>
-            </View>
-          )}
-          {(!kind || !!row.lineItems.length) && <ItemSection row={row} />}
-          <View style={{ gap: 8 }}>
-            <Label>Reports</Label>
-            <Value>
-              {row.excludeFromReport || row.reportExclusionLocked
-                ? 'Excluded from reports'
-                : 'Included in reports'}
-            </Value>
-          </View>
-        </>
-      )}
+      {children}
     </ScrollView>
   );
 }
+
+function TransactionSummary({ transaction: row, reimbursement }: Props) {
+  const reimbursedExpense = reimbursement?.expense;
+  const writeOff = row.type === 'WRITE_OFF';
+  let amountColor: string = color.ink;
+  if (writeOff) amountColor = color.muted;
+  else if (row.type === 'INCOME') amountColor = color.accent;
+  const kind = writeOff ? row.kind : row.lendingKind;
+  let label = row.type === 'EXPENSE' ? 'Expense' : 'Income';
+  let title: string;
+  if (writeOff) {
+    label = 'Write-off';
+    title =
+      row.kind === 'WRITE_OFF_LENT'
+        ? `Wrote off what ${row.personName} owes`
+        : `Wrote off what you owe ${row.personName}`;
+  } else if (reimbursedExpense) {
+    label = 'Reimbursement';
+    title = reimbursementTitle(reimbursement.payer);
+  } else {
+    if (kind) label = lendingKindLabels[kind];
+    title = transactionTitle(row);
+  }
+  return (
+    <View style={{ backgroundColor: color.panel, borderRadius: 18, padding: 22, gap: 16 }}>
+      <Label>{`${label} · ${row.currencyCode}`}</Label>
+      <Text
+        selectable
+        style={{
+          color: amountColor,
+          fontSize: 40,
+          fontWeight: '300',
+          fontVariant: ['tabular-nums'],
+        }}
+      >
+        {receiptAmount(row, reimbursement)}
+      </Text>
+      <Text selectable style={{ color: color.ink, fontSize: 20, fontWeight: '700' }}>
+        {title}
+      </Text>
+      <View style={{ height: 1, backgroundColor: color.line }} />
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 20 }}>
+        <View style={{ gap: 8 }}>
+          <Label>Account</Label>
+          <Value muted={writeOff}>{row.accountName ?? 'No Account movement'}</Value>
+        </View>
+        <View style={{ gap: 8 }}>
+          <Label>Date</Label>
+          <Value>{kind ? formatActivityDay(row.date) : formatEpochDay(row.date)}</Value>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function ReceiptPerson({ id, name }: { id: number; name: string }) {
+  return (
+    <View style={{ gap: 8 }}>
+      <Label>Person</Label>
+      <Link
+        href={{ pathname: '/person', params: { id, name } }}
+        style={{ color: color.accent, fontSize: 16 }}
+      >
+        {name} ›
+      </Link>
+    </View>
+  );
+}
+
+function ReceiptNote({ note }: { note: string | null }) {
+  return (
+    <View style={{ gap: 8 }}>
+      <Label>Note</Label>
+      <Value muted={!note}>{note || 'No note'}</Value>
+    </View>
+  );
+}
+
+function ReceiptTags({ tags }: { tags: EditableTransaction['tags'] }) {
+  return (
+    <View style={{ gap: 8 }}>
+      <Label>Tags</Label>
+      <Value muted={!tags.length}>
+        {tags.map((tag) => `#${tag.name}`).join('  ') || 'No tags'}
+      </Value>
+    </View>
+  );
+}
+
+function ReceiptReports({
+  transaction,
+  reimbursedExpense,
+}: {
+  transaction: EditableTransaction;
+  reimbursedExpense?: ListRow | null;
+}) {
+  let status = 'Included in reports';
+  if (
+    transaction.excludeFromReport ||
+    transaction.reportExclusionLocked ||
+    reimbursedExpense?.excludeFromReport
+  )
+    status = 'Excluded from reports';
+  else if (reimbursedExpense)
+    status = `Lowers ${categoryPath(reimbursedExpense)} in ${receiptMonth.format(transaction.date * 86400000)}`;
+  return (
+    <View style={{ gap: 8 }}>
+      <Label>Reports</Label>
+      <Value>{status}</Value>
+    </View>
+  );
+}
+
+TransactionReceipt.Summary = TransactionSummary;
+TransactionReceipt.Person = ReceiptPerson;
+TransactionReceipt.Note = ReceiptNote;
+TransactionReceipt.Tags = ReceiptTags;
+TransactionReceipt.Items = ItemSection;
+TransactionReceipt.Reports = ReceiptReports;
+
 export function TransferReceipt({ transfer: row }: { transfer: EditableTransfer }) {
   const cross = row.currencyCode !== row.destinationCurrencyCode;
   const received = row.receivedAmountMinor ?? row.amountMinor;
@@ -207,11 +260,7 @@ export function TransferReceipt({ transfer: row }: { transfer: EditableTransfer 
       })
     : null;
   return (
-    <ScrollView
-      contentInsetAdjustmentBehavior="automatic"
-      style={{ flex: 1, backgroundColor: color.background }}
-      contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 24, paddingBottom: 32, gap: 24 }}
-    >
+    <TransactionReceipt>
       <View style={{ backgroundColor: color.panel, borderRadius: 18, padding: 22, gap: 16 }}>
         <Label>{`Transfer · ${row.currencyCode}${cross ? ` → ${row.destinationCurrencyCode}` : ''}`}</Label>
         <Text
@@ -256,10 +305,7 @@ export function TransferReceipt({ transfer: row }: { transfer: EditableTransfer 
           </View>
         </View>
       </View>
-      <View style={{ gap: 8 }}>
-        <Label>Note</Label>
-        <Value muted={!row.note}>{row.note || 'No note'}</Value>
-      </View>
-    </ScrollView>
+      <TransactionReceipt.Note note={row.note} />
+    </TransactionReceipt>
   );
 }

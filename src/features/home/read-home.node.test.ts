@@ -70,7 +70,7 @@ const month = { range: 'month', monthStart: 1 };
 const ids = (page) => page.periods.map(({ period, rows }) => [period.label, rows.map((r) => r.id)]);
 /** Replaces all Transactions with six in January 2025, one in November 2024, and none in December. */
 function seedList() {
-  sqlite.exec(`DELETE FROM lending_entries; DELETE FROM people; DELETE FROM transactions;
+  sqlite.exec(`DELETE FROM lending_entries; DELETE FROM transactions; DELETE FROM people;
     DELETE FROM categories WHERE id > 1`);
   add(1, 'EXPENSE', 12000, day(2025, 1, 3), 1);
   add(2, 'INCOME', 500, day(2025, 1, 4), 2);
@@ -312,4 +312,80 @@ test('a destination in another Currency uses the received amount for balance, tr
   const row = (await homeListPage(2, month, today, 0)).periods[0].rows[0];
   assert.equal(row.receivedAmountMinor, 10000);
   assert.equal(row.destinationCurrencyCode, 'USD');
+});
+
+test('owed amounts decrease only for the matched person and stop at zero', async () => {
+  seedList();
+  sqlite.exec("UPDATE accounts SET name = 'Cash', currencyCode = 'BDT' WHERE id = 1");
+  const { expenseReimbursements, reimbursementReceipt, expensesForReimbursement } =
+    await import('./read-home.ts');
+  const { rowView } = await import('./list.ts');
+  const scope = { face: 'pace', accountId: null };
+  sqlite.exec(`INSERT INTO people (id, name) VALUES (1, 'Rafi'), (2, 'Nabila');
+    INSERT INTO split_shares (expenseId, personId, amountMinor) VALUES (1, 1, 3000), (1, 2, 5000);`);
+  sqlite.exec(`INSERT INTO categories (id, name, type, parentId) VALUES
+    (2, 'Restaurants', 'EXPENSE', 1), (3, 'Dining out', 'EXPENSE', 2);
+    UPDATE transactions SET categoryId = 3 WHERE id = 1;`);
+  add(10, 'INCOME', 4500, day(2025, 1, 10), 1);
+  add(11, 'INCOME', 2000, day(2025, 1, 11), 1);
+  add(12, 'INCOME', 2500, day(2025, 1, 12), 1);
+  sqlite.exec(`INSERT INTO reimbursements (transactionId, expenseId, personId)
+    VALUES (10, 1, 1), (11, 1, 2), (12, 1, NULL);`);
+
+  const { shares, payments } = await expenseReimbursements(1);
+  assert.deepEqual(
+    shares.map((s) => [s.name, s.paidMinor, s.leftMinor]),
+    [
+      ['Nabila', 2000, 3000],
+      ['Rafi', 4500, 0],
+    ],
+  );
+  assert.deepEqual(
+    payments.map((row) => row.id),
+    [12, 11, 10],
+  );
+  const loadRows = async () =>
+    (await homeListPage(null, month, day(2025, 1, 20), 0)).periods[0].rows;
+  const rows = await loadRows();
+  const receipt = await reimbursementReceipt(10, 'INCOME');
+  assert.equal(receipt.payer, 'Rafi');
+  assert.equal(receipt.expense.id, 1);
+  assert.equal(receipt.expense.categoryPath, 'Food › Restaurants › Dining out');
+  assert.equal(
+    (await expensesForReimbursement()).find((row) => row.id === 1).categoryPath,
+    'Food › Restaurants › Dining out',
+  );
+  assert.equal(
+    rowView(
+      rows.find((r) => r.id === 1),
+      scope,
+    ).owed,
+    '৳30.00 owed',
+  );
+  assert.deepEqual(
+    rowView(
+      rows.find((r) => r.id === 10),
+      scope,
+    ),
+    {
+      title: 'Reimbursement from Rafi',
+      detail: 'for Dining out · 3 Jan · Cash',
+      amount: '+৳45.00',
+      tone: 'income',
+      icon: { kind: 'category', text: '↩' },
+    },
+  );
+  assert.equal(
+    (await homePace(null, january)).find((row) => row.currencyCode === 'BDT').spentMinor,
+    3000,
+  );
+  add(13, 'INCOME', 3000, day(2025, 1, 13), 1);
+  sqlite.exec('INSERT INTO reimbursements (transactionId, expenseId, personId) VALUES (13, 1, 2)');
+  assert.equal(
+    rowView(
+      (await loadRows()).find((r) => r.id === 1),
+      scope,
+    ).owed,
+    undefined,
+  );
 });

@@ -7,17 +7,45 @@ import type { PaceRow } from './pace.ts';
 import { parsePeriodSetting, type HomePeriod, type PeriodSetting } from './period.ts';
 import { periodBack, type ListPeriod, type ListRow, type PeriodRows } from './list.ts';
 
-const listRead = `SELECT t.id, t.type, t.amountMinor, t.receivedAmountMinor, destination.currencyCode AS destinationCurrencyCode, t.date, t.accountId, t.transferAccountId,
+const readRows = (
+  extraColumn = '',
+) => `SELECT ${extraColumn}t.id, t.type, t.amountMinor, t.receivedAmountMinor, destination.currencyCode AS destinationCurrencyCode, t.date, t.accountId, t.transferAccountId,
   a.name AS accountName, destination.name AS transferAccountName, a.currencyCode,
   c.name AS categoryName, parent.name AS parentCategoryName,
   COALESCE(NULLIF(c.iconKey, ''), NULLIF(parent.iconKey, '')) AS categoryEmoji,
-  t.note, t.excludeFromReport, lending.kind AS lendingKind, person.name AS personName
+  t.note, t.excludeFromReport, lending.kind AS lendingKind, person.name AS personName,
+  r.expenseId AS reimbursementExpenseId, payer.name AS reimbursementPerson,
+  expense.date AS reimbursementExpenseDate, expenseCategory.name AS reimbursementCategory,
+  (SELECT SUM(s.leftMinor) FROM split_share_progress s WHERE s.expenseId = t.id) AS owedMinor
   FROM transactions t JOIN accounts a ON a.id = t.accountId
   LEFT JOIN accounts destination ON destination.id = t.transferAccountId
   LEFT JOIN categories c ON c.id = t.categoryId
   LEFT JOIN categories parent ON parent.id = c.parentId
   LEFT JOIN lending_entries lending ON lending.transactionId = t.id
-  LEFT JOIN people person ON person.id = lending.personId`;
+  LEFT JOIN people person ON person.id = lending.personId
+  LEFT JOIN reimbursements r ON r.transactionId = t.id
+  LEFT JOIN people payer ON payer.id = r.personId
+  LEFT JOIN transactions expense ON expense.id = r.expenseId
+  LEFT JOIN categories expenseCategory ON expenseCategory.id = expense.categoryId`;
+const listRead = readRows();
+type ActivityRecord = Omit<ListRow, 'reimbursement'> & {
+  reimbursementExpenseId: number | null;
+  reimbursementExpenseDate: number | null;
+  reimbursementPerson: string | null;
+  reimbursementCategory: string | null;
+};
+
+function activityRow({
+  reimbursementExpenseId: expenseId,
+  reimbursementExpenseDate: expenseDate,
+  reimbursementPerson: personName,
+  reimbursementCategory: categoryName,
+  ...row
+}: ActivityRecord): ListRow {
+  return expenseId !== null && expenseDate !== null
+    ? { ...row, reimbursement: { expenseId, expenseDate, personName, categoryName } }
+    : row;
+}
 const listOrder = 'ORDER BY t.date DESC, t.id DESC';
 const scopeFilter = (accountId: number | null) =>
   accountId === null
@@ -53,11 +81,11 @@ export async function homeListPage(
   const periods: PeriodRows[] = [];
   for (let step = steps; ; step++) {
     const period = periodBack(setting, today, step);
-    const rows = await db.getAllAsync<ListRow>(
+    const rows = await db.getAllAsync<ActivityRecord>(
       `${listRead} WHERE ${scope.sql} AND t.date >= ? AND t.date < ? ${listOrder}`,
       [...scope.params, period.start, period.end],
     );
-    periods.push({ period, rows });
+    periods.push({ period, rows: rows.map(activityRow) });
     if (step > 0 || rows.length || !olderExists(period)) break;
   }
   const last = periods.at(-1)!;
@@ -69,11 +97,78 @@ export async function homeSearch(accountId: number | null, query: string): Promi
   const db = await database();
   const scope = scopeFilter(accountId);
   const like = `%${query.trim().replace(/[\\%_]/g, '\\$&')}%`;
-  const fields = ['t.note', 'c.name', 'parent.name', 'a.name', 'destination.name', 'person.name'];
-  return db.getAllAsync<ListRow>(
+  const fields = [
+    't.note',
+    'c.name',
+    'parent.name',
+    'a.name',
+    'destination.name',
+    'person.name',
+    'payer.name',
+    'expenseCategory.name',
+  ];
+  const rows = await db.getAllAsync<ActivityRecord>(
     `${listRead} WHERE ${scope.sql} AND (${fields.map((field) => `${field} LIKE ? ESCAPE '\\'`).join(' OR ')}) ${listOrder}`,
     [...scope.params, ...fields.map(() => like)],
   );
+  return rows.map(activityRow);
+}
+
+const fullCategoryPath = `(WITH RECURSIVE path(id, parentId, label, seen) AS (
+  SELECT c.id, c.parentId, c.name, ',' || c.id || ','
+  UNION ALL SELECT p.id, p.parentId, p.name || ' › ' || path.label, path.seen || p.id || ','
+  FROM categories p JOIN path ON path.parentId = p.id
+  WHERE instr(path.seen, ',' || p.id || ',') = 0
+) SELECT label FROM path WHERE parentId IS NULL) AS categoryPath`;
+
+export async function expensesForReimbursement() {
+  const rows = await (
+    await database()
+  ).getAllAsync<ActivityRecord>(
+    `${readRows(fullCategoryPath + ', ')} WHERE t.type = 'EXPENSE' AND lending.id IS NULL ${listOrder}`,
+  );
+  return rows.map(activityRow);
+}
+
+export type ShareProgress = {
+  personId: number;
+  name: string;
+  amountMinor: number;
+  paidMinor: number;
+  leftMinor: number;
+};
+
+export async function expenseReimbursements(expenseId: number) {
+  const db = await database();
+  const [shares, payments] = await Promise.all([
+    db.getAllAsync<ShareProgress>(
+      `SELECT s.personId, s.amountMinor, s.paidMinor, s.leftMinor, p.name
+       FROM split_share_progress s
+       JOIN people p ON p.id = s.personId WHERE s.expenseId = ? ORDER BY p.name, p.id`,
+      [expenseId],
+    ),
+    db.getAllAsync<ActivityRecord>(`${listRead} WHERE r.expenseId = ? ${listOrder}`, [expenseId]),
+  ]);
+  return { shares, payments: payments.map(activityRow) };
+}
+
+export async function reimbursementReceipt(id: number, type: 'EXPENSE' | 'INCOME') {
+  if (type === 'EXPENSE') {
+    const { shares, payments } = await expenseReimbursements(id);
+    return { shares, payments, expense: null, payer: null };
+  }
+  const linked = await (
+    await database()
+  ).getFirstAsync<ActivityRecord & { payer: string | null }>(
+    `${readRows(`${fullCategoryPath}, personWhoPaid.name AS payer, `)}
+    JOIN reimbursements payment ON payment.expenseId = t.id
+    LEFT JOIN people personWhoPaid ON personWhoPaid.id = payment.personId
+    WHERE payment.transactionId = ?`,
+    [id],
+  );
+  if (!linked) return { shares: [], payments: [], expense: null, payer: null };
+  const { payer, ...expense } = linked;
+  return { shares: [], payments: [], expense: activityRow(expense), payer };
 }
 
 const periodSettingKey = 'homePeriod';
@@ -169,11 +264,11 @@ export async function homePace(
   const { start, end, previousStart, previousSameEnd } = period;
   return db.getAllAsync<PaceRow>(
     `SELECT a.currencyCode,
-    COALESCE(SUM(CASE WHEN t.date >= ? AND t.date < ? THEN t.amountMinor END), 0) AS spentMinor,
-    COALESCE(SUM(CASE WHEN t.date >= ? AND t.date < ? THEN t.amountMinor END), 0) AS sameMinor,
-    COALESCE(SUM(CASE WHEN t.date >= ? AND t.date < ? THEN t.amountMinor END), 0) AS previousMinor
-    FROM transactions t JOIN accounts a ON a.id = t.accountId
-    WHERE t.type = 'EXPENSE' AND t.excludeFromReport = 0
+    COALESCE(SUM(CASE WHEN t.date >= ? AND t.date < ? THEN t.spendingMinor END), 0) AS spentMinor,
+    COALESCE(SUM(CASE WHEN t.date >= ? AND t.date < ? THEN t.spendingMinor END), 0) AS sameMinor,
+    COALESCE(SUM(CASE WHEN t.date >= ? AND t.date < ? THEN t.spendingMinor END), 0) AS previousMinor
+    FROM report_transactions t JOIN accounts a ON a.id = t.accountId
+    WHERE t.spendingMinor IS NOT NULL
     AND ((t.date >= ? AND t.date < ?) OR (t.date >= ? AND t.date < ?))
     ${accountId === null ? '' : 'AND t.accountId = ?'}
     GROUP BY a.currencyCode ORDER BY a.currencyCode`,

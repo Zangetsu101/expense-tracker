@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import { TransactionReceipt, TransferReceipt } from '@/components/transaction-receipt';
+import { ExpenseReimbursementPanels, ReimbursedExpense } from '@/components/reimbursement-receipt';
 import { TransferFormSection, type TransferDraft } from './transfer-edit';
 import { dateFromEpochDay, epochDay } from '@/lib/database';
 import { deleteLendingEntry, type WriteOffEntry } from '@/lib/lending';
@@ -30,6 +31,49 @@ import {
   ReceiptRefreshAlert,
   ReceiptSkeleton,
 } from './view.tsx';
+
+function PostedTransactionReceipt({
+  transaction,
+}: {
+  transaction: Exclude<Receipt, EditableTransfer>;
+}) {
+  const writeOff = transaction.type === 'WRITE_OFF';
+  const reimbursement = writeOff ? undefined : transaction.reimbursementDetails;
+  const reimbursedExpense = reimbursement?.expense;
+  const showEmptyDetails = !writeOff && !transaction.lendingKind && !reimbursedExpense;
+
+  return (
+    <TransactionReceipt>
+      <TransactionReceipt.Summary transaction={transaction} reimbursement={reimbursement} />
+      {reimbursedExpense && <ReimbursedExpense expense={reimbursedExpense} />}
+      {transaction.type === 'EXPENSE' && reimbursement && (
+        <ExpenseReimbursementPanels
+          details={reimbursement}
+          amount={transaction.amountMinor}
+          currency={transaction.currencyCode}
+        />
+      )}
+      {!reimbursedExpense && !!transaction.personId && !!transaction.personName && (
+        <TransactionReceipt.Person id={transaction.personId} name={transaction.personName} />
+      )}
+      <TransactionReceipt.Note note={transaction.note} />
+      {!writeOff && (
+        <>
+          {(showEmptyDetails || !!transaction.tags.length) && (
+            <TransactionReceipt.Tags tags={transaction.tags} />
+          )}
+          {(showEmptyDetails || !!transaction.lineItems.length) && (
+            <TransactionReceipt.Items row={transaction} />
+          )}
+          <TransactionReceipt.Reports
+            transaction={transaction}
+            reimbursedExpense={reimbursedExpense}
+          />
+        </>
+      )}
+    </TransactionReceipt>
+  );
+}
 
 function ReceiptSession({ id, writeOff }: { id: number; writeOff: boolean }) {
   const client = useQueryClient();
@@ -320,7 +364,7 @@ function ReceiptView({
       {receipt.type === 'TRANSFER' ? (
         <TransferReceipt key={receipt.id} transfer={receipt} />
       ) : (
-        <TransactionReceipt key={receipt.id} transaction={receipt} />
+        <PostedTransactionReceipt key={receipt.id} transaction={receipt} />
       )}
     </View>
   );

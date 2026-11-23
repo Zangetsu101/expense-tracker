@@ -37,6 +37,7 @@ type RouteFilters = {
   startDate?: string;
   endDate?: string;
   type?: string;
+  reportSpending?: string;
 };
 const types = ['EXPENSE', 'INCOME', 'TRANSFER'] as const;
 
@@ -50,6 +51,7 @@ function routeFilters(params: RouteFilters): SearchFilters {
     accountId: parseRouteId(params.accountId) ?? null,
     categoryId: parseRouteId(params.categoryId) ?? null,
     type: types.find((type) => type === params.type) ?? 'ALL',
+    ...(params.reportSpending === '1' && params.type === 'EXPENSE' ? { reportSpending: true } : {}),
     ...(dates ? { datePreset: 'CUSTOM' as const, startDate, endDate } : {}),
   };
 }
@@ -136,8 +138,13 @@ function TransactionSearch({ reset }: { reset: () => void }) {
     reset();
     setFilters(change);
   };
-  const changeDraft = (patch: Partial<SearchFilters>) => setDraft((old) => ({ ...old, ...patch }));
-  const clearFilter: ClearFilter = (clear) => updateFilters((old) => ({ ...old, ...clear }));
+  const applyPatch = (old: SearchFilters, patch: Partial<SearchFilters>) => ({
+    ...old,
+    ...patch,
+    ...(patch.type !== undefined && patch.type !== 'EXPENSE' ? { reportSpending: undefined } : {}),
+  });
+  const changeDraft = (patch: Partial<SearchFilters>) => setDraft((old) => applyPatch(old, patch));
+  const clearFilter: ClearFilter = (clear) => updateFilters((old) => applyPatch(old, clear));
   return (
     <SearchLayout>
       <SearchHeader

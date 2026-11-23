@@ -21,8 +21,6 @@ type AmountContext = {
   source?: number;
   destination?: number;
   cross: boolean;
-  preset?: number;
-  revision: number;
   rate?: Awaited<ReturnType<typeof loadFirstTransferRate>>;
 };
 type AmountSlots = {
@@ -30,6 +28,7 @@ type AmountSlots = {
   keypad: ReactNode;
   dismiss: () => void;
   editing: boolean;
+  applyReceivedPreset: (amount: number) => void;
 };
 
 /** Return the saved rate as the amount of the other currency for one unit of `base`. */
@@ -48,8 +47,6 @@ export function TransferAmountInput({
   destination,
   initialPaid,
   initialReceived,
-  receivedPreset,
-  presetRevision = 0,
   editingTransfer = false,
   disabled = false,
   onChange,
@@ -59,8 +56,6 @@ export function TransferAmountInput({
   destination?: Account;
   initialPaid?: number;
   initialReceived?: number;
-  receivedPreset?: number;
-  presetRevision?: number;
   editingTransfer?: boolean;
   disabled?: boolean;
   onChange: (paid: number | undefined, received: number | undefined) => void;
@@ -76,22 +71,20 @@ export function TransferAmountInput({
   });
   const [directions, setDirections] = useState<Record<string, { base: string; quote: string }>>({});
   const [state, setState] = useState<TransferAmounts>(() => ({
-    pay: receivedPreset === undefined ? initialPaid : undefined,
-    receive: initialReceived ?? receivedPreset,
+    pay: initialPaid,
+    receive: initialReceived,
     base: destination?.currencyCode ?? '',
     quote: source?.currencyCode ?? '',
     typed: {
-      pay: receivedPreset === undefined && !!initialPaid,
-      receive: !!(initialReceived ?? receivedPreset),
+      pay: !!initialPaid,
+      receive: !!initialReceived,
     },
   }));
   const [context, setContext] = useState<AmountContext>({
     cross: false,
-    preset: receivedPreset,
-    revision: presetRevision,
   });
   const [focus, setFocus] = useState<TransferField | null>(
-    initialPaid || initialReceived || receivedPreset ? null : 'pay',
+    initialPaid || initialReceived ? null : 'pay',
   );
   const [entry, setEntry] = useState<AmountEntry>({ amount: '', evaluated: false, error: '' });
   // Rapid keys can arrive before a render. Each key reads the entry that the key before it made.
@@ -104,8 +97,6 @@ export function TransferAmountInput({
     context.source !== source?.id ||
     context.destination !== destination?.id ||
     context.cross !== cross ||
-    context.preset !== receivedPreset ||
-    context.revision !== presetRevision ||
     (context.rate === undefined && rateRead.data !== undefined)
   ) {
     const destinationChanged =
@@ -130,13 +121,6 @@ export function TransferAmountInput({
       next.quote = direction.quote;
       if (destinationChanged || pairChanged || (context.rate === undefined && first !== undefined))
         next.rate = rateForBase(first, direction.base);
-      if (
-        receivedPreset !== undefined &&
-        (context.preset !== receivedPreset || context.revision !== presetRevision)
-      ) {
-        next.receive = receivedPreset;
-        next.typed.receive = true;
-      }
       if (next.typed.receive) {
         if (context.source !== undefined && context.source !== source?.id) {
           next.pay = undefined;
@@ -147,11 +131,6 @@ export function TransferAmountInput({
       next.typed.pay = paidWasTyped;
     } else if (destination) {
       if (next.typed.receive && next.receive) next.pay = next.receive;
-      if (
-        receivedPreset !== undefined &&
-        (context.preset !== receivedPreset || context.revision !== presetRevision)
-      )
-        next.pay = receivedPreset;
       next.receive = undefined;
       next.typed.receive = false;
     }
@@ -160,8 +139,6 @@ export function TransferAmountInput({
       source: source?.id,
       destination: destination?.id,
       cross,
-      preset: receivedPreset,
-      revision: presetRevision,
       rate: rateRead.data,
     });
     if (
@@ -169,7 +146,6 @@ export function TransferAmountInput({
       context.destination !== undefined ||
       initialPaid ||
       initialReceived ||
-      receivedPreset ||
       cross
     )
       setFocus(null);
@@ -185,6 +161,14 @@ export function TransferAmountInput({
         ? applyTransferAmount(previous, field, value, source!.currencyCode)
         : { ...previous, pay: value, typed: { pay: value !== undefined, receive: false } },
     );
+  }
+  function applyReceivedPreset(value: number) {
+    if (cross) apply('receive', value);
+    else setState((previous) => ({ ...previous, pay: value }));
+    setEntry({ amount: '', evaluated: false, error: '' });
+    setFocus(null);
+    setChanged(false);
+    setError('');
   }
   function change(value: string) {
     if (!value) {
@@ -323,6 +307,7 @@ export function TransferAmountInput({
   );
   return children({
     input,
+    applyReceivedPreset,
     editing: focus !== null,
     dismiss,
     keypad: (

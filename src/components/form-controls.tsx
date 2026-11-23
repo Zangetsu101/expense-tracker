@@ -147,3 +147,38 @@ export function JoinedChoice<T extends string>({
     </View>
   );
 }
+
+export function Disclosure({
+  label,
+  onPress,
+  expanded,
+  disabled,
+}: {
+  label: string;
+  onPress: () => void;
+  expanded?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ expanded, disabled }}
+      accessibilityLabel={label}
+      onPress={onPress}
+      disabled={disabled}
+      style={({ pressed }) => ({
+        minHeight: t.controlHeight,
+        opacity: pressableOpacity({ disabled, pressed }, { disabled: 0.45, pressed: 0.65 }),
+        backgroundColor: c.surface,
+        borderRadius: 12,
+        padding: 12,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+      })}
+    >
+      <Text style={{ color: c.text, flex: 1 }}>{label}</Text>
+      <Text style={{ color: c.muted }}>{expanded ? '⌄' : '›'}</Text>
+    </Pressable>
+  );
+}

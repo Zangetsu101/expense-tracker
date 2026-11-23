@@ -169,7 +169,13 @@ test('Movers opens a parent, links a child to its Transactions, and compares the
   await user.press(screen.getByRole('link', { name: 'Coffee, $1.00' }));
   expect(router.push).toHaveBeenLastCalledWith({
     pathname: '/transactions',
-    params: { categoryId: '12', startDate: '2026-03-01', endDate: '2026-03-15', type: 'EXPENSE' },
+    params: {
+      categoryId: '12',
+      startDate: '2026-03-01',
+      endDate: '2026-03-15',
+      type: 'EXPENSE',
+      reportSpending: '1',
+    },
   });
 
   await user.press(screen.getByRole('radio', { name: 'February 2026' }));

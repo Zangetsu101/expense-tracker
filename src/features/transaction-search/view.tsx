@@ -14,6 +14,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Skeleton } from '@/components/loading';
 import type { ManagedCategory } from '@/lib/categories';
+import { reimbursementTitle } from '@/lib/reimbursements';
 import type { Account } from '@/lib/database';
 import {
   parseAmountMinor,
@@ -237,13 +238,16 @@ function ResultRow({
   const main =
     transfer?.amount ?? formatTransactionAmount(item.type, item.amountMinor, item.currencyCode);
   const other = transfer?.otherAmount;
-  const title = item.lendingKind
-    ? transactionTitle(item)
-    : item.note?.trim() || transactionTitle(item);
+  const linked = item.reimbursementExpenseId != null;
+  let title = transactionTitle(item);
+  if (linked) title = reimbursementTitle(item.reimbursementPerson);
+  else if (!item.lendingKind && item.note?.trim()) title = item.note.trim();
   const detail =
     item.type === 'TRANSFER'
       ? `${item.accountName} → ${item.transferAccountName ?? 'Account'} · ${item.currencyCode}`
-      : `${transactionTitle(item)} · ${item.accountName}`;
+      : [linked ? item.categoryPath : transactionTitle(item), item.accountName]
+          .filter(Boolean)
+          .join(' · ');
   return (
     <View style={{ gap: 8, paddingBottom: 9 }}>
       {showDate && (
@@ -254,7 +258,7 @@ function ResultRow({
       <Link href={{ pathname: '/transaction/[id]', params: { id: String(item.id) } }} asChild>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`View receipt for ${item.type.toLowerCase()} transaction, ${title}`}
+          accessibilityLabel={`View receipt for ${linked ? 'reimbursement' : item.type.toLowerCase()} transaction, ${title}`}
         >
           <RowCard transfer={item.type === 'TRANSFER'}>
             <View
