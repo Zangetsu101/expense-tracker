@@ -38,6 +38,8 @@ Only EXPENSE and INCOME Transactions have a Category. A reimbursement still take
 
 Settings become one `app_settings` row for each key. The portable keys are `favoriteAccountId` and `displayRate`. For `favoriteAccountId`, use the Account that is marked as favorite. If no Account is marked, use the favorite Account from the old settings JSON. Remove the obsolete `scheduledBackups` key (ADR 0007). Keep all other device-local rows.
 
+The old app wrote on a connection where foreign keys were off. So an old database can have orphan rows: child rows whose parent row was deleted. The migration and the restore delete these rows, as `ON DELETE CASCADE` would have done. They find orphans before they give new ids to Write-offs, so an orphan cannot attach to a new Transaction. Tags become unique without regard to letter case. If two old tags differ only in case, the migration and the restore keep the tag with the lowest id and move the links of the other tag to it.
+
 The database enforces its rules with CHECK constraints and triggers. Expo opens a separate connection for exclusive writes, and foreign keys can be off on that connection. So triggers do the work of the foreign key actions, and they check the rules that span tables. Examples are the sign and target of each leg, the Currency of an Account leg, and the guards on deletes from ADR 0011.
 
 The JSON backup format stays v1 for export and for restore. Export derives the v1 rows from the legs. Restore loads the v1 rows into the old table shapes in TEMP tables. Then it runs the same SQL as the migration to fill the new tables. So the migration and restore share one mapping.
