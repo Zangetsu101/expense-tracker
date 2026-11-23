@@ -364,7 +364,10 @@ test('a restore rejects rows that break the legs model and changes nothing', asy
     excludeFromReport: false,
     source: 'MANUAL',
   });
-  await assert.rejects(backupStore.replace(data), /without legs/);
+  await assert.rejects(
+    backupStore.replace(data),
+    /Row 998 of transactions needs Account 4040, which does not exist/,
+  );
   assert.deepEqual(state(), before);
 });
 
@@ -414,6 +417,101 @@ test('a restore leaves out rows of a deleted Transaction and repairs missing Cat
   );
   assert.equal(restored.categories.find((row) => row.id === 2).parentId, null);
   assert.equal(restored.transactions[0].categoryId, null);
+});
+
+/** Restores the JSON text as the app does: decode, confirm, then replace. */
+function restoreJson(json) {
+  return restoreBackup(
+    backupStore,
+    {
+      pickJsonDocument: async () => ({ uri: 'content://old-backup', name: 'old.json' }),
+      readText: async () => json,
+    },
+    async () => true,
+  );
+}
+
+test('a restore of a raw file deletes each kind of row that a delete left behind', async () => {
+  // A clean backup with an Expense, a split share, a reimbursement and a card.
+  const clean = fixture();
+  clean.accounts.push({
+    id: 2,
+    name: 'Card',
+    currencyCode: 'BDT',
+    openingBalanceMinor: 0,
+    isFavorite: false,
+  });
+  clean.transactions.push({
+    ...clean.transactions[0],
+    id: 2,
+    type: 'INCOME',
+    categoryId: null,
+    dateEpochDay: clean.transactions[0].dateEpochDay + 1,
+  });
+  clean.people = [{ id: 1, name: 'Ali' }];
+  clean.splitShares = [{ expenseId: 1, personId: 1, amountMinor: 500 }];
+  clean.reimbursements = [{ transactionId: 2, expenseId: 1, personId: 1 }];
+  clean.creditCards = [{ accountId: 2, parentAccountId: 1, statementDay: null, dueDay: null }];
+  clean.lendingEntries = [];
+  clean.moneyLoverImportRows = [];
+  await restoreJson(JSON.stringify(clean));
+  const expected = await backupStore.snapshot();
+
+  // Transaction 9 and Account 9 were deleted. Each row below points to one of them.
+  const orphans = {
+    moneyLoverImportRows: [{ rowKey: 'gone', transactionId: 9 }],
+    lendingEntries: [
+      {
+        id: 1,
+        personId: 1,
+        kind: 'LEND',
+        transactionId: 9,
+        currencyCode: 'BDT',
+        amountMinor: 1,
+        dateEpochDay: 1,
+        note: null,
+      },
+    ],
+    splitShares: [...clean.splitShares, { expenseId: 9, personId: 1, amountMinor: 1 }],
+    reimbursements: [
+      ...clean.reimbursements,
+      { transactionId: 9, expenseId: 1, personId: null },
+      { transactionId: 1, expenseId: 9, personId: null },
+    ],
+    creditCards: [
+      ...clean.creditCards,
+      { accountId: 9, parentAccountId: 1, statementDay: null, dueDay: null },
+    ],
+  };
+  for (const [key, rows] of Object.entries(orphans)) {
+    await restoreJson(JSON.stringify(fixture()));
+    assert.equal(await restoreJson(JSON.stringify({ ...clean, [key]: rows })), true, key);
+    assert.deepEqual(await backupStore.snapshot(), expected, key);
+  }
+
+  // A reimbursement whose split share was deleted goes with the share.
+  await restoreJson(JSON.stringify({ ...clean, splitShares: [] }));
+  const withoutShare = await backupStore.snapshot();
+  assert.deepEqual(withoutShare.reimbursements, []);
+  // A missing card parent becomes no parent, as SET NULL would do.
+  await restoreJson(
+    JSON.stringify({ ...clean, creditCards: [{ ...clean.creditCards[0], parentAccountId: 9 }] }),
+  );
+  assert.equal((await backupStore.snapshot()).creditCards[0].parentAccountId, null);
+});
+
+test('a file that names a missing person stops before any change', async () => {
+  await restoreJson(JSON.stringify(fixture()));
+  const before = state();
+  const data = fixture();
+  data.people = [{ id: 1, name: 'Ali' }];
+  data.lendingEntries = [writeOff(1)];
+  data.lendingEntries[0].personId = 7;
+  await assert.rejects(
+    restoreJson(JSON.stringify(data)),
+    /Row 1 of lending_entries needs person 7, which does not exist/,
+  );
+  assert.deepEqual(state(), before);
 });
 
 test('a restore makes one tag of tags whose names differ only by case', async () => {
@@ -517,7 +615,7 @@ test('credit-card settings and parent links survive backup; native backups clear
     [{ ...original.creditCards[0], accountId: 99999 }],
     [original.creditCards[0], original.creditCards[0]],
   ])
-    assert.throws(() => decodeBackup(JSON.stringify({ ...original, creditCards })), /credit.card/);
+    assert.throws(() => encodeBackup({ ...original, creditCards }), /credit.card/);
   delete original.creditCards;
   await replaceDocument(decodeBackup(encodeBackup(original)));
   assert.deepEqual((await backupStore.snapshot()).creditCards, []);
@@ -648,10 +746,7 @@ test('split shares, person payments and refunds survive a v1 backup round trip',
     decoded.reimbursements.map(({ personId }) => personId),
     [person.id, null],
   );
-  assert.throws(
-    () => decodeBackup(JSON.stringify({ ...decoded, splitShares: [] })),
-    /reimbursement/,
-  );
+  assert.throws(() => encodeBackup({ ...decoded, splitShares: [] }), /reimbursement/);
   const early = structuredClone(decoded);
   const payment = early.transactions.find(({ id }) => id === early.reimbursements[0].transactionId);
   payment.dateEpochDay = early.transactions.find(({ id }) => id === expenseId).dateEpochDay - 1;

@@ -3,7 +3,7 @@
 // and run the same fill SQL. So the migration, the restore and the backup before the
 // migration share one mapping.
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { encodeBackup, type BackupData } from './backup.ts';
+import { assertCleanBackup, encodeBackup, type BackupData } from './backup.ts';
 import { LEGS_SCHEMA_VERSION, legsSchema } from './legs-schema.ts';
 import { readAll } from './read-all.ts';
 
@@ -151,14 +151,17 @@ async function dropLegacyTables(db: Connection) {
  * - ON DELETE CASCADE: Line Items, tag links, import rows, lending entries, split shares and
  *   reimbursements of a missing Transaction, a missing tag or a missing split share, and the
  *   card settings of a missing Account.
- * - The card parent had no action. A missing parent becomes no parent.
+ * - The card parent had no action. A missing parent becomes no parent. The parent is only
+ *   the default source for a settlement, so no Leg needs it.
+ * - Only a Transfer has a destination Account. The fill does not read transferAccountId or
+ *   receivedAmountMinor of other rows, so this SQL clears them.
  *
  * The old schema compared tag names by case, and the legs schema does not. Tags whose names
  * differ only by case become the tag with the lowest id, with all of their links.
  *
- * Transfer candidates have no foreign key and the backup does not check them. Accounts and
- * people have no delete in the app, so no row can point to a missing one. If one does, the
- * backup and the foreign key check stop the migration.
+ * Transfer candidates have no foreign key and the backup does not check them. A missing
+ * Account or person that a Leg or a split share needs cannot be repaired. Then
+ * assertNeededRows() stops the work and names the row.
  */
 const cleanLegacy = `
 UPDATE legacy_categories SET parentId = NULL
@@ -183,6 +186,8 @@ DELETE FROM legacy_reimbursements
 DELETE FROM legacy_credit_cards WHERE accountId NOT IN (SELECT id FROM legacy_accounts);
 UPDATE legacy_credit_cards SET parentAccountId = NULL
   WHERE parentAccountId NOT IN (SELECT id FROM legacy_accounts);
+UPDATE legacy_transactions SET transferAccountId = NULL, receivedAmountMinor = NULL
+  WHERE type <> 'TRANSFER';
 
 UPDATE legacy_transaction_tags SET tagId = (
   SELECT MIN(same.id) FROM legacy_tags tag
@@ -191,6 +196,45 @@ UPDATE legacy_transaction_tags SET tagId = (
 DELETE FROM legacy_tags WHERE id > (
   SELECT MIN(same.id) FROM legacy_tags same WHERE same.name = legacy_tags.name COLLATE NOCASE);
 `;
+
+/**
+ * The rows that a Leg or a split share needs. Each query gives the table, the row and the
+ * missing id. A split share has no id of its own, so its row is the id of its Expense. The app has no delete for Accounts and people, so such a row is damaged data.
+ */
+const neededRows = [
+  `SELECT 'transactions' AS tableName, id AS row, 'Account' AS needs, accountId AS missing
+    FROM legacy_transactions WHERE accountId IS NULL
+      OR accountId NOT IN (SELECT id FROM legacy_accounts)`,
+  `SELECT 'transactions' AS tableName, id AS row, 'destination Account' AS needs,
+    transferAccountId AS missing FROM legacy_transactions
+    WHERE type = 'TRANSFER' AND (transferAccountId IS NULL
+      OR transferAccountId NOT IN (SELECT id FROM legacy_accounts))`,
+  `SELECT 'lending_entries' AS tableName, id AS row, 'person' AS needs, personId AS missing
+    FROM legacy_lending_entries
+    WHERE personId IS NULL OR personId NOT IN (SELECT id FROM legacy_people)`,
+  `SELECT 'split_shares' AS tableName, expenseId AS row, 'person' AS needs,
+    personId AS missing FROM legacy_split_shares
+    WHERE personId IS NULL OR personId NOT IN (SELECT id FROM legacy_people)`,
+];
+
+/** Throws if an old row points to a missing Account or person that a Leg or a share needs. */
+async function assertNeededRows(db: Connection) {
+  type Missing = { tableName: string; row: number; needs: string; missing: number | null };
+  for (const query of neededRows) {
+    const found = await db.getFirstAsync<Missing>(`${query} LIMIT 1`);
+    if (found)
+      throw new Error(
+        `Row ${found.row} of ${found.tableName} needs ${found.needs} ${found.missing ?? '(none)'}, ` +
+          'which does not exist. The app cannot repair this row.',
+      );
+  }
+}
+
+/** Cleans the TEMP copies, then checks the rows that the cleaning cannot repair. */
+async function cleanLegacyTables(db: Connection) {
+  await db.execAsync(cleanLegacy);
+  await assertNeededRows(db);
+}
 
 /**
  * Fills the legs schema from the cleaned legacy_* TEMP tables. The mapping is the spec in
@@ -441,7 +485,7 @@ async function snapshotLegacyTables(db: Connection): Promise<BackupData> {
 export async function legacySnapshot(db: Connection): Promise<BackupData> {
   await copyLegacyTables(db);
   try {
-    await db.execAsync(cleanLegacy);
+    await cleanLegacyTables(db);
     return await snapshotLegacyTables(db);
   } finally {
     await dropLegacyTables(db);
@@ -470,7 +514,7 @@ export async function migrateToLegs(db: MainConnection): Promise<boolean> {
     await db.execAsync('BEGIN EXCLUSIVE');
     // The old tables go only to TEMP tables, so the database file keeps no second copy.
     await copyLegacyTables(db);
-    await db.execAsync(cleanLegacy);
+    await cleanLegacyTables(db);
     await db.execAsync(`DROP VIEW IF EXISTS report_transactions;
       DROP VIEW IF EXISTS split_share_progress;
       ${legacyNames
@@ -570,7 +614,9 @@ export async function restoreLegacyRows(
   await legacy('split_shares', data.splitShares ?? []);
   await legacy('reimbursements', data.reimbursements ?? []);
   await legacy('app_settings', [{ key: 'backupSettings', value: JSON.stringify(data.settings) }]);
-  await tx.execAsync(cleanLegacy);
+  await cleanLegacyTables(tx);
+  // The cleaned rows must be a valid backup, as a backup that the app writes is.
+  assertCleanBackup(await snapshotLegacyTables(tx));
   await tx.execAsync(fillFromLegacy);
   await dropLegacyTables(tx);
   await checkLedger(tx);

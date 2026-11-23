@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { decodeBackup, encodeBackup, restoreBackup } from './backup.ts';
+import { assertCleanBackup, decodeBackup, encodeBackup, restoreBackup } from './backup.ts';
 
 const native = readFileSync(
   new URL('../../scripts/fixtures/native-shaped-backup-v1.json', import.meta.url),
@@ -126,7 +126,6 @@ test('invalid lending metadata is rejected before replacement', async () => {
     { lendingEntries: {} },
     { lendingEntries: [null] },
     ...[
-      { personId: 99 },
       { personId: 1.5 },
       { kind: 'OTHER' },
       { amountMinor: 0 },
@@ -160,6 +159,25 @@ test('invalid lending metadata is rejected before replacement', async () => {
   }
 });
 
+test('a file can name a missing person, but the strict check refuses it', () => {
+  const data = decodeBackup(native);
+  data.people = [{ id: 1, name: 'Ada' }];
+  const entry = {
+    id: 1,
+    personId: 99,
+    kind: 'WRITE_OFF_LENT',
+    transactionId: null,
+    currencyCode: 'BDT',
+    amountMinor: 50,
+    dateEpochDay: 20000,
+    note: null,
+  };
+  // The restore names the missing person and stops (legs-migration.ts).
+  const decoded = decodeBackup(JSON.stringify({ ...data, lendingEntries: [entry] }));
+  assert.throws(() => assertCleanBackup(decoded), /lending metadata/);
+  assert.throws(() => encodeBackup(decoded), /lending metadata/);
+});
+
 test('native v1 backups without import keys remain readable', () => {
   const data = decodeBackup(native);
   assert.equal(data.moneyLoverImportRows, undefined);
@@ -189,9 +207,18 @@ test('import row keys survive a JSON roundtrip and restore', async () => {
   assert.deepEqual(replaced.moneyLoverImportRows, original.moneyLoverImportRows);
 });
 
+test('import rows of a deleted Transaction decode, but the strict check refuses them', () => {
+  const backup = decodeBackup(native);
+  backup.moneyLoverImportRows = [{ rowKey: 'orphan', transactionId: 999 }];
+  assert.deepEqual(decodeBackup(JSON.stringify(backup)).moneyLoverImportRows, [
+    { rowKey: 'orphan', transactionId: 999 },
+  ]);
+  assert.throws(() => encodeBackup(backup), /Invalid backup moneyLoverImportRows/);
+});
+
 test('invalid import metadata never reaches the replacement boundary', async () => {
   const backup = decodeBackup(native);
-  backup.moneyLoverImportRows = [{ rowKey: 'orphan', transactionId: -1 }];
+  backup.moneyLoverImportRows = [{ rowKey: '', transactionId: backup.transactions[0].id }];
   let replaced = false;
   await assert.rejects(
     () =>
