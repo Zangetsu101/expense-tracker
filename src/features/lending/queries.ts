@@ -1,21 +1,10 @@
 import { queryOptions } from '@tanstack/react-query';
-import {
-  listPeople,
-  listPeopleWithLendingTotals,
-  loadPersonLedger,
-  loadUnassignedLending,
-} from '@/lib/lending';
+import { listPeopleWithLendingTotals, loadPersonLedger } from '@/lib/lending';
 
 export function lendingOverviewQuery() {
   return queryOptions({
     queryKey: ['lending', 'overview'],
-    queryFn: async () => {
-      const [people, unassigned] = await Promise.all([
-        listPeopleWithLendingTotals(),
-        loadUnassignedLending(),
-      ]);
-      return { people, unassigned };
-    },
+    queryFn: listPeopleWithLendingTotals,
   });
 }
 
@@ -23,15 +12,5 @@ export function personLedgerQuery(id: number) {
   return queryOptions({
     queryKey: ['lending', 'person', id],
     queryFn: () => loadPersonLedger(id),
-  });
-}
-
-export function unassignedHistoryQuery() {
-  return queryOptions({
-    queryKey: ['lending', 'unassigned'],
-    queryFn: async () => {
-      const [ledger, people] = await Promise.all([loadUnassignedLending(), listPeople()]);
-      return { ...ledger, people };
-    },
   });
 }

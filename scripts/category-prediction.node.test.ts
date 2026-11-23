@@ -135,11 +135,10 @@ test('adapter filters nonordinary and unusable labels while keeping report-exclu
       { categoryId: 4, source: 'MANUAL' },
     ]),
   );
-  assert.equal(result.rows.length, 2);
+  assert.equal(result.rows.length, 4);
   assert.deepEqual(result.provenance.excluded, {
     transfer_or_unknown_type: 1,
-    unlinked_imported_lending: 1,
-    missing_ambiguous_or_mismatched_category: 3,
+    missing_or_mismatched_category: 2,
     missing_or_invalid_metadata: 2,
   });
   assert.equal(JSON.stringify(result.rows).includes('PRIVATE'), false);
@@ -180,9 +179,24 @@ test('linked Person movements are excluded even with ordinary Category labels', 
   );
 });
 
-test('recent baseline retains prior lending Category recency exactly as the existing query does', () => {
-  const data = backup([{ categoryId: 1 }, { categoryId: 4 }, { categoryId: 1 }]);
-  const result = evaluate(data);
+test('the recent baseline uses linked lending history and the amount ranker skips it', () => {
+  const data = JSON.parse(
+    backup([{ categoryId: 1 }, { categoryId: 4, note: null }, { categoryId: 1 }]),
+  );
+  data.people = [{ id: 1, name: 'Sam' }];
+  data.lendingEntries = [
+    {
+      id: 1,
+      personId: 1,
+      kind: 'LEND',
+      transactionId: 2,
+      currencyCode: 'USD',
+      amountMinor: 100,
+      dateEpochDay: 2,
+      note: null,
+    },
+  ];
+  const result = evaluate(JSON.stringify(data));
   assert.equal(result.metrics['final/all/recent'].top1, 0);
   assert.equal(result.metrics['final/all/amount'].top1, 1);
   assert.equal(result.metrics['final/all/amount'].cold, 0);

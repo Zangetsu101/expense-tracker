@@ -97,7 +97,6 @@ const food: ManagedCategory = {
   emoji: null,
   parentId: null,
   parentName: null,
-  needsReview: 0,
 };
 const travel = { ...food, id: 4, name: 'Travel' };
 const salary: ManagedCategory = { ...food, id: 5, name: 'Salary', type: 'INCOME' };

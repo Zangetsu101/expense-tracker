@@ -2,7 +2,6 @@ import { act, render, screen, userEvent } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import { usePreventRemove } from 'expo-router/react-navigation';
 import { exportTransactionsCsv } from '@/lib/export-csv';
-import { importMoneyLoverFile } from '@/lib/import-csv';
 import { SettingsDataActions } from './settings-data-actions';
 
 jest.mock('expo-router', () => ({ Stack: { Screen: () => null } }));
@@ -34,7 +33,6 @@ jest.mock('@/components/backup-settings', () => {
   };
 });
 jest.mock('@/lib/export-csv', () => ({ exportTransactionsCsv: jest.fn() }));
-jest.mock('@/lib/import-csv', () => ({ importMoneyLoverFile: jest.fn() }));
 
 let alert: jest.SpyInstance<ReturnType<typeof Alert.alert>, Parameters<typeof Alert.alert>>;
 beforeEach(() => {
@@ -42,13 +40,6 @@ beforeEach(() => {
   alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
 });
 afterEach(() => jest.restoreAllMocks());
-
-async function chooseAlert(label: string) {
-  const buttons = alert.mock.calls.at(-1)?.[2];
-  const button = buttons?.find((candidate) => candidate.text === label);
-  expect(button?.onPress).toBeDefined();
-  await act(async () => button!.onPress!());
-}
 
 test('pending work blocks duplicate actions and leaving, and reports success only after completion', async () => {
   const user = userEvent.setup();
@@ -60,15 +51,13 @@ test('pending work blocks duplicate actions and leaving, and reports success onl
   await user.press(screen.getByRole('button', { name: 'Export transactions CSV' }));
 
   expect(screen.getByRole('button', { name: 'Export transactions CSV' })).toBeBusy();
-  for (const name of ['Export transactions CSV', 'Import from MoneyLover', 'Start backup'])
+  for (const name of ['Export transactions CSV', 'Start backup'])
     expect(screen.getByRole('button', { name })).toBeDisabled();
   expect(screen.getByText('Export transactions CSV in progress…')).toBeOnTheScreen();
   expect(screen.queryByText('Transactions CSV exported.')).not.toBeOnTheScreen();
   expect(onBusyChange).toHaveBeenLastCalledWith(true);
   await user.press(screen.getByRole('button', { name: 'Export transactions CSV' }));
-  await user.press(screen.getByRole('button', { name: 'Import from MoneyLover' }));
   expect(exportTransactionsCsv).toHaveBeenCalledTimes(1);
-  expect(importMoneyLoverFile).not.toHaveBeenCalled();
 
   const navigation = jest.mocked(usePreventRemove).mock.calls.at(-1)!;
   expect(navigation[0]).toBe(true);
@@ -84,70 +73,23 @@ test('pending work blocks duplicate actions and leaving, and reports success onl
   expect(await screen.findByText('Transactions CSV exported.')).toBeOnTheScreen();
   expect(onBusyChange).toHaveBeenLastCalledWith(false);
   expect(jest.mocked(usePreventRemove).mock.calls.at(-1)?.[0]).toBe(false);
-  for (const name of ['Export transactions CSV', 'Import from MoneyLover', 'Start backup'])
+  for (const name of ['Export transactions CSV', 'Start backup'])
     expect(screen.getByRole('button', { name })).toBeEnabled();
 });
 
-test.each([
-  ['Export transactions CSV', 'Transactions CSV exported.'],
-  ['Import from MoneyLover', '0 transactions imported.'],
-])('cancelling %s never reports success', async (label, success) => {
+test('cancelling CSV export never reports success', async () => {
   const user = userEvent.setup();
   jest.mocked(exportTransactionsCsv).mockResolvedValue(null);
-  jest.mocked(importMoneyLoverFile).mockResolvedValue(null);
   await render(<SettingsDataActions />);
-  await user.press(screen.getByRole('button', { name: label }));
+  await user.press(screen.getByRole('button', { name: 'Export transactions CSV' }));
 
-  expect(await screen.findByText(`${label} cancelled.`)).toBeOnTheScreen();
-  expect(screen.queryByText(success)).not.toBeOnTheScreen();
+  expect(await screen.findByText('Export transactions CSV cancelled.')).toBeOnTheScreen();
+  expect(screen.queryByText('Transactions CSV exported.')).not.toBeOnTheScreen();
   expect(screen.queryByRole('alert')).not.toBeOnTheScreen();
-  expect(screen.getByRole('button', { name: label })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Export transactions CSV' })).toBeEnabled();
 });
 
-test.each([
-  ['Cancel', false, 'Import from MoneyLover cancelled.'],
-  ['Create separate categories', true, '2 transactions imported.'],
-] as const)(
-  'Mixed Category confirmation forwards %s and handles cancellation rejection',
-  async (choice, accepted, message) => {
-    const user = userEvent.setup();
-    const decision = jest.fn();
-    jest.mocked(importMoneyLoverFile).mockImplementation(async (confirm) => {
-      const answer = await confirm!(['Other']);
-      decision(answer);
-      if (!answer) throw new Error('Mixed Categories require confirmation');
-      return 2;
-    });
-    await render(<SettingsDataActions />);
-    await user.press(screen.getByRole('button', { name: 'Import from MoneyLover' }));
-
-    expect(alert).toHaveBeenCalledWith(
-      'Mixed categories',
-      expect.stringContaining('Other'),
-      expect.any(Array),
-      { cancelable: false },
-    );
-    await chooseAlert(choice);
-
-    expect(decision).toHaveBeenCalledWith(accepted);
-    expect(await screen.findByText(message)).toBeOnTheScreen();
-    expect(screen.queryByRole('alert')).not.toBeOnTheScreen();
-  },
-);
-
-test.each([
-  [0, '0 transactions imported.'],
-  [1, '1 transaction imported.'],
-  [7, '7 transactions imported.'],
-])('import reports the completed count of %i', async (count, message) => {
-  const user = userEvent.setup();
-  jest.mocked(importMoneyLoverFile).mockResolvedValue(count);
-  await render(<SettingsDataActions />);
-  await user.press(screen.getByRole('button', { name: 'Import from MoneyLover' }));
-  expect(await screen.findByText(message)).toBeOnTheScreen();
-});
-
-test('CSV export failure can be retried without restarting a different operation', async () => {
+test('Retry runs the export again after a failure', async () => {
   const user = userEvent.setup();
   jest
     .mocked(exportTransactionsCsv)
@@ -162,7 +104,6 @@ test('CSV export failure can be retried without restarting a different operation
 
   expect(await screen.findByText('Transactions CSV exported.')).toBeOnTheScreen();
   expect(exportTransactionsCsv).toHaveBeenCalledTimes(2);
-  expect(importMoneyLoverFile).not.toHaveBeenCalled();
   expect(screen.queryByRole('alert')).not.toBeOnTheScreen();
 });
 

@@ -56,7 +56,6 @@ const {
   updateCategory,
   listManagedCategories,
   listCategoriesByRecentUse,
-  markCategoryReviewed,
 } = await import('./categories.ts');
 
 test('creates typed categories with same-type parents and rejects duplicate names per type', async () => {
@@ -101,13 +100,12 @@ test('creates descendants at any depth and validates failed writes without alter
   assert.deepEqual(await listManagedCategories(), before);
 });
 
-test('update changes only the name and preserves descendants, type, and review status', async () => {
+test('update changes only the name and preserves descendants and type', async () => {
   const before = await listManagedCategories();
   const category = before.find((category) => category.name === 'Food');
-  db.prepare('UPDATE categories SET needsReview = 1 WHERE id = ?').run(category.id);
   await updateCategory(category.id, ' Dining ');
   const renamed = (await listManagedCategories()).find((item) => item.id === category.id);
-  assert.deepEqual({ ...renamed }, { ...category, name: 'Dining', needsReview: 1 });
+  assert.deepEqual({ ...renamed }, { ...category, name: 'Dining' });
   const child = (await listManagedCategories()).find((item) => item.name === 'Weekly groceries');
   assert.equal(child.parentId, category.id);
   assert.equal(child.parentName, 'Dining');
@@ -117,7 +115,6 @@ test('update changes only the name and preserves descendants, type, and review s
     'DINING',
   );
   await updateCategory(category.id, 'Food');
-  db.prepare('UPDATE categories SET needsReview = 0 WHERE id = ?').run(category.id);
 });
 
 test('update validates names and IDs and rejects same-type duplicates without changing data', async () => {
@@ -161,18 +158,6 @@ test('a Category keeps an emoji that create and update set, and an empty emoji i
   );
   await assert.rejects(createCategory({ name: 'Tea', type: 'EXPENSE', emoji: 'x'.repeat(17) }));
   db.prepare('DELETE FROM categories WHERE id = ?').run(coffee.id);
-});
-
-test('review clears only the selected pending category', async () => {
-  db.prepare('UPDATE categories SET needsReview = 1 WHERE id IN (1, 3)').run();
-  await assert.rejects(markCategoryReviewed(1, 'INCOME'));
-  await markCategoryReviewed(1, 'EXPENSE');
-  assert.deepEqual(
-    (await listManagedCategories()).filter(({ needsReview }) => needsReview).map(({ id }) => id),
-    [3],
-  );
-  await assert.rejects(markCategoryReviewed(1, 'EXPENSE'));
-  await assert.rejects(markCategoryReviewed(999, 'EXPENSE'));
 });
 
 test('typed managed Categories retain metadata in recent-first order', async () => {

@@ -7,7 +7,6 @@ import { fileURLToPath } from 'node:url';
 import { resolveSource } from '../test/node-source-resolve.ts';
 
 const sql = new DatabaseSync(':memory:');
-let importCsv = '';
 const adapter = {
   async execAsync(query) {
     sql.exec(query);
@@ -58,8 +57,7 @@ registerHooks({
     if (url === 'test:picker')
       return {
         format: 'module',
-        source:
-          'export const getDocumentAsync = async () => ({ canceled: false, assets: [{ uri: "test:csv" }] });',
+        source: 'export const getDocumentAsync = async () => ({ canceled: true });',
         shortCircuit: true,
       };
     if (url === 'test:legacy')
@@ -72,7 +70,7 @@ registerHooks({
     if (url === 'test:file')
       return {
         format: 'module',
-        source: 'export class File { async text() { return globalThis.__backupCsv(); } }',
+        source: 'export class File {}',
         shortCircuit: true,
       };
     if (url.endsWith('.ts'))
@@ -85,10 +83,8 @@ registerHooks({
   },
 });
 globalThis.__backupDb = adapter;
-globalThis.__backupCsv = () => importCsv;
 const { database } = await import('./database.ts');
 const { backupStore } = await import('./backup-adapter.ts');
-const { importMoneyLoverFile } = await import('./import-csv.ts');
 const { decodeBackup, encodeBackup, restoreBackup } = await import('./backup.ts');
 // Simulate a database written before received amounts existed.
 sql.exec(`PRAGMA foreign_keys = OFF; CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT NOT NULL, currencyCode TEXT NOT NULL, openingBalanceMinor INTEGER NOT NULL DEFAULT 0, isFavorite INTEGER NOT NULL DEFAULT 0);
@@ -140,7 +136,7 @@ function replaceDocument(data) {
   );
 }
 
-test('SQLite snapshot and replace retain imported Accounts, Categories, Transfers, queue, keys, tags and Line Items', async () => {
+test('SQLite snapshot and replace retain imported Accounts, Categories, Transfers, candidates, keys, tags and Line Items', async () => {
   insert(
     "INSERT INTO accounts (id, name, currencyCode, openingBalanceMinor, isFavorite) VALUES (10, 'Wallet', 'BDT', 12000, 1)",
   );
@@ -200,39 +196,18 @@ test('SQLite snapshot and replace retain imported Accounts, Categories, Transfer
   assert.deepEqual(await backupStore.snapshot(), original);
 });
 
-test('MoneyLover importer output survives SQLite backup and restore', async () => {
-  importCsv = [
-    'Id,Note,Amount,Category,Account,Currency,Date,Event,Exclude Report',
-    '100,Send to Bank,-10.00,Withdrawal,Wallet,BDT,01/02/2025,,false',
-    '101,From Wallet,10.00,Deposit,Bank,BDT,01/02/2025,,false',
-    '102,,-12.00,Food,Wallet,BDT,01/02/2025,,true',
-    '103,,12.00,Gift,Bank,BDT,01/02/2025,,false',
-  ].join('\n');
-  assert.equal(await importMoneyLoverFile(), 3);
-  const original = await backupStore.snapshot();
-  assert.equal(original.moneyLoverImportRows.length, 8);
-  assert.ok(
-    original.transactions.some((row) => row.type === 'TRANSFER' && row.amountMinor === 1000),
-  );
-  const before = state();
-  insert(
-    "INSERT INTO transactions (type, amountMinor, date, accountId) VALUES ('EXPENSE', 1, 20122, 10)",
-  );
-  await replaceDocument(decodeBackup(encodeBackup(original)));
-  assert.deepEqual(state(), before);
-  assert.equal(await importMoneyLoverFile(), 0);
-});
-
-test('lending links, write-offs and people survive restore and keyed reimport without duplicate movements', async () => {
+test('lending links, write-offs and people survive restore', async () => {
   const lending = await import('./lending.ts');
-  importCsv = [
-    'Id,Note,Amount,Category,Account,Currency,Date,Event,Exclude Report',
-    '201,synthetic lending,-10.00,Loan,Wallet,BDT,01/03/2025,,false',
-  ].join('\n');
-  assert.equal(await importMoneyLoverFile(), 1);
   const person = await lending.createPerson('Synthetic person');
-  const [historical] = await lending.listUnassignedLendingTransactions();
-  await lending.assignLendingTransaction(historical.transactionId, person.id);
+  await lending.saveLendingEntry({
+    personId: person.id,
+    kind: 'LEND',
+    amountMinor: 1000,
+    date: 20149,
+    accountId: 10,
+    note: 'synthetic lending',
+  });
+  const [{ transactionId }] = await lending.listLendingEntries(person.id);
   await lending.saveLendingEntry({
     personId: person.id,
     kind: 'WRITE_OFF_LENT',
@@ -243,14 +218,14 @@ test('lending links, write-offs and people survive restore and keyed reimport wi
   });
   const { loadEditableTransaction, saveTransactionEdit } = await import('./transaction-edit.ts');
   await saveTransactionEdit(
-    await loadEditableTransaction(historical.transactionId),
+    await loadEditableTransaction(transactionId),
     'edited principal note',
     false,
     '',
   );
   const original = await backupStore.snapshot();
   assert.equal(
-    original.lendingEntries.find((entry) => entry.transactionId === historical.transactionId).note,
+    original.lendingEntries.find((entry) => entry.transactionId === transactionId).note,
     'edited principal note',
   );
   assert.deepEqual(
@@ -260,57 +235,8 @@ test('lending links, write-offs and people survive restore and keyed reimport wi
   assert.equal(original.lendingEntries.length, 2);
   await replaceDocument(decodeBackup(encodeBackup(original)));
   assert.deepEqual(await backupStore.snapshot(), original);
-  assert.equal(await importMoneyLoverFile(), 0);
   assert.equal((await lending.listLendingEntries(person.id)).length, 2);
   assert.equal((await lending.listLendingTotals(person.id))[0].outstandingMinor, 900);
-});
-
-test('assigned principal on either legacy transfer leg cannot be merged or lose backup history', async () => {
-  const lending = await import('./lending.ts');
-  const { confirmCandidate, listReviewCandidates } = await import('./review-queue.ts');
-  const person = await lending.createPerson('Legacy queue person');
-  for (const [kind, category, signedAmount, otherCategory] of [
-    ['LEND', 'Loan', -42, 'Salary'],
-    ['BORROW', 'Debt', 43, 'Food'],
-  ]) {
-    const note = `synthetic legacy ${kind}`;
-    importCsv = [
-      'Id,Note,Amount,Category,Account,Currency,Date,Event,Exclude Report',
-      `901,${note},${signedAmount},${category},Wallet,BDT,01/04/2025,,false`,
-      `902,synthetic counterpart,${-signedAmount},${otherCategory},Bank,BDT,01/04/2025,,false`,
-    ].join('\n');
-    assert.equal(await importMoneyLoverFile(), 2);
-    const principal = (await lending.listUnassignedLendingTransactions()).find(
-      (row) => row.note === note,
-    );
-    const counterpart = sql
-      .prepare('SELECT id FROM transactions WHERE amountMinor = ? AND note = ?')
-      .get(Math.abs(signedAmount) * 100, 'synthetic counterpart');
-    const legs =
-      kind === 'LEND'
-        ? [principal.transactionId, counterpart.id]
-        : [counterpart.id, principal.transactionId];
-    const candidate = await adapter.runAsync(
-      'INSERT INTO transfer_candidates (outgoingTxnId, incomingTxnId, confidenceNote) VALUES (?, ?, ?)',
-      [...legs, 'Synthetic legacy candidate'],
-    );
-    await lending.assignLendingTransaction(principal.transactionId, person.id);
-    assert.ok(!(await listReviewCandidates()).some((row) => row.id === candidate.lastInsertRowId));
-    await assert.rejects(confirmCandidate(candidate.lastInsertRowId));
-    // A stale/unresolved candidate must also be rejected at the mutation boundary.
-    sql
-      .prepare('UPDATE transfer_candidates SET resolved = 0 WHERE id = ?')
-      .run(candidate.lastInsertRowId);
-    const before = await backupStore.snapshot();
-    await assert.rejects(confirmCandidate(candidate.lastInsertRowId), /principal|lending/i);
-    assert.deepEqual(await backupStore.snapshot(), before);
-    await replaceDocument(decodeBackup(encodeBackup(before)));
-    assert.ok(
-      (await lending.listLendingEntries(person.id)).some(
-        (row) => row.transactionId === principal.transactionId && row.kind === kind,
-      ),
-    );
-  }
 });
 
 test('native v1 fixture restores into SQLite without import keys', async () => {

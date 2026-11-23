@@ -30,7 +30,6 @@ const food: ManagedCategory = {
   parentId: null,
   parentName: null,
   emoji: null,
-  needsReview: 0,
 };
 const row = (id: number, note: string): SearchRow => ({
   id,

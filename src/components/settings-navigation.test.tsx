@@ -1,5 +1,4 @@
 import { act, render, screen, userEvent } from '@testing-library/react-native';
-import { router } from 'expo-router';
 import SettingsScreen from '@/app/settings';
 import { AppUpdatesProvider } from './app-updates';
 import { shareBackup } from '@/lib/backup';
@@ -7,7 +6,6 @@ import { disconnectedState as mockDisconnectedState } from '@/lib/drive-backups'
 
 jest.mock('expo-router', () => ({
   Stack: { Screen: () => null },
-  router: { push: jest.fn() },
   useFocusEffect: () => {},
 }));
 jest.mock('expo-router/react-navigation', () => ({ usePreventRemove: jest.fn() }));
@@ -24,7 +22,6 @@ jest.mock('@/lib/backup-background-task', () => ({
   withBackupChangeNotice: (operation: () => Promise<unknown>) => operation(),
 }));
 jest.mock('@/lib/export-csv', () => ({ exportTransactionsCsv: jest.fn() }));
-jest.mock('@/lib/import-csv', () => ({ importMoneyLoverFile: jest.fn() }));
 test('Settings exposes data actions and hides other navigation until a backup finishes', async () => {
   const user = userEvent.setup();
   const pending = Promise.withResolvers<Awaited<ReturnType<typeof shareBackup>>>();
@@ -34,12 +31,7 @@ test('Settings exposes data actions and hides other navigation until a backup fi
       <SettingsScreen />
     </AppUpdatesProvider>,
   );
-  for (const name of [
-    'Restore',
-    'Export transactions CSV',
-    'Import from MoneyLover',
-    /^Version /,
-  ]) {
+  for (const name of ['Restore', 'Export transactions CSV', /^Version /]) {
     expect(screen.getByRole('button', { name })).toBeOnTheScreen();
   }
   await user.press(screen.getByRole('button', { name: 'Share a backup file' }));
@@ -47,11 +39,10 @@ test('Settings exposes data actions and hides other navigation until a backup fi
   expect(
     screen.queryByRole('button', { name: 'Lending & borrowing', includeHiddenElements: true }),
   ).toBeNull();
-  expect(screen.queryByRole('button', { name: 'Review transfer candidates' })).toBeNull();
-  expect(
-    screen.getByRole('button', { name: 'Review transfer candidates', includeHiddenElements: true }),
-  ).toBeDisabled();
+  expect(screen.queryByRole('button', { name: /^Version / })).toBeNull();
   await act(async () => pending.resolve(undefined));
-  await user.press(screen.getByRole('button', { name: 'Review transfer candidates' }));
-  expect(router.push).toHaveBeenCalledWith('/review-queue');
+  expect(screen.getByRole('button', { name: /^Version / })).toBeOnTheScreen();
+  for (const name of ['Import from MoneyLover', 'Review transfer candidates']) {
+    expect(screen.queryByRole('button', { name })).toBeNull();
+  }
 });

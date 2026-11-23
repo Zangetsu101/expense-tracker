@@ -25,10 +25,7 @@ export type EditableTransaction = LendingLabel & {
 
 export type LineItem = { id?: number; name: string; amountMinor: number; quantity: number | null };
 
-const principalReportExclusion = `EXISTS (SELECT 1 FROM lending_entries WHERE transactionId = t.id)
-  OR (t.source = 'IMPORT' AND EXISTS (SELECT 1 FROM categories c WHERE c.id = t.categoryId AND
-    ((t.type = 'EXPENSE' AND lower(trim(c.name)) IN ('loan', 'repayment')) OR
-     (t.type = 'INCOME' AND lower(trim(c.name)) IN ('debt', 'debt collection')))))`;
+const principalReportExclusion = `EXISTS (SELECT 1 FROM lending_entries WHERE transactionId = t.id)`;
 
 function validateLineItems(items: LineItem[]) {
   const ids = new Set<number>();

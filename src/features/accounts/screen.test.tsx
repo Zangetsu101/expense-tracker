@@ -9,7 +9,7 @@ import {
   setFavoriteAccount,
   type ManagedAccount,
 } from '@/lib/accounts';
-import { listPeopleWithLendingTotals, loadUnassignedLending } from '@/lib/lending';
+import { listPeopleWithLendingTotals } from '@/lib/lending';
 import { notifyDataChanged } from '@/lib/data-changes';
 import { creditCardBills } from '@/lib/credit-cards';
 import { epochDay } from '@/lib/database';
@@ -46,7 +46,6 @@ jest.mock('@/lib/accounts', () => ({
 }));
 jest.mock('@/lib/lending', () => ({
   listPeopleWithLendingTotals: jest.fn(),
-  loadUnassignedLending: jest.fn(),
 }));
 jest.mock('@/lib/credit-cards', () => ({ creditCardBills: jest.fn(async () => []) }));
 jest.mock('@/lib/reports', () => ({ accountBalances: jest.fn() }));
@@ -77,7 +76,6 @@ const day2 = new Date(2026, 10, 10, 12);
 
 beforeEach(() => {
   jest.mocked(listPeopleWithLendingTotals).mockReset().mockResolvedValue([]);
-  jest.mocked(loadUnassignedLending).mockReset().mockResolvedValue({ rows: [], totals: [] });
   for (const read of [listManagedAccounts, accountBalances, createAccount, setFavoriteAccount])
     jest.mocked(read).mockReset();
 });

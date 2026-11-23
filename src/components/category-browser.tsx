@@ -56,7 +56,6 @@ export function CategoryBrowser({
   const insets = useSafeAreaInsets();
   const [open, setOpen] = useState<number[]>([]);
   const [query, setQuery] = useState('');
-  const [reviewOpen, setReviewOpen] = useState<number | null>(null);
   const [reducedMotion, setReducedMotion] = useState(true);
   useEffect(() => {
     let mounted = true;
@@ -202,8 +201,7 @@ export function CategoryBrowser({
             ? current.filter((id) => id !== item.id)
             : [...current, item.id],
         );
-      } else if (item.needsReview)
-        setReviewOpen((current) => (current === item.id ? null : item.id));
+      }
     };
     const select = () => setSelected(item.id);
     const deselect = () => setSelected(null);
@@ -215,7 +213,7 @@ export function CategoryBrowser({
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`${path(item)}, ${item.type}${item.needsReview ? ', needs review' : ''}${hasChildren ? `, ${expanded ? 'expanded' : 'collapsed'}` : ''}`}
+            accessibilityLabel={`${path(item)}, ${item.type}${hasChildren ? `, ${expanded ? 'expanded' : 'collapsed'}` : ''}`}
             accessibilityState={{
               selected: selected === item.id,
               ...(hasChildren ? { expanded } : {}),
@@ -238,20 +236,10 @@ export function CategoryBrowser({
                     },
                   ]
                 : []),
-              ...(item.needsReview
-                ? [
-                    {
-                      name: 'review',
-                      label: reviewOpen === item.id ? 'Hide review details' : 'Show review details',
-                    },
-                  ]
-                : []),
             ]}
             onAccessibilityAction={({ nativeEvent: { actionName } }) => {
               if (actionName === 'select') select();
               else if (actionName === 'deselect') deselect();
-              else if (actionName === 'review')
-                setReviewOpen((current) => (current === item.id ? null : item.id));
               else if (actionName === 'expand' || actionName === 'collapse') toggle();
             }}
             onPressIn={() => {
@@ -356,7 +344,6 @@ export function CategoryBrowser({
               </Text>
               {!!emoji && <Text style={{ fontSize: t.type.body }}>{emoji}</Text>}
             </View>
-            {!!item.needsReview && <Text style={{ color: c.warning, fontSize: 12 }}>Review</Text>}
             {hasChildren && !isSelected && (
               <Text
                 accessibilityLabel={`${childCount} direct children total`}
@@ -389,26 +376,6 @@ export function CategoryBrowser({
             </Pressable>
           )}
         </View>
-        {!!item.needsReview && (reviewOpen === item.id || (hasChildren && expanded)) && (
-          <View
-            style={{
-              padding: 16,
-              gap: 8,
-              borderTopWidth: 1,
-              borderColor: c.line,
-              backgroundColor: c.raised,
-            }}
-          >
-            <Text style={{ color: c.warning, fontWeight: '700' }}>
-              Imported Mixed Category · needs review
-            </Text>
-            <Text selectable style={{ color: c.muted, lineHeight: 21 }}>
-              MoneyLover used this category name for both positive and negative amounts. Its
-              existing type is {item.type === 'EXPENSE' ? 'Expense' : 'Income'}. The imported
-              classification is unchanged. This screen does not confirm or correct Category types.
-            </Text>
-          </View>
-        )}
         {expanded && visibleChildren.length > 0 && (
           <View>
             {visibleChildren.map((child, i) =>

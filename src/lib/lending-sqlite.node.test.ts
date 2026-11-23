@@ -82,48 +82,6 @@ test('saved people and every money direction preserve balances but never enter r
   assert.deepEqual(await monthlyReport(2024, 10), { spending: [], summaries: [] });
   assert.equal((await api.listLendingEntries(p.id)).length, 4);
 });
-test('historical assignment is explicit, direction safe, and preserves movement and import identity on edit', async () => {
-  sqlite.exec(`INSERT INTO categories(id,name,type) VALUES (50,'Loan','EXPENSE'),(51,'Debt Collection','INCOME'),(52,'Debt','INCOME'),(53,'Repayment','EXPENSE');
- INSERT INTO transactions(id,type,amountMinor,date,accountId,categoryId,source) VALUES (50,'EXPENSE',500,20000,1,50,'IMPORT'),(51,'INCOME',100,20001,1,51,'IMPORT'),(52,'INCOME',900,20000,1,52,'IMPORT'),(53,'INCOME',900,20000,1,50,'IMPORT'),(54,'EXPENSE',200,20002,1,53,'IMPORT');
- INSERT INTO moneylover_import_rows VALUES ('original-csv-key',50);`);
-  const p = await api.createPerson('Historical');
-  assert.deepEqual(
-    (await api.listUnassignedLendingTransactions()).map((e) => [e.transactionId, e.kind]),
-    [
-      [54, 'REPAY'],
-      [51, 'RECEIVE_REPAYMENT'],
-      [52, 'BORROW'],
-      [50, 'LEND'],
-    ],
-  );
-  const { loadEditableTransaction, saveTransactionEdit } = await import('./transaction-edit.ts');
-  await saveTransactionEdit(await loadEditableTransaction(52), 'unassigned borrowing', false, '');
-  assert.equal((await loadEditableTransaction(52)).excludeFromReport, 1);
-  const before = await accountBalances();
-  const linked = await api.assignLendingTransaction(50, p.id);
-  assert.equal(linked.status, 'saved');
-  await api.assignLendingTransaction(51, p.id);
-  assert.deepEqual(await accountBalances(), before);
-  assert.equal((await api.listLendingTotals(p.id))[0].outstandingMinor, 400);
-  await api.saveLendingEntry(input(p.id, 'LEND', 600, { id: linked.id }));
-  assert.equal(
-    (await api.listLendingEntries(p.id)).find((e) => e.id === linked.id).transactionId,
-    50,
-  );
-  assert.equal(
-    sqlite
-      .prepare('SELECT transactionId FROM moneylover_import_rows WHERE rowKey=?')
-      .get('original-csv-key').transactionId,
-    50,
-  );
-  await api.assignLendingTransaction(52, p.id);
-  await api.assignLendingTransaction(54, p.id);
-  assert.equal(
-    (await api.listLendingTotals(p.id)).find((t) => t.direction === 'BORROWED').outstandingMinor,
-    700,
-  );
-  await assert.rejects(api.assignLendingTransaction(53, p.id));
-});
 test('a new lending entry tells listeners its Transaction, and an edit does not', async (t) => {
   const p = await api.createPerson('Signal');
   const { subscribeDataChanges } = await import('./data-changes.ts');
@@ -302,62 +260,4 @@ test('rename trims the name and keeps the person and their totals', async () => 
       ['LENT', 'USD', 500],
     ],
   );
-});
-
-test('assigns a group in one write and checks the final balance of the group', async () => {
-  sqlite.exec(`INSERT INTO transactions (id,type,amountMinor,date,accountId,categoryId,source)
-    VALUES (100,'EXPENSE',600,20000,1,50,'IMPORT'),(101,'INCOME',500,20001,1,51,'IMPORT'),
-    (102,'EXPENSE',300,20002,9,50,'IMPORT'),(103,'EXPENSE',250,20003,1,53,'IMPORT');`);
-  const before = await accountBalances();
-  assert.deepEqual(
-    (await api.loadUnassignedLending()).totals.map((total) => [
-      total.direction,
-      total.currencyCode,
-      total.outstandingMinor,
-      total.overpaidMinor,
-    ]),
-    [
-      ['BORROWED', 'BDT', 0, 250],
-      ['LENT', 'BDT', 100, 0],
-      ['LENT', 'USD', 300, 0],
-    ],
-  );
-  await assert.rejects(api.assignLendingTransactions([100, 999], 'Missing group'));
-  assert.ok(!(await api.listPeople()).some((person) => person.name === 'Missing group'));
-  const first = await api.assignLendingTransactions([101, 100, 102], ' Batch ');
-  assert.equal(first.status, 'saved');
-  assert.equal(first.ids.length, 3);
-  assert.equal(first.person.name, 'Batch');
-  const second = await api.assignLendingTransactions([103], first.person.id);
-  assert.equal(second.status, 'confirmation_required');
-  assert.equal(second.warnings[0].overpaidMinor, 250);
-  assert.equal((await api.loadUnassignedLending()).rows.length, 1);
-  await api.assignLendingTransactions([103], first.person.id, { confirmOverpayment: true });
-  assert.deepEqual(await api.loadUnassignedLending(), { rows: [], totals: [] });
-  assert.deepEqual(await accountBalances(), before);
-});
-
-test('a failed assignment rolls back the entire group and the new person', async () => {
-  sqlite.exec(`INSERT INTO transactions (id,type,amountMinor,date,accountId,categoryId,source)
-    VALUES (110,'EXPENSE',500,20000,1,50,'IMPORT'),(111,'EXPENSE',100,20001,1,50,'IMPORT');
-    CREATE TRIGGER fail_assignment BEFORE INSERT ON lending_entries WHEN NEW.transactionId=111
-    BEGIN SELECT RAISE(ABORT, 'assignment failed'); END;`);
-  try {
-    await assert.rejects(
-      api.assignLendingTransactions([110, 111], 'Rolled back'),
-      /assignment failed/,
-    );
-    assert.ok(!(await api.listPeople()).some((person) => person.name === 'Rolled back'));
-    assert.deepEqual(
-      (await api.loadUnassignedLending()).rows.map((row) => row.transactionId),
-      [111, 110],
-    );
-    assert.equal(
-      sqlite.prepare('SELECT excludeFromReport FROM transactions WHERE id=110').get()
-        .excludeFromReport,
-      0,
-    );
-  } finally {
-    sqlite.exec('DROP TRIGGER fail_assignment; DELETE FROM transactions WHERE id IN (110,111);');
-  }
 });

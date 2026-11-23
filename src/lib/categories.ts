@@ -18,7 +18,6 @@ export type ManagedCategory = {
   parentId: number | null;
   parentName: string | null;
   emoji: string | null;
-  needsReview: number;
 };
 
 /** The longest emoji in UTF-16 units. A family emoji uses 11. */
@@ -34,7 +33,7 @@ function normalizeEmoji(value: string | null | undefined): string | null {
 
 export async function listCategoriesByRecentUse(type: CategoryType): Promise<ManagedCategory[]> {
   return (await database()).getAllAsync<ManagedCategory>(
-    `SELECT c.id, c.name, c.type, c.parentId, p.name AS parentName, c.iconKey AS emoji, c.needsReview
+    `SELECT c.id, c.name, c.type, c.parentId, p.name AS parentName, c.iconKey AS emoji
        FROM categories c LEFT JOIN categories p ON p.id = c.parentId
        LEFT JOIN transactions t ON t.id = (
          SELECT id FROM transactions WHERE categoryId = c.id AND type = c.type
@@ -45,7 +44,7 @@ export async function listCategoriesByRecentUse(type: CategoryType): Promise<Man
   );
 }
 
-const managedCategoriesSql = `SELECT c.id, c.name, c.type, c.parentId, p.name AS parentName, c.iconKey AS emoji, c.needsReview
+const managedCategoriesSql = `SELECT c.id, c.name, c.type, c.parentId, p.name AS parentName, c.iconKey AS emoji
   FROM categories c LEFT JOIN categories p ON p.id = c.parentId
   ORDER BY c.type, c.name COLLATE NOCASE, c.id`;
 
@@ -214,16 +213,4 @@ export async function updateCategory(
       ]);
   });
   notifyDataChanged();
-}
-
-export async function markCategoryReviewed(id: number, confirmedType: CategoryType): Promise<void> {
-  if (!Number.isSafeInteger(id) || id <= 0) throw new Error('Invalid Category.');
-  const db = await database();
-  if (confirmedType !== 'EXPENSE' && confirmedType !== 'INCOME')
-    throw new Error('Choose Expense or Income.');
-  const result = await db.runAsync(
-    'UPDATE categories SET needsReview = 0 WHERE id = ? AND type = ? AND needsReview = 1',
-    [id, confirmedType],
-  );
-  if (!result.changes) throw new Error('Category is not awaiting review.');
 }

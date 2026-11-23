@@ -22,7 +22,6 @@ export default function Layout() {
               />
               <Stack.Screen name="transactions" options={{ title: 'Search transactions' }} />
               <Stack.Screen name="settings" options={{ title: 'Settings' }} />
-              <Stack.Screen name="review-queue" options={{ title: 'Review Queue' }} />
               <Stack.Screen
                 name="person"
                 options={{

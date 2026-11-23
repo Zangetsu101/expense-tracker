@@ -438,7 +438,6 @@ function LendingCard({ series }: { series: NetWorthSeries }) {
           color={c.accent}
         />
       </View>
-      <Note>Lending totals can be incomplete. Some old Transactions have no person.</Note>
     </Card>
   );
 }

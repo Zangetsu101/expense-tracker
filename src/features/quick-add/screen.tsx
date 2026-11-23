@@ -619,7 +619,6 @@ function QuickAddForm() {
                   <Text style={{ color: c.muted }}>
                     {incoming ? 'Money into' : 'Money out of'}{' '}
                     {account?.name ?? 'the selected account'}. Excluded from spending reports.
-                    Recorded person balances may be incomplete.
                   </Text>
                 </View>
               )}

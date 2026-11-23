@@ -28,7 +28,7 @@ after(() => {
   else delete globalThis.__predictionDb;
 });
 const { listCategoryEvidence } = await import('./category-prediction-history.ts');
-test('history isolates mode/Currency and excludes lending and ambiguous labels', async () => {
+test('history isolates type and Currency and excludes linked lending', async () => {
   db.exec(`CREATE TABLE accounts(id, currencyCode);
     CREATE TABLE categories(id, type, name, needsReview);
     CREATE TABLE transactions(id, type, accountId, categoryId, amountMinor, date, source, excludeFromReport);
@@ -47,6 +47,6 @@ test('history isolates mode/Currency and excludes lending and ambiguous labels',
   const rows = await listCategoryEvidence('EXPENSE', 'BDT');
   assert.deepEqual(
     rows.map((r) => r.categoryId),
-    [1, 2],
+    [1, 2, 2, 4],
   );
 });
