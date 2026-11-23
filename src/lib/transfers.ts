@@ -41,6 +41,14 @@ function validateTransfer(input: TransferInput) {
   }
 }
 
+/** The two sides of a Transfer. A Transfer in one Currency receives the paid amount. */
+function sides(input: TransferInput, received: number | null) {
+  return {
+    from: { accountId: input.fromAccountId, amountMinor: input.amountMinor },
+    to: { accountId: input.toAccountId, amountMinor: received ?? input.amountMinor },
+  };
+}
+
 async function receivedAmount(tx: Pick<SQLiteDatabase, 'getAllAsync'>, input: TransferInput) {
   const accounts = await tx.getAllAsync<{ id: number; currencyCode: string }>(
     'SELECT id, currencyCode FROM accounts WHERE id IN (?, ?)',
@@ -67,8 +75,7 @@ export async function addTransfer(input: TransferInput & { date?: Date; tagText?
       kind: 'TRANSFER',
       date: epochDay(date),
       note: input.note?.trim() || null,
-      from: { accountId: input.fromAccountId, amountMinor: input.amountMinor },
-      to: { accountId: input.toAccountId, amountMinor: received ?? input.amountMinor },
+      ...sides(input, received),
     });
     await addTransactionTags(tx, id, tags);
   });
@@ -117,8 +124,7 @@ export async function saveTransferEdit(
       kind: 'TRANSFER',
       date: input.date,
       note: input.note?.trim() || null,
-      from: { accountId: input.fromAccountId, amountMinor: input.amountMinor },
-      to: { accountId: input.toAccountId, amountMinor: received ?? input.amountMinor },
+      ...sides(input, received),
     });
   });
   notifyDataChanged();

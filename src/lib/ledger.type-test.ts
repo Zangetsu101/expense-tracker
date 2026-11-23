@@ -29,9 +29,9 @@ export const invalid: NewTransaction[] = [
   { ...common, kind: 'LENDING', action: 'LEND', accountId: 1, personId: 1, amountMinor: 1, categoryId: 1 },
   // @ts-expect-error Lending stores the action; the direction comes from it.
   { ...common, kind: 'LENDING', direction: 'LENT', accountId: 1, personId: 1, amountMinor: 1 },
-  // @ts-expect-error A write-off has no Account.
+  // @ts-expect-error A Write-off has no Account.
   { ...common, kind: 'WRITE_OFF', direction: 'LENT', personId: 1, accountId: 1, currencyCode: 'BDT', amountMinor: 1 },
-  // @ts-expect-error A write-off needs a direction.
+  // @ts-expect-error A Write-off needs a Direction.
   { ...common, kind: 'WRITE_OFF', personId: 1, currencyCode: 'BDT', amountMinor: 1 },
   // @ts-expect-error An Expense has no direction.
   { ...common, kind: 'EXPENSE', direction: 'LENT', accountId: 1, amountMinor: 1, categoryId: null, excludeFromReport: false },

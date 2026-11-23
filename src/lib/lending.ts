@@ -35,7 +35,7 @@ export type LendingEntry = {
   accountId: number | null;
   accountName: string | null;
 };
-/** A write-off has no Account. The Receipt shows it with "No Account movement". */
+/** A Write-off has no Account. The Receipt shows it with "No Account movement". */
 export type WriteOffEntry = LendingEntry & {
   type: 'WRITE_OFF';
   kind: 'WRITE_OFF_LENT' | 'WRITE_OFF_BORROWED';

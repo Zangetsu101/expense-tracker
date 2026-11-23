@@ -33,7 +33,7 @@ export async function saveFiscalStart(month: number): Promise<void> {
 
 /**
  * The Accounts, their change in each calendar month up to today, and the lending entries.
- * For one Account, lending is empty.
+ * For one Account, lending is empty, so the chart shows only that Account.
  */
 export async function netWorthData(
   accountId: number | null,

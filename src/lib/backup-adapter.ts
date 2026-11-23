@@ -6,6 +6,7 @@ import * as Sharing from 'expo-sharing';
 import { database, favoriteAccountIdSql, isFavoriteSql } from '@/lib/database';
 import { accountTransactions, lendingEntryRows } from '@/lib/ledger-store';
 import { restoreLegacyRows } from '@/lib/legs-migration';
+import { readAll } from '@/lib/read-all';
 import type { BackupData, BackupDocuments, BackupStore } from '@/lib/backup';
 
 // The backup format stays v1 (ADR 0013). Export derives the v1 rows from the legs, and
@@ -26,63 +27,66 @@ export const backupStore: BackupStore = {
     let snapshot!: BackupData;
     await db.withExclusiveTransactionAsync(async (tx) => {
       const all = <T>(query: string) => tx.getAllAsync<T>(query);
-      const favorite = await tx.getFirstAsync<{ id: number | null }>(
-        `SELECT ${favoriteAccountIdSql} AS id`,
-      );
-      const displayRate = await tx.getFirstAsync<{ value: string }>(
-        "SELECT value FROM app_settings WHERE key = 'displayRate'",
-      );
-      snapshot = {
-        schemaVersion: 1,
-        accounts: (
-          await all<Omit<BackupData['accounts'][number], 'isFavorite'> & { isFavorite: number }>(
+      const { favorite, displayRate, accounts, categories, transactions, ...tables } =
+        await readAll({
+          favorite: tx.getFirstAsync<{ id: number | null }>(`SELECT ${favoriteAccountIdSql} AS id`),
+          displayRate: tx.getFirstAsync<{ value: string }>(
+            "SELECT value FROM app_settings WHERE key = 'displayRate'",
+          ),
+          accounts: all<
+            Omit<BackupData['accounts'][number], 'isFavorite'> & { isFavorite: number }
+          >(
             `SELECT a.id, a.name, a.currencyCode, a.openingBalanceMinor,
             ${isFavoriteSql('a')} AS isFavorite FROM accounts a ORDER BY a.id`,
-          )
-        ).map((row) => ({ ...row, isFavorite: Boolean(row.isFavorite) })),
-        categories: (
-          await all<BackupData['categories'][number]>(
+          ),
+          categories: all<BackupData['categories'][number]>(
             'SELECT id, name, type, parentId, iconKey FROM categories ORDER BY id',
-          )
-        ).map((row) => ({ ...row, needsReview: false })),
-        transactions: (
-          await all<
+          ),
+          transactions: all<
             Omit<BackupData['transactions'][number], 'excludeFromReport' | 'source'> & {
               excludeFromReport: number;
             }
-          >(v1Transactions)
-        ).map(({ receivedAmountMinor, ...row }) => ({
+          >(v1Transactions),
+          lineItems: all<BackupData['lineItems'][number]>(
+            'SELECT id, transactionId, name, amountMinor, quantity FROM line_items ORDER BY id',
+          ),
+          tags: all<BackupData['tags'][number]>('SELECT id, name FROM tags ORDER BY id'),
+          transactionTags: all<BackupData['transactionTags'][number]>(
+            'SELECT transactionId, tagId FROM transaction_tags ORDER BY transactionId, tagId',
+          ),
+          creditCards: all<NonNullable<BackupData['creditCards']>[number]>(
+            'SELECT accountId, parentAccountId, statementDay, dueDay FROM credit_cards ORDER BY accountId',
+          ),
+          people: all<NonNullable<BackupData['people']>[number]>(
+            'SELECT id, name FROM people ORDER BY id',
+          ),
+          splitShares: all<NonNullable<BackupData['splitShares']>[number]>(
+            'SELECT expenseId, personId, amountMinor FROM split_shares ORDER BY expenseId, personId',
+          ),
+          reimbursements: all<NonNullable<BackupData['reimbursements']>[number]>(
+            'SELECT transactionId, expenseId, personId FROM reimbursements ORDER BY transactionId',
+          ),
+          lendingEntries: all<NonNullable<BackupData['lendingEntries']>[number]>(
+            `SELECT id, personId, kind, transactionId, currencyCode, amountMinor,
+            date AS dateEpochDay, note FROM (${lendingEntryRows}) ORDER BY id`,
+          ),
+        });
+      snapshot = {
+        schemaVersion: 1,
+        ...tables,
+        accounts: accounts.map((row) => ({ ...row, isFavorite: Boolean(row.isFavorite) })),
+        categories: categories.map((row) => ({ ...row, needsReview: false })),
+        transactions: transactions.map(({ receivedAmountMinor, ...row }) => ({
           ...row,
           ...(receivedAmountMinor === null ? {} : { receivedAmountMinor }),
           excludeFromReport: Boolean(row.excludeFromReport),
           source: 'MANUAL',
         })),
-        lineItems: await all(
-          'SELECT id, transactionId, name, amountMinor, quantity FROM line_items ORDER BY id',
-        ),
-        tags: await all('SELECT id, name FROM tags ORDER BY id'),
-        transactionTags: await all(
-          'SELECT transactionId, tagId FROM transaction_tags ORDER BY transactionId, tagId',
-        ),
         transferCandidates: [],
         settings: {
           favoriteAccountId: favorite?.id ?? null,
           displayRate: displayRate ? JSON.parse(displayRate.value) : null,
         },
-        creditCards: await all(
-          'SELECT accountId, parentAccountId, statementDay, dueDay FROM credit_cards ORDER BY accountId',
-        ),
-        people: await all('SELECT id, name FROM people ORDER BY id'),
-        splitShares: await all(
-          'SELECT expenseId, personId, amountMinor FROM split_shares ORDER BY expenseId, personId',
-        ),
-        reimbursements: await all(
-          'SELECT transactionId, expenseId, personId FROM reimbursements ORDER BY transactionId',
-        ),
-        lendingEntries: await all(
-          `SELECT id, personId, kind, transactionId, currencyCode, amountMinor,
-          date AS dateEpochDay, note FROM (${lendingEntryRows}) ORDER BY id`,
-        ),
       };
     });
     return snapshot;

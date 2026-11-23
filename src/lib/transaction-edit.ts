@@ -151,8 +151,10 @@ export async function saveTransactionEdit(
       })
     )
       throw new Error('Transaction was changed or removed. Reload before saving.');
-    const row = await tx.getFirstAsync<EditableRow>(editableRead, [original.id]);
-    const transaction = row && (await loadTransaction(tx, original.id));
+    const [row, transaction] = await Promise.all([
+      tx.getFirstAsync<EditableRow>(editableRead, [original.id]),
+      loadTransaction(tx, original.id),
+    ]);
     if (
       !row ||
       !transaction ||

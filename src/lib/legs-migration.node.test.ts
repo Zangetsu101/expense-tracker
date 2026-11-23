@@ -480,7 +480,11 @@ test('a restore of the old rows gives the same data as the migration', async () 
   assert.deepEqual(data(restored), data(migrated));
 });
 
-test('database() writes the backup file, checks its size, then migrates', async () => {
+test('database() writes the backup file, checks its size, then migrates', async (t) => {
+  t.after(() => {
+    for (const name of ['__migrationDb', '__files', '__fileSizeError'])
+      delete (globalThis as Record<string, unknown>)[name];
+  });
   const sql = oldDatabase();
   const files = new Map<string, string>();
   Object.assign(globalThis, {

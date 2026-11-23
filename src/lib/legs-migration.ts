@@ -4,6 +4,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { encodeBackup, type BackupData } from './backup.ts';
 import { LEGS_SCHEMA_VERSION, legsSchema } from './legs-schema.ts';
+import { readAll } from './read-all.ts';
 
 type Connection = Pick<SQLiteDatabase, 'execAsync' | 'getAllAsync' | 'getFirstAsync'>;
 type MainConnection = Connection & Pick<SQLiteDatabase, 'isInTransactionSync'>;
@@ -236,10 +237,7 @@ async function dropLegacyTables(db: Connection) {
   await db.execAsync(legacyNames.map((table) => `DROP TABLE temp.legacy_${table};`).join('\n'));
 }
 
-/**
- * Runs the old schema setup, so that every old table and column exists. The last old
- * version added receivedAmountMinor with ALTER TABLE.
- */
+/** Runs the old schema setup, so that every old table and column exists. */
 async function setUpLegacySchema(db: Connection) {
   await db.execAsync(legacySchema);
   const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(transactions)');
@@ -258,71 +256,66 @@ export async function legacySnapshot(db: Connection): Promise<BackupData> {
       for (const field of fields) result[field] = Boolean(result[field]);
       return result;
     });
-  const transactions = (
-    await all<Record<string, unknown>>(`SELECT id, type, amountMinor, receivedAmountMinor,
+  const { favorite, settings, ...tables } = await readAll({
+    favorite: db.getFirstAsync<{ id: number }>(
+      'SELECT id FROM accounts WHERE isFavorite = 1 LIMIT 1',
+    ),
+    settings: db.getFirstAsync<{ value: string }>(
+      "SELECT value FROM app_settings WHERE key = 'backupSettings'",
+    ),
+    accounts: all(
+      'SELECT id, name, currencyCode, openingBalanceMinor, isFavorite FROM accounts ORDER BY id',
+    ),
+    categories: all(
+      'SELECT id, name, type, parentId, iconKey, needsReview FROM categories ORDER BY id',
+    ),
+    transactions: all(`SELECT id, type, amountMinor, receivedAmountMinor,
       date AS dateEpochDay, accountId, transferAccountId, categoryId, note, excludeFromReport, source
-      FROM transactions ORDER BY id`)
-  ).map(({ receivedAmountMinor, ...row }) => ({
-    ...row,
-    ...(receivedAmountMinor == null ? {} : { receivedAmountMinor }),
-    excludeFromReport: Boolean(row.excludeFromReport),
-  }));
-  const favorite = await db.getFirstAsync<{ id: number }>(
-    'SELECT id FROM accounts WHERE isFavorite = 1 LIMIT 1',
-  );
-  const settings = await db.getFirstAsync<{ value: string }>(
-    "SELECT value FROM app_settings WHERE key = 'backupSettings'",
-  );
-  return {
-    schemaVersion: 1,
-    accounts: bool(
-      await all(
-        'SELECT id, name, currencyCode, openingBalanceMinor, isFavorite FROM accounts ORDER BY id',
-      ),
-      ['isFavorite'],
-    ),
-    categories: bool(
-      await all(
-        'SELECT id, name, type, parentId, iconKey, needsReview FROM categories ORDER BY id',
-      ),
-      ['needsReview'],
-    ),
-    transactions,
-    lineItems: await all(
+      FROM transactions ORDER BY id`),
+    lineItems: all(
       'SELECT id, transactionId, name, amountMinor, quantity FROM line_items ORDER BY id',
     ),
-    tags: await all('SELECT id, name FROM tags ORDER BY id'),
-    transactionTags: await all(
+    tags: all('SELECT id, name FROM tags ORDER BY id'),
+    transactionTags: all(
       'SELECT transactionId, tagId FROM transaction_tags ORDER BY transactionId, tagId',
     ),
-    transferCandidates: bool(
-      await all(
-        'SELECT id, outgoingTxnId, incomingTxnId, confidenceNote, resolved FROM transfer_candidates ORDER BY id',
-      ),
-      ['resolved'],
+    transferCandidates: all(
+      'SELECT id, outgoingTxnId, incomingTxnId, confidenceNote, resolved FROM transfer_candidates ORDER BY id',
     ),
-    settings: settings
-      ? JSON.parse(settings.value)
-      : { favoriteAccountId: favorite?.id ?? null, displayRate: null },
-    moneyLoverImportRows: await all(
+    moneyLoverImportRows: all(
       'SELECT rowKey, transactionId FROM moneylover_import_rows ORDER BY rowKey',
     ),
-    creditCards: await all(
+    creditCards: all(
       'SELECT accountId, parentAccountId, statementDay, dueDay FROM credit_cards ORDER BY accountId',
     ),
-    people: await all('SELECT id, name FROM people ORDER BY id'),
-    splitShares: await all(
+    people: all('SELECT id, name FROM people ORDER BY id'),
+    splitShares: all(
       'SELECT expenseId, personId, amountMinor FROM split_shares ORDER BY expenseId, personId',
     ),
-    reimbursements: await all(
+    reimbursements: all(
       'SELECT transactionId, expenseId, personId FROM reimbursements ORDER BY transactionId',
     ),
-    lendingEntries: await all(`SELECT e.id, e.personId, e.kind, e.transactionId,
+    lendingEntries: all(`SELECT e.id, e.personId, e.kind, e.transactionId,
       CASE WHEN t.id IS NULL THEN e.currencyCode ELSE a.currencyCode END AS currencyCode,
       COALESCE(t.amountMinor, e.amountMinor) AS amountMinor, COALESCE(t.date, e.date) AS dateEpochDay,
       CASE WHEN t.id IS NULL THEN e.note ELSE t.note END AS note
       FROM lending_entries e LEFT JOIN transactions t ON t.id = e.transactionId
       LEFT JOIN accounts a ON a.id = t.accountId ORDER BY e.id`),
+  });
+  return {
+    schemaVersion: 1,
+    ...tables,
+    accounts: bool(tables.accounts, ['isFavorite']),
+    categories: bool(tables.categories, ['needsReview']),
+    transactions: tables.transactions.map(({ receivedAmountMinor, ...row }) => ({
+      ...row,
+      ...(receivedAmountMinor == null ? {} : { receivedAmountMinor }),
+      excludeFromReport: Boolean(row.excludeFromReport),
+    })),
+    transferCandidates: bool(tables.transferCandidates, ['resolved']),
+    settings: settings
+      ? JSON.parse(settings.value)
+      : { favoriteAccountId: favorite?.id ?? null, displayRate: null },
   } as BackupData;
 }
 
@@ -398,7 +391,7 @@ export async function openLedger(db: MainConnection, saveBackup: (json: string) 
       }
     }
   }
-  // A later version can change a trigger or a view here.
+  // Run the schema on every start, so that a changed trigger or view reaches this database.
   await db.execAsync(legsSchema);
 }
 
@@ -443,15 +436,13 @@ export async function restoreLegacyRows(
   };
   await legacy('accounts', data.accounts);
   await legacy('categories', data.categories);
-  await legacy(
-    'transactions',
-    data.transactions.map(({ dateEpochDay, ...row }) => ({ ...row, date: dateEpochDay })),
-  );
+  const withDate = <R extends { dateEpochDay: number }>({ dateEpochDay, ...row }: R) => ({
+    ...row,
+    date: dateEpochDay,
+  });
+  await legacy('transactions', data.transactions.map(withDate));
   await legacy('tags', data.tags);
-  await legacy(
-    'lending_entries',
-    (data.lendingEntries ?? []).map(({ dateEpochDay, ...row }) => ({ ...row, date: dateEpochDay })),
-  );
+  await legacy('lending_entries', (data.lendingEntries ?? []).map(withDate));
   await legacy('reimbursements', data.reimbursements ?? []);
   await legacy('app_settings', [{ key: 'backupSettings', value: JSON.stringify(data.settings) }]);
   // Person legs need their people, so people come before the fill.

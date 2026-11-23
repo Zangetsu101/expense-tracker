@@ -119,7 +119,7 @@ export type NewTransaction = Transaction extends infer T
 export type NewLeg = Omit<LegRow, 'transactionId'>;
 
 // ---------------------------------------------------------------------------------------
-// Lending action ↔ direction and the sign of the Account leg
+// The lending action, and the Direction and the sign of the Account leg
 
 const lendingActions = {
   LEND: { direction: 'LENT', accountSign: -1 },
@@ -138,7 +138,7 @@ function lendingAction(direction: Direction, accountAmount: number): LendingActi
 }
 
 // ---------------------------------------------------------------------------------------
-// Transaction → legs
+// From a Transaction to its legs
 
 /** The signed legs of a Transaction. `currencyOf` gives each Account's Currency. */
 export function toLegs(
@@ -187,7 +187,7 @@ export function toLegs(
 }
 
 // ---------------------------------------------------------------------------------------
-// Rows → Transaction
+// From rows to a Transaction
 
 export class LedgerShapeError extends Error {
   constructor(id: number, problem: string) {

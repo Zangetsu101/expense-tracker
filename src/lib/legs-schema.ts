@@ -105,7 +105,7 @@ CREATE TABLE IF NOT EXISTS split_shares (
   PRIMARY KEY(expenseId, personId)
 );
 
--- The same table as before the migration. A null personId is a shop refund.
+-- A null personId is a shop refund.
 CREATE TABLE IF NOT EXISTS reimbursements (
   transactionId INTEGER PRIMARY KEY REFERENCES transactions(id) ON DELETE CASCADE,
   expenseId INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
