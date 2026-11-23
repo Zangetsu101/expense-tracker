@@ -21,7 +21,7 @@ import { useFocusEffect } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import Constants from 'expo-constants';
 import * as Updates from 'expo-updates';
-import { createUpdateController, watchUpdateLifecycle } from '@/lib/app-updates';
+import { createUpdateController, watchUpdateLifecycle, type UpdateStatus } from '@/lib/app-updates';
 import { theme } from '@/theme';
 import { UpdateDownloadProgress } from '@/components/update-download-progress';
 
@@ -72,6 +72,19 @@ export function useAppUpdates() {
     restart: controller.restart,
   };
 }
+function updateIcon(status: UpdateStatus) {
+  if (status === 'ready')
+    return { ios: 'arrow.clockwise.circle.fill', android: 'restart_alt' } as const;
+  if (status === 'current') return { ios: 'checkmark.circle', android: 'check_circle' } as const;
+  if (status === 'error')
+    return { ios: 'exclamationmark.circle', android: 'error_outline' } as const;
+  return { ios: 'arrow.triangle.2.circlepath', android: 'sync' } as const;
+}
+function updateTint(status: UpdateStatus) {
+  if (status === 'error') return theme.colors.warning;
+  if (status === 'ready') return theme.colors.accent;
+  return theme.colors.muted;
+}
 export function UpdatesRow() {
   const { fontScale } = useWindowDimensions();
   const { status: updateStatus, progress, error, check, restart } = useAppUpdates();
@@ -103,20 +116,20 @@ export function UpdatesRow() {
   useEffect(() => {
     if (checkedThisVisit && error) Alert.alert('Update failed', error);
   }, [checkedThisVisit, error]);
-  const icon =
-    status === 'ready'
-      ? ({ ios: 'arrow.clockwise.circle.fill', android: 'restart_alt' } as const)
-      : status === 'current'
-        ? ({ ios: 'checkmark.circle', android: 'check_circle' } as const)
-        : status === 'error'
-          ? ({ ios: 'exclamationmark.circle', android: 'error_outline' } as const)
-          : ({ ios: 'arrow.triangle.2.circlepath', android: 'sync' } as const);
-  const tint =
-    status === 'error'
-      ? theme.colors.warning
-      : status === 'ready'
-        ? theme.colors.accent
-        : theme.colors.muted;
+  const tint = updateTint(status);
+  let indicator: ReactNode;
+  if (status === 'downloading' && progress !== undefined)
+    indicator = <UpdateDownloadProgress progress={progress} size={24 * fontScale} />;
+  else if (busy) indicator = <ActivityIndicator color={tint} accessibilityLabel={description} />;
+  else
+    indicator = (
+      <SymbolView
+        name={updateIcon(status)}
+        size={24}
+        tintColor={tint}
+        style={{ width: 24 * fontScale, height: 24 * fontScale }}
+      />
+    );
   return (
     <View>
       <Pressable
@@ -161,20 +174,7 @@ export function UpdatesRow() {
         >
           {description}
         </Text>
-        <View>
-          {status === 'downloading' && progress !== undefined ? (
-            <UpdateDownloadProgress progress={progress} size={24 * fontScale} />
-          ) : busy ? (
-            <ActivityIndicator color={tint} accessibilityLabel={description} />
-          ) : (
-            <SymbolView
-              name={icon}
-              size={24}
-              tintColor={tint}
-              style={{ width: 24 * fontScale, height: 24 * fontScale }}
-            />
-          )}
-        </View>
+        <View>{indicator}</View>
       </Pressable>
     </View>
   );

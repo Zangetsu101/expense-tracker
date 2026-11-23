@@ -86,6 +86,12 @@ export function CategoryForm({ items, initialParentId = null, editing, onSave, o
       setPending(false);
     }
   };
+  let title = 'Add root category';
+  if (editing) title = 'Edit category';
+  else if (parent) title = 'Add child category';
+  let borderColor: string = c.line;
+  if (error) borderColor = c.warning;
+  else if (focused) borderColor = c.accent;
   return (
     <AppSheet pending={pending} onDismiss={close}>
       <KeyboardAvoidingView
@@ -109,9 +115,7 @@ export function CategoryForm({ items, initialParentId = null, editing, onSave, o
             gap: t.spacing.md,
           }}
         >
-          <Text style={{ color: c.text, fontSize: 22, fontWeight: '700' }}>
-            {editing ? 'Edit category' : parent ? 'Add child category' : 'Add root category'}
-          </Text>
+          <Text style={{ color: c.text, fontSize: 22, fontWeight: '700' }}>{title}</Text>
           <Text selectable style={{ color: c.text }}>
             Parent: {parent ? path(parent) : 'None · top level'}
           </Text>
@@ -138,7 +142,7 @@ export function CategoryForm({ items, initialParentId = null, editing, onSave, o
             returnKeyType="done"
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
-            style={{ borderColor: error ? c.warning : focused ? c.accent : c.line }}
+            style={{ borderColor }}
           />
           <FormInput
             accessibilityLabel="Emoji"

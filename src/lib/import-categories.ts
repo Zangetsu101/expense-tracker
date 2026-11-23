@@ -49,7 +49,8 @@ export function planImportCategories(rows: readonly CategorySignRow[]): {
   const parents = new Set<string>();
   for (const [name, { expense, income }] of counts) {
     const needsConfirmation = expense > 0 && income > 0;
-    const type = needsConfirmation ? null : expense > 0 ? 'EXPENSE' : 'INCOME';
+    let type: 'EXPENSE' | 'INCOME' | null = null;
+    if (!needsConfirmation) type = expense > 0 ? 'EXPENSE' : 'INCOME';
     const candidate = type ? curatedParent(name, type) : null;
     const parentCount = candidate ? counts.get(candidate) : undefined;
     const parent =

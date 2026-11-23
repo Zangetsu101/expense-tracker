@@ -239,11 +239,9 @@ function ResultRow({
     transfer?.amount ?? formatTransactionAmount(item.type, item.amountMinor, item.currencyCode);
   const other = transfer?.otherAmount;
   const linked = item.reimbursementExpenseId != null;
-  const title = linked
-    ? reimbursementTitle(item.reimbursementPerson)
-    : item.lendingKind
-      ? transactionTitle(item)
-      : item.note?.trim() || transactionTitle(item);
+  let title = transactionTitle(item);
+  if (linked) title = reimbursementTitle(item.reimbursementPerson);
+  else if (!item.lendingKind && item.note?.trim()) title = item.note.trim();
   const detail =
     item.type === 'TRANSFER'
       ? `${item.accountName} → ${item.transferAccountName ?? 'Account'} · ${item.currencyCode}`

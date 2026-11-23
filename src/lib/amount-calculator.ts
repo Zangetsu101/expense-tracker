@@ -59,14 +59,11 @@ export function pressAmountKey(entry: AmountEntry, key: string, precision = 2): 
       return { amount, evaluated: entry.evaluated, error: (cause as Error).message };
     }
   }
-  let next =
-    key === 'C'
-      ? ''
-      : key === '⌫'
-        ? amount.slice(0, -1)
-        : entry.evaluated && /^(?:[0-9.]|00)$/.test(key)
-          ? key
-          : amount + key;
+  let next: string;
+  if (key === 'C') next = '';
+  else if (key === '⌫') next = amount.slice(0, -1);
+  else if (entry.evaluated && /^(?:[0-9.]|00)$/.test(key)) next = key;
+  else next = amount + key;
   if (['+', '−', '×', '÷'].includes(key) && /[+−×÷]$/.test(amount))
     next = amount.slice(0, -1) + key;
   return { amount: next, evaluated: false, error: '' };

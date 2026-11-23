@@ -33,6 +33,11 @@ function Caption({ children }: { children: string }) {
   );
 }
 
+function cellColor(header: boolean | undefined, index: number) {
+  if (header) return c.muted;
+  return index === 2 ? c.accent : c.text;
+}
+
 function SplitRow({
   cells,
   header,
@@ -58,7 +63,7 @@ function SplitRow({
           style={{
             flex: index === 0 ? 1.25 : 1,
             textAlign: index === 0 ? 'left' : 'right',
-            color: header ? c.muted : index === 2 ? c.accent : c.text,
+            color: cellColor(header, index),
             fontSize: header ? 11 : 14,
             fontWeight: total ? '700' : '400',
             fontVariant: ['tabular-nums'],

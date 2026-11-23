@@ -273,7 +273,7 @@ export function EditTransactionScreen({
                   </Text>
                 )}
                 <FormButton
-                  label={saving ? 'Saving…' : committed ? 'Retry receipt' : 'Save changes'}
+                  label={saveButtonLabel(saving, committed)}
                   loading={saving}
                   disabled={deleting || calculating || amountMinor === undefined}
                   onPress={() => {
@@ -303,6 +303,11 @@ export function EditTransactionScreen({
 }
 
 const c = theme.colors;
+
+function saveButtonLabel(saving: boolean, committed: boolean) {
+  if (saving) return 'Saving…';
+  return committed ? 'Retry receipt' : 'Save changes';
+}
 
 /** Header options for a screen that shows no receipt: no Edit and no Cancel. */
 function ReceiptHeader() {

@@ -1,8 +1,9 @@
 import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
 import type { StyleProp, TextInputProps, ViewStyle } from 'react-native';
-import { theme as t } from '@/theme';
+import { pressableOpacity, theme as t } from '@/theme';
 
 const c = t.colors;
+const buttonTextColors = { primary: c.onSelected, danger: c.warning, secondary: c.text };
 type FormButtonProps = {
   label: string;
   onPress: () => void;
@@ -23,7 +24,7 @@ export function FormButton({
   style,
 }: FormButtonProps) {
   const blocked = disabled || loading;
-  const color = variant === 'primary' ? c.onSelected : variant === 'danger' ? c.warning : c.text;
+  const color = buttonTextColors[variant];
   return (
     <Pressable
       accessibilityRole="button"
@@ -43,7 +44,10 @@ export function FormButton({
           borderRadius: t.radius.control,
           borderCurve: 'continuous',
           backgroundColor: variant === 'primary' ? c.selected : 'transparent',
-          opacity: blocked ? 0.45 : pressed ? 0.65 : 1,
+          opacity: pressableOpacity(
+            { disabled: blocked, pressed },
+            { disabled: 0.45, pressed: 0.65 },
+          ),
         },
         style,
       ]}
@@ -126,7 +130,7 @@ export function JoinedChoice<T extends string>({
             borderRightWidth: index < options.length - 1 ? 1 : 0,
             borderColor: c.line,
             backgroundColor: value === option.value ? c.selected : c.surface,
-            opacity: disabled ? 0.45 : pressed ? 0.65 : 1,
+            opacity: pressableOpacity({ disabled, pressed }, { disabled: 0.45, pressed: 0.65 }),
           })}
         >
           <Text
@@ -164,7 +168,7 @@ export function Disclosure({
       disabled={disabled}
       style={({ pressed }) => ({
         minHeight: t.controlHeight,
-        opacity: disabled ? 0.45 : pressed ? 0.65 : 1,
+        opacity: pressableOpacity({ disabled, pressed }, { disabled: 0.45, pressed: 0.65 }),
         backgroundColor: c.surface,
         borderRadius: 12,
         padding: 12,

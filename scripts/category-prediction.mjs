@@ -7,8 +7,11 @@ const modes = ['EXPENSE', 'INCOME'];
 const increment = (counts, key) => (counts[key] = (counts[key] ?? 0) + 1);
 const date = (day) => new Date(day * 86400000).toISOString().slice(0, 10);
 const asciiLower = (value) => value.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
-const compareText = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
-const categoryTie = (a, b) => compareText(asciiLower(a.name), asciiLower(b.name)) || a.id - b.id;
+const compare = (a, b) => {
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
+};
+const categoryTie = (a, b) => compare(asciiLower(a.name), asciiLower(b.name)) || a.id - b.id;
 
 export function adaptBackup(json) {
   const backup = decodeBackup(json);
@@ -144,25 +147,23 @@ export function rank(history, query, categories, method, weights = defaultWeight
   const recent = (a, b) => {
     const x = stats.get(a.id),
       y = stats.get(b.id);
-    return (
-      (y.day === x.day ? 0 : y.day > x.day ? 1 : -1) ||
-      (y.id === x.id ? 0 : y.id > x.id ? 1 : -1) ||
-      categoryTie(a, b)
-    );
+    return compare(y.day, x.day) || compare(y.id, x.id) || categoryTie(a, b);
   };
-  return candidates
-    .sort((a, b) => {
-      const x = stats.get(a.id),
-        y = stats.get(b.id);
-      return (
-        (method === 'amount'
-          ? y.score - x.score
-          : method === 'frequency'
-            ? y.count - x.count
-            : 0) || recent(a, b)
-      );
-    })
-    .map((category) => category.id);
+  const byMethod = (a, b) => {
+    const x = stats.get(a.id),
+      y = stats.get(b.id);
+    if (method === 'amount') return y.score - x.score;
+    if (method === 'frequency') return y.count - x.count;
+    return 0;
+  };
+  return candidates.sort((a, b) => byMethod(a, b) || recent(a, b)).map((category) => category.id);
+}
+
+function historyBucket(depth) {
+  if (depth === 0) return '0';
+  if (depth < 10) return '1-9';
+  if (depth < 100) return '10-99';
+  return '100+';
 }
 
 export function replay(rows, categories, weights = defaultWeights, baselineRows = rows) {
@@ -184,7 +185,7 @@ export function replay(rows, categories, weights = defaultWeights, baselineRows 
         `type:${query.type}`,
         `currency:${query.currency}`,
         `type-currency:${query.type}:${query.currency}`,
-        `history:${depth === 0 ? '0' : depth < 10 ? '1-9' : depth < 100 ? '10-99' : '100+'}`,
+        `history:${historyBucket(depth)}`,
       ];
       for (const method of ['recent', 'frequency', 'amount']) {
         const ranked = rank(

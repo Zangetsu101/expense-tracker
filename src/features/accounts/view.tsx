@@ -192,6 +192,9 @@ export function AccountGroups({
       {group.map((account) => {
         const balance = overview.balances.get(account.id) ?? 0;
         const blocked = disabled || !!account.isFavorite;
+        let balanceColor: string = colors.muted;
+        if (account.card && balance > 0) balanceColor = colors.accent;
+        else if (balance < 0) balanceColor = colors.negative;
         return (
           <AccountRow key={account.id}>
             <Pressable
@@ -208,12 +211,7 @@ export function AccountGroups({
               <Text
                 selectable
                 style={{
-                  color:
-                    account.card && balance > 0
-                      ? colors.accent
-                      : balance < 0
-                        ? colors.negative
-                        : colors.muted,
+                  color: balanceColor,
                   fontVariant: ['tabular-nums'],
                 }}
               >
@@ -306,6 +304,8 @@ export function AddAccountSheet({
 }) {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
+  let openingLabel = 'Opening balance';
+  if (form.isCreditCard) openingLabel = form.id ? 'Opening amount owed' : 'Owed now';
   return (
     <AppSheet
       pending={pending}
@@ -364,12 +364,8 @@ export function AddAccountSheet({
           editable={!pending && !form.id}
         />
         <FormInput
-          accessibilityLabel={
-            form.isCreditCard ? (form.id ? 'Opening amount owed' : 'Owed now') : 'Opening balance'
-          }
-          placeholder={
-            form.isCreditCard ? (form.id ? 'Opening amount owed' : 'Owed now') : 'Opening balance'
-          }
+          accessibilityLabel={openingLabel}
+          placeholder={openingLabel}
           placeholderTextColor={colors.muted}
           value={form.openingBalance}
           onChangeText={(openingBalance) => onChange({ ...form, openingBalance })}

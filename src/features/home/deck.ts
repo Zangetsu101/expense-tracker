@@ -47,6 +47,11 @@ export type PageDot = { index: number; active: boolean; size: 'full' | 'medium' 
 
 const maxDots = 7;
 
+function dotSize(fromEdge: number): PageDot['size'] {
+  if (fromEdge === 0) return 'small';
+  return fromEdge === 1 ? 'medium' : 'full';
+}
+
 /** At most seven dots. Dots at an edge get smaller when more cards are past that edge. */
 export function pageDots(count: number, activeIndex: number): PageDot[] {
   if (count < 2) return [];
@@ -58,8 +63,7 @@ export function pageDots(count: number, activeIndex: number): PageDot[] {
       from > 0 ? index - from : Infinity,
       to < count ? to - 1 - index : Infinity,
     );
-    const size = fromEdge === 0 ? 'small' : fromEdge === 1 ? 'medium' : 'full';
-    dots.push({ index, active: index === activeIndex, size });
+    dots.push({ index, active: index === activeIndex, size: dotSize(fromEdge) });
   }
   return dots;
 }

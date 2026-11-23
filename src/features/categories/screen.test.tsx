@@ -1,4 +1,5 @@
 import { act, screen, userEvent, waitFor } from '@testing-library/react-native';
+import { AccessibilityInfo } from 'react-native';
 import {
   applyCategoryEmojiSuggestions,
   listManagedCategories,
@@ -38,7 +39,12 @@ const category = (id: number, name: string, type: ManagedCategory['type']): Mana
 const lunch = category(1, 'Lunch', 'EXPENSE');
 const salary = category(2, 'Salary', 'INCOME');
 
-beforeEach(() => jest.mocked(listManagedCategories).mockReset());
+beforeEach(() => {
+  jest.mocked(listManagedCategories).mockReset();
+  jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(true);
+});
+
+afterEach(() => jest.restoreAllMocks());
 
 async function renderScreen() {
   const view = await renderWithQueries(<CategoriesScreen />);

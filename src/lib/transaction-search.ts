@@ -50,6 +50,12 @@ export function parseAmountMinor(text: string): number | null {
   return Number.isSafeInteger(minor) ? minor : null;
 }
 
+function queryCurrency(compact: string): 'BDT' | 'USD' | null {
+  if (/^(?:৳|bdt)/.test(compact)) return 'BDT';
+  if (/^(?:\$|usd)/.test(compact)) return 'USD';
+  return null;
+}
+
 function dateBounds(filters: SearchFilters, now: Date): [number, number] | null {
   const preset = filters.datePreset ?? 'ANY';
   const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) / 86400000;
@@ -94,11 +100,7 @@ export function searchStatement(filters: SearchFilters, offset = 0, now = new Da
       "dest.name LIKE ? ESCAPE '\\' COLLATE NOCASE",
     ];
     const compact = query.toLowerCase().replace(/[\s,]/g, '');
-    const currency = /^(?:৳|bdt)/.test(compact)
-      ? 'BDT'
-      : /^(?:\$|usd)/.test(compact)
-        ? 'USD'
-        : null;
+    const currency = queryCurrency(compact);
     const amountText = compact.replace(/^(?:৳|bdt|\$|usd)/, '');
     const sign = /^[+\-−]/.exec(amountText)?.[0];
     const number = sign ? amountText.slice(1) : amountText;

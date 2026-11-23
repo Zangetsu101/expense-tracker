@@ -11,7 +11,7 @@ import type { ManagedAccount } from '@/lib/accounts';
 import { dateFromEpochDay, epochDay } from '@/lib/database';
 import { hasChildren, type CategoryShare, type CurrencyTotals } from '@/lib/report-presentation';
 import { formatBalance } from '@/lib/transaction-format';
-import { theme } from '@/theme';
+import { pressableOpacity, theme } from '@/theme';
 import { dayParts, monthNames } from '@/lib/periods';
 import {
   matchingShortcut,
@@ -119,7 +119,7 @@ function ArrowButton({
         height: theme.controlHeight,
         alignItems: 'center',
         justifyContent: 'center',
-        opacity: disabled ? 0.3 : pressed ? 0.65 : 1,
+        opacity: pressableOpacity({ disabled, pressed }, { disabled: 0.3, pressed: 0.65 }),
       })}
     >
       <Text style={{ color: c.accent, fontSize: 26 }}>{text}</Text>

@@ -3,10 +3,9 @@ import { test } from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 import { registerHooks, stripTypeScriptTypes } from 'node:module';
 import { readFileSync } from 'node:fs';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-import { resolve as resolvePath, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { resolveSource } from '../test/node-source-resolve.ts';
 
-const root = dirname(fileURLToPath(import.meta.url));
 let csv = '';
 let sql;
 const adapter = {
@@ -37,19 +36,11 @@ const adapter = {
 };
 
 registerHooks({
-  resolve(specifier, context, nextResolve) {
-    if (specifier === 'expo-sqlite') return { url: 'test:sqlite', shortCircuit: true };
-    if (specifier === 'expo-document-picker') return { url: 'test:picker', shortCircuit: true };
-    if (specifier === 'expo-file-system') return { url: 'test:file', shortCircuit: true };
-    const path = specifier.startsWith('@/lib/')
-      ? resolvePath(root, specifier.slice(6))
-      : specifier.startsWith('.') && context.parentURL?.endsWith('.ts')
-        ? resolvePath(dirname(fileURLToPath(context.parentURL)), specifier)
-        : null;
-    if (path)
-      return nextResolve(pathToFileURL(path.endsWith('.ts') ? path : `${path}.ts`).href, context);
-    return nextResolve(specifier, context);
-  },
+  resolve: resolveSource({
+    'expo-sqlite': 'test:sqlite',
+    'expo-document-picker': 'test:picker',
+    'expo-file-system': 'test:file',
+  }),
   load(url, context, nextLoad) {
     if (url === 'test:sqlite')
       return {

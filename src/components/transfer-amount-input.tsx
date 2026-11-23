@@ -31,6 +31,17 @@ type AmountSlots = {
   applyReceivedPreset: (amount: number) => void;
 };
 
+/** Return the saved rate as the amount of the other currency for one unit of `base`. */
+function rateForBase(saved: { base: string; rate?: number } | null | undefined, base: string) {
+  if (saved?.rate === undefined) return undefined;
+  return saved.base === base ? saved.rate : 1 / saved.rate;
+}
+
+function savedEntryAmount(field: TransferField, value: number | undefined) {
+  if (value === undefined) return '';
+  return field === 'rate' ? formatTransferRate(value) : formatLineItemAmount(value);
+}
+
 export function TransferAmountInput({
   source,
   destination,
@@ -109,12 +120,7 @@ export function TransferAmountInput({
       next.base = direction.base;
       next.quote = direction.quote;
       if (destinationChanged || pairChanged || (context.rate === undefined && first !== undefined))
-        next.rate =
-          first?.rate === undefined
-            ? undefined
-            : direction.base === first.base
-              ? first.rate
-              : 1 / first.rate;
+        next.rate = rateForBase(first, direction.base);
       if (next.typed.receive) {
         if (context.source !== undefined && context.source !== source?.id) {
           next.pay = undefined;
@@ -206,12 +212,7 @@ export function TransferAmountInput({
     const value = state[field];
     // The first digit replaces the saved value, as after the equals key.
     latestEntry.current = {
-      amount:
-        value === undefined
-          ? ''
-          : field === 'rate'
-            ? formatTransferRate(value)
-            : formatLineItemAmount(value),
+      amount: savedEntryAmount(field, value),
       evaluated: true,
       error: '',
     };
@@ -219,18 +220,15 @@ export function TransferAmountInput({
     setFocus(field);
     setChanged(false);
   }
-  const historicalRate =
-    context.rate?.rate === undefined
-      ? undefined
-      : state.base === context.rate.base
-        ? context.rate.rate
-        : 1 / context.rate.rate;
+  const historicalRate = rateForBase(context.rate, state.base);
   const showHistoricalDate =
     !editingTransfer &&
     focus !== 'rate' &&
     historicalRate !== undefined &&
     state.rate !== undefined &&
     Math.abs(state.rate - historicalRate) < 0.00005;
+  let rateText = state.rate ? formatTransferRate(state.rate) : '—';
+  if (focus === 'rate') rateText = buffer || '—';
   const input = (
     <View style={{ gap: 10 }}>
       {cross && (
@@ -269,9 +267,7 @@ export function TransferAmountInput({
               borderColor: focus === 'rate' ? c.accent : c.line,
             }}
           >
-            <Text style={{ color: c.text, textAlign: 'center' }}>
-              {focus === 'rate' ? buffer || '—' : state.rate ? formatTransferRate(state.rate) : '—'}
-            </Text>
+            <Text style={{ color: c.text, textAlign: 'center' }}>{rateText}</Text>
           </Pressable>
           <Text style={{ color: c.muted }}>{state.quote}</Text>
           {showHistoricalDate &&
@@ -353,13 +349,14 @@ function TransferAmountField({
   disabled: boolean;
   onPress: () => void;
 }) {
+  const amountText = value === undefined ? '0.00' : formatLineItemAmount(value);
   return (
     <View style={{ gap: 6 }}>
       <Text style={{ color: c.muted, fontSize: 12 }}>{label}</Text>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel}
-        accessibilityValue={{ text: value === undefined ? '0.00' : formatLineItemAmount(value) }}
+        accessibilityValue={{ text: amountText }}
         disabled={disabled}
         onPress={onPress}
         style={{
@@ -373,7 +370,7 @@ function TransferAmountField({
           style={{ color: c.text, fontSize: 48, fontWeight: '300', fontVariant: ['tabular-nums'] }}
         >
           {currencySymbol(currency)}
-          {focused ? buffer || '0.00' : value === undefined ? '0.00' : formatLineItemAmount(value)}
+          {focused ? buffer || '0.00' : amountText}
         </Text>
       </Pressable>
     </View>

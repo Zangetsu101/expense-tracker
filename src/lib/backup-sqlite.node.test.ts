@@ -1,12 +1,11 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { registerHooks, stripTypeScriptTypes } from 'node:module';
-import { dirname, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
+import { resolveSource } from '../test/node-source-resolve.ts';
 
-const root = dirname(fileURLToPath(import.meta.url));
 const sql = new DatabaseSync(':memory:');
 let importCsv = '';
 const adapter = {
@@ -36,24 +35,13 @@ const adapter = {
   },
 };
 registerHooks({
-  resolve(specifier, context, nextResolve) {
-    const mocks = {
-      'expo-sqlite': 'sqlite',
-      'expo-document-picker': 'picker',
-      'expo-file-system/legacy': 'legacy',
-      'expo-file-system': 'file',
-      'expo-sharing': 'sharing',
-    };
-    if (mocks[specifier]) return { url: `test:${mocks[specifier]}`, shortCircuit: true };
-    const path = specifier.startsWith('@/lib/')
-      ? resolve(root, specifier.slice(6))
-      : specifier.startsWith('.') && context.parentURL?.endsWith('.ts')
-        ? resolve(dirname(fileURLToPath(context.parentURL)), specifier)
-        : null;
-    if (path)
-      return nextResolve(pathToFileURL(path.endsWith('.ts') ? path : `${path}.ts`).href, context);
-    return nextResolve(specifier, context);
-  },
+  resolve: resolveSource({
+    'expo-sqlite': 'test:sqlite',
+    'expo-document-picker': 'test:picker',
+    'expo-file-system/legacy': 'test:legacy',
+    'expo-file-system': 'test:file',
+    'expo-sharing': 'test:sharing',
+  }),
   load(url, context, nextLoad) {
     if (url === 'test:sqlite')
       return {

@@ -79,27 +79,7 @@ const history = [
   spend(day(2026, 3, 3), 100, coffee),
 ];
 
-beforeAll(() => {
-  jest.useFakeTimers({
-    now: new Date(2026, 2, 15),
-    doNotFake: [
-      'setTimeout',
-      'clearTimeout',
-      'setInterval',
-      'clearInterval',
-      'setImmediate',
-      'clearImmediate',
-      'nextTick',
-      'queueMicrotask',
-      'requestAnimationFrame',
-      'cancelAnimationFrame',
-      'requestIdleCallback',
-      'cancelIdleCallback',
-      'performance',
-      'hrtime',
-    ],
-  });
-});
+beforeAll(() => jest.useFakeTimers({ now: new Date(2026, 2, 15) }));
 afterAll(() => jest.useRealTimers());
 
 beforeEach(() => {

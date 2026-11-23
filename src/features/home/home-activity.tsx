@@ -1,4 +1,4 @@
-import { useRef, type ReactElement, type ReactNode } from 'react';
+import { useDeferredValue, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { ScrollView, Text, View, type SectionList } from 'react-native';
 import { router } from 'expo-router';
 import {
@@ -21,7 +21,6 @@ import {
 } from './list.ts';
 import { EmptyList, ListEnd, ListMessage, Snackbar } from './list-view.tsx';
 import { useSavedRow, useSavedRowState, useScopedSearch } from './list-hooks.ts';
-import { HoldReveal, listKey, useDeferredListInputs, type ListInputs } from './deferred-list.ts';
 import { periodKey, type PeriodSetting } from './period.ts';
 import { homeListQuery, homeSearchQuery } from './queries.ts';
 import { ActivityError, ActivitySkeleton, RefreshNotice } from './view.tsx';
@@ -29,6 +28,26 @@ import { ActivitySearch } from './activity-search.tsx';
 import { TransactionList } from './transaction-list.tsx';
 
 const gutter = 20;
+
+type ListInputs = {
+  scope: ListScope;
+  setting: PeriodSetting;
+  now: Date;
+  search: { text: string; allDates: boolean };
+};
+
+function listKey({ scope, setting, now }: Omit<ListInputs, 'search'>) {
+  return JSON.stringify(homeListQuery(scope, setting, now).queryKey);
+}
+
+/** Defers the inputs of the Home list together so the old list keeps its filter while a new one loads. */
+function useDeferredListInputs(inputs: ListInputs) {
+  const key = JSON.stringify([listKey(inputs), inputs.search.text, inputs.search.allDates]);
+  const [requested, setRequested] = useState({ key, value: inputs });
+  if (requested.key !== key) setRequested({ key, value: inputs });
+  const deferred = useDeferredValue(requested);
+  return { deferred: deferred.value, stale: deferred.key !== requested.key };
+}
 
 type HomeActivityProps = {
   header: ReactElement;
@@ -44,7 +63,7 @@ type HomeActivityProps = {
 export function HomeActivity(props: HomeActivityProps) {
   const { reset } = useQueryErrorResetBoundary();
   const searchField = useScopedSearch(`${props.scope.accountId}:${periodKey(props.setting)}`);
-  const { deferred, stale, muted, gate } = useDeferredListInputs({
+  const { deferred, stale } = useDeferredListInputs({
     scope: props.scope,
     setting: props.setting,
     now: props.now,
@@ -90,12 +109,10 @@ export function HomeActivity(props: HomeActivityProps) {
           onAdd={props.onAdd}
           inputs={deferred}
           stale={stale}
-          muted={muted}
           searchField={searchField}
           savedState={savedState}
           searchHeader={header}
         />
-        <HoldReveal gate={gate} />
       </QueryBoundary>
       {savedState.snack && <Snackbar text={savedState.snack.text} onShow={savedState.show} />}
     </>
@@ -120,14 +137,12 @@ function ActivityResults({
   onAdd,
   inputs,
   stale,
-  muted,
   searchField,
   savedState,
   searchHeader,
 }: Pick<HomeActivityProps, 'header' | 'scopeName' | 'onAdd'> & {
   inputs: ListInputs;
   stale: boolean;
-  muted: boolean;
   searchField: ReturnType<typeof useScopedSearch>;
   savedState: ReturnType<typeof useSavedRowState>;
   searchHeader: ReactElement;
@@ -151,11 +166,11 @@ function ActivityResults({
   const allDatesRows = searching && allDates ? allDatesSearch.data : undefined;
   const rangeRows = periods[0]?.rows.filter((row) => matchesSearch(row, query)) ?? [];
   const hasAny = firstDay !== null;
-  const sections = !hasAny
-    ? []
-    : !searching
-      ? listSections(periods, shownScope)
-      : searchSections(allDatesRows ?? rangeRows);
+  let sections: ListSection[] = [];
+  if (hasAny)
+    sections = searching
+      ? searchSections(allDatesRows ?? rangeRows)
+      : listSections(periods, shownScope);
   const saved = useSavedRow({
     state: savedState,
     accountId,
@@ -223,7 +238,6 @@ function ActivityResults({
       now={now}
       query={searching ? query : ''}
       stale={stale}
-      muted={muted}
       slidingId={saved.slidingId}
       phase={saved.phase}
       onOpen={(id) => router.push({ pathname: '/transaction/[id]', params: { id: String(id) } })}

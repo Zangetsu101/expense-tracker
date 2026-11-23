@@ -12,6 +12,8 @@ import { DayHeader, ListMessage, PeriodDivider, TransactionRow } from './list-vi
 import type { SlidePhase } from './list-hooks.ts';
 
 const gutter = 20;
+const dimDelayMs = 50;
+const dimDurationMs = 1000;
 /** A row counts as in view when half of it shows, so that a slide does not start at its edge. */
 const viewabilityConfig = { itemVisiblePercentThreshold: 50 };
 const rowMove = LinearTransition.duration(200).reduceMotion(ReduceMotion.System);
@@ -32,22 +34,28 @@ function MovingCell({
 
 function StaleContent({
   stale,
-  muted,
+  reduceMotion,
   children,
 }: {
   stale: boolean;
-  muted: boolean;
+  reduceMotion: boolean;
   children: ReactNode;
 }) {
   return (
-    <View
-      style={{ paddingHorizontal: gutter, opacity: muted ? 0.4 : 1 }}
+    <Animated.View
+      style={{
+        paddingHorizontal: gutter,
+        opacity: stale ? 0.4 : 1,
+        transitionProperty: 'opacity',
+        transitionDelay: stale ? dimDelayMs : 0,
+        transitionDuration: stale && !reduceMotion ? dimDurationMs : 0,
+      }}
       pointerEvents={stale ? 'none' : 'auto'}
       accessibilityElementsHidden={stale}
       importantForAccessibility={stale ? 'no-hide-descendants' : 'auto'}
     >
       {children}
-    </View>
+    </Animated.View>
   );
 }
 
@@ -63,8 +71,6 @@ type TransactionListProps = Pick<
   query: string;
   /** The list on screen is not the requested list. */
   stale: boolean;
-  /** The list on screen shows as dim while the requested list loads. */
-  muted: boolean;
   slidingId: number | null;
   phase: (id: number) => SlidePhase | undefined;
   onOpen: (id: number) => void;
@@ -78,13 +84,13 @@ export function TransactionList({
   now,
   query,
   stale,
-  muted,
   slidingId,
   phase,
   onOpen,
   ...props
 }: TransactionListProps) {
   const reduceMotion = useReducedMotion();
+  const headerEntering = reduceMotion ? headerFadeIn : headerSlideIn;
   return (
     <SectionList
       {...props}
@@ -99,31 +105,30 @@ export function TransactionList({
       viewabilityConfig={viewabilityConfig}
       ListHeaderComponent={<View style={{ gap: 8 }}>{header}</View>}
       ListFooterComponent={
-        <StaleContent stale={stale} muted={muted}>
+        <StaleContent stale={stale} reduceMotion={reduceMotion}>
           {footer}
         </StaleContent>
       }
       renderSectionHeader={({ section }) =>
         section.date === null ? null : (
-          <StaleContent stale={stale} muted={muted}>
+          <StaleContent stale={stale} reduceMotion={reduceMotion}>
             <DayHeader
               date={section.date}
               totals={section.totals}
               now={now}
               entering={
                 slidingId !== null && rowIndex(section, slidingId) !== -1
-                  ? reduceMotion
-                    ? headerFadeIn
-                    : headerSlideIn
+                  ? headerEntering
                   : undefined
               }
             />
           </StaleContent>
         )
       }
-      renderItem={({ item }) => (
-        <StaleContent stale={stale} muted={muted}>
-          {item.kind === 'row' ? (
+      renderItem={({ item }) => {
+        let content: ReactNode;
+        if (item.kind === 'row')
+          content = (
             <TransactionRow
               row={item.row}
               scope={scope}
@@ -132,13 +137,16 @@ export function TransactionList({
               slide={phase(item.row.id)}
               onPress={() => onOpen(item.row.id)}
             />
-          ) : item.kind === 'divider' ? (
-            <PeriodDivider label={item.label} totals={item.totals} />
-          ) : (
-            <ListMessage text={item.text} />
-          )}
-        </StaleContent>
-      )}
+          );
+        else if (item.kind === 'divider')
+          content = <PeriodDivider label={item.label} totals={item.totals} />;
+        else content = <ListMessage text={item.text} />;
+        return (
+          <StaleContent stale={stale} reduceMotion={reduceMotion}>
+            {content}
+          </StaleContent>
+        );
+      }}
     />
   );
 }

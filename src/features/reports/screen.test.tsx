@@ -123,28 +123,7 @@ const year = 2026;
 const march = { start: day(2026, 3, 1), end: day(2026, 4, 1) };
 const february = { start: day(2026, 2, 1), end: day(2026, 3, 1) };
 
-beforeAll(() => {
-  // The screen starts in the month of the clock. Fix the clock and keep the real timers.
-  jest.useFakeTimers({
-    now: new Date(year, 2, 15),
-    doNotFake: [
-      'setTimeout',
-      'clearTimeout',
-      'setInterval',
-      'clearInterval',
-      'setImmediate',
-      'clearImmediate',
-      'nextTick',
-      'queueMicrotask',
-      'requestAnimationFrame',
-      'cancelAnimationFrame',
-      'requestIdleCallback',
-      'cancelIdleCallback',
-      'performance',
-      'hrtime',
-    ],
-  });
-});
+beforeAll(() => jest.useFakeTimers({ now: new Date(year, 2, 15) }));
 afterAll(() => jest.useRealTimers());
 
 beforeEach(() => {

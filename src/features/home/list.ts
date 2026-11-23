@@ -89,6 +89,11 @@ function transferFace(
   return { ...amounts, title: `To ${row.transferAccountName}`, tone: 'normal' };
 }
 
+function rowTone(row: ListRow, scope: ListScope): RowView['tone'] {
+  if (scope.face === 'pace' && row.excludeFromReport) return 'muted';
+  return row.type === 'INCOME' ? 'income' : 'normal';
+}
+
 export function categoryPath(row: ListRow) {
   return (
     (row.categoryPath ?? [row.parentCategoryName, row.categoryName].filter(Boolean).join(' › ')) ||
@@ -127,12 +132,7 @@ export function rowView(row: ListRow, scope: ListScope): RowView {
       : {}),
     detail: detail || null,
     amount: formatMoney(row.type, row.amountMinor, row.currencyCode),
-    tone:
-      scope.face === 'pace' && row.excludeFromReport
-        ? 'muted'
-        : row.type === 'INCOME'
-          ? 'income'
-          : 'normal',
+    tone: rowTone(row, scope),
     icon: {
       kind: 'category',
       text: row.categoryEmoji || [...(row.categoryName ?? title)][0].toLocaleUpperCase(),
@@ -179,14 +179,13 @@ function balanceTotals(rows: readonly ListRow[], accountId: number): TotalPart[]
     const out =
       row.type === 'EXPENSE' || (row.type === 'TRANSFER' && row.transferAccountId !== accountId);
     const intoTransfer = row.type === 'TRANSFER' && !out;
+    let minor = row.amountMinor;
+    if (out) minor = -row.amountMinor;
+    else if (intoTransfer) minor = row.receivedAmountMinor ?? row.amountMinor;
     add(
       net,
       intoTransfer ? (row.destinationCurrencyCode ?? row.currencyCode) : row.currencyCode,
-      out
-        ? -row.amountMinor
-        : intoTransfer
-          ? (row.receivedAmountMinor ?? row.amountMinor)
-          : row.amountMinor,
+      minor,
     );
   }
   return byCurrency(net).map(([currency, minor]) => ({
@@ -290,8 +289,9 @@ export function markMatches(text: string, query: string): { text: string; match:
 }
 
 export function searchPlaceholder(setting: PeriodSetting, label: string): string {
-  const range =
-    setting.range === 'week' ? 'this week' : setting.range === '90d' ? 'the last 90 days' : label;
+  let range = label;
+  if (setting.range === 'week') range = 'this week';
+  else if (setting.range === '90d') range = 'the last 90 days';
   return `Search transactions from ${range}`;
 }
 

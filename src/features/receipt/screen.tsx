@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
+import { useCallback, useEffect, useRef, useState, useTransition, type ReactNode } from 'react';
 import { useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight, useNavigation, usePreventRemove } from 'expo-router/react-navigation';
@@ -15,7 +15,7 @@ import { TransactionReceipt, TransferReceipt } from '@/components/transaction-re
 import { ExpenseReimbursementPanels, ReimbursedExpense } from '@/components/reimbursement-receipt';
 import { TransferFormSection, type TransferDraft } from './transfer-edit';
 import { dateFromEpochDay, epochDay } from '@/lib/database';
-import { deleteLendingEntry } from '@/lib/lending';
+import { deleteLendingEntry, type WriteOffEntry } from '@/lib/lending';
 import { WriteOffForm } from '@/features/lending/write-off-form';
 import { writeWithOverpaidCreditCheck } from '@/features/lending/view';
 import { FormButton } from '@/components/form-controls';
@@ -208,14 +208,57 @@ function ReceiptSession({ id, writeOff }: { id: number; writeOff: boolean }) {
     exitEditing();
   };
   if (!editing && !data) return <NotFound />;
-  const title = !snapshot
-    ? 'Receipt'
-    : snapshot.type === 'TRANSFER'
-      ? 'Edit transfer'
-      : snapshot.type === 'WRITE_OFF'
-        ? 'Edit write-off'
-        : 'Edit transaction';
   const canEdit = !isFetching && !error;
+  let title = 'Receipt';
+  let body: ReactNode = null;
+  if (snapshot?.type === 'TRANSFER') {
+    title = 'Edit transfer';
+    body = (
+      <EditTransferScreen
+        transfer={snapshot}
+        deleting={deleting || closing}
+        onDirtyChange={setDirty}
+        onSavingChange={onSavingChange}
+        onCancel={() => confirmDiscard(exitEditing)}
+        onDelete={confirmDelete}
+        onSaved={onSaved}
+      />
+    );
+  } else if (snapshot?.type === 'WRITE_OFF') {
+    title = 'Edit write-off';
+    body = (
+      <WriteOffEditor
+        id={id}
+        writeOff={snapshot}
+        disabled={deleting || closing}
+        onDirtyChange={setDirty}
+        onSavingChange={onSavingChange}
+        onDelete={confirmDelete}
+        onSaved={onSaved}
+      />
+    );
+  } else if (snapshot) {
+    title = 'Edit transaction';
+    body = (
+      <EditTransactionScreen
+        transaction={snapshot}
+        deleting={deleting || closing}
+        onDirtyChange={setDirty}
+        onSavingChange={onSavingChange}
+        onCancel={() => confirmDiscard(exitEditing)}
+        onDelete={confirmDelete}
+        onSaved={onSaved}
+      />
+    );
+  } else if (data) {
+    body = (
+      <ReceiptView
+        receipt={data}
+        showRefreshAlert={!!error && !isFetching}
+        onRetry={() => void refetch()}
+      />
+    );
+  }
   return (
     <KeyboardAvoidingView
       style={{ flex: 1 }}
@@ -259,61 +302,71 @@ function ReceiptSession({ id, writeOff }: { id: number; writeOff: boolean }) {
             : undefined,
         }}
       />
-      {snapshot ? (
-        snapshot.type === 'TRANSFER' ? (
-          <EditTransferScreen
-            transfer={snapshot}
-            deleting={deleting || closing}
-            onDirtyChange={setDirty}
-            onSavingChange={onSavingChange}
-            onCancel={() => confirmDiscard(exitEditing)}
-            onDelete={confirmDelete}
-            onSaved={onSaved}
-          />
-        ) : snapshot.type === 'WRITE_OFF' ? (
-          <ScrollView
-            style={{ flex: 1, backgroundColor: theme.colors.background }}
-            contentContainerStyle={{ padding: 20 }}
-            keyboardShouldPersistTaps="handled"
-          >
-            <WriteOffForm
-              id={id}
-              personId={snapshot.personId}
-              kind={snapshot.kind}
-              currency={snapshot.currencyCode}
-              initialAmount={snapshot.amountMinor}
-              initialDate={snapshot.date}
-              initialNote={snapshot.note ?? ''}
-              onDirtyChange={setDirty}
-              onSavingChange={onSavingChange}
-              disabled={deleting || closing}
-              onSaved={onSaved}
-            >
-              <FormButton label="Delete write-off" variant="danger" onPress={confirmDelete} />
-            </WriteOffForm>
-          </ScrollView>
-        ) : (
-          <EditTransactionScreen
-            transaction={snapshot}
-            deleting={deleting || closing}
-            onDirtyChange={setDirty}
-            onSavingChange={onSavingChange}
-            onCancel={() => confirmDiscard(exitEditing)}
-            onDelete={confirmDelete}
-            onSaved={onSaved}
-          />
-        )
-      ) : data ? (
-        <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
-          {!!error && !isFetching && <ReceiptRefreshAlert retry={() => void refetch()} />}
-          {data.type === 'TRANSFER' ? (
-            <TransferReceipt key={data.id} transfer={data} />
-          ) : (
-            <PostedTransactionReceipt key={data.id} transaction={data} />
-          )}
-        </View>
-      ) : null}
+      {body}
     </KeyboardAvoidingView>
+  );
+}
+
+function WriteOffEditor({
+  id,
+  writeOff,
+  disabled,
+  onDirtyChange,
+  onSavingChange,
+  onDelete,
+  onSaved,
+}: {
+  id: number;
+  writeOff: WriteOffEntry;
+  disabled: boolean;
+  onDirtyChange: (dirty: boolean) => void;
+  onSavingChange: (saving: boolean) => void;
+  onDelete: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  return (
+    <ScrollView
+      style={{ flex: 1, backgroundColor: theme.colors.background }}
+      contentContainerStyle={{ padding: 20 }}
+      keyboardShouldPersistTaps="handled"
+    >
+      <WriteOffForm
+        id={id}
+        personId={writeOff.personId}
+        kind={writeOff.kind}
+        currency={writeOff.currencyCode}
+        initialAmount={writeOff.amountMinor}
+        initialDate={writeOff.date}
+        initialNote={writeOff.note ?? ''}
+        onDirtyChange={onDirtyChange}
+        onSavingChange={onSavingChange}
+        disabled={disabled}
+        onSaved={onSaved}
+      >
+        <FormButton label="Delete write-off" variant="danger" onPress={onDelete} />
+      </WriteOffForm>
+    </ScrollView>
+  );
+}
+
+function ReceiptView({
+  receipt,
+  showRefreshAlert,
+  onRetry,
+}: {
+  receipt: Receipt;
+  showRefreshAlert: boolean;
+  onRetry: () => void;
+}) {
+  return (
+    <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
+      {showRefreshAlert && <ReceiptRefreshAlert retry={onRetry} />}
+      {receipt.type === 'TRANSFER' ? (
+        <TransferReceipt key={receipt.id} transfer={receipt} />
+      ) : (
+        <PostedTransactionReceipt key={receipt.id} transaction={receipt} />
+      )}
+    </View>
   );
 }
 

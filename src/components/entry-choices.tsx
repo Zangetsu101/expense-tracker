@@ -1,7 +1,7 @@
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import type { Account } from '@/lib/database';
 import type { LendingTotal } from '@/lib/lending-totals';
-import { theme } from '@/theme';
+import { pressableOpacity, theme } from '@/theme';
 
 const c = theme.colors;
 
@@ -37,7 +37,7 @@ export function AccountChoices({
               borderCurve: 'continuous',
               justifyContent: 'center',
               backgroundColor: selected ? c.selected : '#1d2a30',
-              opacity: disabled ? 0.45 : pressed ? 0.7 : 1,
+              opacity: pressableOpacity({ disabled, pressed }, { disabled: 0.45, pressed: 0.7 }),
             })}
           >
             <Text style={{ color: selected ? c.onSelected : c.text, fontSize: 14 }}>
@@ -102,7 +102,10 @@ export function ChoiceChip({
       onPress={onPress}
       style={({ pressed }) => ({
         minHeight: 44,
-        opacity: disabled ? 0.45 : pressed ? 0.65 : pending ? 0.7 : 1,
+        opacity: pressableOpacity(
+          { disabled, pressed: pressed || !!pending },
+          { disabled: 0.45, pressed: pressed ? 0.65 : 0.7 },
+        ),
         justifyContent: 'center',
         paddingHorizontal: 14,
         paddingVertical: 8,

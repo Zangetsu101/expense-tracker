@@ -40,7 +40,7 @@ import { AccountChoices, personBalanceSummary } from '@/components/entry-choices
 import { FormButton, FormInput, JoinedChoice } from '@/components/form-controls';
 import { parseRouteId } from '@/lib/account-selection';
 import { useClippedChips } from '@/components/use-clipped-chips';
-import { theme } from '@/theme';
+import { pressableOpacity, theme } from '@/theme';
 
 const AnimatedFormButton = Animated.createAnimatedComponent(FormButton);
 const c = theme.colors;
@@ -138,7 +138,7 @@ function QuickAddForm() {
     (option) => option.value === params.action,
   )?.value;
   const [mode, setMode] = useState<Mode>(() =>
-    params.mode === 'PERSON' ? 'PERSON' : params.mode === 'TRANSFER' ? 'TRANSFER' : 'EXPENSE',
+    params.mode === 'PERSON' || params.mode === 'TRANSFER' ? params.mode : 'EXPENSE',
   );
   const [preset, setPreset] = useState(() => {
     const amount = Number(params.amountMinor);
@@ -522,7 +522,10 @@ function QuickAddForm() {
                                 maxWidth: '100%',
                                 borderRadius: 14,
                                 backgroundColor: selected ? c.selected : c.surface,
-                                opacity: saving ? 0.45 : pressed || isPending ? 0.7 : 1,
+                                opacity: pressableOpacity(
+                                  { disabled: saving, pressed: pressed || isPending },
+                                  { disabled: 0.45, pressed: 0.7 },
+                                ),
                                 gap: 4,
                               })}
                             >

@@ -132,6 +132,9 @@ export function TransactionReceipt({ children }: { children: ReactNode }) {
 function TransactionSummary({ transaction: row, reimbursement }: Props) {
   const reimbursedExpense = reimbursement?.expense;
   const writeOff = row.type === 'WRITE_OFF';
+  let amountColor: string = color.ink;
+  if (writeOff) amountColor = color.muted;
+  else if (row.type === 'INCOME') amountColor = color.accent;
   const kind = writeOff ? row.kind : row.lendingKind;
   let label = row.type === 'EXPENSE' ? 'Expense' : 'Income';
   let title: string;
@@ -154,7 +157,7 @@ function TransactionSummary({ transaction: row, reimbursement }: Props) {
       <Text
         selectable
         style={{
-          color: writeOff ? color.muted : row.type === 'INCOME' ? color.accent : color.ink,
+          color: amountColor,
           fontSize: 40,
           fontWeight: '300',
           fontVariant: ['tabular-nums'],

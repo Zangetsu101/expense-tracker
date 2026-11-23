@@ -19,11 +19,12 @@ import { formatActivityDay, formatBalance, formatMoney } from '@/lib/transaction
 import type { LendingEntry, UnassignedLendingTransaction } from '@/lib/lending';
 import type { LendingTotal } from '@/lib/lending-totals';
 import { lendingKindLabels } from '@/lib/lending-labels';
-import { theme } from '@/theme';
+import { pressableOpacity, theme } from '@/theme';
 
 export const colors = theme.colors;
 export const panel = { backgroundColor: colors.surface, borderRadius: 16, padding: 18, gap: 12 };
 export const divider = { height: 1, backgroundColor: colors.line };
+
 export const spacedRow = {
   flexDirection: 'row',
   justifyContent: 'space-between',
@@ -368,6 +369,12 @@ export function BalanceAmounts({ totals }: { totals: LendingTotal[] }) {
 
 type HistoryEntry = LendingEntry | UnassignedLendingTransaction;
 
+function entryFlow(writeOff: boolean, incoming: boolean) {
+  if (writeOff) return { icon: '✕', color: colors.muted, signAs: 'TRANSFER' } as const;
+  if (incoming) return { icon: '↙', color: colors.accent, signAs: 'INCOME' } as const;
+  return { icon: '↗', color: colors.text, signAs: 'EXPENSE' } as const;
+}
+
 export function HistoryList<T extends HistoryEntry>({
   rows,
   header,
@@ -402,6 +409,7 @@ export function HistoryList<T extends HistoryEntry>({
       renderItem={({ item }) => {
         const writeOff = item.transactionId === null;
         const incoming = item.kind === 'BORROW' || item.kind === 'RECEIVE_REPAYMENT';
+        const flow = entryFlow(writeOff, incoming);
         const detail = [
           item.accountName ?? 'No Account movement',
           'categoryName' in item ? item.categoryName : null,
@@ -413,7 +421,7 @@ export function HistoryList<T extends HistoryEntry>({
           <LedgerRow
             title={lendingKindLabels[item.kind]}
             detail={detail}
-            icon={writeOff ? '✕' : incoming ? '↙' : '↗'}
+            icon={flow.icon}
             checked={
               selection
                 ? item.transactionId !== null && selection.has(item.transactionId)
@@ -421,12 +429,8 @@ export function HistoryList<T extends HistoryEntry>({
             }
             onPress={() => onPress(item)}
             amounts={
-              <MoneyText color={writeOff ? colors.muted : incoming ? colors.accent : colors.text}>
-                {formatMoney(
-                  writeOff ? 'TRANSFER' : incoming ? 'INCOME' : 'EXPENSE',
-                  item.amountMinor,
-                  item.currencyCode,
-                )}
+              <MoneyText color={flow.color}>
+                {formatMoney(flow.signAs, item.amountMinor, item.currencyCode)}
               </MoneyText>
             }
           />
@@ -538,7 +542,10 @@ export function LendingButton({
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: colors.accent,
-        opacity: blocked ? 0.45 : pressed ? 0.65 : 1,
+        opacity: pressableOpacity(
+          { disabled: blocked, pressed },
+          { disabled: 0.45, pressed: 0.65 },
+        ),
       })}
     >
       {pending ? (
