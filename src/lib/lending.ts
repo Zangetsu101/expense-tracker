@@ -56,7 +56,7 @@ function positive(value: number) {
   if (!Number.isSafeInteger(value) || value <= 0)
     throw new Error('Enter a positive integer amount or ID.');
 }
-/** Quick Add chooses the ID so that its optimistic person is the same row that it saves. */
+/** When `id` is given, the row uses it. An ID that is in use makes the call fail. */
 export async function createPerson(name: string, id?: number): Promise<Person> {
   name = name.trim();
   if (!name) throw new Error('Enter a person name.');

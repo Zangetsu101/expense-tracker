@@ -1,6 +1,6 @@
 import { useCallback, useOptimistic, useRef, useState, useTransition } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { categoriesQuery, peopleQuery, includeCreatedPerson } from './queries.ts';
+import { categoriesQuery, peopleQuery, includeCreatedPerson, nextPersonId } from './queries.ts';
 import { accountsQuery } from '@/lib/account-queries';
 import { ChoicesSection, layoutTransition } from './view.tsx';
 import { ExpenseLink, type LinkableExpense } from './expense-link';
@@ -8,6 +8,7 @@ import {
   removeSplitPerson,
   SplitExpense,
   withPendingPerson,
+  type ShownPerson,
   type SplitDraft,
 } from './split-expense';
 import { splitShares } from '@/lib/reimbursements';
@@ -185,10 +186,7 @@ function QuickAddForm() {
   const [date, setDate] = useState(() => new Date());
   const [saving, setSaving] = useState(false);
   const [creatingPerson, startCreatingPerson] = useTransition();
-  const [pendingPerson, showPendingPerson] = useOptimistic<Person | null, Person>(
-    null,
-    (_, person) => person,
-  );
+  const [shownPeople, showPendingPerson] = useOptimistic(people, withPendingPerson);
   const writePending = saving || creatingPerson;
   const [error, setError] = useState('');
   // Block a second write before React shows the pending state.
@@ -205,8 +203,7 @@ function QuickAddForm() {
   const account = accounts.find(
     (item) => item.id === accountId && (!accountCurrency || item.currencyCode === accountCurrency),
   );
-  const allPeople = withPendingPerson(people, pendingPerson);
-  const person = allPeople.find((item) => item.id === personId);
+  const person = shownPeople.find((item) => item.id === personId);
   const orderedCategoryIds = useRankedCategories(
     categoryRead.data,
     categoryMode,
@@ -256,8 +253,7 @@ function QuickAddForm() {
     if (!trimmed || writeInFlight.current) return;
     writeInFlight.current = true;
     setError('');
-    // The form uses the final ID at once, so nothing changes when the row is saved.
-    const person: Person = { id: Math.max(0, ...people.map(({ id }) => id)) + 1, name: trimmed };
+    const person: Person = { id: nextPersonId(people), name: trimmed };
     if (target === 'PERSON') {
       setPersonId(person.id);
       setQuery('');
@@ -497,16 +493,15 @@ function QuickAddForm() {
                   </View>
                   <ChoicesSection options={peopleQuery()} label="people" layout="people">
                     {(readyPeople) => {
-                      const personChoices = withPendingPerson(readyPeople.people, pendingPerson);
-                      const matches = personChoices.filter((item) =>
+                      const matches = shownPeople.filter((item) =>
                         item.name.toLocaleLowerCase().includes(search),
                       );
                       const canCreatePerson =
                         !!search &&
-                        !personChoices.some((item) => item.name.toLocaleLowerCase() === search);
-                      const personChip = (item: Person) => {
+                        !shownPeople.some((item) => item.name.toLocaleLowerCase() === search);
+                      const personChip = (item: ShownPerson) => {
                         const selected = item.id === personId;
-                        const isPending = item.id === pendingPerson?.id;
+                        const isPending = !!item.pending;
                         return (
                           <Animated.View
                             key={item.id}
@@ -674,7 +669,7 @@ function QuickAddForm() {
                   amount={amountMinor ?? 0}
                   currency={account?.currencyCode}
                   disabled={saving}
-                  pendingPerson={pendingPerson}
+                  people={shownPeople}
                   onChange={setSplit}
                   onAddPerson={(name) => addPerson(name, 'SPLIT')}
                 />

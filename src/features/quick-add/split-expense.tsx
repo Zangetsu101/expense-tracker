@@ -12,11 +12,13 @@ import { peopleQuery } from './queries';
 const c = theme.colors;
 export type SplitDraft = { people: Person[]; fixed: Partial<Record<number, number>> };
 
-export function withPendingPerson(people: readonly Person[], pending: Person | null): Person[] {
-  if (!pending) return [...people];
-  return [...people.filter((item) => item.id !== pending.id), pending].sort((a, b) =>
-    a.name.localeCompare(b.name),
-  );
+export type ShownPerson = Person & { pending?: true };
+
+export function withPendingPerson(people: readonly ShownPerson[], person: Person): ShownPerson[] {
+  return [
+    ...people.filter((item) => item.id !== person.id),
+    { ...person, pending: true as const },
+  ].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export function removeSplitPerson(draft: SplitDraft, personId: number): SplitDraft {
@@ -73,7 +75,7 @@ export function SplitExpense({
   amount,
   currency,
   disabled,
-  pendingPerson,
+  people,
   onChange,
   onAddPerson,
 }: {
@@ -81,7 +83,7 @@ export function SplitExpense({
   amount: number;
   currency?: string;
   disabled: boolean;
-  pendingPerson: Person | null;
+  people: ShownPerson[];
   onChange: Dispatch<SetStateAction<SplitDraft>>;
   onAddPerson: (name: string) => void;
 }) {
@@ -94,6 +96,7 @@ export function SplitExpense({
   );
   const money = (minor: number) => formatBalance(minor, currency ?? 'BDT');
   const needle = search.trim().toLocaleLowerCase();
+  const pendingId = people.find((person) => person.pending)?.id;
   function toggle(person: Person) {
     onChange((current) => {
       const fixed = { ...current.fixed };
@@ -129,36 +132,33 @@ export function SplitExpense({
             editable={!disabled}
           />
           <ChoicesSection options={peopleQuery()} label="people" layout="people">
-            {({ people: available }) => {
-              const choices = withPendingPerson(available, pendingPerson);
-              return (
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                  {choices
-                    .filter((person) => person.name.toLocaleLowerCase().includes(needle))
-                    .map((person) => (
-                      <ChoiceChip
-                        key={person.id}
-                        label={person.name}
-                        disabled={disabled}
-                        pending={person.id === pendingPerson?.id}
-                        selected={draft.people.some(({ id }) => id === person.id)}
-                        onPress={() => toggle(person)}
-                      />
-                    ))}
-                  {!!needle &&
-                    !choices.some((person) => person.name.toLocaleLowerCase() === needle) && (
-                      <ChoiceChip
-                        label={`Add “${search.trim()}”`}
-                        disabled={disabled || pendingPerson !== null}
-                        onPress={() => {
-                          onAddPerson(search);
-                          setSearch('');
-                        }}
-                      />
-                    )}
-                </View>
-              );
-            }}
+            {() => (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {people
+                  .filter((person) => person.name.toLocaleLowerCase().includes(needle))
+                  .map((person) => (
+                    <ChoiceChip
+                      key={person.id}
+                      label={person.name}
+                      disabled={disabled}
+                      pending={person.pending}
+                      selected={draft.people.some(({ id }) => id === person.id)}
+                      onPress={() => toggle({ id: person.id, name: person.name })}
+                    />
+                  ))}
+                {!!needle &&
+                  !people.some((person) => person.name.toLocaleLowerCase() === needle) && (
+                    <ChoiceChip
+                      label={`Add “${search.trim()}”`}
+                      disabled={disabled || pendingId !== undefined}
+                      onPress={() => {
+                        onAddPerson(search);
+                        setSearch('');
+                      }}
+                    />
+                  )}
+              </View>
+            )}
           </ChoicesSection>
           {draft.people.length ? (
             <>
@@ -166,7 +166,7 @@ export function SplitExpense({
               <View style={{ backgroundColor: c.surface, paddingHorizontal: 14, borderRadius: 14 }}>
                 {shares.map((share, index) => {
                   const person = draft.people[index];
-                  const isPending = person.id === pendingPerson?.id;
+                  const isPending = person.id === pendingId;
                   return (
                     <View
                       key={person.name.toLocaleLowerCase()}

@@ -37,6 +37,11 @@ export function peopleQuery() {
   });
 }
 
+/** SQLite gives a new row the next ID after the largest ID. */
+export function nextPersonId(people: readonly Person[]): number {
+  return Math.max(0, ...people.map(({ id }) => id)) + 1;
+}
+
 export function includeCreatedPerson(client: QueryClient, person: Person) {
   client.setQueryData(
     peopleQuery().queryKey,
