@@ -75,11 +75,9 @@ export async function creditCardBills(today = epochDay(new Date())): Promise<Car
   );
   if (!settings.length) return [];
   const movements = await db.getAllAsync<{ accountId: number; date: number; changeMinor: number }>(
-    `SELECT a.id AS accountId, t.date, CASE
-      WHEN t.type = 'EXPENSE' OR (t.type = 'TRANSFER' AND t.accountId = a.id) THEN -t.amountMinor
-      ELSE COALESCE(t.receivedAmountMinor, t.amountMinor) END AS changeMinor
-    FROM credit_cards c JOIN accounts a ON a.id = c.accountId
-    JOIN transactions t ON t.accountId = a.id OR (t.type = 'TRANSFER' AND t.transferAccountId = a.id)
+    `SELECT l.accountId, t.date, l.amountMinor AS changeMinor
+    FROM credit_cards c JOIN legs l ON l.accountId = c.accountId
+    JOIN transactions t ON t.id = l.transactionId
     WHERE t.date <= ?`,
     [today],
   );

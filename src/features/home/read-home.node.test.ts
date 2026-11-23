@@ -13,6 +13,7 @@ const adapter = {
       .all(...params)
       .map((row) => ({ ...row })),
   getFirstAsync: async (sql, params = []) => sqlite.prepare(sql).get(...params) ?? null,
+  isInTransactionSync: () => sqlite.isTransaction,
 };
 globalThis.__homeSqliteAdapter = adapter;
 registerHooks({
@@ -44,6 +45,7 @@ registerHooks({
   },
 });
 const { database, epochDay } = await import('../../lib/database.ts');
+const { addTransaction } = await import('../../test/ledger-rows.ts');
 const { homeListPage, homePace, homeDeckData, homeSearch, homeTrend, savePeriodSetting } =
   await import('./read-home.ts');
 const { transactionTitle } = await import('../../lib/transaction-format.ts');
@@ -58,19 +60,24 @@ const january = {
   previousStart: day(2024, 12, 1),
   previousSameEnd: day(2024, 12, 21),
 };
-const add = (id, type, amount, date, account, excluded = 0, destination = null) =>
-  sqlite
-    .prepare(
-      `INSERT INTO transactions (id, type, amountMinor, date, accountId, categoryId, excludeFromReport, transferAccountId)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(id, type, amount, date, account, type === 'EXPENSE' ? 1 : null, excluded, destination);
+const add = (id, type, amount, date, account, excluded = 0, destination = null, extra = {}) =>
+  addTransaction(sqlite, {
+    id,
+    type,
+    amountMinor: amount,
+    date,
+    accountId: account,
+    categoryId: type === 'EXPENSE' && !extra.lending ? 1 : null,
+    excludeFromReport: excluded,
+    transferAccountId: destination,
+    ...extra,
+  });
 
 const month = { range: 'month', monthStart: 1 };
 const ids = (page) => page.periods.map(({ period, rows }) => [period.label, rows.map((r) => r.id)]);
 /** Replaces all Transactions with six in January 2025, one in November 2024, and none in December. */
 function seedList() {
-  sqlite.exec(`DELETE FROM lending_entries; DELETE FROM transactions; DELETE FROM people;
+  sqlite.exec(`DELETE FROM reimbursements; DELETE FROM transactions; DELETE FROM people;
     DELETE FROM categories WHERE id > 1`);
   add(1, 'EXPENSE', 12000, day(2025, 1, 3), 1);
   add(2, 'INCOME', 500, day(2025, 1, 4), 2);
@@ -82,13 +89,7 @@ function seedList() {
 /** Adds a lending Transaction for Sam. */
 function lend(id, kind, type) {
   sqlite.exec("INSERT OR IGNORE INTO people (id, name) VALUES (1, 'Sam')");
-  add(id, type, 10000, day(2025, 1, 10), 1, 1);
-  sqlite.prepare('UPDATE transactions SET categoryId = NULL WHERE id = ?').run(id);
-  sqlite
-    .prepare(
-      'INSERT INTO lending_entries (personId, kind, transactionId, currencyCode, amountMinor, date) VALUES (1, ?, ?, ?, ?, ?)',
-    )
-    .run(kind, id, 'BDT', 10000, day(2025, 1, 10));
+  add(id, type, 10000, day(2025, 1, 10), 1, 0, null, { lending: { personId: 1, kind } });
 }
 
 test('the list reads the range of the cards and says where older Transactions start', async () => {
@@ -201,10 +202,11 @@ test('search on all dates matches the note, the Categories, the Accounts and the
 });
 
 test('the deck read gives balances as of today, the last day of use, and saved settings', async () => {
-  sqlite.exec(`DELETE FROM transactions; DELETE FROM lending_entries; DELETE FROM app_settings;
+  sqlite.exec(`DELETE FROM reimbursements; DELETE FROM transactions; DELETE FROM app_settings;
     DELETE FROM accounts;
-    INSERT INTO accounts (id, name, currencyCode, openingBalanceMinor, isFavorite)
-    VALUES (1, 'Cash', 'BDT', 1000, 1), (2, 'Bank', 'BDT', 0, 0), (3, 'Wise', 'USD', 500, 0);`);
+    INSERT INTO accounts (id, name, currencyCode, openingBalanceMinor)
+    VALUES (1, 'Cash', 'BDT', 1000), (2, 'Bank', 'BDT', 0), (3, 'Wise', 'USD', 500);
+    INSERT INTO app_settings (key, value) VALUES ('favoriteAccountId', '1');`);
   add(1, 'EXPENSE', 200, day(2026, 11, 2), 1);
   add(2, 'TRANSFER', 300, day(2026, 11, 5), 2, 0, 1);
   add(3, 'INCOME', 900, day(2026, 11, 20), 2);
@@ -222,8 +224,8 @@ test('the deck read gives balances as of today, the last day of use, and saved s
   assert.deepEqual(deck.period, { range: 'month', monthStart: 1 });
   assert.equal(deck.displayRate, null);
   await savePeriodSetting({ range: 'week', monthStart: 25 });
-  sqlite.exec(`INSERT INTO app_settings (key, value) VALUES ('backupSettings',
-    '{"favoriteAccountId":1,"displayRate":{"base":"USD","quote":"BDT","rate":120}}')`);
+  sqlite.exec(`INSERT INTO app_settings (key, value) VALUES ('displayRate',
+    '{"base":"USD","quote":"BDT","rate":120}')`);
   const saved = await homeDeckData(today);
   assert.deepEqual(saved.period, { range: 'week', monthStart: 25 });
   assert.deepEqual(saved.displayRate, { base: 'USD', quote: 'BDT', rate: 120 });
@@ -288,7 +290,7 @@ test('the deck derives card bills from both Transfer legs and excludes future ca
   assert.equal(visa.bill.unbilledMinor, 300);
   assert.equal(visa.bill.parentAccountId, 1);
   assert.equal(visa.bill.dueDate, day(2025, 2, 5));
-  sqlite.prepare('UPDATE transactions SET amountMinor = 150 WHERE id = 100').run();
+  sqlite.prepare('UPDATE legs SET amountMinor = -150 WHERE transactionId = 100').run();
   assert.equal(
     (await homeDeckData(day(2025, 1, 23))).accounts.find((a) => a.id === 999).bill.billMinor,
     650,
@@ -296,10 +298,10 @@ test('the deck derives card bills from both Transfer legs and excludes future ca
 });
 
 test('a destination in another Currency uses the received amount for balance, trend and Bill', async () => {
-  sqlite.exec(`DELETE FROM credit_cards; DELETE FROM lending_entries; DELETE FROM transactions; DELETE FROM accounts;
+  sqlite.exec(`DELETE FROM credit_cards; DELETE FROM reimbursements; DELETE FROM transactions; DELETE FROM accounts;
     INSERT INTO accounts (id, name, currencyCode, openingBalanceMinor) VALUES (1, 'BDT bank', 'BDT', 2000000), (2, 'USD card', 'USD', -20000);
-    INSERT INTO credit_cards (accountId, parentAccountId, statementDay) VALUES (2, 1, 20);
-    INSERT INTO transactions (id, type, amountMinor, receivedAmountMinor, date, accountId, transferAccountId) VALUES (1, 'TRANSFER', 1220000, 10000, ${day(2025, 1, 22)}, 1, 2);`);
+    INSERT INTO credit_cards (accountId, parentAccountId, statementDay) VALUES (2, 1, 20);`);
+  add(1, 'TRANSFER', 1220000, day(2025, 1, 22), 1, 0, 2, { receivedAmountMinor: 10000 });
   const today = day(2025, 1, 23);
   const deck = await homeDeckData(today);
   assert.equal(deck.accounts.find((a) => a.id === 1).balanceMinor, 780000);
@@ -326,11 +328,11 @@ test('owed amounts decrease only for the matched person and stop at zero', async
   sqlite.exec(`INSERT INTO categories (id, name, type, parentId) VALUES
     (2, 'Restaurants', 'EXPENSE', 1), (3, 'Dining out', 'EXPENSE', 2);
     UPDATE transactions SET categoryId = 3 WHERE id = 1;`);
-  add(10, 'INCOME', 4500, day(2025, 1, 10), 1);
-  add(11, 'INCOME', 2000, day(2025, 1, 11), 1);
-  add(12, 'INCOME', 2500, day(2025, 1, 12), 1);
-  sqlite.exec(`INSERT INTO reimbursements (transactionId, expenseId, personId)
-    VALUES (10, 1, 1), (11, 1, 2), (12, 1, NULL);`);
+  const reimburse = (id, amount, date, personId) =>
+    add(id, 'INCOME', amount, date, 1, 0, null, { reimburses: { expenseId: 1, personId } });
+  reimburse(10, 4500, day(2025, 1, 10), 1);
+  reimburse(11, 2000, day(2025, 1, 11), 2);
+  reimburse(12, 2500, day(2025, 1, 12), null);
 
   const { shares, payments } = await expenseReimbursements(1);
   assert.deepEqual(
@@ -379,8 +381,7 @@ test('owed amounts decrease only for the matched person and stop at zero', async
     (await homePace(null, january)).find((row) => row.currencyCode === 'BDT').spentMinor,
     3000,
   );
-  add(13, 'INCOME', 3000, day(2025, 1, 13), 1);
-  sqlite.exec('INSERT INTO reimbursements (transactionId, expenseId, personId) VALUES (13, 1, 2)');
+  reimburse(13, 3000, day(2025, 1, 13), 2);
   assert.equal(
     rowView(
       (await loadRows()).find((r) => r.id === 1),

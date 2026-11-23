@@ -1,32 +1,22 @@
 import { database } from './database.ts';
 import { usableRate, validDisplayRate, type DisplayRate } from './display-rate.ts';
 
-type Settings = { favoriteAccountId: number | null; displayRate: DisplayRate | null };
-
 export async function getDisplayRate(): Promise<DisplayRate | null> {
   const db = await database();
   const row = await db.getFirstAsync<{ value: string }>(
-    "SELECT value FROM app_settings WHERE key = 'backupSettings'",
+    "SELECT value FROM app_settings WHERE key = 'displayRate'",
   );
-  const rate = row ? (JSON.parse(row.value) as Settings).displayRate : null;
-  return usableRate(rate);
+  return usableRate(row ? (JSON.parse(row.value) as DisplayRate) : null);
 }
 
 export async function saveDisplayRate(rate: DisplayRate | null): Promise<void> {
   if (rate && !validDisplayRate(rate))
     throw new Error('Enter two different currency codes and a positive rate.');
   const db = await database();
-  await db.withExclusiveTransactionAsync(async (tx) => {
-    const row = await tx.getFirstAsync<{ value: string }>(
-      "SELECT value FROM app_settings WHERE key = 'backupSettings'",
+  if (rate)
+    await db.runAsync(
+      "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('displayRate', ?)",
+      [JSON.stringify(rate)],
     );
-    const settings: Settings = row
-      ? JSON.parse(row.value)
-      : { favoriteAccountId: null, displayRate: null };
-    settings.displayRate = rate;
-    await tx.runAsync(
-      "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('backupSettings', ?)",
-      [JSON.stringify(settings)],
-    );
-  });
+  else await db.runAsync("DELETE FROM app_settings WHERE key = 'displayRate'");
 }

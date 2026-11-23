@@ -2,17 +2,18 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { registerHooks, stripTypeScriptTypes } from 'node:module';
 
-let stored;
-const tx = {
+// The app_settings rows, by key.
+const settings = new Map();
+globalThis.__displayRateDb = {
   getFirstAsync: async (sql) => {
-    if (!sql.includes('app_settings')) return { id: 42 };
-    return stored ? { value: stored } : null;
+    const value = settings.get(/key = '(\w+)'/.exec(sql)[1]);
+    return value === undefined ? null : { value };
   },
-  runAsync: async (_sql, values) => {
-    stored = values[0];
+  runAsync: async (sql, values) => {
+    if (sql.startsWith('DELETE')) settings.delete(/key = '(\w+)'/.exec(sql)[1]);
+    else settings.set(/VALUES \('(\w+)'/.exec(sql)[1], values[0]);
   },
 };
-globalThis.__displayRateDb = { ...tx, withExclusiveTransactionAsync: async (fn) => fn(tx) };
 registerHooks({
   resolve(specifier, context, next) {
     if (specifier === './database.ts') return { url: 'test:database', shortCircuit: true };
@@ -81,14 +82,15 @@ test('category totals convert quote-only and shared categories into base currenc
   );
 });
 
-test('save preserves favorite account and other settings and can clear rate', async () => {
-  stored = JSON.stringify({ favoriteAccountId: 7, displayRate: null, custom: true });
+test('save writes only the displayRate row and can clear the rate', async () => {
+  settings.set('favoriteAccountId', '7');
   await saveDisplayRate(rate);
-  assert.deepEqual(JSON.parse(stored), { favoriteAccountId: 7, displayRate: rate, custom: true });
+  assert.deepEqual(JSON.parse(settings.get('displayRate')), rate);
   assert.deepEqual(await getDisplayRate(), rate);
   await saveDisplayRate(null);
+  assert.equal(settings.has('displayRate'), false);
   assert.equal(await getDisplayRate(), null);
-  assert.equal(JSON.parse(stored).favoriteAccountId, 7);
+  assert.equal(settings.get('favoriteAccountId'), '7');
   await assert.rejects(saveDisplayRate({ ...rate, rate: Infinity }));
 });
 

@@ -3,194 +3,96 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { File } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
-import { database } from '@/lib/database';
+import { database, favoriteAccountIdSql, isFavoriteSql } from '@/lib/database';
+import { accountTransactions, lendingEntryRows } from '@/lib/ledger-store';
+import { restoreLegacyRows } from '@/lib/legs-migration';
 import type { BackupData, BackupDocuments, BackupStore } from '@/lib/backup';
 
-const tables = [
-  ['accounts', 'accounts'],
-  ['categories', 'categories'],
-  ['transactions', 'transactions'],
-  ['lineItems', 'line_items'],
-  ['tags', 'tags'],
-  ['transactionTags', 'transaction_tags'],
-  ['transferCandidates', 'transfer_candidates'],
-] as const;
-const boolFields = ['isFavorite', 'needsReview', 'excludeFromReport', 'resolved'];
-const columnsByTable: Record<string, readonly string[]> = {
-  accounts: ['id', 'name', 'currencyCode', 'openingBalanceMinor', 'isFavorite'],
-  categories: ['id', 'name', 'type', 'parentId', 'iconKey', 'needsReview'],
-  transactions: [
-    'id',
-    'type',
-    'amountMinor',
-    'receivedAmountMinor',
-    'date',
-    'accountId',
-    'transferAccountId',
-    'categoryId',
-    'note',
-    'excludeFromReport',
-    'source',
-  ],
-  line_items: ['id', 'transactionId', 'name', 'amountMinor', 'quantity'],
-  tags: ['id', 'name'],
-  transaction_tags: ['transactionId', 'tagId'],
-  transfer_candidates: ['id', 'outgoingTxnId', 'incomingTxnId', 'confidenceNote', 'resolved'],
-};
+// The backup format stays v1 (ADR 0013). Export derives the v1 rows from the legs, and
+// restore loads the v1 rows with the same fill SQL as the migration.
+//
+// A v1 lending entry needs an id. Each entry uses the id of its Transaction, so the ids
+// stay the same from one export to the next. A restore gives each Write-off a new
+// Transaction id after the highest id of the other Transactions.
+
+/** The v1 Transactions: every Transaction that moves money on an Account. */
+const v1Transactions = `SELECT t.id, t.type, t.amountMinor, t.receivedAmountMinor,
+  t.date AS dateEpochDay, t.accountId, t.transferAccountId, t.categoryId, t.note,
+  t.excludeFromReport FROM ${accountTransactions} t ORDER BY t.id`;
 
 export const backupStore: BackupStore = {
   async snapshot() {
     const db = await database();
     let snapshot!: BackupData;
     await db.withExclusiveTransactionAsync(async (tx) => {
-      const data: Record<string, unknown> = { schemaVersion: 1 };
-      for (const [key, table] of tables) {
-        const rows = await tx.getAllAsync<Record<string, unknown>>(
-          `SELECT * FROM ${table} ORDER BY ${table === 'transaction_tags' ? 'transactionId, tagId' : 'id'}`,
-        );
-        data[key] = rows.map((row) => {
-          const result = { ...row };
-          for (const field of boolFields)
-            if (field in result) result[field] = Boolean(result[field]);
-          if (table === 'transactions') {
-            if (result.receivedAmountMinor == null) delete result.receivedAmountMinor;
-            result.dateEpochDay = result.date;
-            delete result.date;
-          }
-          return result;
-        });
-      }
-      data.moneyLoverImportRows = await tx.getAllAsync<{ rowKey: string; transactionId: number }>(
-        'SELECT rowKey, transactionId FROM moneylover_import_rows ORDER BY rowKey',
+      const all = <T>(query: string) => tx.getAllAsync<T>(query);
+      const favorite = await tx.getFirstAsync<{ id: number | null }>(
+        `SELECT ${favoriteAccountIdSql} AS id`,
       );
-      data.creditCards = await tx.getAllAsync(
-        'SELECT accountId, parentAccountId, statementDay, dueDay FROM credit_cards ORDER BY accountId',
+      const displayRate = await tx.getFirstAsync<{ value: string }>(
+        "SELECT value FROM app_settings WHERE key = 'displayRate'",
       );
-      data.people = await tx.getAllAsync('SELECT id, name FROM people ORDER BY id');
-      const [splitShares, reimbursements] = await Promise.all([
-        tx.getAllAsync(
+      snapshot = {
+        schemaVersion: 1,
+        accounts: (
+          await all<Omit<BackupData['accounts'][number], 'isFavorite'> & { isFavorite: number }>(
+            `SELECT a.id, a.name, a.currencyCode, a.openingBalanceMinor,
+            ${isFavoriteSql('a')} AS isFavorite FROM accounts a ORDER BY a.id`,
+          )
+        ).map((row) => ({ ...row, isFavorite: Boolean(row.isFavorite) })),
+        categories: (
+          await all<BackupData['categories'][number]>(
+            'SELECT id, name, type, parentId, iconKey FROM categories ORDER BY id',
+          )
+        ).map((row) => ({ ...row, needsReview: false })),
+        transactions: (
+          await all<
+            Omit<BackupData['transactions'][number], 'excludeFromReport' | 'source'> & {
+              excludeFromReport: number;
+            }
+          >(v1Transactions)
+        ).map(({ receivedAmountMinor, ...row }) => ({
+          ...row,
+          ...(receivedAmountMinor === null ? {} : { receivedAmountMinor }),
+          excludeFromReport: Boolean(row.excludeFromReport),
+          source: 'MANUAL',
+        })),
+        lineItems: await all(
+          'SELECT id, transactionId, name, amountMinor, quantity FROM line_items ORDER BY id',
+        ),
+        tags: await all('SELECT id, name FROM tags ORDER BY id'),
+        transactionTags: await all(
+          'SELECT transactionId, tagId FROM transaction_tags ORDER BY transactionId, tagId',
+        ),
+        transferCandidates: [],
+        settings: {
+          favoriteAccountId: favorite?.id ?? null,
+          displayRate: displayRate ? JSON.parse(displayRate.value) : null,
+        },
+        creditCards: await all(
+          'SELECT accountId, parentAccountId, statementDay, dueDay FROM credit_cards ORDER BY accountId',
+        ),
+        people: await all('SELECT id, name FROM people ORDER BY id'),
+        splitShares: await all(
           'SELECT expenseId, personId, amountMinor FROM split_shares ORDER BY expenseId, personId',
         ),
-        tx.getAllAsync(
+        reimbursements: await all(
           'SELECT transactionId, expenseId, personId FROM reimbursements ORDER BY transactionId',
         ),
-      ]);
-      data.splitShares = splitShares;
-      data.reimbursements = reimbursements;
-      data.lendingEntries = await tx.getAllAsync(`SELECT e.id, e.personId, e.kind, e.transactionId,
-      CASE WHEN t.id IS NULL THEN e.currencyCode ELSE a.currencyCode END AS currencyCode,
-      COALESCE(t.amountMinor, e.amountMinor) AS amountMinor, COALESCE(t.date, e.date) AS dateEpochDay,
-      CASE WHEN t.id IS NULL THEN e.note ELSE t.note END AS note
-      FROM lending_entries e LEFT JOIN transactions t ON t.id = e.transactionId
-      LEFT JOIN accounts a ON a.id = t.accountId ORDER BY e.id`);
-      const favorite = await tx.getFirstAsync<{ id: number }>(
-        'SELECT id FROM accounts WHERE isFavorite = 1 LIMIT 1',
-      );
-      const settings = await tx.getFirstAsync<{ value: string }>(
-        "SELECT value FROM app_settings WHERE key = 'backupSettings'",
-      );
-      data.settings = settings
-        ? JSON.parse(settings.value)
-        : { favoriteAccountId: favorite?.id ?? null, displayRate: null };
-      snapshot = data as unknown as BackupData;
+        lendingEntries: await all(
+          `SELECT id, personId, kind, transactionId, currencyCode, amountMinor,
+          date AS dateEpochDay, note FROM (${lendingEntryRows}) ORDER BY id`,
+        ),
+      };
     });
     return snapshot;
   },
   async replace(data) {
     const db = await database();
-    await db.withExclusiveTransactionAsync(async (tx) => {
-      await tx.execAsync(
-        'DELETE FROM reimbursements; DELETE FROM split_shares; DELETE FROM credit_cards; DELETE FROM lending_entries; DELETE FROM people; DELETE FROM moneylover_import_rows',
-      );
-      for (const table of [
-        'transaction_tags',
-        'transfer_candidates',
-        'line_items',
-        'transactions',
-        'tags',
-        'categories',
-        'accounts',
-      ])
-        await tx.execAsync(`DELETE FROM ${table}`);
-      for (const [key, table] of tables) {
-        for (const row of data[key]) {
-          const values = { ...row } as Record<string, unknown>;
-          if (table === 'transactions') {
-            values.date = values.dateEpochDay;
-            delete values.dateEpochDay;
-          }
-          if (table === 'categories') values.parentId = null;
-          const columns = Object.keys(values).filter((column) =>
-            columnsByTable[table].includes(column),
-          );
-          await tx.runAsync(
-            `INSERT INTO ${table} (${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')})`,
-            columns.map((column) =>
-              typeof values[column] === 'boolean'
-                ? Number(values[column])
-                : (values[column] as SQLiteValue),
-            ),
-          );
-        }
-      }
-      for (const card of data.creditCards ?? []) {
-        await tx.runAsync(
-          'INSERT INTO credit_cards (accountId, parentAccountId, statementDay, dueDay) VALUES (?, ?, ?, ?)',
-          [card.accountId, card.parentAccountId, card.statementDay, card.dueDay],
-        );
-      }
-      for (const category of data.categories) {
-        if (category.parentId != null)
-          await tx.runAsync('UPDATE categories SET parentId = ? WHERE id = ?', [
-            category.parentId,
-            category.id,
-          ]);
-      }
-      for (const row of data.moneyLoverImportRows ?? []) {
-        await tx.runAsync(
-          'INSERT INTO moneylover_import_rows (rowKey, transactionId) VALUES (?, ?)',
-          [row.rowKey, row.transactionId],
-        );
-      }
-      for (const person of data.people ?? []) {
-        await tx.runAsync('INSERT INTO people (id, name) VALUES (?, ?)', [person.id, person.name]);
-      }
-      for (const share of data.splitShares ?? []) {
-        await tx.runAsync(
-          'INSERT INTO split_shares (expenseId, personId, amountMinor) VALUES (?, ?, ?)',
-          [share.expenseId, share.personId, share.amountMinor],
-        );
-      }
-      for (const payment of data.reimbursements ?? []) {
-        await tx.runAsync(
-          'INSERT INTO reimbursements (transactionId, expenseId, personId) VALUES (?, ?, ?)',
-          [payment.transactionId, payment.expenseId, payment.personId],
-        );
-      }
-      for (const entry of data.lendingEntries ?? []) {
-        await tx.runAsync(
-          'INSERT INTO lending_entries (id, personId, kind, transactionId, currencyCode, amountMinor, date, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-          [
-            entry.id,
-            entry.personId,
-            entry.kind,
-            entry.transactionId,
-            entry.currencyCode,
-            entry.amountMinor,
-            entry.dateEpochDay,
-            entry.note,
-          ],
-        );
-      }
-      await tx.runAsync(
-        "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('backupSettings', ?)",
-        [JSON.stringify(data.settings)],
-      );
-    });
+    await db.withExclusiveTransactionAsync((tx) => restoreLegacyRows(tx, data));
     notifyDataChanged();
   },
 };
-type SQLiteValue = string | number | null;
 
 export const backupDocuments: BackupDocuments = {
   async shareJson(name, text) {

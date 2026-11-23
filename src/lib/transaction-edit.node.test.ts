@@ -2,24 +2,35 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 import { registerHooks, stripTypeScriptTypes } from 'node:module';
+import { addTransaction } from '../test/ledger-rows.ts';
+import { legsSchema } from './legs-schema.ts';
 
 const sqlite = new DatabaseSync(':memory:');
-sqlite.exec(`PRAGMA foreign_keys = ON;
-CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT, currencyCode TEXT);
-CREATE TABLE categories (id INTEGER PRIMARY KEY, name TEXT);
-CREATE TABLE transactions (id INTEGER PRIMARY KEY, type TEXT, amountMinor INTEGER, date INTEGER, accountId INTEGER, categoryId INTEGER, note TEXT, excludeFromReport INTEGER);
-CREATE TABLE people (id INTEGER PRIMARY KEY, name TEXT);
-CREATE TABLE lending_entries (id INTEGER PRIMARY KEY, transactionId INTEGER UNIQUE, personId INTEGER, kind TEXT, currencyCode TEXT, amountMinor INTEGER, date INTEGER, note TEXT);
-CREATE TABLE tags (id INTEGER PRIMARY KEY, name TEXT UNIQUE);
-CREATE TABLE line_items (id INTEGER PRIMARY KEY, transactionId INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE, name TEXT NOT NULL, amountMinor INTEGER NOT NULL, quantity REAL);
-CREATE TABLE transaction_tags (transactionId INTEGER REFERENCES transactions(id), tagId INTEGER REFERENCES tags(id), PRIMARY KEY(transactionId, tagId));
-INSERT INTO accounts VALUES (1, 'Cash', 'BDT');
-INSERT INTO categories VALUES (1, 'Food');
-INSERT INTO transactions VALUES (1, 'EXPENSE', 1234, 20000, 1, 1, 'old', 0), (2, 'TRANSFER', 500, 20001, 1, NULL, 'move', 0);
-INSERT INTO tags VALUES (1, 'Food'), (2, 'Shared');
+sqlite.exec('PRAGMA foreign_keys = ON');
+sqlite.exec(legsSchema);
+sqlite.exec(`INSERT INTO accounts (id, name, currencyCode) VALUES (1, 'Cash', 'BDT'), (2, 'Bank', 'BDT');
+INSERT INTO categories (id, name, type) VALUES (1, 'Food', 'EXPENSE');`);
+addTransaction(sqlite, {
+  id: 1,
+  type: 'EXPENSE',
+  amountMinor: 1234,
+  date: 20000,
+  accountId: 1,
+  categoryId: 1,
+  note: 'old',
+});
+addTransaction(sqlite, {
+  id: 2,
+  type: 'TRANSFER',
+  amountMinor: 500,
+  date: 20001,
+  accountId: 1,
+  transferAccountId: 2,
+  note: 'move',
+});
+sqlite.exec(`INSERT INTO tags VALUES (1, 'Food'), (2, 'Shared');
 INSERT INTO transaction_tags VALUES (1, 1), (2, 2);
-INSERT INTO line_items VALUES (1, 1, 'Coffee', 100, 2);
-ALTER TABLE transactions ADD COLUMN source TEXT DEFAULT 'MANUAL';`);
+INSERT INTO line_items VALUES (1, 1, 'Coffee', 100, 2);`);
 let failLink = false;
 let failItem = false;
 const tx = {
@@ -75,17 +86,30 @@ registerHooks({
 const { loadEditableTransaction, saveTransactionEdit } = await import('./transaction-edit.ts');
 const { transactionTitle } = await import('./transaction-format.ts');
 
-test('receipt data includes linked lending kind and person even for categorized history', async () => {
-  sqlite.exec(
-    "INSERT INTO people VALUES (1, 'Sam'); INSERT INTO lending_entries (id, transactionId, personId, kind) VALUES (10, 1, 1, 'LEND')",
-  );
+/** Adds a lending Transaction with the person Sam. */
+function lend(id) {
+  sqlite.exec("INSERT OR IGNORE INTO people VALUES (1, 'Sam')");
+  addTransaction(sqlite, {
+    id,
+    type: 'EXPENSE',
+    amountMinor: 300,
+    date: 20000,
+    accountId: 1,
+    lending: { personId: 1, kind: 'LEND' },
+  });
+}
+
+test('receipt data includes the lending kind and person', async () => {
+  lend(10);
   try {
-    const receipt = await loadEditableTransaction(1);
+    const receipt = await loadEditableTransaction(10);
     assert.equal(transactionTitle(receipt), 'Lent to Sam');
     assert.equal(receipt.personId, 1);
+    assert.equal(receipt.lendingKind, 'LEND');
+    assert.equal(receipt.type, 'EXPENSE');
     assert.equal(await loadEditableTransaction(2), null);
   } finally {
-    sqlite.exec('DELETE FROM lending_entries; DELETE FROM people');
+    sqlite.exec('DELETE FROM transactions WHERE id = 10');
   }
 });
 
@@ -101,13 +125,13 @@ test('edits tags, note and exclusion without changing financial fields or shared
     {
       ...sqlite
         .prepare(
-          'SELECT type, amountMinor, date, accountId, categoryId, note, excludeFromReport FROM transactions WHERE id = 1',
+          'SELECT kind, amountMinor, date, accountId, categoryId, note, excludeFromReport FROM transactions t JOIN legs l ON l.transactionId = t.id WHERE t.id = 1',
         )
         .get(),
     },
     {
-      type: 'EXPENSE',
-      amountMinor: 1234,
+      kind: 'EXPENSE',
+      amountMinor: -1234,
       date: 20000,
       accountId: 1,
       categoryId: 1,
@@ -134,14 +158,20 @@ test('edits tags, note and exclusion without changing financial fields or shared
 });
 
 test('editing a linked principal cannot include it in reports', async () => {
-  sqlite.exec('INSERT INTO lending_entries (id, transactionId) VALUES (1, 1)');
+  lend(11);
   try {
-    assert.equal((await loadEditableTransaction(1)).reportExclusionLocked, 1);
-    await saveTransactionEdit(await loadEditableTransaction(1), 'principal note', false, '');
-    assert.equal((await loadEditableTransaction(1)).excludeFromReport, 1);
-    assert.equal((await loadEditableTransaction(1)).note, 'principal note');
+    assert.equal((await loadEditableTransaction(11)).reportExclusionLocked, 1);
+    await saveTransactionEdit(await loadEditableTransaction(11), 'principal note', false, '');
+    assert.equal((await loadEditableTransaction(11)).excludeFromReport, 1);
+    assert.equal((await loadEditableTransaction(11)).note, 'principal note');
+    assert.equal(
+      sqlite.prepare('SELECT excludeFromReport FROM transactions WHERE id = 11').get()
+        .excludeFromReport,
+      0,
+      'lending stores no report exclusion',
+    );
   } finally {
-    sqlite.exec('DELETE FROM lending_entries');
+    sqlite.exec('DELETE FROM transactions WHERE id = 11');
   }
 });
 
@@ -165,7 +195,7 @@ test('rejects invalid input, missing and transfer transactions, and stale edits'
     0,
   );
   const beforeAmountChange = await loadEditableTransaction(1);
-  sqlite.prepare('UPDATE transactions SET amountMinor = ? WHERE id = 1').run(999);
+  sqlite.prepare('UPDATE legs SET amountMinor = ? WHERE transactionId = 1').run(-999);
   await assert.rejects(
     () => saveTransactionEdit(beforeAmountChange, 'overwrite', true, ''),
     /changed or removed/,
@@ -195,8 +225,8 @@ test('line items are optional, editable, and independent of transaction amount',
     { id: 1, name: 'Tea', amountMinor: 75, quantity: null },
   ]);
   assert.equal(
-    sqlite.prepare('SELECT amountMinor FROM transactions WHERE id = 1').get().amountMinor,
-    999,
+    sqlite.prepare('SELECT amountMinor FROM legs WHERE transactionId = 1').get().amountMinor,
+    -999,
   );
   assert.deepEqual(
     (await loadEditableTransaction(1)).lineItems.map(({ name, amountMinor }) => [
@@ -290,11 +320,19 @@ test('rolls back note, links and new tags on SQLite failure', async () => {
 });
 
 test('Receipt amount edits require confirmation only when they increase overpaid credit', async () => {
-  sqlite.exec(`INSERT INTO people VALUES (70, 'Edit test');
-    INSERT INTO transactions (id, type, amountMinor, date, accountId, excludeFromReport)
-    VALUES (70, 'EXPENSE', 1000, 20000, 1, 1), (71, 'INCOME', 800, 20001, 1, 1);
-    INSERT INTO lending_entries (id, transactionId, personId, kind)
-    VALUES (70, 70, 70, 'LEND'), (71, 71, 70, 'RECEIVE_REPAYMENT');`);
+  sqlite.exec("INSERT INTO people VALUES (70, 'Edit test')");
+  for (const [id, type, amountMinor, kind] of [
+    [70, 'EXPENSE', 1000, 'LEND'],
+    [71, 'INCOME', 800, 'RECEIVE_REPAYMENT'],
+  ])
+    addTransaction(sqlite, {
+      id,
+      type,
+      amountMinor,
+      date: 20000,
+      accountId: 1,
+      lending: { personId: 70, kind },
+    });
   try {
     let receipt = await loadEditableTransaction(70);
     await saveTransactionEdit(receipt, '', false, '', [], 900);
@@ -316,8 +354,21 @@ test('Receipt amount edits require confirmation only when they increase overpaid
     );
     assert.equal(edited.note, 'Changed');
   } finally {
-    sqlite.exec(
-      'DELETE FROM transaction_tags WHERE transactionId=70; DELETE FROM lending_entries WHERE personId=70; DELETE FROM transactions WHERE id IN (70,71); DELETE FROM people WHERE id=70;',
-    );
+    sqlite.exec('DELETE FROM transactions WHERE id IN (70,71); DELETE FROM people WHERE id=70;');
+  }
+});
+
+test('an amount edit of a split expense updates its leg in place', async () => {
+  sqlite.exec("INSERT INTO people VALUES (80, 'Split test')");
+  addTransaction(sqlite, { id: 80, type: 'EXPENSE', amountMinor: 1000, date: 20000, accountId: 1 });
+  sqlite.exec('INSERT INTO split_shares (expenseId, personId, amountMinor) VALUES (80, 80, 400)');
+  const legId = () => sqlite.prepare('SELECT id FROM legs WHERE transactionId = 80').get().id;
+  const before = legId();
+  try {
+    await saveTransactionEdit(await loadEditableTransaction(80), '', false, '', [], 1200);
+    assert.equal((await loadEditableTransaction(80)).amountMinor, 1200);
+    assert.equal(legId(), before);
+  } finally {
+    sqlite.exec('DELETE FROM transactions WHERE id = 80; DELETE FROM people WHERE id = 80;');
   }
 });

@@ -2,14 +2,28 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 import { registerHooks, stripTypeScriptTypes } from 'node:module';
+import { addTransaction } from '../test/ledger-rows.ts';
+import { legsSchema } from './legs-schema.ts';
 
 const sqlite = new DatabaseSync(':memory:');
-sqlite.exec(`PRAGMA foreign_keys = ON;
-CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT NOT NULL DEFAULT '', currencyCode TEXT NOT NULL);
-CREATE TABLE transactions (id INTEGER PRIMARY KEY, type TEXT NOT NULL, amountMinor INTEGER NOT NULL CHECK(amountMinor > 0), date INTEGER NOT NULL, accountId INTEGER NOT NULL REFERENCES accounts(id), transferAccountId INTEGER REFERENCES accounts(id), categoryId INTEGER, note TEXT, receivedAmountMinor INTEGER CHECK(receivedAmountMinor > 0));
-CREATE TABLE tags (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
-CREATE TABLE transaction_tags (transactionId INTEGER REFERENCES transactions(id), tagId INTEGER REFERENCES tags(id));
-INSERT INTO accounts VALUES (1, 'Cash', 'BDT'), (2, 'Bank', 'BDT'), (3, 'Card', 'USD'), (4, 'Wallet', 'BDT');`);
+sqlite.exec('PRAGMA foreign_keys = ON');
+sqlite.exec(legsSchema);
+sqlite.exec(`INSERT INTO accounts (id, name, currencyCode) VALUES
+  (1, 'Cash', 'BDT'), (2, 'Bank', 'BDT'), (3, 'Card', 'USD'), (4, 'Wallet', 'BDT');`);
+/** Each Transfer with its source and destination legs. */
+const transfers = (id) =>
+  sqlite
+    .prepare(
+      `SELECT t.kind, -source.amountMinor AS amountMinor, t.date, source.accountId,
+      destination.accountId AS transferAccountId, destination.amountMinor AS receivedMinor,
+      t.categoryId, t.note
+      FROM transactions t
+      JOIN legs source ON source.transactionId = t.id AND source.amountMinor < 0
+      JOIN legs destination ON destination.transactionId = t.id AND destination.amountMinor > 0
+      ${id === undefined ? '' : 'WHERE t.id = ?'} ORDER BY t.id`,
+    )
+    .all(...(id === undefined ? [] : [id]))
+    .map((row) => ({ ...row }));
 const tx = {
   getFirstAsync: async (sql, params) => sqlite.prepare(sql).get(...params) ?? null,
   getAllAsync: async (sql, params) => sqlite.prepare(sql).all(...params),
@@ -61,28 +75,19 @@ const { addTransfer, loadTransfer, saveTransferEdit } = await import('./transfer
 
 test('saves one same-currency transfer with a local date and no category', async () => {
   await addTransfer({ amountMinor: 1234, fromAccountId: 1, toAccountId: 2, note: '  rent  ' });
-  const rows = sqlite
-    .prepare(
-      'SELECT type, amountMinor, date, accountId, transferAccountId, categoryId, note FROM transactions',
-    )
-    .all();
   const today = new Date();
-  assert.deepEqual(
-    rows.map((row) => ({ ...row })),
-    [
-      {
-        type: 'TRANSFER',
-        amountMinor: 1234,
-        date: Math.floor(
-          Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()) / 86400000,
-        ),
-        accountId: 1,
-        transferAccountId: 2,
-        categoryId: null,
-        note: 'rent',
-      },
-    ],
-  );
+  assert.deepEqual(transfers(), [
+    {
+      kind: 'TRANSFER',
+      amountMinor: 1234,
+      date: Math.floor(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()) / 86400000),
+      accountId: 1,
+      transferAccountId: 2,
+      receivedMinor: 1234,
+      categoryId: null,
+      note: 'rent',
+    },
+  ]);
 });
 
 test('a new Transfer tells listeners its id, date and both Accounts', async (t) => {
@@ -119,25 +124,24 @@ test('invalid accounts, currency and amount leave the database unchanged', async
 });
 
 function insertTransfer() {
-  return Number(
-    sqlite
-      .prepare(
-        `INSERT INTO transactions (type, amountMinor, date, accountId, transferAccountId, categoryId, note)
-    VALUES ('TRANSFER', 500, 20000, 1, 2, NULL, 'move')`,
-      )
-      .run().lastInsertRowid,
-  );
+  return addTransaction(sqlite, {
+    type: 'TRANSFER',
+    amountMinor: 500,
+    date: 20000,
+    accountId: 1,
+    transferAccountId: 2,
+    note: 'move',
+  });
 }
 
 test('loads a transfer with both account names and nothing else', async () => {
   const id = insertTransfer();
-  const expense = Number(
-    sqlite
-      .prepare(
-        `INSERT INTO transactions (type, amountMinor, date, accountId) VALUES ('EXPENSE', 1, 20000, 1)`,
-      )
-      .run().lastInsertRowid,
-  );
+  const expense = addTransaction(sqlite, {
+    type: 'EXPENSE',
+    amountMinor: 1,
+    date: 20000,
+    accountId: 1,
+  });
   assert.deepEqual(
     { ...(await loadTransfer(id)) },
     {
@@ -169,24 +173,18 @@ test('saves edited amount, accounts, date and note', async () => {
     date: 19990,
     note: '  rent  ',
   });
-  assert.deepEqual(
+  assert.deepEqual(transfers(id), [
     {
-      ...sqlite
-        .prepare(
-          'SELECT type, amountMinor, date, accountId, transferAccountId, categoryId, note FROM transactions WHERE id = ?',
-        )
-        .get(id),
-    },
-    {
-      type: 'TRANSFER',
+      kind: 'TRANSFER',
       amountMinor: 750,
       date: 19990,
       accountId: 4,
       transferAccountId: 1,
+      receivedMinor: 750,
       categoryId: null,
       note: 'rent',
     },
-  );
+  ]);
   await saveTransferEdit(await loadTransfer(id), {
     amountMinor: 750,
     fromAccountId: 4,
@@ -200,7 +198,7 @@ test('saves edited amount, accounts, date and note', async () => {
 test('rejects invalid transfer edits and stale originals without changes', async () => {
   const id = insertTransfer();
   const original = await loadTransfer(id);
-  const row = () => ({ ...sqlite.prepare('SELECT * FROM transactions WHERE id = ?').get(id) });
+  const row = () => transfers(id)[0];
   const before = row();
   const valid = { amountMinor: 600, fromAccountId: 1, toAccountId: 2, date: 20000, note: null };
   for (const input of [
@@ -215,7 +213,9 @@ test('rejects invalid transfer edits and stale originals without changes', async
     await assert.rejects(() => saveTransferEdit(original, input));
     assert.deepEqual(row(), before);
   }
-  sqlite.prepare('UPDATE transactions SET amountMinor = 501 WHERE id = ?').run(id);
+  sqlite
+    .prepare('UPDATE legs SET amountMinor = -501 WHERE transactionId = ? AND amountMinor < 0')
+    .run(id);
   await assert.rejects(() => saveTransferEdit(original, valid), /changed or removed/);
   assert.equal(row().amountMinor, 501);
 });
@@ -231,7 +231,7 @@ test('quick transfer keeps the chosen day and tags, and rejects invalid drafts a
   });
   const rows = sqlite
     .prepare(
-      'SELECT t.date, tags.name FROM transactions t JOIN transaction_tags tt ON tt.transactionId=t.id JOIN tags ON tags.id=tt.tagId WHERE t.amountMinor=325',
+      'SELECT t.date, tags.name FROM transactions t JOIN legs l ON l.transactionId=t.id JOIN transaction_tags tt ON tt.transactionId=t.id JOIN tags ON tags.id=tt.tagId WHERE l.amountMinor=-325',
     )
     .all();
   assert.deepEqual(

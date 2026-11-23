@@ -6,7 +6,7 @@ import { registerHooks, stripTypeScriptTypes } from 'node:module';
 const db = new DatabaseSync(':memory:');
 let failCommit = false;
 db.exec(
-  'CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT NOT NULL, currencyCode TEXT NOT NULL, openingBalanceMinor INTEGER NOT NULL DEFAULT 0, isFavorite INTEGER NOT NULL DEFAULT 0)',
+  'CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT NOT NULL, currencyCode TEXT NOT NULL, openingBalanceMinor INTEGER NOT NULL DEFAULT 0); CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
 );
 db.exec(
   'CREATE TABLE credit_cards (accountId INTEGER PRIMARY KEY, parentAccountId INTEGER, statementDay INTEGER, dueDay INTEGER)',
@@ -42,7 +42,7 @@ registerHooks({
       return {
         format: 'module',
         source:
-          'export const database = async () => globalThis.__accountsTestDb; export async function setFavoriteAccount(id) { const row = globalThis.__accountsTestDb; const accounts = await row.getAllAsync("SELECT id FROM accounts"); if (!accounts.some(a => a.id === id)) throw Error("Account not found."); await row.runAsync("UPDATE accounts SET isFavorite = CASE WHEN id = ? THEN 1 ELSE 0 END", [id]); }',
+          'export const database = async () => globalThis.__accountsTestDb; export const isFavoriteSql = (a) => `(${a}.id IS (SELECT CAST(value AS INTEGER) FROM app_settings WHERE key = \'favoriteAccountId\'))`; export async function setFavoriteAccount(id) { const row = globalThis.__accountsTestDb; const accounts = await row.getAllAsync("SELECT id FROM accounts"); if (!accounts.some(a => a.id === id)) throw Error("Account not found."); await row.runAsync("INSERT OR REPLACE INTO app_settings (key, value) VALUES (\'favoriteAccountId\', ?)", [String(id)]); }',
         shortCircuit: true,
       };
     if (url.endsWith('.ts')) {

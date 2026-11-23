@@ -4,6 +4,8 @@ import { database } from './database';
 import type { LendingLabel } from './transaction-format';
 import { parseQuickAddTags } from './quick-add-tags';
 import { findOrCreateTag } from './tag-store';
+import { accountTransactions, loadTransaction, updateTransaction } from './ledger-store.ts';
+import type { Transaction } from './ledger.ts';
 
 export type EditableTransaction = LendingLabel & {
   id: number;
@@ -25,7 +27,35 @@ export type EditableTransaction = LendingLabel & {
 
 export type LineItem = { id?: number; name: string; amountMinor: number; quantity: number | null };
 
-const principalReportExclusion = `EXISTS (SELECT 1 FROM lending_entries WHERE transactionId = t.id)`;
+// Lending is never in reports, so its report exclusion is locked.
+const editableRead = `SELECT t.id, t.type, t.amountMinor, t.date, t.accountId, t.categoryId,
+  a.name AS accountName, a.currencyCode, c.name AS categoryName, t.note, t.excludeFromReport,
+  t.personId, t.lendingKind, person.name AS personName,
+  CASE WHEN t.kind = 'LENDING' THEN 1 ELSE 0 END AS reportExclusionLocked
+  FROM ${accountTransactions} t JOIN accounts a ON a.id = t.accountId
+  LEFT JOIN categories c ON c.id = t.categoryId
+  LEFT JOIN people person ON person.id = t.personId
+  WHERE t.id = ? AND t.type IN ('EXPENSE', 'INCOME')`;
+type EditableRow = Omit<EditableTransaction, 'tags' | 'lineItems'>;
+
+/** The Transaction with a new amount, note and report exclusion. */
+function edited(
+  transaction: Transaction,
+  amountMinor: number,
+  note: string | null,
+  excludeFromReport: boolean,
+): Transaction {
+  switch (transaction.kind) {
+    case 'EXPENSE':
+    case 'INCOME':
+    case 'REIMBURSEMENT':
+      return { ...transaction, amountMinor, note, excludeFromReport };
+    case 'LENDING':
+      return { ...transaction, amountMinor, note };
+    default:
+      throw new Error('Transfers cannot be edited here.');
+  }
+}
 
 function validateLineItems(items: LineItem[]) {
   const ids = new Set<number>();
@@ -50,18 +80,7 @@ function validId(id: number) {
 export async function loadEditableTransaction(id: number): Promise<EditableTransaction | null> {
   validId(id);
   const db = await database();
-  const row = await db.getFirstAsync<Omit<EditableTransaction, 'tags' | 'lineItems'>>(
-    `SELECT t.id, t.type, t.amountMinor, t.date, t.accountId, t.categoryId, a.name AS accountName,
-    a.currencyCode, c.name AS categoryName, t.note, t.excludeFromReport,
-    lending.personId, lending.kind AS lendingKind, person.name AS personName,
-    CASE WHEN ${principalReportExclusion} THEN 1 ELSE 0 END AS reportExclusionLocked
-    FROM transactions t JOIN accounts a ON a.id = t.accountId
-    LEFT JOIN categories c ON c.id = t.categoryId
-    LEFT JOIN lending_entries lending ON lending.transactionId = t.id
-    LEFT JOIN people person ON person.id = lending.personId
-    WHERE t.id = ? AND t.type IN ('EXPENSE', 'INCOME')`,
-    [id],
-  );
+  const row = await db.getFirstAsync<EditableRow>(editableRead, [id]);
   if (!row) return null;
   const tags = await db.getAllAsync<{ id: number; name: string }>(
     `SELECT tags.id, tags.name FROM tags
@@ -132,31 +151,26 @@ export async function saveTransactionEdit(
       })
     )
       throw new Error('Transaction was changed or removed. Reload before saving.');
-    const result = await tx.runAsync(
-      `UPDATE transactions AS t SET amountMinor = ?, note = ?, excludeFromReport = CASE
-        WHEN ${principalReportExclusion} THEN 1 ELSE ? END
-      WHERE id = ? AND type = ? AND amountMinor = ? AND date = ? AND accountId = ?
-        AND categoryId IS ? AND note IS ? AND excludeFromReport = ?
-        AND (SELECT personId FROM lending_entries WHERE transactionId = t.id) IS ?
-        AND (SELECT kind FROM lending_entries WHERE transactionId = t.id) IS ?`,
-      [
-        amountMinor,
-        note.trim() || null,
-        Number(excludeFromReport),
-        original.id,
-        original.type,
-        original.amountMinor,
-        original.date,
-        original.accountId,
-        original.categoryId,
-        original.note,
-        original.excludeFromReport,
-        original.personId ?? null,
-        original.lendingKind ?? null,
-      ],
-    );
-    if (result.changes !== 1)
+    const row = await tx.getFirstAsync<EditableRow>(editableRead, [original.id]);
+    const transaction = row && (await loadTransaction(tx, original.id));
+    if (
+      !row ||
+      !transaction ||
+      row.type !== original.type ||
+      row.amountMinor !== original.amountMinor ||
+      row.date !== original.date ||
+      row.accountId !== original.accountId ||
+      row.categoryId !== original.categoryId ||
+      row.note !== original.note ||
+      row.excludeFromReport !== original.excludeFromReport ||
+      row.personId !== (original.personId ?? null) ||
+      row.lendingKind !== (original.lendingKind ?? null)
+    )
       throw new Error('Transaction was changed or removed. Reload before saving.');
+    await updateTransaction(
+      tx,
+      edited(transaction, amountMinor, note.trim() || null, excludeFromReport),
+    );
     const ids: number[] = [];
     for (const name of names) {
       ids.push(await findOrCreateTag(tx, name));

@@ -1,83 +1,40 @@
 import { defaultCurrencyCode } from './currency.ts';
 import { notifyDataChanged } from './data-changes.ts';
+import { openLedger } from './legs-migration.ts';
 import * as SQLite from 'expo-sqlite';
 
 export type Account = { id: number; name: string; currencyCode: string; isFavorite: number };
-export type Category = { id: number; name: string; type: 'EXPENSE' | 'INCOME' };
-export type TransactionRow = {
-  id: number;
-  type: 'EXPENSE' | 'INCOME' | 'TRANSFER';
-  amountMinor: number;
-  date: number;
-  accountName: string;
-  categoryName: string | null;
-  note: string | null;
-};
+
+/** SQL for the id of the favorite Account, or null. */
+export const favoriteAccountIdSql =
+  "(SELECT CAST(value AS INTEGER) FROM app_settings WHERE key = 'favoriteAccountId')";
+/** SQL that is 1 for the favorite Account and 0 for the others. */
+export const isFavoriteSql = (account: string) => `(${account}.id IS ${favoriteAccountIdSql})`;
+
+/** Writes the v1 backup before the migration. The module loads only when a migration runs. */
+async function saveBackupBeforeMigration(json: string) {
+  const { writePreMigrationBackup } = await import('./pre-migration-backup.ts');
+  await writePreMigrationBackup(json);
+}
 
 let connection: Promise<SQLite.SQLiteDatabase> | undefined;
+/**
+ * Opens the database. The promise resolves only after the schema is ready. A database
+ * with the old schema is migrated first, so no other read can run inside the migration.
+ */
 export function database() {
   connection ??= SQLite.openDatabaseAsync('expense-poc.db')
     .then(async (db) => {
-      await db.execAsync(`PRAGMA foreign_keys = ON;
-      CREATE TABLE IF NOT EXISTS accounts (id INTEGER PRIMARY KEY, name TEXT NOT NULL, currencyCode TEXT NOT NULL, openingBalanceMinor INTEGER NOT NULL DEFAULT 0, isFavorite INTEGER NOT NULL DEFAULT 0);
-      CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, parentId INTEGER REFERENCES categories(id) ON DELETE SET NULL, iconKey TEXT, needsReview INTEGER NOT NULL DEFAULT 0);
-      CREATE TABLE IF NOT EXISTS transactions (id INTEGER PRIMARY KEY, type TEXT NOT NULL, amountMinor INTEGER NOT NULL CHECK(amountMinor > 0), date INTEGER NOT NULL, accountId INTEGER NOT NULL REFERENCES accounts(id), transferAccountId INTEGER REFERENCES accounts(id), categoryId INTEGER REFERENCES categories(id) ON DELETE SET NULL, note TEXT, excludeFromReport INTEGER NOT NULL DEFAULT 0, source TEXT NOT NULL DEFAULT 'MANUAL');
-      CREATE INDEX IF NOT EXISTS transactions_date ON transactions(date);
-      CREATE TABLE IF NOT EXISTS line_items (id INTEGER PRIMARY KEY, transactionId INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE, name TEXT NOT NULL, amountMinor INTEGER NOT NULL, quantity REAL);
-      CREATE TABLE IF NOT EXISTS tags (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE);
-      CREATE TABLE IF NOT EXISTS transaction_tags (transactionId INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE, tagId INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE, PRIMARY KEY(transactionId, tagId));
-      CREATE TABLE IF NOT EXISTS transfer_candidates (id INTEGER PRIMARY KEY, outgoingTxnId INTEGER NOT NULL, incomingTxnId INTEGER NOT NULL, confidenceNote TEXT NOT NULL, resolved INTEGER NOT NULL DEFAULT 0);
-      CREATE TABLE IF NOT EXISTS moneylover_import_rows (rowKey TEXT PRIMARY KEY, transactionId INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE);
-      CREATE TABLE IF NOT EXISTS people (id INTEGER PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE UNIQUE CHECK(length(trim(name)) > 0));
-      CREATE TABLE IF NOT EXISTS lending_entries (id INTEGER PRIMARY KEY, personId INTEGER NOT NULL REFERENCES people(id), kind TEXT NOT NULL CHECK(kind IN ('LEND','BORROW','RECEIVE_REPAYMENT','REPAY','WRITE_OFF_LENT','WRITE_OFF_BORROWED')), transactionId INTEGER UNIQUE REFERENCES transactions(id) ON DELETE CASCADE, currencyCode TEXT NOT NULL, amountMinor INTEGER NOT NULL CHECK(amountMinor > 0), date INTEGER NOT NULL, note TEXT, CHECK((kind IN ('WRITE_OFF_LENT','WRITE_OFF_BORROWED') AND transactionId IS NULL) OR (kind IN ('LEND','BORROW','RECEIVE_REPAYMENT','REPAY') AND transactionId IS NOT NULL)));
-      CREATE INDEX IF NOT EXISTS lending_entries_person ON lending_entries(personId);
-      CREATE TABLE IF NOT EXISTS credit_cards (accountId INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE, parentAccountId INTEGER REFERENCES accounts(id), statementDay INTEGER CHECK(statementDay BETWEEN 1 AND 31), dueDay INTEGER CHECK(dueDay BETWEEN 1 AND 31), CHECK(accountId != parentAccountId));
-      CREATE TABLE IF NOT EXISTS split_shares (expenseId INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE, personId INTEGER NOT NULL REFERENCES people(id), amountMinor INTEGER NOT NULL CHECK(amountMinor >= 0), PRIMARY KEY(expenseId, personId));
-      CREATE TABLE IF NOT EXISTS reimbursements (transactionId INTEGER PRIMARY KEY REFERENCES transactions(id) ON DELETE CASCADE, expenseId INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE, personId INTEGER, FOREIGN KEY(expenseId, personId) REFERENCES split_shares(expenseId, personId) ON DELETE CASCADE);
-      CREATE INDEX IF NOT EXISTS reimbursements_expense_person ON reimbursements(expenseId, personId);
-      CREATE VIEW IF NOT EXISTS split_share_progress AS
-        SELECT expenseId, personId, amountMinor, paidMinor, MAX(0, amountMinor - paidMinor) AS leftMinor
-        FROM (SELECT s.*, COALESCE((
-          SELECT SUM(t.amountMinor) FROM reimbursements r
-          JOIN transactions t ON t.id = r.transactionId
-          WHERE r.expenseId = s.expenseId AND r.personId = s.personId
-        ), 0) AS paidMinor FROM split_shares s);
-      DROP VIEW IF EXISTS report_transactions;
-      CREATE VIEW report_transactions AS
-        SELECT t.id, t.accountId, t.date,
-          CASE WHEN r.transactionId IS NULL THEN t.categoryId ELSE expense.categoryId END AS categoryId,
-          CASE WHEN t.type = 'EXPENSE' THEN t.amountMinor
-            WHEN r.transactionId IS NOT NULL THEN -t.amountMinor END AS spendingMinor,
-          CASE WHEN t.type = 'INCOME' AND r.transactionId IS NULL THEN t.amountMinor ELSE 0 END AS incomeMinor
-        FROM transactions t LEFT JOIN reimbursements r ON r.transactionId = t.id
-        LEFT JOIN transactions expense ON expense.id = r.expenseId
-        WHERE t.type IN ('EXPENSE', 'INCOME') AND t.excludeFromReport = 0
-          AND (r.transactionId IS NULL OR expense.excludeFromReport = 0);
-      -- Expo opens a separate connection for exclusive writes, where foreign_keys may be off.
-      CREATE TRIGGER IF NOT EXISTS remove_reimbursement_metadata AFTER DELETE ON transactions BEGIN
-        DELETE FROM reimbursements WHERE transactionId = OLD.id OR expenseId = OLD.id;
-        DELETE FROM split_shares WHERE expenseId = OLD.id;
-      END;
-      CREATE TRIGGER IF NOT EXISTS keep_reimbursed_expense BEFORE DELETE ON transactions
-        WHEN EXISTS (SELECT 1 FROM reimbursements WHERE expenseId = OLD.id)
-        BEGIN SELECT RAISE(ABORT, 'This expense has linked reimbursements. Delete them first.'); END;
-      CREATE TRIGGER IF NOT EXISTS preserve_reimbursement_expense BEFORE UPDATE OF type, accountId ON transactions
-        WHEN (NEW.type <> OLD.type OR
-          (SELECT currencyCode FROM accounts WHERE id = NEW.accountId) <>
-          (SELECT currencyCode FROM accounts WHERE id = OLD.accountId))
-        AND (EXISTS (SELECT 1 FROM reimbursements WHERE expenseId = OLD.id)
-          OR EXISTS (SELECT 1 FROM split_shares WHERE expenseId = OLD.id))
-        BEGIN SELECT RAISE(ABORT, 'Cannot change the type or currency of a split or reimbursed expense'); END;
-      CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);`);
-      const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(transactions)');
-      if (!columns.some((column) => column.name === 'receivedAmountMinor'))
-        await db.execAsync(
-          'ALTER TABLE transactions ADD COLUMN receivedAmountMinor INTEGER CHECK(receivedAmountMinor > 0)',
-        );
-      await db.runAsync(
-        "INSERT INTO accounts (name, currencyCode, isFavorite) SELECT 'Cash', ?, 1 WHERE NOT EXISTS (SELECT 1 FROM accounts)",
+      await openLedger(db, saveBackupBeforeMigration);
+      const cash = await db.runAsync(
+        "INSERT INTO accounts (name, currencyCode) SELECT 'Cash', ? WHERE NOT EXISTS (SELECT 1 FROM accounts)",
         [defaultCurrencyCode],
       );
+      // The new Cash Account is the only Account, and it is the favorite.
+      if (cash.changes === 1)
+        await db.runAsync(
+          "INSERT OR REPLACE INTO app_settings (key, value) SELECT 'favoriteAccountId', json(MAX(id)) FROM accounts",
+        );
       await db.runAsync(
         "INSERT INTO categories (name, type) SELECT 'Other', 'EXPENSE' WHERE NOT EXISTS (SELECT 1 FROM categories WHERE type = 'EXPENSE')",
       );
@@ -92,17 +49,8 @@ export function database() {
 
 export async function listAccounts() {
   return (await database()).getAllAsync<Account>(
-    'SELECT id, name, currencyCode, isFavorite FROM accounts ORDER BY isFavorite DESC, name, id',
-  );
-}
-export async function listCategories(type: 'EXPENSE' | 'INCOME') {
-  return (await database()).getAllAsync<Category>(
-    `SELECT c.id, c.name, c.type FROM categories c
-    LEFT JOIN transactions t ON t.id = (
-      SELECT id FROM transactions WHERE categoryId = c.id AND type = c.type ORDER BY date DESC, id DESC LIMIT 1
-    ) WHERE c.type = ?
-    ORDER BY t.date DESC, t.id DESC, c.name COLLATE NOCASE, c.id`,
-    [type],
+    `SELECT a.id, a.name, a.currencyCode, ${isFavoriteSql('a')} AS isFavorite FROM accounts a
+    ORDER BY isFavorite DESC, a.name, a.id`,
   );
 }
 export async function setFavoriteAccount(accountId: number) {
@@ -112,24 +60,12 @@ export async function setFavoriteAccount(accountId: number) {
       accountId,
     ]);
     if (!account) throw new Error('Account not found.');
-    await tx.runAsync('UPDATE accounts SET isFavorite = CASE WHEN id = ? THEN 1 ELSE 0 END', [
-      accountId,
-    ]);
-    const settings = await tx.getFirstAsync<{ value: string }>(
-      "SELECT value FROM app_settings WHERE key = 'backupSettings'",
+    await tx.runAsync(
+      "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('favoriteAccountId', json(?))",
+      [accountId],
     );
-    if (settings) {
-      await tx.runAsync("UPDATE app_settings SET value = ? WHERE key = 'backupSettings'", [
-        JSON.stringify({ ...JSON.parse(settings.value), favoriteAccountId: accountId }),
-      ]);
-    }
   });
   notifyDataChanged();
-}
-export async function recentTransactions() {
-  return (await database())
-    .getAllAsync<TransactionRow>(`SELECT t.id, t.type, t.amountMinor, t.date, a.name AS accountName, c.name AS categoryName, t.note
-    FROM transactions t JOIN accounts a ON a.id = t.accountId LEFT JOIN categories c ON c.id = t.categoryId ORDER BY t.date DESC, t.id DESC LIMIT 50`);
 }
 export function epochDay(date: Date) {
   return Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000);

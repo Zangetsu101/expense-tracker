@@ -12,6 +12,8 @@ registerHooks({
     if (specifier === 'react-native') return { url: 'test:platform', shortCircuit: true };
     if (specifier === 'expo-sharing') return { url: 'test:sharing', shortCircuit: true };
     if (specifier === '@/lib/database') return { url: 'test:database', shortCircuit: true };
+    if (specifier === '@/lib/ledger-store')
+      return { url: pathToFileURL(resolve(root, 'ledger-store.ts')).href, shortCircuit: true };
     return nextResolve(specifier, context);
   },
   load(url, context, nextLoad) {
@@ -44,7 +46,7 @@ registerHooks({
         source: 'export const database = async () => ({ getAllAsync: globalThis.__rows });',
         shortCircuit: true,
       };
-    if (url.endsWith('/export-csv.ts'))
+    if (url.endsWith('.ts'))
       return {
         format: 'module',
         source: stripTypeScriptTypes(readFileSync(fileURLToPath(url), 'utf8')),

@@ -13,6 +13,7 @@ const adapter = {
       .all(...params)
       .map((row) => ({ ...row })),
   getFirstAsync: async (sql, params = []) => sqlite.prepare(sql).get(...params) ?? null,
+  isInTransactionSync: () => sqlite.isTransaction,
 };
 globalThis.__reportsSqliteAdapter = adapter;
 registerHooks({
@@ -41,6 +42,7 @@ registerHooks({
   },
 });
 const { database, epochDay } = await import('./database.ts');
+const { addTransaction } = await import('../test/ledger-rows.ts');
 const { accountBalances, rangeReport, spendDays } = await import('./reports.ts');
 // setUTCFullYear keeps years 1–99, unlike the Date constructor with many arguments.
 const monthRange = (year, month) => {
@@ -68,13 +70,19 @@ const add = (
   categoryId = null,
   excluded = 0,
   transferAccountId = null,
+  reimburses = undefined,
 ) =>
-  sqlite
-    .prepare(
-      `INSERT INTO transactions (id, type, amountMinor, date, accountId, categoryId, excludeFromReport, transferAccountId)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(id, type, amount, date, accountId, categoryId, excluded, transferAccountId);
+  addTransaction(sqlite, {
+    id,
+    type,
+    amountMinor: amount,
+    date,
+    accountId,
+    categoryId,
+    excludeFromReport: excluded,
+    transferAccountId,
+    reimburses,
+  });
 
 add(1, 'EXPENSE', 100, day(2025, 1, 1), 1, 1);
 sqlite
@@ -429,9 +437,8 @@ test('display rate combines SQLite report totals without altering per-currency a
 
 test('linked money lowers the original category in the month it arrived', async () => {
   add(910, 'EXPENSE', 30000, day(2025, 10, 31), 1, 1);
-  add(911, 'INCOME', 7000, day(2025, 11, 1), 2);
+  add(911, 'INCOME', 7000, day(2025, 11, 1), 2, null, 0, null, { expenseId: 910, personId: null });
   add(912, 'INCOME', 10000, day(2025, 11, 2), 2, 2);
-  sqlite.exec('INSERT INTO reimbursements (transactionId, expenseId) VALUES (911, 910)');
   const october = await monthlyReport(2025, 10);
   const november = await monthlyReport(2025, 11);
   assert.equal(october.spending.find((row) => row.categoryId === 1).amountMinor, 30000);
@@ -457,10 +464,8 @@ test('linked money lowers the original category in the month it arrived', async 
 });
 
 test('money linked to an excluded expense does not change reports', async () => {
-  add(920, 'EXPENSE', 40000, day(2025, 12, 1), 1, 1);
-  add(921, 'INCOME', 4000, day(2025, 12, 2), 2);
-  sqlite.exec('UPDATE transactions SET excludeFromReport = 1 WHERE id = 920');
-  sqlite.exec('INSERT INTO reimbursements (transactionId, expenseId) VALUES (921, 920)');
+  add(920, 'EXPENSE', 40000, day(2025, 12, 1), 1, 1, 1);
+  add(921, 'INCOME', 4000, day(2025, 12, 2), 2, null, 0, null, { expenseId: 920, personId: null });
   const december = await monthlyReport(2025, 12);
   assert.deepEqual(december.spending, []);
   assert.deepEqual(december.summaries, []);
@@ -468,8 +473,7 @@ test('money linked to an excluded expense does not change reports', async () => 
 
 test('an expense with linked reimbursements cannot be deleted', async () => {
   add(930, 'EXPENSE', 5000, day(2026, 1, 3), 1, 1);
-  add(931, 'INCOME', 1000, day(2026, 1, 4), 2);
-  sqlite.exec('INSERT INTO reimbursements (transactionId, expenseId) VALUES (931, 930)');
+  add(931, 'INCOME', 1000, day(2026, 1, 4), 2, null, 0, null, { expenseId: 930, personId: null });
   assert.throws(
     () => sqlite.exec('DELETE FROM transactions WHERE id = 930'),
     /linked reimbursements/,
