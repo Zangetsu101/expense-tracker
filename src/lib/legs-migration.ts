@@ -1,6 +1,7 @@
 // The move from the old schema to the legs model (ADR 0013), and the restore of v1 backup
-// rows. Both put old rows in TEMP tables named legacy_* and run the same fill SQL, so the
-// migration and the restore share one mapping.
+// rows. Both put the old rows in TEMP tables named legacy_*, clean them with the same SQL,
+// and run the same fill SQL. So the migration, the restore and the backup before the
+// migration share one mapping.
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { encodeBackup, type BackupData } from './backup.ts';
 import { LEGS_SCHEMA_VERSION, legsSchema } from './legs-schema.ts';
@@ -31,9 +32,9 @@ CREATE TABLE IF NOT EXISTS reimbursements (transactionId INTEGER PRIMARY KEY REF
 CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);`;
 
 /**
- * The columns of the old tables that the fill SQL reads, with their types. A restore fills
- * TEMP tables of these shapes from a backup. The types give the columns the same affinity
- * as the old tables, so a number from JavaScript is stored as an INTEGER.
+ * The old tables, with the columns and types that the backup, the cleaning and the fill
+ * use. The types give the TEMP copies the affinity of the old tables, so a number from
+ * JavaScript is stored as an INTEGER.
  */
 const legacyTables = {
   accounts: {
@@ -43,7 +44,14 @@ const legacyTables = {
     openingBalanceMinor: 'INTEGER',
     isFavorite: 'INTEGER',
   },
-  categories: { id: 'INTEGER', name: 'TEXT', type: 'TEXT', parentId: 'INTEGER', iconKey: 'TEXT' },
+  categories: {
+    id: 'INTEGER',
+    name: 'TEXT',
+    type: 'TEXT',
+    parentId: 'INTEGER',
+    iconKey: 'TEXT',
+    needsReview: 'INTEGER',
+  },
   transactions: {
     id: 'INTEGER',
     type: 'TEXT',
@@ -55,8 +63,26 @@ const legacyTables = {
     categoryId: 'INTEGER',
     note: 'TEXT',
     excludeFromReport: 'INTEGER',
+    source: 'TEXT',
+  },
+  line_items: {
+    id: 'INTEGER',
+    transactionId: 'INTEGER',
+    name: 'TEXT',
+    amountMinor: 'INTEGER',
+    quantity: 'REAL',
   },
   tags: { id: 'INTEGER', name: 'TEXT' },
+  transaction_tags: { transactionId: 'INTEGER', tagId: 'INTEGER' },
+  transfer_candidates: {
+    id: 'INTEGER',
+    outgoingTxnId: 'INTEGER',
+    incomingTxnId: 'INTEGER',
+    confidenceNote: 'TEXT',
+    resolved: 'INTEGER',
+  },
+  moneylover_import_rows: { rowKey: 'TEXT', transactionId: 'INTEGER' },
+  people: { id: 'INTEGER', name: 'TEXT' },
   lending_entries: {
     id: 'INTEGER',
     personId: 'INTEGER',
@@ -67,34 +93,115 @@ const legacyTables = {
     date: 'INTEGER',
     note: 'TEXT',
   },
+  credit_cards: {
+    accountId: 'INTEGER',
+    parentAccountId: 'INTEGER',
+    statementDay: 'INTEGER',
+    dueDay: 'INTEGER',
+  },
+  split_shares: { expenseId: 'INTEGER', personId: 'INTEGER', amountMinor: 'INTEGER' },
   reimbursements: { transactionId: 'INTEGER', expenseId: 'INTEGER', personId: 'INTEGER' },
   app_settings: { key: 'TEXT', value: 'TEXT' },
 };
 type LegacyTable = keyof typeof legacyTables;
 const legacyNames = Object.keys(legacyTables) as LegacyTable[];
-/** The old tables that the legs schema replaces. The other old tables stay as they are. */
-const replacedTables = [
-  'accounts',
-  'categories',
-  'transactions',
-  'tags',
-  'lending_entries',
-  'transfer_candidates',
-  'moneylover_import_rows',
-];
+const columnsOf = (table: LegacyTable) => Object.keys(legacyTables[table]);
 
-// Write-offs get new Transaction ids after the highest old id, in lending entry order.
-const writeOffId = '(SELECT COALESCE(MAX(id), 0) FROM legacy_transactions) + e.id';
+/** Makes an empty TEMP copy of each old table, named legacy_*. */
+async function createLegacyTables(db: Connection) {
+  await dropLegacyTables(db);
+  await db.execAsync(
+    legacyNames
+      .map(
+        (table) =>
+          `CREATE TEMP TABLE legacy_${table} (${Object.entries(legacyTables[table])
+            .map(([column, type]) => `${column} ${type}`)
+            .join(', ')});`,
+      )
+      .join('\n'),
+  );
+}
+
+/** Copies the old tables of the main database to the TEMP tables. */
+async function copyLegacyTables(db: Connection) {
+  await createLegacyTables(db);
+  for (const table of legacyNames) {
+    const columns = columnsOf(table).join(', ');
+    await db.execAsync(
+      `INSERT INTO temp.legacy_${table} (${columns}) SELECT ${columns} FROM main.${table}`,
+    );
+  }
+}
+
+async function dropLegacyTables(db: Connection) {
+  await db.execAsync(
+    [...legacyNames, 'write_offs']
+      .map((table) => `DROP TABLE IF EXISTS temp.legacy_${table};`)
+      .join('\n'),
+  );
+}
 
 /**
- * Fills the legs schema from the legacy_* TEMP tables. The main tables people, split_shares
- * and the device-local rows of app_settings must already hold their rows. The mapping is
- * the spec in the ADR: each old Transaction keeps its id, lending entries become legs, and
- * each write-off becomes a Transaction.
+ * Cleans the TEMP copies of the old tables. The old app wrote on Expo's connection for
+ * exclusive writes, where foreign keys are off, so the foreign key actions of the old
+ * schema did not always run. This SQL does what they would have done. It decides with the
+ * old ids only, before a Write-off gets a new id, so no row can move to another Transaction.
+ *
+ * - ON DELETE SET NULL: a missing parent Category, or a missing Category of a Transaction.
+ * - ON DELETE CASCADE: Line Items, tag links, import rows, lending entries, split shares and
+ *   reimbursements of a missing Transaction, a missing tag or a missing split share, and the
+ *   card settings of a missing Account.
+ * - The card parent had no action. A missing parent becomes no parent.
+ *
+ * The old schema compared tag names by case, and the legs schema does not. Tags whose names
+ * differ only by case become the tag with the lowest id, with all of their links.
+ *
+ * Transfer candidates have no foreign key and the backup does not check them. Accounts and
+ * people have no delete in the app, so no row can point to a missing one. If one does, the
+ * backup and the foreign key check stop the migration.
+ */
+const cleanLegacy = `
+UPDATE legacy_categories SET parentId = NULL
+  WHERE parentId NOT IN (SELECT id FROM legacy_categories);
+UPDATE legacy_transactions SET categoryId = NULL
+  WHERE categoryId NOT IN (SELECT id FROM legacy_categories);
+DELETE FROM legacy_line_items WHERE transactionId NOT IN (SELECT id FROM legacy_transactions);
+DELETE FROM legacy_transaction_tags
+  WHERE transactionId NOT IN (SELECT id FROM legacy_transactions)
+    OR tagId NOT IN (SELECT id FROM legacy_tags);
+DELETE FROM legacy_moneylover_import_rows
+  WHERE transactionId NOT IN (SELECT id FROM legacy_transactions);
+DELETE FROM legacy_lending_entries
+  WHERE transactionId IS NOT NULL AND transactionId NOT IN (SELECT id FROM legacy_transactions);
+DELETE FROM legacy_split_shares WHERE expenseId NOT IN (SELECT id FROM legacy_transactions);
+DELETE FROM legacy_reimbursements
+  WHERE transactionId NOT IN (SELECT id FROM legacy_transactions)
+    OR expenseId NOT IN (SELECT id FROM legacy_transactions)
+    OR (personId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM legacy_split_shares s
+      WHERE s.expenseId = legacy_reimbursements.expenseId
+        AND s.personId = legacy_reimbursements.personId));
+DELETE FROM legacy_credit_cards WHERE accountId NOT IN (SELECT id FROM legacy_accounts);
+UPDATE legacy_credit_cards SET parentAccountId = NULL
+  WHERE parentAccountId NOT IN (SELECT id FROM legacy_accounts);
+
+UPDATE legacy_transaction_tags SET tagId = (
+  SELECT MIN(same.id) FROM legacy_tags tag
+  JOIN legacy_tags same ON same.name = tag.name COLLATE NOCASE
+  WHERE tag.id = legacy_transaction_tags.tagId);
+DELETE FROM legacy_tags WHERE id > (
+  SELECT MIN(same.id) FROM legacy_tags same WHERE same.name = legacy_tags.name COLLATE NOCASE);
+`;
+
+/**
+ * Fills the legs schema from the cleaned legacy_* TEMP tables. The mapping is the spec in
+ * the ADR: each old Transaction keeps its id, lending entries become legs, and each
+ * Write-off becomes a Transaction. Device-local rows of app_settings stay.
  */
 const fillFromLegacy = `
 INSERT INTO accounts (id, name, currencyCode, openingBalanceMinor)
   SELECT id, name, currencyCode, openingBalanceMinor FROM legacy_accounts;
+INSERT INTO credit_cards (accountId, parentAccountId, statementDay, dueDay)
+  SELECT accountId, parentAccountId, statementDay, dueDay FROM legacy_credit_cards;
 
 -- Keep a category unless only lending Transactions use it. A category with a kept child
 -- is also kept, so the rule works up the tree.
@@ -114,6 +221,7 @@ INSERT INTO categories (id, name, type, parentId, iconKey)
   WHERE id IN (SELECT id FROM kept);
 
 INSERT INTO tags (id, name) SELECT id, name FROM legacy_tags;
+INSERT INTO people (id, name) SELECT id, name FROM legacy_people;
 
 INSERT INTO transactions (id, kind, direction, date, categoryId, note, excludeFromReport)
   SELECT t.id,
@@ -130,10 +238,15 @@ INSERT INTO transactions (id, kind, direction, date, categoryId, note, excludeFr
   LEFT JOIN legacy_lending_entries e ON e.transactionId = t.id
   LEFT JOIN legacy_reimbursements r ON r.transactionId = t.id;
 
-INSERT INTO transactions (id, kind, direction, date, note)
-  SELECT ${writeOffId}, 'WRITE_OFF',
-    CASE WHEN e.kind = 'WRITE_OFF_LENT' THEN 'LENT' ELSE 'BORROWED' END, e.date, e.note
+-- Write-offs get the next Transaction ids after the highest old id, in lending entry order.
+CREATE TEMP TABLE legacy_write_offs AS
+  SELECT e.*, (SELECT COALESCE(MAX(id), 0) FROM legacy_transactions)
+    + ROW_NUMBER() OVER (ORDER BY e.id) AS newId
   FROM legacy_lending_entries e WHERE e.transactionId IS NULL;
+INSERT INTO transactions (id, kind, direction, date, note)
+  SELECT newId, 'WRITE_OFF', CASE WHEN kind = 'WRITE_OFF_LENT' THEN 'LENT' ELSE 'BORROWED' END,
+    date, note
+  FROM legacy_write_offs;
 
 -- The Account leg of every old Transaction.
 INSERT INTO legs (transactionId, accountId, currencyCode, amountMinor)
@@ -155,11 +268,21 @@ INSERT INTO legs (transactionId, personId, currencyCode, amountMinor)
   JOIN legacy_transactions t ON t.id = e.transactionId
   JOIN accounts a ON a.id = t.accountId ORDER BY t.id;
 
--- A write-off has only a Person leg.
+-- A Write-off has only a Person leg.
 INSERT INTO legs (transactionId, personId, currencyCode, amountMinor)
-  SELECT ${writeOffId}, e.personId, e.currencyCode,
-    CASE WHEN e.kind = 'WRITE_OFF_LENT' THEN -e.amountMinor ELSE e.amountMinor END
-  FROM legacy_lending_entries e WHERE e.transactionId IS NULL ORDER BY e.id;
+  SELECT newId, personId, currencyCode,
+    CASE WHEN kind = 'WRITE_OFF_LENT' THEN -amountMinor ELSE amountMinor END
+  FROM legacy_write_offs ORDER BY newId;
+
+INSERT INTO line_items (id, transactionId, name, amountMinor, quantity)
+  SELECT id, transactionId, name, amountMinor, quantity FROM legacy_line_items;
+INSERT INTO transaction_tags (transactionId, tagId)
+  SELECT DISTINCT transactionId, tagId FROM legacy_transaction_tags;
+-- A reimbursement needs its split share and its kind, so it comes after both.
+INSERT INTO split_shares (expenseId, personId, amountMinor)
+  SELECT expenseId, personId, amountMinor FROM legacy_split_shares;
+INSERT INTO reimbursements (transactionId, expenseId, personId)
+  SELECT transactionId, expenseId, personId FROM legacy_reimbursements;
 
 -- One row for each portable setting. Device-local rows stay as they are.
 -- The favorite comes from the account flag, or else from the old settings JSON.
@@ -178,15 +301,6 @@ INSERT INTO app_settings (key, value)
   WHERE key = 'backupSettings' AND json_extract(value, '$.displayRate') IS NOT NULL;
 `;
 
-// The old app wrote on Expo's connection for exclusive writes, where foreign keys are off.
-// So a deleted Transaction could leave its Line Items and tag links, which ON DELETE
-// CASCADE would have removed. Old backups can have these rows too. Remove them before the
-// check of foreign keys.
-const removeOrphans = `
-DELETE FROM line_items WHERE transactionId NOT IN (SELECT id FROM transactions);
-DELETE FROM transaction_tags
-  WHERE transactionId NOT IN (SELECT id FROM transactions) OR tagId NOT IN (SELECT id FROM tags);`;
-
 // Rules that span several rows, so CHECKs and triggers cannot test them. Each query must
 // find no rows after a fill.
 const shape = `SELECT t.id, t.kind, t.direction,
@@ -197,6 +311,9 @@ const shape = `SELECT t.id, t.kind, t.direction,
     MIN(l.amountMinor) AS low, MAX(l.amountMinor) AS high
   FROM transactions t LEFT JOIN legs l ON l.transactionId = t.id GROUP BY t.id`;
 const ledgerChecks = {
+  // Read the id as text: a number above this limit has no exact JavaScript value.
+  'a Transaction id that is too large': `SELECT CAST(id AS TEXT) AS id FROM transactions
+    WHERE id > ${Number.MAX_SAFE_INTEGER}`,
   'a Transaction without legs': `SELECT t.id FROM transactions t
     WHERE NOT EXISTS (SELECT 1 FROM legs WHERE transactionId = t.id)`,
   'an Expense with the wrong legs': `SELECT id FROM (${shape}) WHERE kind = 'EXPENSE'
@@ -233,10 +350,6 @@ async function checkLedger(db: Connection) {
   }
 }
 
-async function dropLegacyTables(db: Connection) {
-  await db.execAsync(legacyNames.map((table) => `DROP TABLE temp.legacy_${table};`).join('\n'));
-}
-
 /** Runs the old schema setup, so that every old table and column exists. */
 async function setUpLegacySchema(db: Connection) {
   await db.execAsync(legacySchema);
@@ -247,8 +360,8 @@ async function setUpLegacySchema(db: Connection) {
     );
 }
 
-/** A v1 backup of a database with the old schema. */
-export async function legacySnapshot(db: Connection): Promise<BackupData> {
+/** A v1 backup of the cleaned legacy_* TEMP tables. */
+async function snapshotLegacyTables(db: Connection): Promise<BackupData> {
   const all = <T = Record<string, unknown>>(query: string) => db.getAllAsync<T>(query);
   const bool = (rows: Record<string, unknown>[], fields: string[]) =>
     rows.map((row) => {
@@ -258,49 +371,49 @@ export async function legacySnapshot(db: Connection): Promise<BackupData> {
     });
   const { favorite, settings, ...tables } = await readAll({
     favorite: db.getFirstAsync<{ id: number }>(
-      'SELECT id FROM accounts WHERE isFavorite = 1 LIMIT 1',
+      'SELECT id FROM legacy_accounts WHERE isFavorite = 1 ORDER BY id LIMIT 1',
     ),
     settings: db.getFirstAsync<{ value: string }>(
-      "SELECT value FROM app_settings WHERE key = 'backupSettings'",
+      "SELECT value FROM legacy_app_settings WHERE key = 'backupSettings'",
     ),
     accounts: all(
-      'SELECT id, name, currencyCode, openingBalanceMinor, isFavorite FROM accounts ORDER BY id',
+      'SELECT id, name, currencyCode, openingBalanceMinor, isFavorite FROM legacy_accounts ORDER BY id',
     ),
     categories: all(
-      'SELECT id, name, type, parentId, iconKey, needsReview FROM categories ORDER BY id',
+      'SELECT id, name, type, parentId, iconKey, needsReview FROM legacy_categories ORDER BY id',
     ),
     transactions: all(`SELECT id, type, amountMinor, receivedAmountMinor,
       date AS dateEpochDay, accountId, transferAccountId, categoryId, note, excludeFromReport, source
-      FROM transactions ORDER BY id`),
+      FROM legacy_transactions ORDER BY id`),
     lineItems: all(
-      'SELECT id, transactionId, name, amountMinor, quantity FROM line_items ORDER BY id',
+      'SELECT id, transactionId, name, amountMinor, quantity FROM legacy_line_items ORDER BY id',
     ),
-    tags: all('SELECT id, name FROM tags ORDER BY id'),
+    tags: all('SELECT id, name FROM legacy_tags ORDER BY id'),
     transactionTags: all(
-      'SELECT transactionId, tagId FROM transaction_tags ORDER BY transactionId, tagId',
+      'SELECT DISTINCT transactionId, tagId FROM legacy_transaction_tags ORDER BY transactionId, tagId',
     ),
     transferCandidates: all(
-      'SELECT id, outgoingTxnId, incomingTxnId, confidenceNote, resolved FROM transfer_candidates ORDER BY id',
+      'SELECT id, outgoingTxnId, incomingTxnId, confidenceNote, resolved FROM legacy_transfer_candidates ORDER BY id',
     ),
     moneyLoverImportRows: all(
-      'SELECT rowKey, transactionId FROM moneylover_import_rows ORDER BY rowKey',
+      'SELECT rowKey, transactionId FROM legacy_moneylover_import_rows ORDER BY rowKey',
     ),
     creditCards: all(
-      'SELECT accountId, parentAccountId, statementDay, dueDay FROM credit_cards ORDER BY accountId',
+      'SELECT accountId, parentAccountId, statementDay, dueDay FROM legacy_credit_cards ORDER BY accountId',
     ),
-    people: all('SELECT id, name FROM people ORDER BY id'),
+    people: all('SELECT id, name FROM legacy_people ORDER BY id'),
     splitShares: all(
-      'SELECT expenseId, personId, amountMinor FROM split_shares ORDER BY expenseId, personId',
+      'SELECT expenseId, personId, amountMinor FROM legacy_split_shares ORDER BY expenseId, personId',
     ),
     reimbursements: all(
-      'SELECT transactionId, expenseId, personId FROM reimbursements ORDER BY transactionId',
+      'SELECT transactionId, expenseId, personId FROM legacy_reimbursements ORDER BY transactionId',
     ),
     lendingEntries: all(`SELECT e.id, e.personId, e.kind, e.transactionId,
       CASE WHEN t.id IS NULL THEN e.currencyCode ELSE a.currencyCode END AS currencyCode,
       COALESCE(t.amountMinor, e.amountMinor) AS amountMinor, COALESCE(t.date, e.date) AS dateEpochDay,
       CASE WHEN t.id IS NULL THEN e.note ELSE t.note END AS note
-      FROM lending_entries e LEFT JOIN transactions t ON t.id = e.transactionId
-      LEFT JOIN accounts a ON a.id = t.accountId ORDER BY e.id`),
+      FROM legacy_lending_entries e LEFT JOIN legacy_transactions t ON t.id = e.transactionId
+      LEFT JOIN legacy_accounts a ON a.id = t.accountId ORDER BY e.id`),
   });
   return {
     schemaVersion: 1,
@@ -317,6 +430,20 @@ export async function legacySnapshot(db: Connection): Promise<BackupData> {
       ? JSON.parse(settings.value)
       : { favoriteAccountId: favorite?.id ?? null, displayRate: null },
   } as BackupData;
+}
+
+/**
+ * A v1 backup of a database with the old schema. It has the same cleaned rows that the
+ * migration moves, so the backup cannot fail on rows that the old app left behind.
+ */
+export async function legacySnapshot(db: Connection): Promise<BackupData> {
+  await copyLegacyTables(db);
+  try {
+    await db.execAsync(cleanLegacy);
+    return await snapshotLegacyTables(db);
+  } finally {
+    await dropLegacyTables(db);
+  }
 }
 
 async function userVersion(db: Connection) {
@@ -340,17 +467,16 @@ export async function migrateToLegs(db: MainConnection): Promise<boolean> {
     if (foreignKeys?.foreign_keys !== 0) throw new Error('Could not turn foreign keys off.');
     await db.execAsync('BEGIN EXCLUSIVE');
     // The old tables go only to TEMP tables, so the database file keeps no second copy.
-    for (const table of legacyNames)
-      await db.execAsync(`CREATE TEMP TABLE legacy_${table} AS SELECT * FROM main.${table}`);
+    await copyLegacyTables(db);
+    await db.execAsync(cleanLegacy);
     await db.execAsync(`DROP VIEW IF EXISTS report_transactions;
       DROP VIEW IF EXISTS split_share_progress;
-      DROP TRIGGER IF EXISTS remove_reimbursement_metadata;
-      DROP TRIGGER IF EXISTS keep_reimbursed_expense;
-      DROP TRIGGER IF EXISTS preserve_reimbursement_expense;
-      ${replacedTables.map((table) => `DROP TABLE main.${table};`).join('\n')}`);
+      ${legacyNames
+        .filter((table) => table !== 'app_settings')
+        .map((table) => `DROP TABLE main.${table};`)
+        .join('\n')}`);
     await db.execAsync(legsSchema);
     await db.execAsync(fillFromLegacy);
-    await db.execAsync(removeOrphans);
     await dropLegacyTables(db);
     await checkLedger(db);
     await db.execAsync(`PRAGMA user_version = ${LEGS_SCHEMA_VERSION}`);
@@ -401,8 +527,8 @@ const value = (item: unknown): SQLiteValue =>
 
 /**
  * Replaces all data with the rows of a v1 backup. Call it inside a transaction. Device-local
- * settings stay. The v1 rows go into legacy_* TEMP tables, and the fill SQL of the migration
- * makes the legs.
+ * settings stay. The v1 rows go into legacy_* TEMP tables. Then the cleaning and the fill
+ * SQL of the migration make the legs.
  */
 export async function restoreLegacyRows(
   tx: Connection & Pick<SQLiteDatabase, 'runAsync'>,
@@ -416,79 +542,34 @@ export async function restoreLegacyRows(
   await tx.execAsync(`DELETE FROM reimbursements; DELETE FROM transactions;
     DELETE FROM credit_cards; DELETE FROM accounts; DELETE FROM people; DELETE FROM tags;
     DELETE FROM categories;`);
-  for (const table of legacyNames)
-    await tx.execAsync(
-      `CREATE TEMP TABLE legacy_${table} (${Object.entries(legacyTables[table])
-        .map(([column, type]) => `${column} ${type}`)
-        .join(', ')})`,
-    );
-  const insert = async (table: string, columns: readonly string[], rows: unknown[][]) => {
-    const statement = `INSERT INTO ${table} (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`;
-    for (const row of rows) await tx.runAsync(statement, row.map(value));
+  await createLegacyTables(tx);
+  const legacy = async (table: LegacyTable, rows: readonly object[]) => {
+    const columns = columnsOf(table);
+    const statement = `INSERT INTO temp.legacy_${table} (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`;
+    for (const row of rows)
+      await tx.runAsync(
+        statement,
+        columns.map((column) => value((row as Record<string, unknown>)[column])),
+      );
   };
-  const legacy = (table: LegacyTable, rows: Record<string, unknown>[]) => {
-    const columns = Object.keys(legacyTables[table]);
-    return insert(
-      `temp.legacy_${table}`,
-      columns,
-      rows.map((row) => columns.map((column) => row[column])),
-    );
-  };
-  await legacy('accounts', data.accounts);
-  await legacy('categories', data.categories);
   const withDate = <R extends { dateEpochDay: number }>({ dateEpochDay, ...row }: R) => ({
     ...row,
     date: dateEpochDay,
   });
+  await legacy('accounts', data.accounts);
+  await legacy('categories', data.categories);
   await legacy('transactions', data.transactions.map(withDate));
+  await legacy('line_items', data.lineItems);
   await legacy('tags', data.tags);
+  await legacy('transaction_tags', data.transactionTags);
+  await legacy('people', data.people ?? []);
   await legacy('lending_entries', (data.lendingEntries ?? []).map(withDate));
+  await legacy('credit_cards', data.creditCards ?? []);
+  await legacy('split_shares', data.splitShares ?? []);
   await legacy('reimbursements', data.reimbursements ?? []);
   await legacy('app_settings', [{ key: 'backupSettings', value: JSON.stringify(data.settings) }]);
-  // Person legs need their people, so people come before the fill.
-  await insert(
-    'people',
-    ['id', 'name'],
-    (data.people ?? []).map((person) => [person.id, person.name]),
-  );
+  await tx.execAsync(cleanLegacy);
   await tx.execAsync(fillFromLegacy);
-  await insert(
-    'credit_cards',
-    ['accountId', 'parentAccountId', 'statementDay', 'dueDay'],
-    (data.creditCards ?? []).map((card) => [
-      card.accountId,
-      card.parentAccountId,
-      card.statementDay,
-      card.dueDay,
-    ]),
-  );
-  await insert(
-    'line_items',
-    ['id', 'transactionId', 'name', 'amountMinor', 'quantity'],
-    data.lineItems.map((item) => [
-      item.id,
-      item.transactionId,
-      item.name,
-      item.amountMinor,
-      item.quantity,
-    ]),
-  );
-  await insert(
-    'transaction_tags',
-    ['transactionId', 'tagId'],
-    data.transactionTags.map((link) => [link.transactionId, link.tagId]),
-  );
-  await insert(
-    'split_shares',
-    ['expenseId', 'personId', 'amountMinor'],
-    (data.splitShares ?? []).map((share) => [share.expenseId, share.personId, share.amountMinor]),
-  );
-  await insert(
-    'reimbursements',
-    ['transactionId', 'expenseId', 'personId'],
-    (data.reimbursements ?? []).map((row) => [row.transactionId, row.expenseId, row.personId]),
-  );
-  await tx.execAsync(removeOrphans);
   await dropLegacyTables(tx);
   await checkLedger(tx);
 }

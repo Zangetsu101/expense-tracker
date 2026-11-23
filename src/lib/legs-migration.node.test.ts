@@ -148,6 +148,31 @@ function everything(sql: DatabaseSync) {
   };
 }
 const noBackup = async () => assert.fail('A backup is not expected.');
+/** The data of a database with the legs schema, without leg ids. */
+const data = (sql: DatabaseSync) => ({
+  ...Object.fromEntries(
+    [
+      'accounts',
+      'categories',
+      'transactions',
+      'tags',
+      'transaction_tags',
+      'line_items',
+      'people',
+      'split_shares',
+      'reimbursements',
+      'credit_cards',
+    ].map((table) => [table, rows(sql, `SELECT * FROM ${table} ORDER BY 1, 2`)]),
+  ),
+  legs: rows(
+    sql,
+    'SELECT transactionId, accountId, personId, currencyCode, amountMinor FROM legs ORDER BY 1, 2, 3',
+  ),
+  settings: rows(
+    sql,
+    "SELECT * FROM app_settings WHERE key IN ('favoriteAccountId', 'displayRate') ORDER BY key",
+  ),
+});
 
 test('the migration moves every old row to the legs model', async () => {
   const sql = oldDatabase();
@@ -263,9 +288,9 @@ test('the migration moves every old row to the legs model', async () => {
         note: null,
         excludeFromReport: 1,
       },
-      // A Write-off gets the highest old id plus its lending entry id.
+      // Write-offs get the next ids after the highest old id, in lending entry order.
       {
-        id: 15,
+        id: 11,
         kind: 'WRITE_OFF',
         direction: 'LENT',
         date: 110,
@@ -274,7 +299,7 @@ test('the migration moves every old row to the legs model', async () => {
         excludeFromReport: 0,
       },
       {
-        id: 16,
+        id: 12,
         kind: 'WRITE_OFF',
         direction: 'BORROWED',
         date: 111,
@@ -307,8 +332,8 @@ test('the migration moves every old row to the legs model', async () => {
       '8: person 2 BDT 100',
       '9: account 1 BDT -1000',
       '10: account 1 BDT 300',
-      '15: person 1 BDT -50',
-      '16: person 2 EUR 20',
+      '11: person 1 BDT -50',
+      '12: person 2 EUR 20',
     ],
   );
   const db = connection(sql);
@@ -383,34 +408,76 @@ test('the favorite comes from the old settings when no Account has the flag', as
   assert.equal(value(sql, "SELECT value FROM app_settings WHERE key = 'favoriteAccountId'"), '1');
 });
 
-test('the migration removes Line Items and tag links of deleted Transactions', async () => {
-  const sql = oldDatabase();
-  // The old app deleted on a connection with foreign keys off, so these rows can exist.
-  sql.exec(`PRAGMA foreign_keys = OFF;
-    INSERT INTO line_items (transactionId, name, amountMinor) VALUES (40, 'left', 1);
-    INSERT INTO transaction_tags (transactionId, tagId) VALUES (40, 1), (2, 9);
-    PRAGMA foreign_keys = ON;`);
-  await openLedger(connection(sql), async () => {});
+/** Migrates the database and gives the backup that openLedger() wrote before. */
+async function migrate(sql: DatabaseSync) {
+  let backup = '';
+  await openLedger(connection(sql), async (json) => {
+    backup = json;
+  });
   assert.equal(value(sql, 'PRAGMA user_version'), 1);
-  assert.deepEqual(rows(sql, 'SELECT transactionId, name FROM line_items'), [
-    { transactionId: 1, name: 'rice' },
-  ]);
-  assert.deepEqual(rows(sql, 'SELECT * FROM transaction_tags'), [{ transactionId: 1, tagId: 1 }]);
+  return decodeBackup(backup);
+}
+
+test('rows that the old app left after a delete do not stop or change the migration', async () => {
+  // The repaired rows: what the foreign key actions of the old schema would have left.
+  const expected = oldDatabase();
+  expected.exec(`UPDATE transactions SET categoryId = NULL WHERE id = 1;
+    INSERT INTO categories (id, name, type, parentId) VALUES (8, 'Orphan', 'EXPENSE', NULL);
+    INSERT INTO credit_cards (accountId, parentAccountId) VALUES (3, NULL);`);
+  // The old app deleted on a connection with foreign keys off, so these rows can exist.
+  // Transaction 11 was deleted, and its id is the id that the first Write-off gets.
+  const actual = oldDatabase();
+  actual.exec(`PRAGMA foreign_keys = OFF;
+    UPDATE transactions SET categoryId = 98 WHERE id = 1;
+    INSERT INTO categories (id, name, type, parentId) VALUES (8, 'Orphan', 'EXPENSE', 99);
+    INSERT INTO credit_cards (accountId, parentAccountId) VALUES (3, 77), (99, 1);
+    INSERT INTO line_items (transactionId, name, amountMinor) VALUES (11, 'left', 1);
+    INSERT INTO transaction_tags (transactionId, tagId) VALUES (11, 1), (1, 9);
+    INSERT INTO moneylover_import_rows (rowKey, transactionId) VALUES ('gone', 11);
+    INSERT INTO lending_entries (id, personId, kind, transactionId, currencyCode, amountMinor, date)
+      VALUES (7, 1, 'LEND', 11, 'BDT', 5, 100);
+    INSERT INTO split_shares (expenseId, personId, amountMinor) VALUES (11, 2, 50);
+    INSERT INTO reimbursements (transactionId, expenseId, personId) VALUES (11, 9, 1), (2, 9, 2);
+    PRAGMA foreign_keys = ON;`);
+  const [expectedBackup, actualBackup] = [await migrate(expected), await migrate(actual)];
+  assert.deepEqual(actualBackup, expectedBackup, 'the backup leaves out the same rows');
+  assert.deepEqual(data(actual), data(expected));
+  assert.equal(value(actual, 'SELECT kind FROM transactions WHERE id = 11'), 'WRITE_OFF');
+  assert.equal(value(actual, 'SELECT COUNT(*) FROM line_items WHERE transactionId = 11'), 0);
+
+  const restored = new DatabaseSync(':memory:');
+  await openLedger(connection(restored), noBackup);
+  await connection(restored).withExclusiveTransactionAsync((tx: never) =>
+    restoreLegacyRows(tx, actualBackup),
+  );
+  assert.deepEqual(data(restored), data(expected));
 });
 
-test('a foreign key that the migration cannot repair stops it', async () => {
+test('tags whose names differ only by case become one tag', async () => {
   const sql = oldDatabase();
+  sql.exec(`INSERT INTO tags (id, name) VALUES (2, 'Trip'), (3, 'TRIP');
+    INSERT INTO transaction_tags (transactionId, tagId) VALUES (1, 3), (2, 2), (4, 3);`);
+  const backup = await migrate(sql);
+  assert.deepEqual(rows(sql, 'SELECT * FROM tags'), [{ id: 1, name: 'trip' }]);
+  assert.deepEqual(rows(sql, 'SELECT * FROM transaction_tags ORDER BY transactionId'), [
+    { transactionId: 1, tagId: 1 },
+    { transactionId: 2, tagId: 1 },
+    { transactionId: 4, tagId: 1 },
+  ]);
+  assert.deepEqual(backup.tags, [{ id: 1, name: 'trip' }], 'the backup has the same tags');
+});
+
+test('a row that the migration cannot repair stops it and changes nothing', async () => {
+  const sql = oldDatabase();
+  // The app has no delete for people, so this is damaged data, not a row left by a delete.
   sql.exec(`PRAGMA foreign_keys = OFF;
-    INSERT INTO credit_cards (accountId, parentAccountId) VALUES (2, 77);
+    INSERT INTO split_shares (expenseId, personId, amountMinor) VALUES (9, 99, 10);
     PRAGMA foreign_keys = ON;`);
-  // The backup check before the migration also refuses this data.
-  await assert.rejects(
-    openLedger(connection(sql), async () => {}),
-    /credit-card parent/,
-  );
+  // The backup before the migration refuses this data first.
+  await assert.rejects(openLedger(connection(sql), noBackup), /split share/);
+  const before = everything(sql);
   await assert.rejects(migrateToLegs(connection(sql)), /Foreign key violations/);
-  assert.equal(value(sql, 'PRAGMA user_version'), 0);
-  assert.equal(value(sql, 'SELECT COUNT(*) FROM lending_entries'), 6);
+  assert.deepEqual(everything(sql), before);
 });
 
 test('no migration runs when the backup fails', async () => {
@@ -453,30 +520,6 @@ test('a restore of the old rows gives the same data as the migration', async () 
   await connection(restored).withExclusiveTransactionAsync((tx: never) =>
     restoreLegacyRows(tx, snapshot),
   );
-  const data = (sql: DatabaseSync) => ({
-    ...Object.fromEntries(
-      [
-        'accounts',
-        'categories',
-        'transactions',
-        'tags',
-        'transaction_tags',
-        'line_items',
-        'people',
-        'split_shares',
-        'reimbursements',
-        'credit_cards',
-      ].map((table) => [table, rows(sql, `SELECT * FROM ${table} ORDER BY 1, 2`)]),
-    ),
-    legs: rows(
-      sql,
-      'SELECT transactionId, accountId, personId, currencyCode, amountMinor FROM legs ORDER BY 1, 2, 3',
-    ),
-    settings: rows(
-      sql,
-      "SELECT * FROM app_settings WHERE key IN ('favoriteAccountId', 'displayRate') ORDER BY key",
-    ),
-  });
   assert.deepEqual(data(restored), data(migrated));
 });
 

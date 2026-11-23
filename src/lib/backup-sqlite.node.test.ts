@@ -275,8 +275,8 @@ test('lending links, write-offs and people survive restore', async () => {
   const highest = Math.max(...original.transactions.map((row) => row.id));
   assert.equal(
     restored.lendingEntries[1].id,
-    highest + writeOff.id,
-    'a restored Write-off gets an id after the other Transactions',
+    highest + 1,
+    'a restored Write-off gets the next id after the other Transactions',
   );
   assert.deepEqual(
     { ...restored, lendingEntries: restored.lendingEntries.map(({ id, ...entry }) => entry) },
@@ -368,24 +368,90 @@ test('a restore rejects rows that break the legs model and changes nothing', asy
   assert.deepEqual(state(), before);
 });
 
-test('a restore leaves out Line Items and tag links of a deleted Transaction', async () => {
-  // Old phones deleted on a connection with foreign keys off, so old backups can have these.
-  const data = decodeBackup(
+const fixture = () =>
+  decodeBackup(
     readFileSync(new URL('../../scripts/fixtures/backup-v1.json', import.meta.url), 'utf8'),
   );
+const writeOff = (id, amountMinor = 100) => ({
+  id,
+  personId: 1,
+  kind: 'WRITE_OFF_LENT',
+  transactionId: null,
+  currencyCode: 'BDT',
+  amountMinor,
+  dateEpochDay: 20722,
+  note: null,
+});
+
+test('a restore leaves out rows of a deleted Transaction and repairs missing Categories', async () => {
+  // Old phones deleted on a connection with foreign keys off, so old backups can have these.
+  const data = fixture();
+  data.categories.push({
+    id: 2,
+    name: 'Orphan',
+    type: 'EXPENSE',
+    parentId: 99,
+    iconKey: null,
+    needsReview: false,
+  });
+  data.transactions[0].categoryId = 98;
   data.tags = [{ id: 5, name: 'old' }];
+  // Transaction 2 was deleted. The Write-off gets id 2, but it must not get these rows.
   data.transactionTags = [
     { transactionId: 1, tagId: 5 },
-    { transactionId: 999, tagId: 5 },
+    { transactionId: 2, tagId: 5 },
   ];
-  data.lineItems = [{ id: 7, transactionId: 999, name: 'left', amountMinor: 1, quantity: null }];
+  data.lineItems = [{ id: 7, transactionId: 2, name: 'left', amountMinor: 1, quantity: null }];
+  data.people = [{ id: 1, name: 'Ali' }];
+  data.lendingEntries = [writeOff(4)];
   await replaceDocument(data);
   const restored = await backupStore.snapshot();
+  assert.equal(restored.lendingEntries[0].id, 2);
   assert.deepEqual(restored.lineItems, []);
   assert.deepEqual(
     restored.transactionTags.map((link) => ({ ...link })),
     [{ transactionId: 1, tagId: 5 }],
   );
+  assert.equal(restored.categories.find((row) => row.id === 2).parentId, null);
+  assert.equal(restored.transactions[0].categoryId, null);
+});
+
+test('a restore makes one tag of tags whose names differ only by case', async () => {
+  // The old schema compared tag names by case, so an old backup can have both.
+  const data = fixture();
+  data.tags = [
+    { id: 5, name: 'Trip' },
+    { id: 6, name: 'trip' },
+  ];
+  data.transactionTags = [
+    { transactionId: 1, tagId: 5 },
+    { transactionId: 1, tagId: 6 },
+  ];
+  await replaceDocument(data);
+  const restored = await backupStore.snapshot();
+  assert.deepEqual(
+    restored.tags.map((tag) => ({ ...tag })),
+    [{ id: 5, name: 'Trip' }],
+  );
+  assert.deepEqual(
+    restored.transactionTags.map((link) => ({ ...link })),
+    [{ transactionId: 1, tagId: 5 }],
+  );
+});
+
+test('a restore refuses a Write-off id above the safe integer range and changes nothing', async () => {
+  const data = fixture();
+  data.transactions[0].id = Number.MAX_SAFE_INTEGER - 1;
+  data.people = [{ id: 1, name: 'Ali' }];
+  // A large lending entry id does not matter: Write-offs get the next ids in order.
+  data.lendingEntries = [writeOff(Number.MAX_SAFE_INTEGER, 100)];
+  await replaceDocument(data);
+  assert.equal((await backupStore.snapshot()).lendingEntries[0].id, Number.MAX_SAFE_INTEGER);
+  await replaceDocument(fixture());
+  const restoredOnce = state();
+  data.lendingEntries.push(writeOff(1, 50));
+  await assert.rejects(replaceDocument(data), /Transaction id that is too large/);
+  assert.deepEqual(state(), restoredOnce);
 });
 
 test('snapshot reads every table in one transaction and restore preserves device-local scheduling', async () => {
