@@ -3,7 +3,7 @@
 ## Language
 
 **Transaction**:
-A record of one movement of money, typed as an Expense, Income, Transfer, lending, Write-off, or reimbursement. A Transaction has one or more Legs.
+A record of a movement of money, or of a Write-off that reduces what is owed. Its kind is Expense, Income, Transfer, lending, Write-off or reimbursement. A Transaction has one or more Legs.
 
 **Leg**:
 A part of a Transaction that moves a signed amount on exactly one Account or one Person, in the Leg's Currency. A positive Account Leg adds money to the Account. A positive Person Leg means that the person owes the user more, or that the user owes the person less.
@@ -43,7 +43,7 @@ The denomination of an Account's money. Each Account Leg uses its Account's Curr
 A user-selected conversion rate used to compare totals across Currencies, not to change stored amounts.
 
 **Category**:
-An expense or income classification for an Expense or an Income. A Category may have a parent Category. Transfers, lending Transactions and Write-offs have none. A reimbursement uses the Category of its Expense.
+An expense or income classification for an Expense or an Income. A Category may have a parent Category. Transfers, lending Transactions and Write-offs have none. In reports, a reimbursement uses the Category of its Expense.
 
 **Mixed Category**:
 A MoneyLover CSV category associated with both positive and negative amounts, so its expense/income classification is ambiguous.

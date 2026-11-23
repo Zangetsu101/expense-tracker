@@ -1,4 +1,4 @@
-# 0013 — Transactions store their money in legs
+# 0013 — Store Transaction amounts in Legs
 
 ## Status
 
@@ -21,29 +21,34 @@ A Transaction has one or more legs. Each leg moves a signed amount on exactly on
 | WRITE_OFF     | One Person leg: negative for LENT, positive for BORROWED              |
 | REIMBURSEMENT | One Account leg, positive, and a row in `reimbursements`              |
 
-LENDING and WRITE_OFF Transactions store a Direction, LENT or BORROWED. So the two separate obligations of ADR 0003 stay. The Direction and the sign of the Account leg give the old lending kinds. For example, LENT with a negative Account leg is a loan, and LENT with a positive Account leg is a repayment. A Write-off is now a Transaction, so it has a date and a note like other Transactions. The `lending_entries` table goes away.
+LENDING and WRITE_OFF Transactions store a Direction, LENT or BORROWED. So the two separate obligations of ADR 0003 stay. The Direction and the sign of the Account leg give the six old lending kinds:
+
+| Direction | Negative Account leg | Positive Account leg | No Account leg     |
+| --------- | -------------------- | -------------------- | ------------------ |
+| LENT      | LEND                 | RECEIVE_REPAYMENT    | WRITE_OFF_LENT     |
+| BORROWED  | REPAY                | BORROW               | WRITE_OFF_BORROWED |
+
+A Write-off is now a Transaction, so it has a date and a note like other Transactions. The `lending_entries` table goes away.
 
 A Transfer between Currencies is two legs, and each leg has its own amount. `receivedAmountMinor` and `transferAccountId` go away. The two amounts stay authoritative, as ADR 0010 decides.
 
 `reimbursements` and `split_shares` stay as tables, and ADR 0011 does not change.
 
-Only EXPENSE and INCOME Transactions have a Category. A reimbursement still takes the Category of its Expense in reports. Lending Transactions have no Category. The migration deletes a Category when only lending Transactions use it and none of its children stay. Transfers, lending and Write-offs cannot be excluded from reports.
+Only EXPENSE and INCOME Transactions have a Category. A reimbursement still takes the Category of its Expense in reports. Lending Transactions have no Category. The migration deletes a Category when only lending Transactions use it and none of its children stay. Only EXPENSE, INCOME and REIMBURSEMENT keep `excludeFromReport`. The migration sets it to 0 for every other kind.
 
-Settings become one `app_settings` row for each key. The portable keys are `favoriteAccountId` and `displayRate`. Device-local rows stay as they are.
+Settings become one `app_settings` row for each key. The portable keys are `favoriteAccountId` and `displayRate`. For `favoriteAccountId`, use the Account that is marked as favorite. If no Account is marked, use the favorite Account from the old settings JSON. Remove the obsolete `scheduledBackups` key (ADR 0007). Keep all other device-local rows.
 
 The database enforces its rules with CHECK constraints and triggers. Expo opens a separate connection for exclusive writes, and foreign keys can be off on that connection. So triggers do the work of the foreign key actions, and they check the rules that span tables. Examples are the sign and target of each leg, the Currency of an Account leg, and the guards on deletes from ADR 0011.
 
 The JSON backup format stays v1 for export and for restore. Export derives the v1 rows from the legs. Restore loads the v1 rows into the old table shapes in TEMP tables. Then it runs the same SQL as the migration to fill the new tables. So the migration and restore share one mapping.
 
-The migration runs on the phone inside `database()`. It runs after the setup of the old schema, so every old table and column exists, and before anything else reads the database. A background task can start the app, so the migration does not wait for a screen. The app first makes a backup to Google Drive (ADR 0007). Then, on the connection that does the migration, it runs `PRAGMA foreign_keys = OFF` and then `BEGIN EXCLUSIVE`. It does not use `withExclusiveTransactionAsync`, because that function runs BEGIN first, and the PRAGMA has no effect inside a transaction. The old tables are copied only to TEMP tables, so the phone keeps no second copy of the data, and a failed migration can run again. `PRAGMA user_version = 1` marks the new schema.
+The migration runs on the phone inside `database()`. It runs after the setup of the old schema, so every old table and column exists, and before anything else reads the database. A background task can start the app, so the migration does not wait for a screen. An app update can start offline, from a background task, or with Drive not connected, so the migration does not wait for the network. Before the migration, the app writes a v1 JSON backup to a file on the device. It keeps that file until the next successful Drive backup (ADR 0007). If it cannot write the file, it does not migrate.
 
-## Verification
-
-A script compared the facts from the old schema with the facts from the migrated schema, on real backups and on synthetic backups that use every feature. Known bugs were put into the migration and the schema on purpose, and the comparison found each one. Separate tests ran each trigger with foreign keys on and off.
+Then, on the connection that does the migration, the app runs `PRAGMA foreign_keys = OFF` and then `BEGIN EXCLUSIVE`. It does not use `withExclusiveTransactionAsync`. That function starts the transaction before it runs its callback. SQLite ignores `PRAGMA foreign_keys` inside a transaction. The old tables are copied only to TEMP tables, so the database keeps no second copy of the data, and a failed migration can run again. Before the commit, run `PRAGMA foreign_key_check`. If it finds a violation, roll back. Set `PRAGMA user_version = 1` in the same transaction. This version marks the new schema. Turn foreign keys on again when the migration ends.
 
 ## Consequences
 
-Balances for Accounts and People come from one table, so a query does not need to know each kind of Transaction. The number of legs for each kind cannot be checked by a trigger, because a trigger sees only one row. The app code that writes Transactions must keep this rule.
+Balances for Accounts and People come from one table, so a query does not need to know each kind of Transaction. The triggers check each Leg when the app writes it. They cannot check the number of Legs, because the app writes the Legs one at a time. The app must write the complete set of Legs for each Transaction. The migration checks the complete sets.
 
 Old backups restore without change, and new backups keep the v1 format. The cost is that export and restore must convert between v1 and the legs.
 
