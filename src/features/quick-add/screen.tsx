@@ -4,7 +4,12 @@ import { categoriesQuery, peopleQuery, includeCreatedPerson } from './queries.ts
 import { accountsQuery } from '@/lib/account-queries';
 import { ChoicesSection, layoutTransition } from './view.tsx';
 import { ExpenseLink, type LinkableExpense } from './expense-link';
-import { SplitExpense, type PersonChoice, type SplitDraft } from './split-expense';
+import {
+  isConfirmedPerson,
+  SplitExpense,
+  type PersonChoice,
+  type SplitDraft,
+} from './split-expense';
 import { splitShares } from '@/lib/reimbursements';
 import { TransferBillChoices } from './transfer-bill-choices.tsx';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
@@ -184,6 +189,7 @@ function QuickAddForm() {
   const [error, setError] = useState('');
   // A second press can arrive before React renders the pending state.
   const writeInFlight = useRef(false);
+  const nextTemporaryPersonId = useRef(0);
   const navigation = useNavigation();
   usePreventRemove(pending, ({ data: removal }) => {
     if (!writeInFlight.current) navigation.dispatch(removal.action);
@@ -221,7 +227,7 @@ function QuickAddForm() {
     (mode === 'PERSON' && (action === 'BORROW' || action === 'RECEIVE_REPAYMENT'));
   const search = query.trim().toLocaleLowerCase();
   const personChoices: PersonChoice[] =
-    selection.person?.id === null
+    typeof selection.person?.id === 'string'
       ? [...people.filter((item) => item.name !== selection.person?.name), selection.person]
       : people;
   const matches = personChoices.filter((item) => item.name.toLocaleLowerCase().includes(search));
@@ -263,8 +269,9 @@ function QuickAddForm() {
     if (writeInFlight.current) return;
     writeInFlight.current = true;
     setError('');
+    const temporaryId = `new-person-${++nextTemporaryPersonId.current}`;
     startCreatingPerson(async () => {
-      selectNewPerson({ id: null, name: name.trim() });
+      selectNewPerson({ id: temporaryId, name: name.trim() });
       try {
         const created = await createPerson(name);
         includeCreatedPerson(client, created);
@@ -498,10 +505,10 @@ function QuickAddForm() {
                     {(readyPeople) => {
                       const personChip = (item: PersonChoice) => {
                         const selected = item.id === selection.person?.id;
-                        if (item.id === null)
+                        if (!isConfirmedPerson(item))
                           return (
                             <ChoiceChip
-                              key={item.name}
+                              key={item.id}
                               label={item.name}
                               selected={selected}
                               disabled

@@ -10,7 +10,11 @@ import { ChoicesSection } from './view';
 import { peopleQuery } from './queries';
 
 const c = theme.colors;
-export type PersonChoice = Person | { id: null; name: string };
+export type PersonChoice = Person | { id: string; name: string };
+export function isConfirmedPerson(person: PersonChoice): person is Person {
+  return typeof person.id === 'number';
+}
+
 export type SplitDraft = { people: Person[]; fixed: Partial<Record<number, number>> };
 
 function ShareField({
@@ -67,7 +71,7 @@ export function SplitExpense({
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
-  const people = draft.people.filter((person) => person.id !== null);
+  const people = draft.people.filter(isConfirmedPerson);
   const { shares, yours } = splitShares(
     amount,
     people.map((person) => person.id),
@@ -109,7 +113,7 @@ export function SplitExpense({
           />
           <ChoicesSection options={peopleQuery()} label="people" layout="people">
             {({ people: available }) => {
-              const provisional = draft.people.filter((person) => person.id === null);
+              const provisional = draft.people.filter((person) => !isConfirmedPerson(person));
               const choices: PersonChoice[] = [
                 ...available.filter(
                   (person) => !provisional.some((choice) => choice.name === person.name),
@@ -122,11 +126,11 @@ export function SplitExpense({
                     .filter((person) => person.name.toLocaleLowerCase().includes(needle))
                     .map((person) => (
                       <ChoiceChip
-                        key={person.id ?? person.name}
+                        key={person.id}
                         label={person.name}
-                        disabled={disabled || person.id === null}
+                        disabled={disabled || !isConfirmedPerson(person)}
                         selected={draft.people.some(({ id }) => id === person.id)}
-                        onPress={person.id === null ? undefined : () => toggle(person)}
+                        onPress={isConfirmedPerson(person) ? () => toggle(person) : undefined}
                       />
                     ))}
                   {!!needle &&
