@@ -5,14 +5,16 @@ type Props = {
   children: ReactNode;
   resetKey?: string;
   onReset: () => void;
-  fallback: (retry: () => void) => ReactNode;
+  fallback: (retry: () => void, error: unknown) => ReactNode;
 };
 
-export class ErrorBoundary extends Component<Props, { failed: boolean; resetKey?: string }> {
-  state = { failed: false, resetKey: this.props.resetKey };
+type State = { failed: boolean; error?: unknown; resetKey?: string };
 
-  static getDerivedStateFromError() {
-    return { failed: true };
+export class ErrorBoundary extends Component<Props, State> {
+  state: State = { failed: false, resetKey: this.props.resetKey };
+
+  static getDerivedStateFromError(error: unknown) {
+    return { failed: true, error };
   }
 
   static getDerivedStateFromProps(props: Props, state: { resetKey?: string }) {
@@ -25,7 +27,9 @@ export class ErrorBoundary extends Component<Props, { failed: boolean; resetKey?
   };
 
   render() {
-    return this.state.failed ? this.props.fallback(this.retry) : this.props.children;
+    return this.state.failed
+      ? this.props.fallback(this.retry, this.state.error)
+      : this.props.children;
   }
 }
 

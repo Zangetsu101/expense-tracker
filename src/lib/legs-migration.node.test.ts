@@ -480,6 +480,22 @@ test('a row that the migration cannot repair stops it and changes nothing', asyn
   assert.deepEqual(everything(sql), before);
 });
 
+test('a Write-off id above the safe integer range stops the migration', async () => {
+  const sql = oldDatabase();
+  sql.exec(`PRAGMA foreign_keys = OFF;
+    UPDATE transactions SET id = ${Number.MAX_SAFE_INTEGER - 1} WHERE id = 10;
+    UPDATE reimbursements SET transactionId = ${Number.MAX_SAFE_INTEGER - 1}
+      WHERE transactionId = 10;
+    PRAGMA foreign_keys = ON;`);
+  // The two Write-offs get the next two ids, and the second id is too large.
+  await assert.rejects(
+    openLedger(connection(sql), async () => {}),
+    /Transaction id that is too large/,
+  );
+  assert.equal(value(sql, 'PRAGMA user_version'), 0);
+  assert.equal(value(sql, 'SELECT COUNT(*) FROM lending_entries'), 6);
+});
+
 test('no migration runs when the backup fails', async () => {
   const sql = oldDatabase();
   await assert.rejects(

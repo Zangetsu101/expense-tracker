@@ -106,6 +106,8 @@ const legacyTables = {
 type LegacyTable = keyof typeof legacyTables;
 const legacyNames = Object.keys(legacyTables) as LegacyTable[];
 const columnsOf = (table: LegacyTable) => Object.keys(legacyTables[table]);
+/** The migration keeps this old table, so that device-local settings stay. */
+const keptTable: LegacyTable = 'app_settings';
 
 /** Makes an empty TEMP copy of each old table, named legacy_*. */
 async function createLegacyTables(db: Connection) {
@@ -135,9 +137,7 @@ async function copyLegacyTables(db: Connection) {
 
 async function dropLegacyTables(db: Connection) {
   await db.execAsync(
-    [...legacyNames, 'write_offs']
-      .map((table) => `DROP TABLE IF EXISTS temp.legacy_${table};`)
-      .join('\n'),
+    legacyNames.map((table) => `DROP TABLE IF EXISTS temp.legacy_${table};`).join('\n'),
   );
 }
 
@@ -239,14 +239,14 @@ INSERT INTO transactions (id, kind, direction, date, categoryId, note, excludeFr
   LEFT JOIN legacy_reimbursements r ON r.transactionId = t.id;
 
 -- Write-offs get the next Transaction ids after the highest old id, in lending entry order.
-CREATE TEMP TABLE legacy_write_offs AS
+CREATE TEMP TABLE new_write_offs AS
   SELECT e.*, (SELECT COALESCE(MAX(id), 0) FROM legacy_transactions)
     + ROW_NUMBER() OVER (ORDER BY e.id) AS newId
   FROM legacy_lending_entries e WHERE e.transactionId IS NULL;
 INSERT INTO transactions (id, kind, direction, date, note)
   SELECT newId, 'WRITE_OFF', CASE WHEN kind = 'WRITE_OFF_LENT' THEN 'LENT' ELSE 'BORROWED' END,
     date, note
-  FROM legacy_write_offs;
+  FROM new_write_offs;
 
 -- The Account leg of every old Transaction.
 INSERT INTO legs (transactionId, accountId, currencyCode, amountMinor)
@@ -272,7 +272,7 @@ INSERT INTO legs (transactionId, personId, currencyCode, amountMinor)
 INSERT INTO legs (transactionId, personId, currencyCode, amountMinor)
   SELECT newId, personId, currencyCode,
     CASE WHEN kind = 'WRITE_OFF_LENT' THEN -amountMinor ELSE amountMinor END
-  FROM legacy_write_offs ORDER BY newId;
+  FROM new_write_offs ORDER BY newId;
 
 INSERT INTO line_items (id, transactionId, name, amountMinor, quantity)
   SELECT id, transactionId, name, amountMinor, quantity FROM legacy_line_items;
@@ -299,6 +299,8 @@ INSERT INTO app_settings (key, value)
 INSERT INTO app_settings (key, value)
   SELECT 'displayRate', json_extract(value, '$.displayRate') FROM legacy_app_settings
   WHERE key = 'backupSettings' AND json_extract(value, '$.displayRate') IS NOT NULL;
+
+DROP TABLE temp.new_write_offs;
 `;
 
 // Rules that span several rows, so CHECKs and triggers cannot test them. Each query must
@@ -472,7 +474,7 @@ export async function migrateToLegs(db: MainConnection): Promise<boolean> {
     await db.execAsync(`DROP VIEW IF EXISTS report_transactions;
       DROP VIEW IF EXISTS split_share_progress;
       ${legacyNames
-        .filter((table) => table !== 'app_settings')
+        .filter((table) => table !== keptTable)
         .map((table) => `DROP TABLE main.${table};`)
         .join('\n')}`);
     await db.execAsync(legsSchema);
