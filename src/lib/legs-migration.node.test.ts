@@ -382,21 +382,24 @@ test('a second run does nothing', async () => {
 
 test('a failed migration rolls back everything and can run again', async () => {
   const sql = oldDatabase();
-  // A Transaction whose Account is missing gets no leg, so the check before COMMIT fails.
-  sql.exec(`PRAGMA foreign_keys = OFF;
-    INSERT INTO transactions (id, type, amountMinor, date, accountId) VALUES (11, 'EXPENSE', 1, 1, 99);
-    PRAGMA foreign_keys = ON;`);
+  // A lending entry on a Transfer passes the early checks. Its Transaction gets three legs,
+  // so the check of the legs fails just before COMMIT, after the old tables are gone.
+  sql.exec(`INSERT INTO lending_entries (id, personId, kind, transactionId, currencyCode,
+    amountMinor, date) VALUES (7, 1, 'LEND', 4, 'BDT', 300, 102)`);
   await openLedger(connection(sql), async () => {}).catch(() => {});
   // openLedger ran the old schema setup, so take the state after it.
   const before = everything(sql);
-  await assert.rejects(migrateToLegs(connection(sql)), /a Transaction without legs: 11/);
+  await assert.rejects(
+    migrateToLegs(connection(sql)),
+    /a lending Transaction with the wrong legs: 4/,
+  );
   assert.deepEqual(everything(sql), before);
   assert.equal(value(sql, 'PRAGMA user_version'), 0);
   assert.equal(value(sql, 'PRAGMA foreign_keys'), 1);
   assert.equal(value(sql, 'SELECT COUNT(*) FROM sqlite_temp_master'), 0);
   assert.equal(sql.isTransaction, false);
 
-  sql.exec('DELETE FROM transactions WHERE id = 11');
+  sql.exec('DELETE FROM lending_entries WHERE id = 7');
   assert.equal(await migrateToLegs(connection(sql)), true);
   assert.equal(value(sql, 'PRAGMA user_version'), 1);
 });
@@ -444,6 +447,8 @@ test('rows that the old app left after a delete do not stop or change the migrat
   assert.deepEqual(data(actual), data(expected));
   assert.equal(value(actual, 'SELECT kind FROM transactions WHERE id = 11'), 'WRITE_OFF');
   assert.equal(value(actual, 'SELECT COUNT(*) FROM line_items WHERE transactionId = 11'), 0);
+  // The card parent was only the default source for a settlement, so it becomes no parent.
+  assert.equal(value(actual, 'SELECT parentAccountId FROM credit_cards WHERE accountId = 3'), null);
 
   const restored = new DatabaseSync(':memory:');
   await openLedger(connection(restored), noBackup);
@@ -467,17 +472,46 @@ test('tags whose names differ only by case become one tag', async () => {
   assert.deepEqual(backup.tags, [{ id: 1, name: 'trip' }], 'the backup has the same tags');
 });
 
-test('a row that the migration cannot repair stops it and changes nothing', async () => {
-  const sql = oldDatabase();
-  // The app has no delete for people, so this is damaged data, not a row left by a delete.
-  sql.exec(`PRAGMA foreign_keys = OFF;
-    INSERT INTO split_shares (expenseId, personId, amountMinor) VALUES (9, 99, 10);
+test('a missing Account or person that a Leg or a share needs stops the work early', async () => {
+  // The app has no delete for Accounts and people, so these rows are damaged data.
+  const cases = [
+    [
+      'UPDATE transactions SET accountId = 99 WHERE id = 1',
+      /Row 1 of transactions needs Account 99/,
+    ],
+    [
+      'UPDATE transactions SET transferAccountId = 98 WHERE id = 4',
+      /Row 4 of transactions needs destination Account 98/,
+    ],
+    [
+      'UPDATE lending_entries SET personId = 97 WHERE id = 5',
+      /Row 5 of lending_entries needs person 97/,
+    ],
+    [
+      'INSERT INTO split_shares (expenseId, personId, amountMinor) VALUES (1, 96, 10)',
+      /Row 1 of split_shares needs person 96/,
+    ],
+  ] as const;
+  for (const [damage, error] of cases) {
+    const sql = oldDatabase();
+    sql.exec(`PRAGMA foreign_keys = OFF; ${damage}; PRAGMA foreign_keys = ON;`);
+    // The check comes before the backup, so no backup is written.
+    await assert.rejects(openLedger(connection(sql), noBackup), error);
+    const before = everything(sql);
+    await assert.rejects(migrateToLegs(connection(sql)), error);
+    assert.deepEqual(everything(sql), before);
+  }
+});
+
+test('the destination of a row that is not a Transfer is cleared', async () => {
+  const expected = oldDatabase();
+  const actual = oldDatabase();
+  actual.exec(`PRAGMA foreign_keys = OFF;
+    UPDATE transactions SET transferAccountId = 99 WHERE id = 1;
     PRAGMA foreign_keys = ON;`);
-  // The backup before the migration refuses this data first.
-  await assert.rejects(openLedger(connection(sql), noBackup), /split share/);
-  const before = everything(sql);
-  await assert.rejects(migrateToLegs(connection(sql)), /Foreign key violations/);
-  assert.deepEqual(everything(sql), before);
+  const [expectedBackup, actualBackup] = [await migrate(expected), await migrate(actual)];
+  assert.deepEqual(actualBackup, expectedBackup);
+  assert.deepEqual(data(actual), data(expected));
 });
 
 test('a Write-off id above the safe integer range stops the migration', async () => {
@@ -551,11 +585,13 @@ test('database() writes the backup file, checks its size, then migrates', async 
     __files: files,
     __fileSizeError: 1,
   });
-  const { database } = await import('./database.ts');
+  const { database, resetDatabase } = await import('./database.ts');
   await assert.rejects(database(), /Could not save the backup/);
   assert.equal(value(sql, 'PRAGMA user_version'), 0, 'a short file stops the migration');
 
   Object.assign(globalThis, { __fileSizeError: 0 });
+  await assert.rejects(database(), /Could not save the backup/, 'a failure stays until a reset');
+  resetDatabase();
   await database();
   assert.equal(value(sql, 'PRAGMA user_version'), 1);
   const json = files.get('documents/expense-backup-before-legs-migration.json')!;

@@ -1,43 +1,40 @@
 import { act, render, screen, userEvent } from '@testing-library/react-native';
+import { openDatabaseAsync } from 'expo-sqlite';
 import { Text } from 'react-native';
 import { database } from '@/lib/database';
+import { openLedger } from '@/lib/legs-migration';
 import { DatabaseGate } from './database-gate';
 
-jest.mock('@/lib/database', () => ({ database: jest.fn() }));
+// The real database() cache runs. Only the native database and the migration are fakes.
+jest.mock('expo-sqlite', () => ({ openDatabaseAsync: jest.fn() }));
+jest.mock('@/lib/legs-migration', () => ({ openLedger: jest.fn() }));
 
-/**
- * A database() call that the test settles. Like database(), it gives the same promise until
- * the promise fails.
- */
-function pendingOpen() {
+/** The next open attempt. The test settles it. */
+function nextAttempt() {
   let settle!: { resolve: () => void; reject: (error: Error) => void };
-  const promise = new Promise((resolve, reject) => {
-    settle = { resolve: () => resolve({} as never), reject };
-  });
-  promise.catch(() => {});
-  jest.mocked(database).mockImplementation(() => promise as never);
+  jest.mocked(openLedger).mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        settle = { resolve, reject };
+      }),
+  );
   return () => settle;
 }
 
-const app = (
-  <DatabaseGate>
-    <Text>Home screen</Text>
-  </DatabaseGate>
-);
-
-test('the app shows its screens only after the database opens', async () => {
-  const open = pendingOpen();
-  await render(app);
+test('a failed open shows the error and opens again only after Try again', async () => {
+  const user = userEvent.setup();
+  jest.mocked(openDatabaseAsync).mockResolvedValue({
+    runAsync: jest.fn(async () => ({ changes: 0, lastInsertRowId: 0 })),
+  } as never);
+  const first = nextAttempt();
+  await render(
+    <DatabaseGate>
+      <Text>Home screen</Text>
+    </DatabaseGate>,
+  );
   expect(screen.getByText('Opening your data…')).toBeOnTheScreen();
   expect(screen.queryByText('Home screen')).not.toBeOnTheScreen();
-  await act(async () => open().resolve());
-  expect(screen.getByText('Home screen')).toBeOnTheScreen();
-});
 
-test('a failed update shows the error, keeps the screens closed, and can try again', async () => {
-  const user = userEvent.setup();
-  const first = pendingOpen();
-  await render(app);
   await act(async () => first().reject(new Error('Foreign key violations: [split_shares]')));
   expect(
     screen.getByRole('header', { name: 'The app could not open your data' }),
@@ -45,10 +42,15 @@ test('a failed update shows the error, keeps the screens closed, and can try aga
   expect(screen.getByText('Foreign key violations: [split_shares]')).toBeOnTheScreen();
   expect(screen.getByText(/stopped the update and kept the data as it was/)).toBeOnTheScreen();
   expect(screen.queryByText('Home screen')).not.toBeOnTheScreen();
+  // The error render and a background task get the same failure, and nothing opens again.
+  await expect(database()).rejects.toThrow('Foreign key violations');
+  expect(openLedger).toHaveBeenCalledTimes(1);
 
-  const second = pendingOpen();
+  const second = nextAttempt();
   await user.press(screen.getByRole('button', { name: 'Try again' }));
   expect(screen.getByText('Opening your data…')).toBeOnTheScreen();
+  expect(openLedger).toHaveBeenCalledTimes(2);
   await act(async () => second().resolve());
   expect(screen.getByText('Home screen')).toBeOnTheScreen();
+  expect(openLedger).toHaveBeenCalledTimes(2);
 });

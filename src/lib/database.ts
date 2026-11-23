@@ -18,9 +18,12 @@ async function saveBackupBeforeMigration(json: string) {
 }
 
 let connection: Promise<SQLite.SQLiteDatabase> | undefined;
+let failed = false;
 /**
  * Opens the database. The promise resolves only after the schema is ready. A database
  * with the old schema is migrated first, so no other read can run inside the migration.
+ * All callers share one promise. A failed promise stays until resetDatabase(), so a render
+ * or a background task cannot start a second migration on its own.
  */
 export function database() {
   connection ??= SQLite.openDatabaseAsync('expense-poc.db')
@@ -41,10 +44,17 @@ export function database() {
       return db;
     })
     .catch((error) => {
-      connection = undefined;
+      failed = true;
       throw error;
     });
   return connection;
+}
+
+/** Forgets a failed open, so that the next database() call tries again. */
+export function resetDatabase() {
+  if (!failed) return;
+  failed = false;
+  connection = undefined;
 }
 
 export async function listAccounts() {

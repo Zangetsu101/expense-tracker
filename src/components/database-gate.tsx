@@ -1,7 +1,7 @@
 import { Suspense, use, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import { ErrorBoundary } from '@/components/query-error-boundary';
-import { database } from '@/lib/database';
+import { database, resetDatabase } from '@/lib/database';
 import { theme } from '@/theme';
 
 const c = theme.colors;
@@ -13,9 +13,10 @@ const c = theme.colors;
  */
 export function DatabaseGate({ children }: { children: ReactNode }) {
   return (
-    // database() forgets a failed promise, so Try again opens the database again.
+    // database() keeps a failed promise until resetDatabase(), so only Try again opens the
+    // database again.
     <ErrorBoundary
-      onReset={() => {}}
+      onReset={resetDatabase}
       fallback={(retry, error) => (
         <DatabaseError
           message={error instanceof Error ? error.message : String(error)}
