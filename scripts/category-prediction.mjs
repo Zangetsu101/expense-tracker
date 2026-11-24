@@ -16,7 +16,9 @@ const categoryTie = (a, b) => compare(asciiLower(a.name), asciiLower(b.name)) ||
 /**
  * The v1 view of a backup: the Transactions that move money on an Account, the ids of the
  * linked lending Transactions, and the number of lending entries. For a v2 backup it gives
- * the rows that a v1 export of the same data has.
+ * the rows that a v1 export of the same data has. Only the restore checks the Legs of a v2
+ * file, so this script trusts them: it reads one Account Leg of each Transaction, or the
+ * negative Leg of a Transfer.
  */
 function v1Ledger(backup) {
   if (backup.schemaVersion === 1) {

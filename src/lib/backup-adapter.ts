@@ -9,8 +9,7 @@ import { restoreLegacyRows, restoreLegsRows } from '@/lib/legs-migration';
 import { readAll } from '@/lib/read-all';
 import type { BackupV1, BackupDocuments, BackupStore } from '@/lib/backup';
 
-// Export still writes v1 (ADR 0014). It derives the v1 rows from the legs. Restore loads
-// v1 rows with the same fill SQL as the migration, and it inserts v2 rows directly.
+// Export still writes v1 (ADR 0014). It derives the v1 rows from the Legs.
 //
 // A v1 lending entry needs an id. Each entry uses the id of its Transaction, so the ids
 // stay the same from one export to the next. A restore gives each Write-off a new

@@ -410,7 +410,7 @@ test('a v2 file decodes, and encode then decode gives the same data', () => {
   assert.deepEqual(decodeBackup(encodeBackup(data)), data);
 });
 
-test('a v2 file with a wrong structure is refused before any change', () => {
+test('a v2 file with a wrong structure is refused before any change', async (t) => {
   const broken = (change) => {
     const data = JSON.parse(v2);
     change(data);
@@ -448,7 +448,8 @@ test('a v2 file with a wrong structure is refused before any change', () => {
     [(data) => (data.settings.displayRate.source = 'bank'), /Invalid backup settings/],
     [(data) => (data.settings.theme = 'dark'), /Invalid backup settings/],
   ];
-  for (const [change, error] of cases) assert.throws(broken(change), error);
+  for (const [index, [change, error]] of cases.entries())
+    await t.test(`case ${index + 1}: ${error}`, () => assert.throws(broken(change), error));
   assert.throws(
     () => decodeBackup(v2.replace('"amountMinor": -1500', '"amountMinor": -9007199254740993')),
     /integer too large/,

@@ -571,7 +571,7 @@ export async function openLedger(db: MainConnection, saveBackup: (json: string) 
 
 /**
  * Deletes all data except device-local settings. This order passes the guards of the
- * triggers. Deleting a Transaction deletes its legs, split shares, Line Items and tags.
+ * triggers. Deleting a Transaction deletes its Legs, split shares, Line Items and tags.
  */
 const clearLedger = `DELETE FROM reimbursements; DELETE FROM transactions;
   DELETE FROM credit_cards; DELETE FROM accounts; DELETE FROM people; DELETE FROM tags;
@@ -581,28 +581,34 @@ type SQLiteValue = string | number | null;
 const value = (item: unknown): SQLiteValue =>
   typeof item === 'boolean' ? Number(item) : ((item ?? null) as SQLiteValue);
 
+type Writer = Connection & Pick<SQLiteDatabase, 'runAsync'>;
+
+/** Inserts the rows into the table. A boolean becomes 0 or 1, and a missing field null. */
+async function insertRows(tx: Writer, table: string, columns: string[], rows: readonly object[]) {
+  const statement = `INSERT INTO ${table} (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`;
+  for (const row of rows)
+    await tx.runAsync(
+      statement,
+      columns.map((column) => value((row as Record<string, unknown>)[column])),
+    );
+}
+
+/**
+ * A restore can insert a parent Category after its children. With foreign keys on, SQLite
+ * checks them at the commit. With foreign keys off, checkLedger() checks them.
+ */
+const deferForeignKeys = (tx: Writer) => tx.execAsync('PRAGMA defer_foreign_keys = ON');
+
 /**
  * Replaces all data with the rows of a v1 backup. Call it inside a transaction. Device-local
  * settings stay. The v1 rows go into legacy_* TEMP tables, where the cleaning and the checks
  * run before any live row changes. Then the fill SQL of the migration makes the legs.
  */
-export async function restoreLegacyRows(
-  tx: Connection & Pick<SQLiteDatabase, 'runAsync'>,
-  data: BackupV1,
-) {
-  // Parent Categories can come after their children. With foreign keys on, SQLite checks
-  // them at the commit. With foreign keys off, checkLedger() checks them.
-  await tx.execAsync('PRAGMA defer_foreign_keys = ON');
+export async function restoreLegacyRows(tx: Writer, data: BackupV1) {
+  await deferForeignKeys(tx);
   await createLegacyTables(tx);
-  const legacy = async (table: LegacyTable, rows: readonly object[]) => {
-    const columns = columnsOf(table);
-    const statement = `INSERT INTO temp.legacy_${table} (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`;
-    for (const row of rows)
-      await tx.runAsync(
-        statement,
-        columns.map((column) => value((row as Record<string, unknown>)[column])),
-      );
-  };
+  const legacy = (table: LegacyTable, rows: readonly object[]) =>
+    insertRows(tx, `temp.legacy_${table}`, columnsOf(table), rows);
   const withDate = <R extends { dateEpochDay: number }>({ dateEpochDay, ...row }: R) => ({
     ...row,
     date: dateEpochDay,
@@ -632,26 +638,14 @@ export async function restoreLegacyRows(
  * Replaces all data with the rows of a v2 backup (ADR 0014). Call it inside a transaction,
  * and roll back if it throws. Device-local settings stay. The rows go directly into the
  * tables. The CHECK constraints and the triggers check each row, and checkLedger() checks
- * the rules that span rows. So a file with a missing parent row or a wrong set of legs
+ * the rules that span rows. So a file with a missing parent row or a wrong set of Legs
  * changes nothing.
  */
-export async function restoreLegsRows(
-  tx: Connection & Pick<SQLiteDatabase, 'runAsync'>,
-  data: BackupV2,
-) {
-  // Parent Categories can come after their children. With foreign keys on, SQLite checks
-  // them at the commit. With foreign keys off, checkLedger() checks them.
-  await tx.execAsync('PRAGMA defer_foreign_keys = ON');
+export async function restoreLegsRows(tx: Writer, data: BackupV2) {
+  await deferForeignKeys(tx);
   await tx.execAsync(clearLedger);
-  for (const [name, { table, fields }] of Object.entries(backupV2Tables)) {
-    const columns = Object.keys(fields);
-    const statement = `INSERT INTO ${table} (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`;
-    for (const row of data[name as keyof typeof backupV2Tables])
-      await tx.runAsync(
-        statement,
-        columns.map((column) => value((row as Record<string, unknown>)[column])),
-      );
-  }
+  for (const [name, { table, fields }] of Object.entries(backupV2Tables))
+    await insertRows(tx, table, Object.keys(fields), data[name as keyof typeof backupV2Tables]);
   const { favoriteAccountId, displayRate } = data.settings;
   await tx.execAsync("DELETE FROM app_settings WHERE key IN ('favoriteAccountId', 'displayRate')");
   if (favoriteAccountId !== null) {

@@ -885,7 +885,7 @@ test('a v1 export of a restored v2 file restores to the same data', async () => 
   assert.deepEqual(state(), before);
 });
 
-test('a v2 restore refuses rows that break the legs model and changes nothing', async () => {
+test('a v2 restore refuses rows that break the Legs model and changes nothing', async (t) => {
   await restoreText(v2File());
   const before = state();
   const broken = (change) => {
@@ -928,8 +928,9 @@ test('a v2 restore refuses rows that break the legs model and changes nothing', 
     [(data) => data.tags.push({ id: 2, name: 'TRIP' }), /UNIQUE constraint failed/],
     [(data) => (data.settings.favoriteAccountId = 99), /favorite Account 99/],
   ];
-  for (const [change, error] of cases) {
-    await assert.rejects(broken(change), error);
-    assert.deepEqual(state(), before);
-  }
+  for (const [index, [change, error]] of cases.entries())
+    await t.test(`case ${index + 1}: ${error}`, async () => {
+      await assert.rejects(broken(change), error);
+      assert.deepEqual(state(), before);
+    });
 });
