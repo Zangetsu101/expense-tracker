@@ -218,20 +218,7 @@ function parseBackup(json: string, references: References): BackupData {
       keys.add(row.rowKey);
     }
   }
-  for (const row of (data.transactions ?? []) as BackupData['transactions']) {
-    if (row.receivedAmountMinor != null) {
-      const accounts = (data.accounts ?? []) as BackupData['accounts'];
-      const source = accounts.find((a) => a.id === row.accountId);
-      const destination = accounts.find((a) => a.id === row.transferAccountId);
-      if (
-        row.type !== 'TRANSFER' ||
-        row.receivedAmountMinor <= 0 ||
-        (strict && (!source || !destination)) ||
-        source?.currencyCode === destination?.currencyCode
-      )
-        throw new Error('Invalid backup amount received');
-    }
-  }
+  validateTransactionAccounts(data, strict);
   validateCreditCards(data, strict);
   validateLending(data, strict);
   validateReimbursements(data, strict);
@@ -266,6 +253,32 @@ function parseBackup(json: string, references: References): BackupData {
       ? { moneyLoverImportRows: data.moneyLoverImportRows as BackupData['moneyLoverImportRows'] }
       : {}),
   };
+}
+
+/**
+ * Checks the Accounts of each Transaction and the received amount of a Transfer.
+ *
+ * In the strict mode each Transaction needs its source Account, and each Transfer needs its
+ * destination Account. In the repair mode a missing Account passes, because the restore
+ * names it and stops. A received amount on a row that is not a Transfer also passes,
+ * because the restore clears it.
+ */
+function validateTransactionAccounts(data: Record<string, unknown>, strict: boolean): void {
+  const currencies = new Map(
+    ((data.accounts ?? []) as BackupData['accounts']).map((row) => [row.id, row.currencyCode]),
+  );
+  for (const row of (data.transactions ?? []) as BackupData['transactions']) {
+    const source = currencies.get(row.accountId);
+    const destination = currencies.get(row.transferAccountId!);
+    const transfer = row.type === 'TRANSFER';
+    if (strict && (!source || (transfer && !destination)))
+      throw new Error('Invalid backup Transaction Account');
+    if (row.receivedAmountMinor == null) continue;
+    if (row.receivedAmountMinor <= 0 || (strict && !transfer))
+      throw new Error('Invalid backup amount received');
+    if (transfer && source && destination && source === destination)
+      throw new Error('Invalid backup amount received');
+  }
 }
 
 function validateCreditCards(data: Record<string, unknown>, strict: boolean): void {
@@ -413,7 +426,14 @@ function validateReimbursements(data: Record<string, unknown>, strict: boolean) 
     const fail = () => {
       throw new Error('Invalid backup reimbursement link');
     };
-    if (!row || payments.has(row.transactionId)) fail();
+    // A shop refund has an explicit null person. A missing key is not a refund.
+    if (
+      !row ||
+      typeof row !== 'object' ||
+      (row.personId !== null && !(Number.isSafeInteger(row.personId) && row.personId > 0)) ||
+      payments.has(row.transactionId)
+    )
+      fail();
     payments.add(row.transactionId);
     const missingShare = row.personId !== null && !shares.has(`${row.expenseId}:${row.personId}`);
     // The restore deletes a reimbursement of a missing Transaction or a missing split share.

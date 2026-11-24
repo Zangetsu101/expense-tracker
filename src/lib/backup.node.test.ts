@@ -178,6 +178,53 @@ test('a file can name a missing person, but the strict check refuses it', () => 
   assert.throws(() => encodeBackup(decoded), /lending metadata/);
 });
 
+test('a reimbursement needs an explicit person, or null for a shop refund', () => {
+  const data = JSON.parse(native);
+  const refund = { transactionId: 102, expenseId: 100 };
+  for (const reimbursement of [refund, { ...refund, personId: 'x' }, { ...refund, personId: 0 }])
+    assert.throws(
+      () => decodeBackup(JSON.stringify({ ...data, reimbursements: [reimbursement] })),
+      /reimbursement link|safe integer/,
+    );
+});
+
+test('a file can keep a stale received amount and a Transfer to a deleted Account', () => {
+  const data = JSON.parse(native);
+  // The restore clears a received amount on an Expense, and it names the missing Account.
+  data.transactions[0].receivedAmountMinor = 50;
+  data.transactions[1].accountId = 98;
+  data.transactions[1].transferAccountId = 99;
+  data.transactions[1].receivedAmountMinor = 100;
+  const decoded = decodeBackup(JSON.stringify(data));
+  assert.throws(() => assertCleanBackup(decoded), /Transaction Account|amount received/);
+  for (const bad of [0, -1])
+    assert.throws(
+      () =>
+        decodeBackup(
+          JSON.stringify({
+            ...data,
+            transactions: [{ ...data.transactions[0], receivedAmountMinor: bad }],
+          }),
+        ),
+      /amount received/,
+    );
+});
+
+test('a backup that the app writes needs the Accounts of each Transaction', () => {
+  const data = decodeBackup(native);
+  const transfer = data.transactions.find((row) => row.type === 'TRANSFER');
+  for (const patch of [
+    { id: data.transactions[0].id, accountId: 99 },
+    { id: transfer.id, transferAccountId: 99 },
+    { id: transfer.id, transferAccountId: null },
+  ]) {
+    const transactions = data.transactions.map((row) =>
+      row.id === patch.id ? { ...row, ...patch } : row,
+    );
+    assert.throws(() => encodeBackup({ ...data, transactions }), /Transaction Account/);
+  }
+});
+
 test('native v1 backups without import keys remain readable', () => {
   const data = decodeBackup(native);
   assert.equal(data.moneyLoverImportRows, undefined);

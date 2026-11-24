@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { decodeBackup } from '../src/lib/backup.ts';
+import { assertCleanBackup, decodeBackup } from '../src/lib/backup.ts';
 
 const modes = ['EXPENSE', 'INCOME'];
 const increment = (counts, key) => (counts[key] = (counts[key] ?? 0) + 1);
@@ -15,6 +15,8 @@ const categoryTie = (a, b) => compare(asciiLower(a.name), asciiLower(b.name)) ||
 
 export function adaptBackup(json) {
   const backup = decodeBackup(json);
+  // The replay reads the rows as they are, so it needs a backup without broken references.
+  assertCleanBackup(backup);
   for (const rows of [backup.accounts, backup.categories, backup.transactions]) {
     if (
       rows.some((row) => !row || !Number.isSafeInteger(row.id)) ||

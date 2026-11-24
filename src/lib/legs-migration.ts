@@ -573,8 +573,8 @@ const value = (item: unknown): SQLiteValue =>
 
 /**
  * Replaces all data with the rows of a v1 backup. Call it inside a transaction. Device-local
- * settings stay. The v1 rows go into legacy_* TEMP tables. Then the cleaning and the fill
- * SQL of the migration make the legs.
+ * settings stay. The v1 rows go into legacy_* TEMP tables, where the cleaning and the checks
+ * run before any live row changes. Then the fill SQL of the migration makes the legs.
  */
 export async function restoreLegacyRows(
   tx: Connection & Pick<SQLiteDatabase, 'runAsync'>,
@@ -583,11 +583,6 @@ export async function restoreLegacyRows(
   // Parent Categories can come after their children. With foreign keys on, SQLite checks
   // them at the commit. With foreign keys off, checkLedger() checks them.
   await tx.execAsync('PRAGMA defer_foreign_keys = ON');
-  // This order passes the guards of the triggers. Deleting a Transaction deletes its legs,
-  // split shares, Line Items and tags.
-  await tx.execAsync(`DELETE FROM reimbursements; DELETE FROM transactions;
-    DELETE FROM credit_cards; DELETE FROM accounts; DELETE FROM people; DELETE FROM tags;
-    DELETE FROM categories;`);
   await createLegacyTables(tx);
   const legacy = async (table: LegacyTable, rows: readonly object[]) => {
     const columns = columnsOf(table);
@@ -617,6 +612,11 @@ export async function restoreLegacyRows(
   await cleanLegacyTables(tx);
   // The cleaned rows must be a valid backup, as a backup that the app writes is.
   assertCleanBackup(await snapshotLegacyTables(tx));
+  // Only valid rows get here, so the live rows go now. This order passes the guards of the
+  // triggers. Deleting a Transaction deletes its legs, split shares, Line Items and tags.
+  await tx.execAsync(`DELETE FROM reimbursements; DELETE FROM transactions;
+    DELETE FROM credit_cards; DELETE FROM accounts; DELETE FROM people; DELETE FROM tags;
+    DELETE FROM categories;`);
   await tx.execAsync(fillFromLegacy);
   await dropLegacyTables(tx);
   await checkLedger(tx);

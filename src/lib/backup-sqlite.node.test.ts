@@ -500,6 +500,33 @@ test('a restore of a raw file deletes each kind of row that a delete left behind
   assert.equal((await backupStore.snapshot()).creditCards[0].parentAccountId, null);
 });
 
+test('a raw file with a stale received amount restores, and a lost destination is named', async () => {
+  const data = fixture();
+  data.transactions[0].receivedAmountMinor = 50;
+  assert.equal(await restoreJson(JSON.stringify(data)), true);
+  assert.equal((await backupStore.snapshot()).transactions[0].receivedAmountMinor, undefined);
+  const before = state();
+  data.accounts.push({
+    id: 2,
+    name: 'USD',
+    currencyCode: 'USD',
+    openingBalanceMinor: 0,
+    isFavorite: false,
+  });
+  data.transactions[0] = {
+    ...data.transactions[0],
+    type: 'TRANSFER',
+    categoryId: null,
+    transferAccountId: 9,
+    receivedAmountMinor: 100,
+  };
+  await assert.rejects(
+    restoreJson(JSON.stringify(data)),
+    /Row 1 of transactions needs destination Account 9/,
+  );
+  assert.deepEqual(state(), before);
+});
+
 test('a file that names a missing person stops before any change', async () => {
   await restoreJson(JSON.stringify(fixture()));
   const before = state();
