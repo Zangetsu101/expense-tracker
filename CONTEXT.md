@@ -3,16 +3,25 @@
 ## Language
 
 **Transaction**:
-A record of one movement of money, typed as an Expense, Income, or Transfer.
+A record of a movement of money, or of a Write-off that reduces what is owed. Its kind is Expense, Income, Transfer, lending, Write-off or reimbursement. A Transaction has one or more Legs.
+
+**Leg**:
+A part of a Transaction that moves a signed amount on exactly one Account or one Person, in the Leg's Currency. A positive Account Leg adds money to the Account. A positive Person Leg means that the person owes the user more, or that the user owes the person less.
 
 **Expense**:
-A Transaction that moves money out of an Account.
+A Transaction that moves money out of an Account. It has one negative Account Leg.
 
 **Income**:
-A Transaction that moves money into an Account.
+A Transaction that moves money into an Account. It has one positive Account Leg.
 
 **Transfer**:
-A Transaction that moves money between two of the user's Accounts. The amount paid belongs to the source Currency; when the Currencies differ, the amount received belongs to the destination Currency.
+A Transaction that moves money between two of the user's Accounts. It has two Account Legs. The source Leg is negative, and the destination Leg is positive. Each Leg has its own amount in its own Account's Currency.
+
+**Direction**:
+The obligation that a lending Transaction or a Write-off belongs to: LENT (a person owes the user) or BORROWED (the user owes a person). The two Directions are separate obligations.
+
+**Write-off**:
+A Transaction that reduces what is owed in one Direction without moving money. It has one Person Leg and no Account Leg.
 
 **Account**:
 A place money sits, such as cash, a bank account, or a credit card. MoneyLover calls this a “wallet.” An Account has one Currency.
@@ -28,13 +37,13 @@ The amount owed at the most recent statement date, reduced by subsequent payment
 A Transfer into a Credit Card that reduces what is owed, without adding spending.
 
 **Currency**:
-The denomination of an Account's money. Expenses and Income use their Account's Currency; each side of a Transfer uses its own Account's Currency.
+The denomination of an Account's money. Each Account Leg uses its Account's Currency.
 
 **Display Rate**:
 A user-selected conversion rate used to compare totals across Currencies, not to change stored amounts.
 
 **Category**:
-An expense or income classification for a Transaction. A Category may have a parent Category; Transfers have none.
+An expense or income classification for an Expense or an Income. A Category may have a parent Category. Transfers, lending Transactions and Write-offs have none. In reports, a reimbursement uses the Category of its Expense.
 
 **Mixed Category**:
 A MoneyLover CSV category associated with both positive and negative amounts, so its expense/income classification is ambiguous.
