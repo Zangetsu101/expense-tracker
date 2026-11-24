@@ -5,12 +5,12 @@ import { File } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { database, favoriteAccountIdSql, isFavoriteSql } from '@/lib/database';
 import { accountTransactions, lendingEntryRows } from '@/lib/ledger-store';
-import { restoreLegacyRows } from '@/lib/legs-migration';
+import { restoreLegacyRows, restoreLegsRows } from '@/lib/legs-migration';
 import { readAll } from '@/lib/read-all';
-import type { BackupData, BackupDocuments, BackupStore } from '@/lib/backup';
+import type { BackupV1, BackupDocuments, BackupStore } from '@/lib/backup';
 
-// The backup format stays v1 (ADR 0013). Export derives the v1 rows from the legs, and
-// restore loads the v1 rows with the same fill SQL as the migration.
+// Export still writes v1 (ADR 0014). It derives the v1 rows from the legs. Restore loads
+// v1 rows with the same fill SQL as the migration, and it inserts v2 rows directly.
 //
 // A v1 lending entry needs an id. Each entry uses the id of its Transaction, so the ids
 // stay the same from one export to the next. A restore gives each Write-off a new
@@ -24,7 +24,7 @@ const v1Transactions = `SELECT t.id, t.type, t.amountMinor, t.receivedAmountMino
 export const backupStore: BackupStore = {
   async snapshot() {
     const db = await database();
-    let snapshot!: BackupData;
+    let snapshot!: BackupV1;
     await db.withExclusiveTransactionAsync(async (tx) => {
       const all = <T>(query: string) => tx.getAllAsync<T>(query);
       const { favorite, displayRate, accounts, categories, transactions, ...tables } =
@@ -33,40 +33,38 @@ export const backupStore: BackupStore = {
           displayRate: tx.getFirstAsync<{ value: string }>(
             "SELECT value FROM app_settings WHERE key = 'displayRate'",
           ),
-          accounts: all<
-            Omit<BackupData['accounts'][number], 'isFavorite'> & { isFavorite: number }
-          >(
+          accounts: all<Omit<BackupV1['accounts'][number], 'isFavorite'> & { isFavorite: number }>(
             `SELECT a.id, a.name, a.currencyCode, a.openingBalanceMinor,
             ${isFavoriteSql('a')} AS isFavorite FROM accounts a ORDER BY a.id`,
           ),
-          categories: all<BackupData['categories'][number]>(
+          categories: all<BackupV1['categories'][number]>(
             'SELECT id, name, type, parentId, iconKey FROM categories ORDER BY id',
           ),
           transactions: all<
-            Omit<BackupData['transactions'][number], 'excludeFromReport' | 'source'> & {
+            Omit<BackupV1['transactions'][number], 'excludeFromReport' | 'source'> & {
               excludeFromReport: number;
             }
           >(v1Transactions),
-          lineItems: all<BackupData['lineItems'][number]>(
+          lineItems: all<BackupV1['lineItems'][number]>(
             'SELECT id, transactionId, name, amountMinor, quantity FROM line_items ORDER BY id',
           ),
-          tags: all<BackupData['tags'][number]>('SELECT id, name FROM tags ORDER BY id'),
-          transactionTags: all<BackupData['transactionTags'][number]>(
+          tags: all<BackupV1['tags'][number]>('SELECT id, name FROM tags ORDER BY id'),
+          transactionTags: all<BackupV1['transactionTags'][number]>(
             'SELECT transactionId, tagId FROM transaction_tags ORDER BY transactionId, tagId',
           ),
-          creditCards: all<NonNullable<BackupData['creditCards']>[number]>(
+          creditCards: all<NonNullable<BackupV1['creditCards']>[number]>(
             'SELECT accountId, parentAccountId, statementDay, dueDay FROM credit_cards ORDER BY accountId',
           ),
-          people: all<NonNullable<BackupData['people']>[number]>(
+          people: all<NonNullable<BackupV1['people']>[number]>(
             'SELECT id, name FROM people ORDER BY id',
           ),
-          splitShares: all<NonNullable<BackupData['splitShares']>[number]>(
+          splitShares: all<NonNullable<BackupV1['splitShares']>[number]>(
             'SELECT expenseId, personId, amountMinor FROM split_shares ORDER BY expenseId, personId',
           ),
-          reimbursements: all<NonNullable<BackupData['reimbursements']>[number]>(
+          reimbursements: all<NonNullable<BackupV1['reimbursements']>[number]>(
             'SELECT transactionId, expenseId, personId FROM reimbursements ORDER BY transactionId',
           ),
-          lendingEntries: all<NonNullable<BackupData['lendingEntries']>[number]>(
+          lendingEntries: all<NonNullable<BackupV1['lendingEntries']>[number]>(
             `SELECT id, personId, kind, transactionId, currencyCode, amountMinor,
             date AS dateEpochDay, note FROM (${lendingEntryRows}) ORDER BY id`,
           ),
@@ -93,7 +91,9 @@ export const backupStore: BackupStore = {
   },
   async replace(data) {
     const db = await database();
-    await db.withExclusiveTransactionAsync((tx) => restoreLegacyRows(tx, data));
+    await db.withExclusiveTransactionAsync((tx) =>
+      data.schemaVersion === 2 ? restoreLegsRows(tx, data) : restoreLegacyRows(tx, data),
+    );
     notifyDataChanged();
   },
 };

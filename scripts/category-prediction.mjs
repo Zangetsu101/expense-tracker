@@ -13,10 +13,56 @@ const compare = (a, b) => {
 };
 const categoryTie = (a, b) => compare(asciiLower(a.name), asciiLower(b.name)) || a.id - b.id;
 
+/**
+ * The v1 view of a backup: the Transactions that move money on an Account, the ids of the
+ * linked lending Transactions, and the number of lending entries. For a v2 backup it gives
+ * the rows that a v1 export of the same data has.
+ */
+function v1Ledger(backup) {
+  if (backup.schemaVersion === 1) {
+    assertCleanBackup(backup);
+    const lending = backup.lendingEntries ?? [];
+    return {
+      transactions: backup.transactions,
+      linked: new Set(lending.map((row) => row.transactionId)),
+      lendingEntries: lending.length,
+    };
+  }
+  const accountLegs = Map.groupBy(
+    backup.legs.filter((leg) => leg.accountId !== null),
+    (leg) => leg.transactionId,
+  );
+  const transactions = backup.transactions.flatMap((row) => {
+    const legs = accountLegs.get(row.id) ?? [];
+    const transfer = row.kind === 'TRANSFER';
+    const leg = transfer ? legs.find((item) => item.amountMinor < 0) : legs[0];
+    if (!leg) return [];
+    let type = leg.amountMinor < 0 ? 'EXPENSE' : 'INCOME';
+    if (transfer) type = 'TRANSFER';
+    return [
+      {
+        id: row.id,
+        type,
+        amountMinor: Math.abs(leg.amountMinor),
+        dateEpochDay: row.date,
+        accountId: leg.accountId,
+        categoryId: row.categoryId,
+        source: 'MANUAL',
+      },
+    ];
+  });
+  const lending = backup.transactions.filter((row) => row.direction !== null);
+  return {
+    transactions,
+    linked: new Set(lending.filter((row) => row.kind === 'LENDING').map((row) => row.id)),
+    lendingEntries: lending.length,
+  };
+}
+
 export function adaptBackup(json) {
   const backup = decodeBackup(json);
-  assertCleanBackup(backup);
-  for (const rows of [backup.accounts, backup.categories, backup.transactions]) {
+  const ledger = v1Ledger(backup);
+  for (const rows of [backup.accounts, backup.categories, ledger.transactions]) {
     if (
       rows.some((row) => !row || !Number.isSafeInteger(row.id)) ||
       new Set(rows.map((row) => row.id)).size !== rows.length
@@ -29,13 +75,13 @@ export function adaptBackup(json) {
     (row) => modes.includes(row.type) && typeof row.name === 'string',
   );
   const byCategory = new Map(categories.map((row) => [row.id, row]));
-  const linked = new Set((backup.lendingEntries ?? []).map((row) => row.transactionId));
+  const { linked } = ledger;
   const excluded = {};
   const sources = {};
   const eligibleSources = {};
   const rows = [];
   const baselineRows = [];
-  for (const row of backup.transactions) {
+  for (const row of ledger.transactions) {
     const source = ['IMPORT', 'MANUAL'].includes(row.source) ? row.source : 'OTHER_OR_MISSING';
     increment(sources, source);
     const account = accounts.get(row.accountId);
@@ -94,8 +140,8 @@ export function adaptBackup(json) {
       raw: {
         accounts: backup.accounts.length,
         categories: backup.categories.length,
-        transactions: backup.transactions.length,
-        lendingEntries: (backup.lendingEntries ?? []).length,
+        transactions: ledger.transactions.length,
+        lendingEntries: ledger.lendingEntries,
       },
       sources,
       eligibleSources,

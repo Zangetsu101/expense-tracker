@@ -400,3 +400,61 @@ test('received amounts are optional safe positive minor units on cross-Currency 
   delete transaction.receivedAmountMinor;
   assert.doesNotThrow(() => encodeBackup(data));
 });
+
+const v2 = readFileSync(new URL('../../scripts/fixtures/backup-v2.json', import.meta.url), 'utf8');
+
+test('a v2 file decodes, and encode then decode gives the same data', () => {
+  const data = decodeBackup(v2);
+  assert.equal(data.schemaVersion, 2);
+  assert.deepEqual(data, JSON.parse(v2));
+  assert.deepEqual(decodeBackup(encodeBackup(data)), data);
+});
+
+test('a v2 file with a wrong structure is refused before any change', () => {
+  const broken = (change) => {
+    const data = JSON.parse(v2);
+    change(data);
+    return () => decodeBackup(JSON.stringify(data));
+  };
+  const cases = [
+    [(data) => delete data.legs, /Invalid backup legs/],
+    [(data) => (data.legs = {}), /Invalid backup legs/],
+    [(data) => (data.extra = []), /Unknown backup field extra/],
+    [(data) => (data.legs[0].id = 1), /Invalid backup legs row 1: id/],
+    [(data) => delete data.legs[0].personId, /Invalid backup legs row 1: personId/],
+    [(data) => (data.legs[0].amountMinor = 1.5), /Invalid backup legs row 1: amountMinor/],
+    [(data) => (data.legs[0].accountId = '1'), /Invalid backup legs row 1: accountId/],
+    [(data) => (data.transactions[0].kind = 'LEND'), /Invalid backup transactions row 1: kind/],
+    [
+      (data) => (data.transactions[3].direction = 'OUT'),
+      /Invalid backup transactions row 4: direction/,
+    ],
+    [
+      (data) => (data.transactions[0].excludeFromReport = 0),
+      /Invalid backup transactions row 1: excludeFromReport/,
+    ],
+    [(data) => (data.categories[0].type = 'TRANSFER'), /Invalid backup categories row 1: type/],
+    [(data) => (data.accounts[0].currencyCode = 'taka'), /Invalid backup accounts row 1/],
+    [(data) => (data.legs[0].currencyCode = 'bdt'), /Invalid backup legs row 1: currencyCode/],
+    [(data) => (data.lineItems[0].quantity = '2'), /Invalid backup lineItems row 1: quantity/],
+    [(data) => data.accounts.push(data.accounts[0]), /Duplicate backup accounts row 4/],
+    [
+      (data) => data.transactionTags.push(data.transactionTags[0]),
+      /Duplicate backup transactionTags row 3/,
+    ],
+    [(data) => (data.settings = null), /Invalid backup settings/],
+    [(data) => (data.settings.favoriteAccountId = '1'), /Invalid backup settings/],
+    [(data) => (data.settings.displayRate.rate = 0), /Invalid backup settings/],
+    [(data) => (data.settings.displayRate.source = 'bank'), /Invalid backup settings/],
+    [(data) => (data.settings.theme = 'dark'), /Invalid backup settings/],
+  ];
+  for (const [change, error] of cases) assert.throws(broken(change), error);
+  assert.throws(
+    () => decodeBackup(v2.replace('"amountMinor": -1500', '"amountMinor": -9007199254740993')),
+    /integer too large/,
+  );
+});
+
+test('a backup with a schema version after 2 is refused', () => {
+  assert.throws(() => decodeBackup('{"schemaVersion":3}'), /Unsupported backup schema version/);
+});
