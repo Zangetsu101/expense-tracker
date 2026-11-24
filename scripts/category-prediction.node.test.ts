@@ -100,11 +100,7 @@ function backup(transactions) {
   return JSON.stringify({
     schemaVersion: 1,
     accounts: [{ id: 1, currencyCode: 'USD' }],
-    categories: [
-      ...categories,
-      { id: 4, name: 'Loan', type: 'EXPENSE', needsReview: false },
-      { id: 5, name: 'Ambiguous', type: 'EXPENSE', needsReview: true },
-    ],
+    categories: [...categories, { id: 4, name: 'Loan', type: 'EXPENSE', needsReview: false }],
     transactions: transactions.map((overrides, index) => ({
       id: index + 1,
       type: 'EXPENSE',
@@ -126,20 +122,19 @@ test('adapter filters nonordinary and unusable labels while keeping report-exclu
     backup([
       {},
       { type: 'TRANSFER' },
-      { categoryId: 4 },
-      { categoryId: 5 },
       { categoryId: 999 },
       { accountId: 999 },
       { categoryId: 3 },
       { amountMinor: 0 },
-      { categoryId: 4, source: 'MANUAL' },
     ]),
   );
-  assert.equal(result.rows.length, 2);
+  assert.deepEqual(
+    result.rows.map((row) => row.id),
+    [1],
+  );
   assert.deepEqual(result.provenance.excluded, {
     transfer_or_unknown_type: 1,
-    unlinked_imported_lending: 1,
-    missing_ambiguous_or_mismatched_category: 3,
+    missing_or_mismatched_category: 2,
     missing_or_invalid_metadata: 2,
   });
   assert.equal(JSON.stringify(result.rows).includes('PRIVATE'), false);
@@ -180,9 +175,24 @@ test('linked Person movements are excluded even with ordinary Category labels', 
   );
 });
 
-test('recent baseline retains prior lending Category recency exactly as the existing query does', () => {
-  const data = backup([{ categoryId: 1 }, { categoryId: 4 }, { categoryId: 1 }]);
-  const result = evaluate(data);
+test('the recent baseline uses linked lending history and the amount ranker skips it', () => {
+  const data = JSON.parse(
+    backup([{ categoryId: 1 }, { categoryId: 4, note: null }, { categoryId: 1 }]),
+  );
+  data.people = [{ id: 1, name: 'Sam' }];
+  data.lendingEntries = [
+    {
+      id: 1,
+      personId: 1,
+      kind: 'LEND',
+      transactionId: 2,
+      currencyCode: 'USD',
+      amountMinor: 100,
+      dateEpochDay: 2,
+      note: null,
+    },
+  ];
+  const result = evaluate(JSON.stringify(data));
   assert.equal(result.metrics['final/all/recent'].top1, 0);
   assert.equal(result.metrics['final/all/amount'].top1, 1);
   assert.equal(result.metrics['final/all/amount'].cold, 0);

@@ -1,7 +1,7 @@
 import { act, screen, userEvent } from '@testing-library/react-native';
 import { router } from 'expo-router';
 import { notifyDataChanged } from '@/lib/data-changes';
-import { listPeopleWithLendingTotals, loadUnassignedLending } from '@/lib/lending';
+import { listPeopleWithLendingTotals } from '@/lib/lending';
 import type { LendingTotal } from '@/lib/lending-totals';
 import { renderWithQueries } from '@/test/render-with-queries';
 import LendingScreen from './overview-screen';
@@ -9,7 +9,6 @@ import LendingScreen from './overview-screen';
 jest.mock('expo-router', () => ({ router: { push: jest.fn() }, Stack: { Screen: () => null } }));
 jest.mock('@/lib/lending', () => ({
   listPeopleWithLendingTotals: jest.fn(),
-  loadUnassignedLending: jest.fn(),
 }));
 
 const total: LendingTotal = {
@@ -26,7 +25,6 @@ const person = { id: 1, name: 'Rafi', totals: [total], lastDate: undefined };
 
 beforeEach(() => {
   jest.mocked(listPeopleWithLendingTotals).mockReset().mockResolvedValue([person]);
-  jest.mocked(loadUnassignedLending).mockReset().mockResolvedValue({ rows: [], totals: [] });
 });
 
 test('the overview shows the skeleton until its totals and people can appear together', async () => {
@@ -40,7 +38,7 @@ test('the overview shows the skeleton until its totals and people can appear tog
   expect(screen.getByRole('button', { name: 'Rafi, Owes you' })).toBeOnTheScreen();
 });
 
-test('open people sort by balance, followed by No person and settled people', async () => {
+test('open people sort by balance, followed by settled people', async () => {
   const user = userEvent.setup();
   jest.mocked(listPeopleWithLendingTotals).mockResolvedValue([
     person,
@@ -52,32 +50,15 @@ test('open people sort by balance, followed by No person and settled people', as
     },
     { id: 3, name: 'Kai', totals: [], lastDate: undefined },
   ]);
-  jest.mocked(loadUnassignedLending).mockResolvedValue({
-    rows: [
-      {
-        transactionId: 4,
-        kind: 'LEND',
-        accountId: 1,
-        accountName: 'Cash',
-        amountMinor: 1200,
-        currencyCode: 'USD',
-        date: 20000,
-        categoryName: 'Loan',
-        note: null,
-      },
-    ],
-    totals: [{ ...total, personId: 0, outstandingMinor: 1200 }],
-  });
   await renderWithQueries(<LendingScreen />);
   await screen.findByText('People');
   expect(screen.getAllByRole('button').map((button) => button.props.accessibilityLabel)).toEqual([
     'Sam, You owe',
     'Rafi, Owes you',
-    'No person, 1 entry',
     'Kai, Settled',
     'Add entry',
   ]);
-  expect(screen.getByText('$42.00')).toBeOnTheScreen();
+  expect(screen.getAllByText('$30.00')).toHaveLength(2);
   await user.press(screen.getByRole('button', { name: 'Rafi, Owes you' }));
   expect(router.push).toHaveBeenLastCalledWith({
     pathname: '/accounts/lending/person',

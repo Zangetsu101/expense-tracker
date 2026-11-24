@@ -8,11 +8,7 @@ export async function listCategoryEvidence(type: 'EXPENSE' | 'INCOME', currency:
      JOIN accounts a ON a.id = t.accountId
      JOIN categories c ON c.id = t.categoryId
      WHERE t.type = ? AND c.type = t.type AND a.currencyCode = ?
-       AND c.needsReview = 0
-       AND NOT EXISTS (SELECT 1 FROM lending_entries l WHERE l.transactionId = t.id)
-       AND NOT (t.source = 'IMPORT' AND
-         ((t.type = 'EXPENSE' AND lower(c.name) IN ('loan', 'repayment')) OR
-          (t.type = 'INCOME' AND lower(c.name) IN ('debt', 'debt collection'))))`,
+       AND NOT EXISTS (SELECT 1 FROM lending_entries l WHERE l.transactionId = t.id)`,
     [type, currency],
   );
 }

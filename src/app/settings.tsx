@@ -4,46 +4,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useState } from 'react';
 import { RunningRelease } from '@/components/running-release';
 import { UpdatesRow } from '@/components/app-updates';
-import { Stack, router, type Href } from 'expo-router';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Stack } from 'expo-router';
+import { ScrollView, View } from 'react-native';
 import { theme } from '@/theme';
 
-const { background, line, text, muted } = theme.colors;
-
-function Row({
-  label,
-  href,
-  first = false,
-  disabled = false,
-}: {
-  label: string;
-  href: Href;
-  first?: boolean;
-  disabled?: boolean;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={{ disabled }}
-      disabled={disabled}
-      onPress={() => router.push(href)}
-      style={({ pressed }) => ({
-        flexDirection: 'row',
-        alignItems: 'center',
-        minHeight: theme.controlHeight,
-        paddingHorizontal: theme.spacing.lg,
-        paddingVertical: theme.spacing.md,
-        borderTopWidth: first ? 0 : 1,
-        borderColor: line,
-        opacity: pressed ? 0.6 : 1,
-      })}
-    >
-      <Text style={{ flex: 1, color: text, fontSize: theme.type.body }}>{label}</Text>
-      <Text style={{ color: muted }}>›</Text>
-    </Pressable>
-  );
-}
+const { background, text } = theme.colors;
 
 export default function SettingsScreen() {
   const [busy, setBusy] = useState(false);
@@ -68,9 +33,6 @@ export default function SettingsScreen() {
         importantForAccessibility={busy ? 'no-hide-descendants' : 'auto'}
         style={{ gap: theme.spacing.indent, opacity: busy ? 0.45 : 1 }}
       >
-        <SettingsGroup title="Manage">
-          <Row disabled={busy} first label="Review transfer candidates" href="/review-queue" />
-        </SettingsGroup>
         <SettingsGroup title="App">
           <UpdatesRow />
         </SettingsGroup>

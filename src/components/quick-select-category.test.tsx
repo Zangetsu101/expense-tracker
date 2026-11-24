@@ -29,7 +29,6 @@ const categories: ManagedCategory[] = ['Food', 'Travel', 'Coffee', 'Shopping'].m
   parentId: null,
   parentName: null,
   emoji: null,
-  needsReview: 0,
 }));
 const names = () => screen.getAllByRole('button').map((button) => button.props.accessibilityLabel);
 // RNTL does not run native layout. Deliver Yoga's result to the chip's measured wrapper.

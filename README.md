@@ -1,6 +1,6 @@
 # Expense Tracker
 
-A local-first personal finance app built with Expo, React Native, and SQLite. Track expenses and income across accounts, import MoneyLover history, and keep portable backups of your data.
+A local-first personal finance app built with Expo, React Native, and SQLite. Track expenses and income across accounts and keep portable backups of your data.
 
 ## Features
 
@@ -8,14 +8,13 @@ A local-first personal finance app built with Expo, React Native, and SQLite. Tr
 - Accounts with separate currencies and same-currency transfers.
 - Transaction search and filters, monthly summaries, and spending by category.
 - Lending and borrowing tracked by person and currency.
-- MoneyLover CSV import with duplicate detection and review of uncertain transfers.
 - Automatic JSON backups to Google Drive on Android, a backup file to share, restore, and CSV export for portability.
 
 ## Status
 
 This project is under active development. Android has been exercised in Expo Go; iOS has not yet been device-verified. Web is not a verified target.
 
-Keep an independent copy of your financial records before trying imports or restore. CSV export is not a full backup. Automatic backups need a Google account and the setup in [docs/google-drive-backups.md](docs/google-drive-backups.md). Backup values above JavaScript's safe integer limit cannot round-trip reliably.
+Keep an independent copy of your financial records before restoring a backup. CSV export is not a full backup. Automatic backups need a Google account and the setup in [docs/google-drive-backups.md](docs/google-drive-backups.md). Backup values above JavaScript's safe integer limit cannot round-trip reliably.
 
 ## Run locally
 

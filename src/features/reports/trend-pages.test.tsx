@@ -190,9 +190,6 @@ test('Net worth shows the Accounts, the lending block and the history span', asy
   expect(screen.getByText('People owe you')).toBeOnTheScreen();
   expect(screen.getByText('+$4.00')).toBeOnTheScreen();
   expect(screen.getByText('$16.00')).toBeOnTheScreen();
-  expect(
-    screen.getByText('Lending totals can be incomplete. Some old Transactions have no person.'),
-  ).toBeOnTheScreen();
   expect(screen.getByText('+$2.00 since Mar 2025')).toBeOnTheScreen();
 
   await user.press(screen.getByRole('button', { name: '6M' }));

@@ -34,7 +34,6 @@ const category = (id: number, name: string, type: ManagedCategory['type']): Mana
   parentId: null,
   parentName: null,
   emoji: null,
-  needsReview: 0,
 });
 const lunch = category(1, 'Lunch', 'EXPENSE');
 const salary = category(2, 'Salary', 'INCOME');

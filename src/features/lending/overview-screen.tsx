@@ -109,13 +109,12 @@ function PersonRow({ person, settled = false }: { person: PersonWithTotals; sett
 }
 
 function LendingOverview() {
-  const { data, error, isFetching, refetch } = useSuspenseQuery(lendingOverviewQuery());
-  const { people, unassigned } = data;
+  const { data: people, error, isFetching, refetch } = useSuspenseQuery(lendingOverviewQuery());
   const open = people
     .filter((person) => largestOpenAmount(person.totals))
     .sort((a, b) => largestOpenAmount(b.totals) - largestOpenAmount(a.totals));
   const settled = people.filter((person) => !largestOpenAmount(person.totals));
-  const empty = !people.length && !unassigned.rows.length;
+  const empty = !people.length;
   return (
     <>
       <LendingScroll>
@@ -130,9 +129,7 @@ function LendingOverview() {
         ) : (
           <>
             <View style={panel}>
-              <OpenTotals
-                totals={[...people.flatMap((person) => person.totals), ...unassigned.totals]}
-              />
+              <OpenTotals totals={people.flatMap((person) => person.totals)} />
               <View style={divider} />
               <Muted>{countLabel(open.length, 'person', 'people')} with open balances</Muted>
             </View>
@@ -141,16 +138,6 @@ function LendingOverview() {
               {open.map((person) => (
                 <PersonRow key={person.id} person={person} />
               ))}
-              {!!unassigned.rows.length && (
-                <LedgerRow
-                  title="No person"
-                  detail={countLabel(unassigned.rows.length, 'entry', 'entries')}
-                  icon="?"
-                  dashed
-                  amounts={<BalanceAmounts totals={unassigned.totals} />}
-                  onPress={() => router.push('/accounts/lending/unassigned')}
-                />
-              )}
               {!!settled.length && (
                 <>
                   <Text style={{ color: colors.muted, fontWeight: '700', marginTop: 16 }}>
@@ -182,7 +169,7 @@ export default function LendingScreen() {
 }
 
 function CardContent() {
-  const { data, error, isFetching, refetch } = useSuspenseQuery(lendingOverviewQuery());
+  const { data: people, error, isFetching, refetch } = useSuspenseQuery(lendingOverviewQuery());
   return (
     <View style={panel}>
       {!!error && !isFetching && (
@@ -197,16 +184,13 @@ function CardContent() {
         <View style={spacedRow}>
           <Muted>Lending</Muted>
           <Muted>
-            {data.people.length ? `${countLabel(data.people.length, 'person', 'people')} ›` : '›'}
+            {people.length ? `${countLabel(people.length, 'person', 'people')} ›` : '›'}
           </Muted>
         </View>
-        {data.people.every((person) => !person.totals.length) && !data.unassigned.rows.length ? (
+        {people.every((person) => !person.totals.length) ? (
           <Text style={{ color: colors.text }}>Nothing lent or borrowed yet</Text>
         ) : (
-          <OpenTotals
-            compact
-            totals={[...data.people.flatMap((person) => person.totals), ...data.unassigned.totals]}
-          />
+          <OpenTotals compact totals={people.flatMap((person) => person.totals)} />
         )}
       </Pressable>
     </View>

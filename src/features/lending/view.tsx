@@ -16,7 +16,7 @@ import { AppSheet } from '@/components/app-sheet';
 import { QueryBoundary } from '@/components/query-error-boundary';
 import { Skeleton } from '@/components/loading';
 import { formatActivityDay, formatBalance, formatMoney } from '@/lib/transaction-format';
-import type { LendingEntry, UnassignedLendingTransaction } from '@/lib/lending';
+import type { LendingEntry } from '@/lib/lending';
 import type { LendingTotal } from '@/lib/lending-totals';
 import { lendingKindLabels } from '@/lib/lending-labels';
 import { pressableOpacity, theme } from '@/theme';
@@ -262,63 +262,34 @@ export function LedgerRow({
   icon,
   amounts,
   onPress,
-  checked,
   settled,
-  dashed,
 }: {
   title: string;
   detail?: string;
   icon: string;
   amounts?: ReactNode;
   onPress: () => void;
-  checked?: boolean;
   settled?: boolean;
-  dashed?: boolean;
 }) {
   return (
     <Pressable
-      accessibilityRole={checked === undefined ? 'button' : 'checkbox'}
+      accessibilityRole="button"
       accessibilityLabel={[title, detail].filter(Boolean).join(', ')}
-      accessibilityState={{ checked }}
       onPress={onPress}
       style={({ pressed }) => [rowStyle, { opacity: pressed ? 0.6 : 1 }]}
     >
-      {checked === undefined ? (
-        <View
-          style={{
-            width: 40,
-            height: 40,
-            borderRadius: 12,
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: dashed ? 'transparent' : colors.raised,
-            borderColor: colors.line,
-            borderWidth: dashed ? 1 : 0,
-            borderStyle: dashed ? 'dashed' : 'solid',
-          }}
-        >
-          <Text
-            style={{ color: dashed ? colors.muted : colors.text, fontSize: 18, fontWeight: '700' }}
-          >
-            {icon}
-          </Text>
-        </View>
-      ) : (
-        <View
-          style={{
-            width: 24,
-            height: 24,
-            borderRadius: 12,
-            borderWidth: 2,
-            borderColor: checked ? colors.accent : colors.line,
-            backgroundColor: checked ? colors.accent : 'transparent',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Text style={{ color: colors.background }}>{checked ? '✓' : ''}</Text>
-        </View>
-      )}
+      <View
+        style={{
+          width: 40,
+          height: 40,
+          borderRadius: 12,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: colors.raised,
+        }}
+      >
+        <Text style={{ color: colors.text, fontSize: 18, fontWeight: '700' }}>{icon}</Text>
+      </View>
       <View style={{ flex: 1, gap: 4 }}>
         <Text
           style={{ color: settled ? colors.muted : colors.text, fontSize: 16, fontWeight: '600' }}
@@ -367,26 +338,22 @@ export function BalanceAmounts({ totals }: { totals: LendingTotal[] }) {
     ));
 }
 
-type HistoryEntry = LendingEntry | UnassignedLendingTransaction;
-
 function entryFlow(writeOff: boolean, incoming: boolean) {
   if (writeOff) return { icon: '✕', color: colors.muted, signAs: 'TRANSFER' } as const;
   if (incoming) return { icon: '↙', color: colors.accent, signAs: 'INCOME' } as const;
   return { icon: '↗', color: colors.text, signAs: 'EXPENSE' } as const;
 }
 
-export function HistoryList<T extends HistoryEntry>({
+export function HistoryList({
   rows,
   header,
   onPress,
-  selection,
 }: {
-  rows: T[];
+  rows: LendingEntry[];
   header: ReactElement;
-  onPress: (row: T) => void;
-  selection?: ReadonlySet<number>;
+  onPress: (row: LendingEntry) => void;
 }) {
-  const days = new Map<number, T[]>();
+  const days = new Map<number, LendingEntry[]>();
   for (const row of rows) {
     const entries = days.get(row.date) ?? [];
     entries.push(row);
@@ -400,7 +367,7 @@ export function HistoryList<T extends HistoryEntry>({
       stickySectionHeadersEnabled={false}
       ListHeaderComponent={header}
       sections={[...days].map(([date, data]) => ({ date, data, key: String(date) }))}
-      keyExtractor={(row) => String('id' in row ? row.id : row.transactionId)}
+      keyExtractor={(row) => String(row.id)}
       renderSectionHeader={({ section }) => (
         <Text style={{ color: colors.muted, fontWeight: '700', paddingTop: 16, paddingBottom: 6 }}>
           {formatActivityDay(section.date)}
@@ -410,11 +377,7 @@ export function HistoryList<T extends HistoryEntry>({
         const writeOff = item.transactionId === null;
         const incoming = item.kind === 'BORROW' || item.kind === 'RECEIVE_REPAYMENT';
         const flow = entryFlow(writeOff, incoming);
-        const detail = [
-          item.accountName ?? 'No Account movement',
-          'categoryName' in item ? item.categoryName : null,
-          item.note,
-        ]
+        const detail = [item.accountName ?? 'No Account movement', item.note]
           .filter(Boolean)
           .join(' · ');
         return (
@@ -422,11 +385,6 @@ export function HistoryList<T extends HistoryEntry>({
             title={lendingKindLabels[item.kind]}
             detail={detail}
             icon={flow.icon}
-            checked={
-              selection
-                ? item.transactionId !== null && selection.has(item.transactionId)
-                : undefined
-            }
             onPress={() => onPress(item)}
             amounts={
               <MoneyText color={flow.color}>

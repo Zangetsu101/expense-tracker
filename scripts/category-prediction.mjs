@@ -25,7 +25,7 @@ export function adaptBackup(json) {
   }
   const accounts = new Map(backup.accounts.map((row) => [row.id, row]));
   const categories = backup.categories.filter(
-    (row) => modes.includes(row.type) && row.needsReview === false && typeof row.name === 'string',
+    (row) => modes.includes(row.type) && typeof row.name === 'string',
   );
   const byCategory = new Map(categories.map((row) => [row.id, row]));
   const linked = new Set((backup.lendingEntries ?? []).map((row) => row.transactionId));
@@ -58,23 +58,14 @@ export function adaptBackup(json) {
     let reason;
     if (!modes.includes(row.type)) reason = 'transfer_or_unknown_type';
     else if (linked.has(row.id)) reason = 'linked_person_movement';
-    else if (!category || category.type !== row.type)
-      reason = 'missing_ambiguous_or_mismatched_category';
-    else if (
-      row.source === 'IMPORT' &&
-      (row.type === 'EXPENSE' ? ['loan', 'repayment'] : ['debt', 'debt collection']).includes(
-        asciiLower(category.name),
-      )
-    )
-      reason = 'unlinked_imported_lending';
+    else if (!category || category.type !== row.type) reason = 'missing_or_mismatched_category';
     else if (
       !account ||
       !/^[A-Z]{3}$/.test(account.currencyCode ?? '') ||
       !Number.isSafeInteger(row.dateEpochDay) ||
       Math.abs(row.dateEpochDay) > 100000000 ||
       !Number.isSafeInteger(row.amountMinor) ||
-      row.amountMinor <= 0 ||
-      !['IMPORT', 'MANUAL'].includes(row.source)
+      row.amountMinor <= 0
     )
       reason = 'missing_or_invalid_metadata';
     if (reason) increment(excluded, reason);

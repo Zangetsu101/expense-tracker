@@ -45,11 +45,5 @@ A user-selected conversion rate used to compare totals across Currencies, not to
 **Category**:
 An expense or income classification for an Expense or an Income. A Category may have a parent Category. Transfers, lending Transactions and Write-offs have none. In reports, a reimbursement uses the Category of its Expense.
 
-**Mixed Category**:
-A MoneyLover CSV category associated with both positive and negative amounts, so its expense/income classification is ambiguous.
-
 **Line Item**:
 An optional named component of a Transaction with an amount and optional quantity. The Transaction amount remains authoritative.
-
-**Review Queue**:
-Uncertain pairs of MoneyLover CSV rows that might represent Transfers and need user confirmation or rejection.
