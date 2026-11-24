@@ -1,6 +1,6 @@
 import { act, render, screen, userEvent } from '@testing-library/react-native';
 import { openDatabaseAsync } from 'expo-sqlite';
-import { Text } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import { database } from '@/lib/database';
 import { openLedger } from '@/lib/legs-migration';
 import { DatabaseGate } from './database-gate';
@@ -8,6 +8,11 @@ import { DatabaseGate } from './database-gate';
 // The real database() cache runs. Only the native database and the migration are fakes.
 jest.mock('expo-sqlite', () => ({ openDatabaseAsync: jest.fn() }));
 jest.mock('@/lib/legs-migration', () => ({ openLedger: jest.fn() }));
+
+// React Native loads each component the first time that code reads it. On a cold Jest cache
+// that load can take seconds, so read the components of the gate here, before the test
+// timer starts.
+void [ActivityIndicator, Pressable, ScrollView, Text, View];
 
 /** The next open attempt. The test settles it. */
 function nextAttempt() {
