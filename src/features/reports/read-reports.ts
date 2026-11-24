@@ -1,5 +1,6 @@
 import { defaultCurrencyCode } from '@/lib/currency';
-import { database } from '@/lib/database';
+import { database, isFavoriteSql } from '@/lib/database';
+import { lendingEntryRows } from '@/lib/ledger-store';
 import { getDisplayRate } from '@/lib/display-rate-store';
 import { parsePeriodSetting } from '../home/period.ts';
 import type { NetWorthInput } from './net-worth.ts';
@@ -32,7 +33,7 @@ export async function saveFiscalStart(month: number): Promise<void> {
 
 /**
  * The Accounts, their change in each calendar month up to today, and the lending entries.
- * For one Account, lending is empty, because a lending entry has no link to an Account.
+ * For one Account, lending is empty, so the chart shows only that Account.
  */
 export async function netWorthData(
   accountId: number | null,
@@ -41,30 +42,23 @@ export async function netWorthData(
   const db = await database();
   const [accounts, changes, lending, rate] = await Promise.all([
     db.getAllAsync<NetWorthInput['accounts'][number] & { isFavorite: number }>(
-      `SELECT id, name, currencyCode, openingBalanceMinor, isFavorite FROM accounts
-      ${accountId === null ? '' : 'WHERE id = ?'} ORDER BY name, id`,
+      `SELECT a.id, a.name, a.currencyCode, a.openingBalanceMinor, ${isFavoriteSql('a')} AS isFavorite
+      FROM accounts a ${accountId === null ? '' : 'WHERE a.id = ?'} ORDER BY a.name, a.id`,
       accountId === null ? [] : [accountId],
     ),
     db.getAllAsync<NetWorthInput['changes'][number]>(
-      `SELECT a.id AS accountId,
+      `SELECT l.accountId,
       CAST(strftime('%Y', t.date * 86400, 'unixepoch') AS INTEGER) * 12
         + CAST(strftime('%m', t.date * 86400, 'unixepoch') AS INTEGER) - 1 AS month,
-      SUM(CASE
-        WHEN t.type = 'EXPENSE' THEN -t.amountMinor
-        WHEN t.type = 'INCOME' THEN t.amountMinor
-        WHEN t.type = 'TRANSFER' AND t.accountId = a.id THEN -t.amountMinor
-        ELSE COALESCE(t.receivedAmountMinor, t.amountMinor) END) AS changeMinor
-      FROM accounts a JOIN transactions t
-        ON t.accountId = a.id OR (t.type = 'TRANSFER' AND t.transferAccountId = a.id)
-      WHERE t.date <= ? GROUP BY a.id, month`,
+      SUM(l.amountMinor) AS changeMinor
+      FROM legs l JOIN transactions t ON t.id = l.transactionId
+      WHERE l.accountId IS NOT NULL AND t.date <= ? GROUP BY l.accountId, month`,
       [today],
     ),
     accountId === null
       ? db.getAllAsync<NetWorthInput['lending'][number]>(
-          `SELECT e.personId, e.kind, COALESCE(a.currencyCode, e.currencyCode) AS currencyCode,
-          COALESCE(t.amountMinor, e.amountMinor) AS amountMinor, COALESCE(t.date, e.date) AS date
-          FROM lending_entries e LEFT JOIN transactions t ON t.id = e.transactionId
-          LEFT JOIN accounts a ON a.id = t.accountId WHERE COALESCE(t.date, e.date) <= ?`,
+          `SELECT personId, kind, currencyCode, amountMinor, date FROM (${lendingEntryRows})
+          WHERE date <= ?`,
           [today],
         )
       : Promise.resolve([]),

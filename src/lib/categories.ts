@@ -36,7 +36,7 @@ export async function listCategoriesByRecentUse(type: CategoryType): Promise<Man
     `SELECT c.id, c.name, c.type, c.parentId, p.name AS parentName, c.iconKey AS emoji
        FROM categories c LEFT JOIN categories p ON p.id = c.parentId
        LEFT JOIN transactions t ON t.id = (
-         SELECT id FROM transactions WHERE categoryId = c.id AND type = c.type
+         SELECT id FROM transactions WHERE categoryId = c.id AND kind = c.type
          ORDER BY date DESC, id DESC LIMIT 1
        ) WHERE c.type = ?
        ORDER BY t.date DESC, t.id DESC, c.name COLLATE NOCASE, c.id`,

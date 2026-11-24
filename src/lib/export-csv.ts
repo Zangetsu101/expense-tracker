@@ -2,6 +2,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 import * as Sharing from 'expo-sharing';
 import { database } from '@/lib/database';
+import { accountTransactions } from '@/lib/ledger-store';
 
 type ExportRow = {
   type: 'EXPENSE' | 'INCOME' | 'TRANSFER';
@@ -64,7 +65,7 @@ export async function exportTransactionsCsv(
   const rows = await db.getAllAsync<ExportRow>(`SELECT t.type, t.amountMinor, t.date,
     a.name AS accountName, a.currencyCode, destination.name AS destinationName,
     c.name AS categoryName, t.note, t.excludeFromReport
-    FROM transactions t JOIN accounts a ON a.id = t.accountId
+    FROM ${accountTransactions} t JOIN accounts a ON a.id = t.accountId
     LEFT JOIN accounts destination ON destination.id = t.transferAccountId
     LEFT JOIN categories c ON c.id = t.categoryId
     ORDER BY t.date, t.id`);

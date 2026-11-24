@@ -70,6 +70,8 @@ export interface DriveBackupDependencies {
   snapshot(): Promise<{ json: string; transactions: number }>;
   replace(data: BackupData): Promise<void>;
   now(): number;
+  /** Runs after each verified backup. An error here does not fail the backup. */
+  backedUp?(): Promise<void>;
 }
 
 export type ConnectResult =
@@ -150,6 +152,7 @@ export function createDriveBackups(deps: DriveBackupDependencies) {
       files: [...state.files, uploaded],
     };
     await deps.save(next);
+    await deps.backedUp?.().catch(() => {});
     const excess = next.files.slice(0, Math.max(0, next.files.length - retention));
     for (const file of excess) {
       try {

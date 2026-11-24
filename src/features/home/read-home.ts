@@ -1,5 +1,6 @@
 import { creditCardBills } from '@/lib/credit-cards';
-import { database } from '@/lib/database';
+import { database, isFavoriteSql } from '@/lib/database';
+import { accountTransactions } from '@/lib/ledger-store';
 import type { DisplayRate } from '@/lib/display-rate';
 import { getDisplayRate } from '@/lib/display-rate-store';
 import type { DeckAccount } from './deck.ts';
@@ -13,16 +14,15 @@ const readRows = (
   a.name AS accountName, destination.name AS transferAccountName, a.currencyCode,
   c.name AS categoryName, parent.name AS parentCategoryName,
   COALESCE(NULLIF(c.iconKey, ''), NULLIF(parent.iconKey, '')) AS categoryEmoji,
-  t.note, t.excludeFromReport, lending.kind AS lendingKind, person.name AS personName,
+  t.note, t.excludeFromReport, t.lendingKind, person.name AS personName,
   r.expenseId AS reimbursementExpenseId, payer.name AS reimbursementPerson,
   expense.date AS reimbursementExpenseDate, expenseCategory.name AS reimbursementCategory,
   (SELECT SUM(s.leftMinor) FROM split_share_progress s WHERE s.expenseId = t.id) AS owedMinor
-  FROM transactions t JOIN accounts a ON a.id = t.accountId
+  FROM ${accountTransactions} t JOIN accounts a ON a.id = t.accountId
   LEFT JOIN accounts destination ON destination.id = t.transferAccountId
   LEFT JOIN categories c ON c.id = t.categoryId
   LEFT JOIN categories parent ON parent.id = c.parentId
-  LEFT JOIN lending_entries lending ON lending.transactionId = t.id
-  LEFT JOIN people person ON person.id = lending.personId
+  LEFT JOIN people person ON person.id = t.personId
   LEFT JOIN reimbursements r ON r.transactionId = t.id
   LEFT JOIN people payer ON payer.id = r.personId
   LEFT JOIN transactions expense ON expense.id = r.expenseId
@@ -73,7 +73,7 @@ export async function homeListPage(
   const db = await database();
   const scope = scopeFilter(accountId);
   const first = await db.getFirstAsync<{ firstDay: number | null }>(
-    `SELECT MIN(t.date) AS firstDay FROM transactions t WHERE ${scope.sql}`,
+    `SELECT MIN(t.date) AS firstDay FROM ${accountTransactions} t WHERE ${scope.sql}`,
     scope.params,
   );
   const firstDay = first?.firstDay ?? null;
@@ -125,7 +125,7 @@ export async function expensesForReimbursement() {
   const rows = await (
     await database()
   ).getAllAsync<ActivityRecord>(
-    `${readRows(fullCategoryPath + ', ')} WHERE t.type = 'EXPENSE' AND lending.id IS NULL ${listOrder}`,
+    `${readRows(fullCategoryPath + ', ')} WHERE t.kind = 'EXPENSE' ${listOrder}`,
   );
   return rows.map(activityRow);
 }
@@ -182,16 +182,13 @@ export async function homeDeckData(today: number): Promise<{
   const db = await database();
   const [accounts, displayRate, setting] = await Promise.all([
     db.getAllAsync<DeckAccount>(
-      `SELECT a.id, a.name, a.currencyCode, a.isFavorite,
-      a.openingBalanceMinor + COALESCE(SUM(CASE WHEN t.date > ? THEN 0
-        WHEN t.type = 'EXPENSE' THEN -t.amountMinor
-        WHEN t.type = 'INCOME' THEN t.amountMinor
-        WHEN t.type = 'TRANSFER' AND t.accountId = a.id THEN -t.amountMinor
-        WHEN t.type = 'TRANSFER' AND t.transferAccountId = a.id THEN COALESCE(t.receivedAmountMinor, t.amountMinor)
-        ELSE 0 END), 0) AS balanceMinor,
+      `SELECT a.id, a.name, a.currencyCode, ${isFavoriteSql('a')} AS isFavorite,
+      a.openingBalanceMinor
+        + COALESCE(SUM(CASE WHEN t.date <= ? THEN l.amountMinor END), 0) AS balanceMinor,
       MAX(CASE WHEN t.date <= ? THEN t.date END) AS lastUsedDay
       FROM accounts a
-      LEFT JOIN transactions t ON t.accountId = a.id OR (t.type = 'TRANSFER' AND t.transferAccountId = a.id)
+      LEFT JOIN legs l ON l.accountId = a.id
+      LEFT JOIN transactions t ON t.id = l.transactionId
       GROUP BY a.id ORDER BY a.name, a.id`,
       [today, today],
     ),
@@ -226,23 +223,19 @@ export async function homeTrend(
   today: number,
 ): Promise<number[]> {
   const db = await database();
-  const change = `CASE
-    WHEN t.type = 'EXPENSE' THEN -t.amountMinor
-    WHEN t.type = 'INCOME' THEN t.amountMinor
-    WHEN t.type = 'TRANSFER' AND t.accountId = ? THEN -t.amountMinor
-    ELSE COALESCE(t.receivedAmountMinor, t.amountMinor) END`;
-  const scope = `(t.accountId = ? OR (t.type = 'TRANSFER' AND t.transferAccountId = ?))`;
   const [opening, days] = await Promise.all([
     db.getFirstAsync<{ balanceMinor: number }>(
-      `SELECT a.openingBalanceMinor + COALESCE((SELECT SUM(${change}) FROM transactions t
-        WHERE ${scope} AND t.date < ?), 0) AS balanceMinor
+      `SELECT a.openingBalanceMinor + COALESCE((SELECT SUM(l.amountMinor) FROM legs l
+        JOIN transactions t ON t.id = l.transactionId
+        WHERE l.accountId = a.id AND t.date < ?), 0) AS balanceMinor
       FROM accounts a WHERE a.id = ?`,
-      [accountId, accountId, accountId, start, accountId],
+      [start, accountId],
     ),
     db.getAllAsync<{ date: number; changeMinor: number }>(
-      `SELECT t.date, SUM(${change}) AS changeMinor FROM transactions t
-      WHERE ${scope} AND t.date >= ? AND t.date <= ? GROUP BY t.date`,
-      [accountId, accountId, accountId, start, today],
+      `SELECT t.date, SUM(l.amountMinor) AS changeMinor FROM legs l
+      JOIN transactions t ON t.id = l.transactionId
+      WHERE l.accountId = ? AND t.date >= ? AND t.date <= ? GROUP BY t.date`,
+      [accountId, start, today],
     ),
   ]);
   const changes = new Map(days.map((row) => [row.date, row.changeMinor]));

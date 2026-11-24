@@ -2,6 +2,7 @@ import { notifyDataChanged } from './data-changes.ts';
 import { database, epochDay } from './database';
 import type { SplitShare } from './reimbursements.ts';
 import { addTransactionTags, parseQuickAddTags } from './tag-store';
+import { insertTransaction } from './ledger-store.ts';
 export { MAX_QUICK_ADD_TAGS, parseQuickAddTags } from './tag-store';
 
 type QuickAddInput = {
@@ -31,10 +32,9 @@ export async function addQuickTransaction(input: QuickAddInput, tagText: string)
       const { expenseId, personId } = input.reimbursement;
       const expense = await tx.getFirstAsync<{ date: number }>(
         `SELECT e.date FROM transactions e
-         JOIN accounts original ON original.id = e.accountId
+         JOIN legs original ON original.transactionId = e.id AND original.accountId IS NOT NULL
          JOIN accounts destination ON destination.id = ?
-         WHERE e.id = ? AND e.type = 'EXPENSE' AND original.currencyCode = destination.currencyCode
-         AND NOT EXISTS (SELECT 1 FROM lending_entries WHERE transactionId = e.id)`,
+         WHERE e.id = ? AND e.kind = 'EXPENSE' AND original.currencyCode = destination.currencyCode`,
         [input.accountId, expenseId],
       );
       if (input.type !== 'INCOME' || !expense)
@@ -50,18 +50,25 @@ export async function addQuickTransaction(input: QuickAddInput, tagText: string)
       )
         throw new Error('Choose a person from the expense split.');
     }
-    const result = await tx.runAsync(
-      'INSERT INTO transactions (type, amountMinor, date, accountId, categoryId, note) VALUES (?, ?, ?, ?, ?, ?)',
-      [
-        input.type,
-        input.amountMinor,
-        date,
-        input.accountId,
-        input.reimbursement ? null : input.categoryId,
-        input.note,
-      ],
+    const common = { date, note: input.note, accountId: input.accountId };
+    id = await insertTransaction(
+      tx,
+      input.reimbursement
+        ? {
+            ...common,
+            kind: 'REIMBURSEMENT',
+            amountMinor: input.amountMinor,
+            excludeFromReport: false,
+            ...input.reimbursement,
+          }
+        : {
+            ...common,
+            kind: input.type,
+            amountMinor: input.amountMinor,
+            categoryId: input.categoryId,
+            excludeFromReport: false,
+          },
     );
-    id = result.lastInsertRowId;
     for (const share of input.shares ?? []) {
       if (!Number.isSafeInteger(share.amountMinor) || share.amountMinor < 0)
         throw new Error('Enter a valid share amount.');

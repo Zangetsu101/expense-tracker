@@ -5,7 +5,7 @@ import { registerHooks, stripTypeScriptTypes } from 'node:module';
 
 const db = new DatabaseSync(':memory:');
 db.exec(
-  'CREATE TABLE categories (id INTEGER PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, parentId INTEGER REFERENCES categories(id), iconKey TEXT, needsReview INTEGER NOT NULL DEFAULT 0)',
+  'CREATE TABLE categories (id INTEGER PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, parentId INTEGER REFERENCES categories(id), iconKey TEXT)',
 );
 db.exec('CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
 const adapter = {
@@ -161,7 +161,7 @@ test('a Category keeps an emoji that create and update set, and an empty emoji i
 });
 
 test('typed managed Categories retain metadata in recent-first order', async () => {
-  db.exec(`CREATE TABLE transactions(id INTEGER PRIMARY KEY, categoryId INTEGER, type TEXT, date INTEGER);
+  db.exec(`CREATE TABLE transactions(id INTEGER PRIMARY KEY, categoryId INTEGER, kind TEXT, date INTEGER);
     INSERT INTO transactions VALUES(100, 1, 'EXPENSE', 1), (2, 2, 'EXPENSE', 2);`);
   const rows = await listCategoriesByRecentUse('EXPENSE');
   assert.deepEqual(

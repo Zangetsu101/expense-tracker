@@ -1,6 +1,6 @@
 import type { CreditCardSettings } from './credit-cards';
 import { notifyDataChanged } from './data-changes.ts';
-import { database, setFavoriteAccount } from './database';
+import { database, isFavoriteSql, setFavoriteAccount } from './database';
 
 export type ManagedAccount = {
   id: number;
@@ -32,7 +32,8 @@ export async function listManagedAccounts(): Promise<ManagedAccount[]> {
   const [cards, accounts] = await Promise.all([
     db.getAllAsync<CreditCardSettings>('SELECT * FROM credit_cards'),
     db.getAllAsync<ManagedAccount>(
-      'SELECT id, name, currencyCode, openingBalanceMinor, isFavorite FROM accounts ORDER BY isFavorite DESC, name COLLATE NOCASE, id',
+      `SELECT a.id, a.name, a.currencyCode, a.openingBalanceMinor, ${isFavoriteSql('a')} AS isFavorite
+      FROM accounts a ORDER BY isFavorite DESC, a.name COLLATE NOCASE, a.id`,
     ),
   ]);
   return accounts.map((account) => ({
@@ -71,9 +72,10 @@ async function saveAccount(input: AccountInput, id?: number): Promise<void> {
   const db = await database();
   await db.withExclusiveTransactionAsync(async (tx) => {
     if (id !== undefined) {
-      const old = await tx.getFirstAsync<ManagedAccount>('SELECT * FROM accounts WHERE id = ?', [
-        id,
-      ]);
+      const old = await tx.getFirstAsync<{ currencyCode: string }>(
+        'SELECT currencyCode FROM accounts WHERE id = ?',
+        [id],
+      );
       if (!old) throw new Error('Account not found.');
       if (old.currencyCode !== currencyCode) throw new Error('Currency cannot be changed.');
     }

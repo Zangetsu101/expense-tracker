@@ -10,6 +10,7 @@ import {
   type DriveBackupState,
 } from '@/lib/drive-backups';
 import { createGoogleDrive } from '@/lib/google-drive';
+import { removePreMigrationBackup } from '@/lib/pre-migration-backup';
 
 const settingsKey = 'driveBackups';
 type UnmarkedState = Omit<ConnectedBackupState, 'status' | 'account'> & {
@@ -125,4 +126,6 @@ export const driveBackups = createDriveBackups({
   },
   replace: (data) => backupStore.replace(data),
   now: Date.now,
+  // ADR 0013: keep the backup from before the migration until Drive has a newer one.
+  backedUp: async () => removePreMigrationBackup(),
 });

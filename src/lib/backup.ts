@@ -149,7 +149,30 @@ function assertRawIntegersSafe(json: string): void {
   }
 }
 
+/**
+ * How to treat a row that points to a row that is not in the backup.
+ *
+ * - `repair`: accept it. The old app deleted on a connection with foreign keys off, so a
+ *   backup can keep rows of a deleted Transaction. The restore cleans them, as the old
+ *   foreign key actions would have done. The restore also names each missing Account or
+ *   person that a Leg or a split share needs, and stops.
+ * - `strict`: refuse it. Use this mode for a backup that the app writes, and for the rows
+ *   that a restore has cleaned.
+ */
+type References = 'repair' | 'strict';
+
+/** Reads a backup file. It accepts references that the restore repairs or reports. */
 export function decodeBackup(json: string): BackupData {
+  return parseBackup(json, 'repair');
+}
+
+/** Throws if the cleaned rows of a restore are not a valid backup. */
+export function assertCleanBackup(data: BackupData): void {
+  parseBackup(JSON.stringify(data), 'strict');
+}
+
+function parseBackup(json: string, references: References): BackupData {
+  const strict = references === 'strict';
   assertRawIntegersSafe(json);
   const raw: unknown = JSON.parse(json);
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw))
@@ -187,7 +210,7 @@ export function decodeBackup(json: string): BackupData {
         typeof row.rowKey !== 'string' ||
         !row.rowKey ||
         !Number.isSafeInteger(row.transactionId) ||
-        !transactionIds.has(row.transactionId) ||
+        (strict && !transactionIds.has(row.transactionId)) ||
         keys.has(row.rowKey)
       ) {
         throw new Error('Invalid backup moneyLoverImportRows');
@@ -195,24 +218,10 @@ export function decodeBackup(json: string): BackupData {
       keys.add(row.rowKey);
     }
   }
-  for (const row of (data.transactions ?? []) as BackupData['transactions']) {
-    if (row.receivedAmountMinor != null) {
-      const accounts = (data.accounts ?? []) as BackupData['accounts'];
-      const source = accounts.find((a) => a.id === row.accountId);
-      const destination = accounts.find((a) => a.id === row.transferAccountId);
-      if (
-        row.type !== 'TRANSFER' ||
-        row.receivedAmountMinor <= 0 ||
-        !source ||
-        !destination ||
-        source.currencyCode === destination.currencyCode
-      )
-        throw new Error('Invalid backup amount received');
-    }
-  }
-  validateCreditCards(data);
-  validateLending(data);
-  validateReimbursements(data);
+  validateTransactionAccounts(data, strict);
+  validateCreditCards(data, strict);
+  validateLending(data, strict);
+  validateReimbursements(data, strict);
   const settings = (data.settings ?? {}) as BackupData['settings'];
   return {
     schemaVersion: data.schemaVersion as number,
@@ -246,7 +255,35 @@ export function decodeBackup(json: string): BackupData {
   };
 }
 
-function validateCreditCards(data: Record<string, unknown>): void {
+/**
+ * Checks the Accounts of each Transaction and the received amount of a Transfer.
+ *
+ * In the strict mode each Transaction needs its source Account, and each Transfer needs its
+ * destination Account. In the repair mode a missing Account passes, because the restore
+ * names it and stops. A received amount on a row that is not a Transfer also passes,
+ * because the restore clears it.
+ */
+function validateTransactionAccounts(data: Record<string, unknown>, strict: boolean): void {
+  const currencies = new Map(
+    ((data.accounts ?? []) as BackupData['accounts']).map((row) => [row.id, row.currencyCode]),
+  );
+  for (const row of (data.transactions ?? []) as BackupData['transactions']) {
+    const sourceCurrency = currencies.get(row.accountId);
+    const destinationCurrency = currencies.get(row.transferAccountId ?? NaN);
+    const transfer = row.type === 'TRANSFER';
+    if (strict && (!sourceCurrency || (transfer && !destinationCurrency)))
+      throw new Error('Invalid backup Transaction Account');
+    if (
+      row.receivedAmountMinor != null &&
+      (row.receivedAmountMinor <= 0 ||
+        (strict && !transfer) ||
+        (transfer && sourceCurrency && sourceCurrency === destinationCurrency))
+    )
+      throw new Error('Invalid backup amount received');
+  }
+}
+
+function validateCreditCards(data: Record<string, unknown>, strict: boolean): void {
   if (data.creditCards === undefined) return;
   if (!Array.isArray(data.creditCards)) throw new Error('Invalid backup credit cards');
   const cards = data.creditCards as NonNullable<BackupData['creditCards']>;
@@ -256,7 +293,7 @@ function validateCreditCards(data: Record<string, unknown>): void {
     if (
       !card ||
       !Number.isSafeInteger(card.accountId) ||
-      !accounts.some((a) => a.id === card.accountId) ||
+      (strict && !accounts.some((a) => a.id === card.accountId)) ||
       ids.has(card.accountId) ||
       [card.statementDay, card.dueDay].some(
         (day) => day !== null && (!Number.isInteger(day) || day < 1 || day > 31),
@@ -268,11 +305,12 @@ function validateCreditCards(data: Record<string, unknown>): void {
   for (const card of cards) {
     if (card.parentAccountId === null) continue;
     const parent = accounts.find((a) => a.id === card.parentAccountId);
-    if (!parent || ids.has(parent.id)) throw new Error('Invalid backup credit-card parent');
+    if ((strict && !parent) || (parent && ids.has(parent.id)))
+      throw new Error('Invalid backup credit-card parent');
   }
 }
 
-function validateLending(data: Record<string, unknown>): void {
+function validateLending(data: Record<string, unknown>, strict: boolean): void {
   const fail = (): never => {
     throw new Error('Invalid backup lending metadata');
   };
@@ -308,7 +346,7 @@ function validateLending(data: Record<string, unknown>): void {
       !record(entry) ||
       !id(entry.id) ||
       !id(entry.personId) ||
-      !personIds.has(entry.personId) ||
+      (strict && !personIds.has(entry.personId)) ||
       typeof entry.kind !== 'string' ||
       ![
         'LEND',
@@ -332,12 +370,16 @@ function validateLending(data: Record<string, unknown>): void {
       if (row.transactionId !== null) fail();
     } else {
       if (!id(row.transactionId) || linked.has(row.transactionId)) fail();
+      linked.add(row.transactionId!);
       const transaction = transactions.find((item) => item?.id === row.transactionId);
-      const account = accounts.find((item) => item?.id === transaction?.accountId);
+      if (!transaction) {
+        if (strict) fail();
+        continue;
+      }
+      const account = accounts.find((item) => item?.id === transaction.accountId);
       if (
-        !transaction ||
-        !account ||
-        account.currencyCode !== row.currencyCode ||
+        (strict && !account) ||
+        (account && account.currencyCode !== row.currencyCode) ||
         transaction.type !== (row.kind === 'LEND' || row.kind === 'REPAY' ? 'EXPENSE' : 'INCOME') ||
         !transaction.excludeFromReport ||
         transaction.amountMinor !== row.amountMinor ||
@@ -346,12 +388,11 @@ function validateLending(data: Record<string, unknown>): void {
         transaction.transferAccountId !== null
       )
         fail();
-      linked.add(row.transactionId!);
     }
   }
 }
 
-function validateReimbursements(data: Record<string, unknown>) {
+function validateReimbursements(data: Record<string, unknown>, strict: boolean) {
   const { splitShares = [], reimbursements = [] } = data;
   if (!Array.isArray(splitShares) || !Array.isArray(reimbursements))
     throw new Error('Invalid backup split or reimbursement metadata');
@@ -368,10 +409,11 @@ function validateReimbursements(data: Record<string, unknown>) {
   const shares = new Set<string>();
   for (const row of splitShares) {
     const key = `${row?.expenseId}:${row?.personId}`;
+    const expense = transactions.get(row?.expenseId);
     if (
       !row ||
-      transactions.get(row.expenseId)?.type !== 'EXPENSE' ||
-      !people.has(row.personId) ||
+      (expense ? expense.type !== 'EXPENSE' : strict) ||
+      (strict && !people.has(row.personId)) ||
       !Number.isSafeInteger(row.amountMinor) ||
       row.amountMinor < 0 ||
       shares.has(key)
@@ -383,17 +425,36 @@ function validateReimbursements(data: Record<string, unknown>) {
   for (const row of reimbursements) {
     const expense = transactions.get(row?.expenseId);
     const payment = transactions.get(row?.transactionId);
+    const fail = () => {
+      throw new Error('Invalid backup reimbursement link');
+    };
+    // A shop refund has an explicit null person. A missing key is not a refund.
     if (
-      expense?.type !== 'EXPENSE' ||
-      payment?.type !== 'INCOME' ||
-      payment.dateEpochDay < expense.dateEpochDay ||
-      !currencies.has(expense.accountId) ||
-      currencies.get(expense.accountId) !== currencies.get(payment.accountId) ||
-      (row.personId !== null && !shares.has(`${row.expenseId}:${row.personId}`)) ||
+      !row ||
+      typeof row !== 'object' ||
+      (row.personId !== null && !(Number.isSafeInteger(row.personId) && row.personId > 0)) ||
       payments.has(row.transactionId)
     )
-      throw new Error('Invalid backup reimbursement link');
+      fail();
     payments.add(row.transactionId);
+    const missingShare = row.personId !== null && !shares.has(`${row.expenseId}:${row.personId}`);
+    // The restore deletes a reimbursement of a missing Transaction or a missing split share.
+    if (!expense || !payment || missingShare) {
+      if (strict) fail();
+      continue;
+    }
+    const [expenseCurrency, paymentCurrency] = [
+      currencies.get(expense.accountId),
+      currencies.get(payment.accountId),
+    ];
+    if (
+      expense.type !== 'EXPENSE' ||
+      payment.type !== 'INCOME' ||
+      payment.dateEpochDay < expense.dateEpochDay ||
+      (strict && (!expenseCurrency || !paymentCurrency)) ||
+      (expenseCurrency && paymentCurrency && expenseCurrency !== paymentCurrency)
+    )
+      fail();
   }
 }
 
@@ -402,7 +463,7 @@ export function encodeBackup(data: BackupData): string {
     throw new Error('Unsupported backup schema version');
   assertSafeLongs(data);
   const json = JSON.stringify(data, null, 2);
-  decodeBackup(json);
+  parseBackup(json, 'strict');
   return json;
 }
 

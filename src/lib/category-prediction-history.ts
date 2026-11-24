@@ -3,12 +3,11 @@ import type { CategoryEvidence } from './category-prediction';
 
 export async function listCategoryEvidence(type: 'EXPENSE' | 'INCOME', currency: string) {
   return (await database()).getAllAsync<CategoryEvidence>(
-    `SELECT t.categoryId, t.accountId, t.amountMinor, t.date AS day
+    `SELECT t.categoryId, l.accountId, abs(l.amountMinor) AS amountMinor, t.date AS day
      FROM transactions t
-     JOIN accounts a ON a.id = t.accountId
+     JOIN legs l ON l.transactionId = t.id AND l.accountId IS NOT NULL
      JOIN categories c ON c.id = t.categoryId
-     WHERE t.type = ? AND c.type = t.type AND a.currencyCode = ?
-       AND NOT EXISTS (SELECT 1 FROM lending_entries l WHERE l.transactionId = t.id)`,
+     WHERE t.kind = ? AND c.type = t.kind AND l.currencyCode = ?`,
     [type, currency],
   );
 }

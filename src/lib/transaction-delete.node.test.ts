@@ -16,6 +16,7 @@ const adapter = {
       .all(...p)
       .map((r) => ({ ...r })),
   getFirstAsync: async (sql, p = []) => sqlite.prepare(sql).get(...p) ?? null,
+  isInTransactionSync: () => sqlite.isTransaction,
   async withExclusiveTransactionAsync(fn) {
     sqlite.exec('BEGIN');
     try {
@@ -56,23 +57,21 @@ const { loadEditableTransaction, saveTransactionEdit } = await import('./transac
 const lending = await import('./lending.ts');
 const { accountBalances } = await import('./reports.ts');
 const { database } = await import('./database.ts');
+const { addTransaction } = await import('../test/ledger-rows.ts');
 await database();
 const count = (sql, ...params) => sqlite.prepare(sql).get(...params).n;
 
-test('deleting an Expense removes its tags, Line Items, import identity and transfer candidates', async () => {
-  sqlite.exec(`INSERT INTO transactions (id, type, amountMinor, date, accountId) VALUES
-    (1, 'EXPENSE', 1000, 20000, 1), (2, 'INCOME', 1000, 20000, 1);
-    INSERT INTO tags (id, name) VALUES (1, 'Shared');
+test('deleting an Expense removes its legs, tags and Line Items', async () => {
+  addTransaction(sqlite, { id: 1, type: 'EXPENSE', amountMinor: 1000, date: 20000, accountId: 1 });
+  addTransaction(sqlite, { id: 2, type: 'INCOME', amountMinor: 1000, date: 20000, accountId: 1 });
+  sqlite.exec(`INSERT INTO tags (id, name) VALUES (1, 'Shared');
     INSERT INTO transaction_tags VALUES (1, 1), (2, 1);
-    INSERT INTO line_items (transactionId, name, amountMinor) VALUES (1, 'Coffee', 300);
-    INSERT INTO moneylover_import_rows VALUES ('row-1', 1);
-    INSERT INTO transfer_candidates (outgoingTxnId, incomingTxnId, confidenceNote) VALUES (1, 2, 'same day');`);
+    INSERT INTO line_items (transactionId, name, amountMinor) VALUES (1, 'Coffee', 300);`);
   const before = (await accountBalances())[0].balanceMinor;
   assert.deepEqual(await deleteTransaction(1), { status: 'deleted' });
   assert.equal(count('SELECT count(*) AS n FROM transactions WHERE id = 1'), 0);
   assert.equal(count('SELECT count(*) AS n FROM line_items'), 0);
-  assert.equal(count('SELECT count(*) AS n FROM moneylover_import_rows'), 0);
-  assert.equal(count('SELECT count(*) AS n FROM transfer_candidates'), 0);
+  assert.equal(count('SELECT count(*) AS n FROM legs WHERE transactionId = 1'), 0);
   assert.equal(count('SELECT count(*) AS n FROM transaction_tags WHERE transactionId = 2'), 1);
   assert.equal(count('SELECT count(*) AS n FROM tags'), 1);
   assert.equal((await accountBalances())[0].balanceMinor, before + 1000);
@@ -82,9 +81,15 @@ test('deleting an Expense removes its tags, Line Items, import identity and tran
 });
 
 test('deleting a Transfer restores both Account balances', async () => {
-  sqlite.exec(`INSERT INTO accounts (id, name, currencyCode) VALUES (2, 'Bank', 'BDT');
-    INSERT INTO transactions (id, type, amountMinor, date, accountId, transferAccountId)
-    VALUES (3, 'TRANSFER', 700, 20000, 1, 2);`);
+  sqlite.exec("INSERT INTO accounts (id, name, currencyCode) VALUES (2, 'Bank', 'BDT')");
+  addTransaction(sqlite, {
+    id: 3,
+    type: 'TRANSFER',
+    amountMinor: 700,
+    date: 20000,
+    accountId: 1,
+    transferAccountId: 2,
+  });
   await deleteTransaction(3);
   assert.deepEqual(
     (await accountBalances()).map((a) => a.balanceMinor),
@@ -112,12 +117,19 @@ test('deleting a lending Transaction removes its entry and asks before creating 
     status: 'deleted',
   });
   assert.equal(count('SELECT count(*) AS n FROM transactions WHERE id = ?', transactionId), 0);
-  assert.equal(count('SELECT count(*) AS n FROM lending_entries WHERE id = ?', lent.id), 0);
+  assert.equal(count('SELECT count(*) AS n FROM legs WHERE transactionId = ?', transactionId), 0);
+  assert.equal((await lending.listLendingEntries(person.id)).length, 1);
 });
 
 test('editing changes the amount of both an Expense and a lending Transaction', async () => {
-  sqlite.exec(`INSERT INTO transactions (id, type, amountMinor, date, accountId, note)
-    VALUES (10, 'EXPENSE', 1000, 20000, 1, 'typo');`);
+  addTransaction(sqlite, {
+    id: 10,
+    type: 'EXPENSE',
+    amountMinor: 1000,
+    date: 20000,
+    accountId: 1,
+    note: 'typo',
+  });
   const original = await loadEditableTransaction(10);
   await assert.rejects(saveTransactionEdit(original, 'typo', false, '', [], 0), /positive amount/);
   await saveTransactionEdit(original, 'fixed', false, '', [], 1250);

@@ -121,9 +121,8 @@ test('adapter filters nonordinary and unusable labels while keeping report-exclu
   const result = adaptBackup(
     backup([
       {},
-      { type: 'TRANSFER' },
+      { type: 'TRANSFER', transferAccountId: 1 },
       { categoryId: 999 },
-      { accountId: 999 },
       { categoryId: 3 },
       { amountMinor: 0 },
     ]),
@@ -135,7 +134,7 @@ test('adapter filters nonordinary and unusable labels while keeping report-exclu
   assert.deepEqual(result.provenance.excluded, {
     transfer_or_unknown_type: 1,
     missing_or_mismatched_category: 2,
-    missing_or_invalid_metadata: 2,
+    missing_or_invalid_metadata: 1,
   });
   assert.equal(JSON.stringify(result.rows).includes('PRIVATE'), false);
   assert.equal(JSON.stringify(evaluate(backup([{}, {}]))).includes('PRIVATE'), false);
@@ -148,6 +147,25 @@ test('adapter reuses schema/integer validation and rejects duplicate IDs', () =>
     () => adaptBackup(backup([{ amountMinor: 9007199254740992 }])),
     /integer too large/,
   );
+});
+
+test('the adapter refuses a backup with a missing Account or person', () => {
+  assert.throws(() => adaptBackup(backup([{}, { accountId: 999 }])), /Transaction Account/);
+  const data = JSON.parse(backup([{}]));
+  data.people = [];
+  data.lendingEntries = [
+    {
+      id: 1,
+      personId: 7,
+      kind: 'WRITE_OFF_LENT',
+      transactionId: null,
+      currencyCode: 'USD',
+      amountMinor: 100,
+      dateEpochDay: 1,
+      note: null,
+    },
+  ];
+  assert.throws(() => adaptBackup(JSON.stringify(data)), /lending metadata/);
 });
 
 test('linked Person movements are excluded even with ordinary Category labels', () => {

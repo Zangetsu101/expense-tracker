@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 import { registerHooks, stripTypeScriptTypes } from 'node:module';
+import { addTransaction } from '../test/ledger-rows.ts';
+import { legsSchema } from './legs-schema.ts';
 
 registerHooks({
   resolve(specifier, context, next) {
@@ -31,14 +33,25 @@ const { searchStatement, validDate, parseAmountMinor } = await import('./transac
 const { transactionTitle } = await import('./transaction-format.ts');
 
 const db = new DatabaseSync(':memory:');
-db.exec(`CREATE TABLE people (id INTEGER PRIMARY KEY, name TEXT);
-CREATE TABLE lending_entries (transactionId INTEGER UNIQUE, personId INTEGER, kind TEXT);
-CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT, currencyCode TEXT);
-CREATE TABLE categories (id INTEGER PRIMARY KEY, name TEXT, type TEXT, parentId INTEGER);
-CREATE TABLE transactions (id INTEGER PRIMARY KEY, type TEXT, amountMinor INTEGER, date INTEGER, note TEXT, accountId INTEGER, transferAccountId INTEGER, categoryId INTEGER);
-INSERT INTO accounts VALUES (1,'Cash','BDT'),(2,'Bank','BDT'),(3,'Dollar','USD');
-INSERT INTO categories VALUES (1,'Food','EXPENSE',NULL),(2,'Lunch','EXPENSE',1),(3,'Snacks','EXPENSE',2),(4,'Travel','EXPENSE',NULL),(5,'Food','INCOME',NULL),(6,'Refund','INCOME',5);
-INSERT INTO transactions VALUES (1,'EXPENSE',1200,20000,'coffee',1,NULL,1),(2,'TRANSFER',500,20001,'move',1,2,NULL),(3,'INCOME',800,20002,'bonus',2,NULL,NULL),(4,'EXPENSE',100,20000,'100%_literal',2,NULL,NULL),(5,'EXPENSE',1200,20003,'hosting',3,NULL,NULL); ALTER TABLE transactions ADD COLUMN receivedAmountMinor INTEGER;`);
+db.exec(legsSchema);
+db.exec(`INSERT INTO accounts (id, name, currencyCode) VALUES (1,'Cash','BDT'),(2,'Bank','BDT'),(3,'Dollar','USD');
+INSERT INTO categories (id, name, type, parentId) VALUES (1,'Food','EXPENSE',NULL),(2,'Lunch','EXPENSE',1),(3,'Snacks','EXPENSE',2),(4,'Travel','EXPENSE',NULL),(5,'Food','INCOME',NULL),(6,'Refund','INCOME',5);`);
+const add = (id, type, amountMinor, date, note, accountId, transferAccountId, categoryId) =>
+  addTransaction(db, {
+    id,
+    type,
+    amountMinor,
+    date,
+    note,
+    accountId,
+    transferAccountId,
+    categoryId,
+  });
+add(1, 'EXPENSE', 1200, 20000, 'coffee', 1, null, 1);
+add(2, 'TRANSFER', 500, 20001, 'move', 1, 2, null);
+add(3, 'INCOME', 800, 20002, 'bonus', 2, null, null);
+add(4, 'EXPENSE', 100, 20000, '100%_literal', 2, null, null);
+add(5, 'EXPENSE', 1200, 20003, 'hosting', 3, null, null);
 const search = (patch = {}, offset = 0) => {
   const { sql, params } = searchStatement(
     { query: '', type: 'ALL', accountId: null, month: '', ...patch },
@@ -51,17 +64,24 @@ const search = (patch = {}, offset = 0) => {
 };
 
 test('Search returns lending labels ahead of notes and categories while keeping ordinary rows', () => {
-  db.exec(
-    "INSERT INTO people VALUES (1, 'Sam'); INSERT INTO lending_entries VALUES (1, 1, 'LEND')",
-  );
+  db.exec("INSERT INTO people VALUES (1, 'Sam')");
+  addTransaction(db, {
+    id: 50,
+    type: 'EXPENSE',
+    amountMinor: 700,
+    date: 20000,
+    accountId: 1,
+    lending: { personId: 1, kind: 'LEND' },
+  });
   try {
     const { sql, params } = searchStatement({ query: '', type: 'ALL', accountId: null });
     const rows = db.prepare(sql).all(...params);
-    assert.equal(rows.length, 5);
-    assert.equal(transactionTitle(rows.find((row) => row.id === 1)), 'Lent to Sam');
+    assert.equal(rows.length, 6);
+    assert.equal(transactionTitle(rows.find((row) => row.id === 50)), 'Lent to Sam');
+    assert.equal(transactionTitle(rows.find((row) => row.id === 1)), 'Food');
     assert.equal(transactionTitle(rows.find((row) => row.id === 3)), 'Income');
   } finally {
-    db.exec('DELETE FROM lending_entries; DELETE FROM people');
+    db.exec('DELETE FROM transactions WHERE id = 50; DELETE FROM people');
   }
 });
 
@@ -126,9 +146,10 @@ test('amount modes compare stored minor units across currencies without conversi
 });
 
 test('nested category filters include only same-type descendants; text finds ancestor names and paths', () => {
-  db.exec(
-    `INSERT INTO transactions (id, type, amountMinor, date, note, accountId, transferAccountId, categoryId) VALUES (6,'EXPENSE',200,20004,'',1,NULL,2),(7,'EXPENSE',300,20005,'',1,NULL,3),(8,'EXPENSE',400,20006,'',1,NULL,4),(9,'INCOME',500,20007,'',1,NULL,6);`,
-  );
+  add(6, 'EXPENSE', 200, 20004, '', 1, null, 2);
+  add(7, 'EXPENSE', 300, 20005, '', 1, null, 3);
+  add(8, 'EXPENSE', 400, 20006, '', 1, null, 4);
+  add(9, 'INCOME', 500, 20007, '', 1, null, 6);
   assert.deepEqual(search({ categoryId: 1 }), [7, 6, 1]);
   assert.deepEqual(search({ categoryId: 2 }), [7, 6]);
   assert.deepEqual(search({ categoryId: 5 }), [9]);

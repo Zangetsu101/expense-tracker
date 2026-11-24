@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { decodeBackup, encodeBackup, restoreBackup } from './backup.ts';
+import { assertCleanBackup, decodeBackup, encodeBackup, restoreBackup } from './backup.ts';
 
 const native = readFileSync(
   new URL('../../scripts/fixtures/native-shaped-backup-v1.json', import.meta.url),
@@ -126,7 +126,6 @@ test('invalid lending metadata is rejected before replacement', async () => {
     { lendingEntries: {} },
     { lendingEntries: [null] },
     ...[
-      { personId: 99 },
       { personId: 1.5 },
       { kind: 'OTHER' },
       { amountMinor: 0 },
@@ -160,6 +159,96 @@ test('invalid lending metadata is rejected before replacement', async () => {
   }
 });
 
+test('a file can name a missing person, but the strict check refuses it', () => {
+  const data = decodeBackup(native);
+  data.people = [{ id: 1, name: 'Ada' }];
+  const entry = {
+    id: 1,
+    personId: 99,
+    kind: 'WRITE_OFF_LENT',
+    transactionId: null,
+    currencyCode: 'BDT',
+    amountMinor: 50,
+    dateEpochDay: 20000,
+    note: null,
+  };
+  // The restore names the missing person and stops (legs-migration.ts).
+  const decoded = decodeBackup(JSON.stringify({ ...data, lendingEntries: [entry] }));
+  assert.throws(() => assertCleanBackup(decoded), /lending metadata/);
+  assert.throws(() => encodeBackup(decoded), /lending metadata/);
+});
+
+test('a reimbursement without a person key is not a shop refund', () => {
+  const data = JSON.parse(native);
+  for (const reimbursement of [
+    { transactionId: 102, expenseId: 100 },
+    { transactionId: 102, expenseId: 100, personId: 0 },
+  ])
+    assert.throws(
+      () => decodeBackup(JSON.stringify({ ...data, reimbursements: [reimbursement] })),
+      /reimbursement link/,
+    );
+});
+
+test('a reimbursement with an explicit null person is a shop refund', () => {
+  const data = JSON.parse(native);
+  // The payment must use the Currency of the Expense.
+  data.transactions.find((row) => row.id === 102).accountId = 1;
+  const refund = { transactionId: 102, expenseId: 100, personId: null };
+  assert.deepEqual(
+    decodeBackup(JSON.stringify({ ...data, reimbursements: [refund] })).reimbursements,
+    [refund],
+  );
+});
+
+test('a reimbursement person that is not a number is refused', () => {
+  const data = JSON.parse(native);
+  const reimbursement = { transactionId: 102, expenseId: 100, personId: 'x' };
+  assert.throws(
+    () => decodeBackup(JSON.stringify({ ...data, reimbursements: [reimbursement] })),
+    /personId is not a safe integer/,
+  );
+});
+
+test('a file can keep a received amount on an Expense, and the strict check refuses it', () => {
+  const data = JSON.parse(native);
+  data.transactions[0].receivedAmountMinor = 50;
+  const decoded = decodeBackup(JSON.stringify(data));
+  assert.throws(() => assertCleanBackup(decoded), /amount received/);
+});
+
+test('a file can keep a Transfer whose Accounts are missing, and the strict check refuses it', () => {
+  const data = JSON.parse(native);
+  data.transactions[1].accountId = 98;
+  data.transactions[1].transferAccountId = 99;
+  data.transactions[1].receivedAmountMinor = 100;
+  const decoded = decodeBackup(JSON.stringify(data));
+  assert.throws(() => assertCleanBackup(decoded), /Transaction Account/);
+});
+
+test('a received amount that is not positive is refused', () => {
+  const data = JSON.parse(native);
+  for (const amount of [0, -1]) {
+    data.transactions[1].receivedAmountMinor = amount;
+    assert.throws(() => decodeBackup(JSON.stringify(data)), /amount received/);
+  }
+});
+
+test('a backup that the app writes needs the Accounts of each Transaction', () => {
+  const data = decodeBackup(native);
+  const transfer = data.transactions.find((row) => row.type === 'TRANSFER');
+  for (const patch of [
+    { id: data.transactions[0].id, accountId: 99 },
+    { id: transfer.id, transferAccountId: 99 },
+    { id: transfer.id, transferAccountId: null },
+  ]) {
+    const transactions = data.transactions.map((row) =>
+      row.id === patch.id ? { ...row, ...patch } : row,
+    );
+    assert.throws(() => encodeBackup({ ...data, transactions }), /Transaction Account/);
+  }
+});
+
 test('native v1 backups without import keys remain readable', () => {
   const data = decodeBackup(native);
   assert.equal(data.moneyLoverImportRows, undefined);
@@ -189,9 +278,18 @@ test('import row keys survive a JSON roundtrip and restore', async () => {
   assert.deepEqual(replaced.moneyLoverImportRows, original.moneyLoverImportRows);
 });
 
+test('import rows of a deleted Transaction decode, but the strict check refuses them', () => {
+  const backup = decodeBackup(native);
+  backup.moneyLoverImportRows = [{ rowKey: 'orphan', transactionId: 999 }];
+  assert.deepEqual(decodeBackup(JSON.stringify(backup)).moneyLoverImportRows, [
+    { rowKey: 'orphan', transactionId: 999 },
+  ]);
+  assert.throws(() => encodeBackup(backup), /Invalid backup moneyLoverImportRows/);
+});
+
 test('invalid import metadata never reaches the replacement boundary', async () => {
   const backup = decodeBackup(native);
-  backup.moneyLoverImportRows = [{ rowKey: 'orphan', transactionId: -1 }];
+  backup.moneyLoverImportRows = [{ rowKey: '', transactionId: backup.transactions[0].id }];
   let replaced = false;
   await assert.rejects(
     () =>

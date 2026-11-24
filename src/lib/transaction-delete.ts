@@ -3,8 +3,8 @@ import { database } from './database';
 import { deleteLendingEntry, type LendingResult } from './lending';
 
 /**
- * Delete one Transaction with its tags, Line Items and import identity.
- * A Transaction linked to a lending entry goes through the lending rules,
+ * Delete one Transaction with its legs, tags and Line Items.
+ * A lending Transaction or a Write-off goes through the lending rules,
  * so a deletion that creates overpaid credit needs confirmation.
  */
 export async function deleteTransaction(
@@ -13,24 +13,17 @@ export async function deleteTransaction(
 ): Promise<LendingResult> {
   if (!Number.isSafeInteger(id) || id <= 0) throw new Error('Invalid transaction ID.');
   const db = await database();
-  const lending = await db.getFirstAsync<{ id: number }>(
-    'SELECT id FROM lending_entries WHERE transactionId = ?',
-    [id],
-  );
-  if (lending)
-    return deleteLendingEntry(lending.id, {
+  const lending = "SELECT 1 FROM transactions WHERE id = ? AND kind IN ('LENDING', 'WRITE_OFF')";
+  if (await db.getFirstAsync(lending, [id]))
+    return deleteLendingEntry(id, {
       confirmDelete: true,
       confirmOverpayment: options.confirmOverpayment,
     });
   await db.withExclusiveTransactionAsync(async (tx) => {
-    if (await tx.getFirstAsync('SELECT 1 FROM lending_entries WHERE transactionId = ?', [id]))
+    if (await tx.getFirstAsync(lending, [id]))
       throw new Error('Transaction was changed. Reload before deleting.');
     if (await tx.getFirstAsync('SELECT 1 FROM reimbursements WHERE expenseId = ?', [id]))
       throw new Error('This expense has linked reimbursements. Delete them first.');
-    await tx.runAsync(
-      'DELETE FROM transfer_candidates WHERE outgoingTxnId = ? OR incomingTxnId = ?',
-      [id, id],
-    );
     const result = await tx.runAsync('DELETE FROM transactions WHERE id = ?', [id]);
     if (result.changes !== 1) throw new Error('Transaction was already removed.');
   });

@@ -1,4 +1,5 @@
 import { database } from './database';
+import { accountTransactions } from './ledger-store.ts';
 import type { LendingLabel } from './transaction-format';
 
 export type AmountMode = 'ANY' | 'EQUAL' | 'GREATER' | 'LESS' | 'BETWEEN';
@@ -161,14 +162,13 @@ export function searchStatement(filters: SearchFilters, offset = 0, now = new Da
     sql: `SELECT t.id, t.type, t.amountMinor, t.receivedAmountMinor, t.transferAccountId, dest.currencyCode AS destinationCurrencyCode, t.date, t.note, a.name AS accountName, a.currencyCode, dest.name AS transferAccountName, c.name AS categoryName, (WITH RECURSIVE path(id, parentId, label) AS (
         SELECT id, parentId, name FROM categories WHERE id = ${category}
         UNION ALL SELECT p.id, p.parentId, p.name || ' › ' || path.label FROM categories p JOIN path ON path.parentId = p.id
-      ) SELECT label FROM path WHERE parentId IS NULL) AS categoryPath, lending.kind AS lendingKind, person.name AS personName
+      ) SELECT label FROM path WHERE parentId IS NULL) AS categoryPath, t.lendingKind, person.name AS personName
       ${spending ? ', r.expenseId AS reimbursementExpenseId, payer.name AS reimbursementPerson' : ''}
-      FROM transactions t JOIN accounts a ON a.id = t.accountId
+      FROM ${accountTransactions} t JOIN accounts a ON a.id = t.accountId
       ${spending ? 'JOIN report_transactions report ON report.id = t.id AND report.spendingMinor IS NOT NULL' : ''}
       LEFT JOIN accounts dest ON dest.id = t.transferAccountId
       LEFT JOIN categories c ON c.id = ${category}
-      LEFT JOIN lending_entries lending ON lending.transactionId = t.id
-      LEFT JOIN people person ON person.id = lending.personId
+      LEFT JOIN people person ON person.id = t.personId
       ${spending ? 'LEFT JOIN reimbursements r ON r.transactionId = t.id LEFT JOIN people payer ON payer.id = r.personId' : ''}
       ${clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''}
       ORDER BY t.date DESC, t.id DESC LIMIT ? OFFSET ?`,

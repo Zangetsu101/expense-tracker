@@ -29,22 +29,29 @@ after(() => {
 });
 const { listCategoryEvidence } = await import('./category-prediction-history.ts');
 test('history isolates type and Currency and excludes linked lending', async () => {
-  db.exec(`CREATE TABLE accounts(id, currencyCode);
-    CREATE TABLE categories(id, type, name);
-    CREATE TABLE transactions(id, type, accountId, categoryId, amountMinor, date, excludeFromReport);
-    CREATE TABLE lending_entries(transactionId);
-    INSERT INTO accounts VALUES(1,'BDT'),(2,'USD');
+  db.exec(`CREATE TABLE categories(id, type, name);
+    CREATE TABLE transactions(id, kind, categoryId, date);
+    CREATE TABLE legs(transactionId, accountId, personId, currencyCode, amountMinor);
     INSERT INTO categories VALUES(1,'EXPENSE','Food'),(2,'EXPENSE','Transport'),(3,'INCOME','Salary');
     INSERT INTO transactions VALUES
-    (1,'EXPENSE',1,1,100,1,1),
-    (2,'EXPENSE',2,1,100,1,0),
-    (3,'EXPENSE',1,1,100,1,0),
-    (5,'EXPENSE',1,2,100,1,0),
-    (6,'INCOME',1,3,100,1,0);
-    INSERT INTO lending_entries VALUES(3);`);
+    (1,'EXPENSE',1,1),
+    (2,'EXPENSE',1,1),
+    (3,'LENDING',1,1),
+    (5,'EXPENSE',2,1),
+    (6,'INCOME',3,1);
+    INSERT INTO legs VALUES
+    (1,1,NULL,'BDT',-100),
+    (2,2,NULL,'USD',-100),
+    (3,1,NULL,'BDT',-100),
+    (3,NULL,1,'BDT',100),
+    (5,1,NULL,'BDT',-100),
+    (6,1,NULL,'BDT',100);`);
   const rows = await listCategoryEvidence('EXPENSE', 'BDT');
   assert.deepEqual(
-    rows.map((r) => r.categoryId),
-    [1, 2],
+    rows.map((r) => [r.categoryId, r.accountId, r.amountMinor]),
+    [
+      [1, 1, 100],
+      [2, 1, 100],
+    ],
   );
 });

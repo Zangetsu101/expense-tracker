@@ -3,6 +3,8 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { database } from './database';
 import { addTransactionTags, parseQuickAddTags } from './tag-store';
 import { lendingTotals, type LendingTotal } from './lending-totals.ts';
+import { insertTransaction, lendingEntryRows, updateTransaction } from './ledger-store.ts';
+import type { LendingAction, NewTransaction } from './ledger.ts';
 
 export type LendingKind =
   'LEND' | 'BORROW' | 'RECEIVE_REPAYMENT' | 'REPAY' | 'WRITE_OFF_LENT' | 'WRITE_OFF_BORROWED';
@@ -19,6 +21,7 @@ export type LendingInput = {
   confirmOverpayment?: boolean;
   tagText?: string;
 };
+/** A lending Transaction or a Write-off. The id is the id of the Transaction. */
 export type LendingEntry = {
   id: number;
   personId: number;
@@ -32,7 +35,7 @@ export type LendingEntry = {
   accountId: number | null;
   accountName: string | null;
 };
-/** A write-off has no Transaction. The Receipt shows it with "No Account movement". */
+/** A Write-off has no Account. The Receipt shows it with "No Account movement". */
 export type WriteOffEntry = LendingEntry & {
   type: 'WRITE_OFF';
   kind: 'WRITE_OFF_LENT' | 'WRITE_OFF_BORROWED';
@@ -51,7 +54,6 @@ const kinds: LendingKind[] = [
   'WRITE_OFF_BORROWED',
 ];
 const writeoff = (kind: LendingKind) => kind === 'WRITE_OFF_LENT' || kind === 'WRITE_OFF_BORROWED';
-const expense = (kind: LendingKind) => kind === 'LEND' || kind === 'REPAY';
 function positive(value: number) {
   if (!Number.isSafeInteger(value) || value <= 0)
     throw new Error('Enter a positive integer amount or ID.');
@@ -88,14 +90,9 @@ async function entries(
   db: DB,
   filter?: { personId: number } | { entryId: number },
 ): Promise<LendingEntry[]> {
-  const column = filter && ('personId' in filter ? 'personId' : 'id');
+  const column = filter && ('personId' in filter ? 'person.personId' : 't.id');
   return db.getAllAsync<LendingEntry>(
-    `SELECT e.id,e.personId,p.name AS personName,e.kind,e.transactionId,
- CASE WHEN t.id IS NULL THEN e.currencyCode ELSE a.currencyCode END AS currencyCode,
- COALESCE(t.amountMinor,e.amountMinor) AS amountMinor,COALESCE(t.date,e.date) AS date,
- CASE WHEN t.id IS NULL THEN e.note ELSE t.note END AS note,t.accountId,a.name AS accountName
- FROM lending_entries e JOIN people p ON p.id=e.personId LEFT JOIN transactions t ON t.id=e.transactionId LEFT JOIN accounts a ON a.id=t.accountId
- ${column ? `WHERE e.${column} = ?` : ''} ORDER BY date DESC,e.id DESC`,
+    `${lendingEntryRows} ${column ? `AND ${column} = ?` : ''} ORDER BY t.date DESC, t.id DESC`,
     filter ? ['personId' in filter ? filter.personId : filter.entryId] : [],
   );
 }
@@ -143,8 +140,8 @@ export async function listPeopleWithLendingTotals(): Promise<PersonWithTotals[]>
 
 export async function linkedAmountWarnings(db: DB, transactionId: number, amountMinor: number) {
   const link = await db.getFirstAsync<{ personId: number }>(
-    'SELECT personId FROM lending_entries WHERE transactionId=?',
-    [transactionId],
+    "SELECT personId FROM legs WHERE transactionId = ? AND personId IS NOT NULL AND EXISTS (SELECT 1 FROM transactions WHERE id = ? AND kind = 'LENDING')",
+    [transactionId, transactionId],
   );
   if (!link) return [];
   const rows = await entries(db, { personId: link.personId });
@@ -220,61 +217,38 @@ export async function saveLendingEntry(input: LendingInput): Promise<LendingResu
       result = { status: 'confirmation_required', warnings: warning };
       return;
     }
-    let transactionId = original?.transactionId ?? null;
-    if (!writeoff(input.kind)) {
-      if (transactionId !== null)
-        await tx.runAsync(
-          'UPDATE transactions SET type=?,amountMinor=?,date=?,accountId=?,note=?,excludeFromReport=1 WHERE id=?',
-          [
-            expense(input.kind) ? 'EXPENSE' : 'INCOME',
-            row.amountMinor,
-            row.date,
-            row.accountId,
-            row.note,
-            transactionId,
-          ],
-        );
-      else {
-        const r = await tx.runAsync(
-          'INSERT INTO transactions (type,amountMinor,date,accountId,note,excludeFromReport) VALUES (?,?,?,?,?,1)',
-          [
-            expense(input.kind) ? 'EXPENSE' : 'INCOME',
-            row.amountMinor,
-            row.date,
-            row.accountId,
-            row.note,
-          ],
-        );
-        transactionId = r.lastInsertRowId;
-        added = { id: transactionId, date: row.date, accountIds: [row.accountId!] };
-      }
-    }
-    if (transactionId !== null && input.tagText !== undefined) {
-      await tx.runAsync('DELETE FROM transaction_tags WHERE transactionId=?', [transactionId]);
-      await addTransactionTags(tx, transactionId, tags);
-    }
-    const values = [
-      row.personId,
-      row.kind,
-      transactionId,
-      row.currencyCode,
-      row.amountMinor,
-      row.date,
-      row.note,
-    ];
+    const transaction: NewTransaction = writeoff(row.kind)
+      ? {
+          kind: 'WRITE_OFF',
+          direction: row.kind === 'WRITE_OFF_LENT' ? 'LENT' : 'BORROWED',
+          personId: row.personId,
+          currencyCode: row.currencyCode,
+          amountMinor: row.amountMinor,
+          date: row.date,
+          note: row.note,
+        }
+      : {
+          kind: 'LENDING',
+          action: row.kind as LendingAction,
+          accountId: row.accountId!,
+          personId: row.personId,
+          amountMinor: row.amountMinor,
+          date: row.date,
+          note: row.note,
+        };
+    let id: number;
     if (original) {
-      await tx.runAsync(
-        'UPDATE lending_entries SET personId=?,kind=?,transactionId=?,currencyCode=?,amountMinor=?,date=?,note=? WHERE id=?',
-        [...values, original.id],
-      );
-      result = { status: 'saved', id: original.id };
+      id = original.id;
+      await updateTransaction(tx, { ...transaction, id });
     } else {
-      const r = await tx.runAsync(
-        'INSERT INTO lending_entries (personId,kind,transactionId,currencyCode,amountMinor,date,note) VALUES (?,?,?,?,?,?,?)',
-        values,
-      );
-      result = { status: 'saved', id: r.lastInsertRowId };
+      id = await insertTransaction(tx, transaction);
+      if (!writeoff(row.kind)) added = { id, date: row.date, accountIds: [row.accountId!] };
     }
+    if (!writeoff(row.kind) && input.tagText !== undefined) {
+      await tx.runAsync('DELETE FROM transaction_tags WHERE transactionId=?', [id]);
+      await addTransactionTags(tx, id, tags);
+    }
+    result = { status: 'saved', id };
   });
   if (!('warnings' in result)) notifyDataChanged(added);
   return result;
@@ -299,9 +273,7 @@ export async function deleteLendingEntry(
       result = { status: 'confirmation_required', warnings: warning };
       return;
     }
-    await tx.runAsync('DELETE FROM lending_entries WHERE id=?', [id]);
-    if (row.transactionId !== null)
-      await tx.runAsync('DELETE FROM transactions WHERE id=?', [row.transactionId]);
+    await tx.runAsync('DELETE FROM transactions WHERE id=?', [id]);
   });
   if (!('warnings' in result)) notifyDataChanged();
   return result;
