@@ -612,8 +612,8 @@ export async function restoreLegacyRows(
   await cleanLegacyTables(tx);
   // The cleaned rows must be a valid backup, as a backup that the app writes is.
   assertCleanBackup(await snapshotLegacyTables(tx));
-  // Only valid rows get here, so the live rows go now. This order passes the guards of the
-  // triggers. Deleting a Transaction deletes its legs, split shares, Line Items and tags.
+  // This order passes the guards of the triggers. Deleting a Transaction deletes its legs,
+  // split shares, Line Items and tags.
   await tx.execAsync(`DELETE FROM reimbursements; DELETE FROM transactions;
     DELETE FROM credit_cards; DELETE FROM accounts; DELETE FROM people; DELETE FROM tags;
     DELETE FROM categories;`);

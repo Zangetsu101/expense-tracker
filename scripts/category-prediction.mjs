@@ -15,7 +15,6 @@ const categoryTie = (a, b) => compare(asciiLower(a.name), asciiLower(b.name)) ||
 
 export function adaptBackup(json) {
   const backup = decodeBackup(json);
-  // The replay reads the rows as they are, so it needs a backup without broken references.
   assertCleanBackup(backup);
   for (const rows of [backup.accounts, backup.categories, backup.transactions]) {
     if (

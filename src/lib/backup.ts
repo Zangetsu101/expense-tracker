@@ -268,15 +268,17 @@ function validateTransactionAccounts(data: Record<string, unknown>, strict: bool
     ((data.accounts ?? []) as BackupData['accounts']).map((row) => [row.id, row.currencyCode]),
   );
   for (const row of (data.transactions ?? []) as BackupData['transactions']) {
-    const source = currencies.get(row.accountId);
-    const destination = currencies.get(row.transferAccountId!);
+    const sourceCurrency = currencies.get(row.accountId);
+    const destinationCurrency = currencies.get(row.transferAccountId ?? NaN);
     const transfer = row.type === 'TRANSFER';
-    if (strict && (!source || (transfer && !destination)))
+    if (strict && (!sourceCurrency || (transfer && !destinationCurrency)))
       throw new Error('Invalid backup Transaction Account');
-    if (row.receivedAmountMinor == null) continue;
-    if (row.receivedAmountMinor <= 0 || (strict && !transfer))
-      throw new Error('Invalid backup amount received');
-    if (transfer && source && destination && source === destination)
+    if (
+      row.receivedAmountMinor != null &&
+      (row.receivedAmountMinor <= 0 ||
+        (strict && !transfer) ||
+        (transfer && sourceCurrency && sourceCurrency === destinationCurrency))
+    )
       throw new Error('Invalid backup amount received');
   }
 }

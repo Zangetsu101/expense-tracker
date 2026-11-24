@@ -500,12 +500,33 @@ test('a restore of a raw file deletes each kind of row that a delete left behind
   assert.equal((await backupStore.snapshot()).creditCards[0].parentAccountId, null);
 });
 
-test('a raw file with a stale received amount restores, and a lost destination is named', async () => {
+test('a raw file with a received amount on an Expense restores without it', async () => {
   const data = fixture();
   data.transactions[0].receivedAmountMinor = 50;
   assert.equal(await restoreJson(JSON.stringify(data)), true);
   assert.equal((await backupStore.snapshot()).transactions[0].receivedAmountMinor, undefined);
+});
+
+test('a raw file with a Transfer from a missing Account stops and names the row', async () => {
+  await restoreJson(JSON.stringify(fixture()));
   const before = state();
+  const data = fixture();
+  data.transactions[0] = {
+    ...data.transactions[0],
+    type: 'TRANSFER',
+    categoryId: null,
+    accountId: 8,
+    transferAccountId: 9,
+    receivedAmountMinor: 100,
+  };
+  await assert.rejects(restoreJson(JSON.stringify(data)), /Row 1 of transactions needs Account 8/);
+  assert.deepEqual(state(), before);
+});
+
+test('a raw file with a Transfer to a missing Account stops and names the row', async () => {
+  await restoreJson(JSON.stringify(fixture()));
+  const before = state();
+  const data = fixture();
   data.accounts.push({
     id: 2,
     name: 'USD',

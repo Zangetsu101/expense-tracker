@@ -178,36 +178,60 @@ test('a file can name a missing person, but the strict check refuses it', () => 
   assert.throws(() => encodeBackup(decoded), /lending metadata/);
 });
 
-test('a reimbursement needs an explicit person, or null for a shop refund', () => {
+test('a reimbursement without a person key is not a shop refund', () => {
   const data = JSON.parse(native);
-  const refund = { transactionId: 102, expenseId: 100 };
-  for (const reimbursement of [refund, { ...refund, personId: 'x' }, { ...refund, personId: 0 }])
+  for (const reimbursement of [
+    { transactionId: 102, expenseId: 100 },
+    { transactionId: 102, expenseId: 100, personId: 0 },
+  ])
     assert.throws(
       () => decodeBackup(JSON.stringify({ ...data, reimbursements: [reimbursement] })),
-      /reimbursement link|safe integer/,
+      /reimbursement link/,
     );
 });
 
-test('a file can keep a stale received amount and a Transfer to a deleted Account', () => {
+test('a reimbursement with an explicit null person is a shop refund', () => {
   const data = JSON.parse(native);
-  // The restore clears a received amount on an Expense, and it names the missing Account.
+  // The payment must use the Currency of the Expense.
+  data.transactions.find((row) => row.id === 102).accountId = 1;
+  const refund = { transactionId: 102, expenseId: 100, personId: null };
+  assert.deepEqual(
+    decodeBackup(JSON.stringify({ ...data, reimbursements: [refund] })).reimbursements,
+    [refund],
+  );
+});
+
+test('a reimbursement person that is not a number is refused', () => {
+  const data = JSON.parse(native);
+  const reimbursement = { transactionId: 102, expenseId: 100, personId: 'x' };
+  assert.throws(
+    () => decodeBackup(JSON.stringify({ ...data, reimbursements: [reimbursement] })),
+    /personId is not a safe integer/,
+  );
+});
+
+test('a file can keep a received amount on an Expense, and the strict check refuses it', () => {
+  const data = JSON.parse(native);
   data.transactions[0].receivedAmountMinor = 50;
+  const decoded = decodeBackup(JSON.stringify(data));
+  assert.throws(() => assertCleanBackup(decoded), /amount received/);
+});
+
+test('a file can keep a Transfer whose Accounts are missing, and the strict check refuses it', () => {
+  const data = JSON.parse(native);
   data.transactions[1].accountId = 98;
   data.transactions[1].transferAccountId = 99;
   data.transactions[1].receivedAmountMinor = 100;
   const decoded = decodeBackup(JSON.stringify(data));
-  assert.throws(() => assertCleanBackup(decoded), /Transaction Account|amount received/);
-  for (const bad of [0, -1])
-    assert.throws(
-      () =>
-        decodeBackup(
-          JSON.stringify({
-            ...data,
-            transactions: [{ ...data.transactions[0], receivedAmountMinor: bad }],
-          }),
-        ),
-      /amount received/,
-    );
+  assert.throws(() => assertCleanBackup(decoded), /Transaction Account/);
+});
+
+test('a received amount that is not positive is refused', () => {
+  const data = JSON.parse(native);
+  for (const amount of [0, -1]) {
+    data.transactions[1].receivedAmountMinor = amount;
+    assert.throws(() => decodeBackup(JSON.stringify(data)), /amount received/);
+  }
 });
 
 test('a backup that the app writes needs the Accounts of each Transaction', () => {

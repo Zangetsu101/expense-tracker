@@ -565,20 +565,15 @@ test('a restore checks the staged rows before it deletes any live row', async ()
   const migrated = oldDatabase();
   const snapshot = await legacySnapshot(connection(migrated));
   await openLedger(connection(migrated), async () => {});
-  const statements: string[] = [];
-  const db = connection(migrated) as unknown as { execAsync(query: string): Promise<void> };
-  const execAsync = db.execAsync;
-  db.execAsync = async (query: string) => {
-    statements.push(query);
-    return execAsync(query);
-  };
+  const before = data(migrated);
   const broken = { ...snapshot, transactions: [...snapshot.transactions] };
   broken.transactions[0] = { ...broken.transactions[0], accountId: 99 };
+  // No transaction wraps this call, so a delete before the check would stay.
   await assert.rejects(
-    restoreLegacyRows(db as never, broken),
+    restoreLegacyRows(connection(migrated), broken),
     /Row 1 of transactions needs Account 99/,
   );
-  assert.ok(!statements.some((query) => /DELETE FROM (transactions|accounts)/.test(query)));
+  assert.deepEqual(data(migrated), before);
 });
 
 test('a restore of the old rows gives the same data as the migration', async () => {
