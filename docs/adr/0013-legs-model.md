@@ -4,6 +4,8 @@
 
 Accepted. This changes how ADRs 0003 and 0010 store data. It does not change what they decide.
 
+ADR 0014 replaces the paragraph about the JSON backup format.
+
 ## Context
 
 The old schema stored one Account and one amount on each Transaction. Other money movements needed extra columns and tables. A Transfer between Currencies used `transferAccountId` and `receivedAmountMinor`. Lending used `lending_entries`, and a write-off had no Transaction. So each query about balances had to know several shapes, and the database could not check that the shapes agreed.
