@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { assertCleanBackup, decodeBackup } from '../src/lib/backup.ts';
+import { decodeBackup } from '../src/lib/backup.ts';
+import { assertCleanBackup } from '../src/lib/backup-v1.ts';
 
 const modes = ['EXPENSE', 'INCOME'];
 const increment = (counts, key) => (counts[key] = (counts[key] ?? 0) + 1);

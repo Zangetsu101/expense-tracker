@@ -4,7 +4,7 @@
 // and the backup before the migration share one mapping. A v2 backup has the rows of the
 // legs schema, so its restore inserts them directly (ADR 0014).
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { assertCleanBackup, encodeBackup, type BackupV1 } from './backup.ts';
+import { assertCleanBackup, type BackupV1 } from './backup-v1.ts';
 import { backupV2Tables, type BackupV2 } from './backup-v2.ts';
 import { LEGS_SCHEMA_VERSION, legsSchema } from './legs-schema.ts';
 import { readAll } from './read-all.ts';
@@ -551,7 +551,9 @@ export async function openLedger(db: MainConnection, saveBackup: (json: string) 
     );
     if (old) {
       await setUpLegacySchema(db);
-      await saveBackup(encodeBackup(await legacySnapshot(db)));
+      const backup = await legacySnapshot(db);
+      assertCleanBackup(backup);
+      await saveBackup(JSON.stringify(backup, null, 2));
       await migrateToLegs(db);
     } else {
       await db.execAsync('BEGIN EXCLUSIVE');

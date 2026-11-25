@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { assertCleanBackup, decodeBackup, encodeBackup, restoreBackup } from './backup.ts';
+import { assertCleanBackup } from './backup-v1.ts';
+import { decodeBackup, encodeBackup, restoreBackup } from './backup.ts';
 
 const native = readFileSync(
   new URL('../../scripts/fixtures/native-shaped-backup-v1.json', import.meta.url),
@@ -26,7 +27,7 @@ test('numeric backup encoding and decoding keep cumulative string slicing linear
   };
   try {
     assert.equal(decodeBackup(json).transactions.length, 256);
-    assert.equal(decodeBackup(encodeBackup(data)).transactions.length, 256);
+    assertCleanBackup(data);
   } finally {
     // eslint-disable-next-line no-extend-native -- Restore the instrumented method even on failure.
     String.prototype.slice = originalSlice;
@@ -94,7 +95,8 @@ test('people, linked principal and write-offs roundtrip without changing financi
       note: null,
     },
   ];
-  const restored = decodeBackup(encodeBackup(data));
+  assertCleanBackup(data);
+  const restored = decodeBackup(JSON.stringify(data));
   assert.deepEqual(restored.people, data.people);
   assert.deepEqual(restored.lendingEntries, data.lendingEntries);
   assert.deepEqual(restored.transactions, data.transactions);
@@ -175,7 +177,6 @@ test('a file can name a missing person, but the strict check refuses it', () => 
   // The restore names the missing person and stops (legs-migration.ts).
   const decoded = decodeBackup(JSON.stringify({ ...data, lendingEntries: [entry] }));
   assert.throws(() => assertCleanBackup(decoded), /lending metadata/);
-  assert.throws(() => encodeBackup(decoded), /lending metadata/);
 });
 
 test('a reimbursement without a person key is not a shop refund', () => {
@@ -245,25 +246,25 @@ test('a backup that the app writes needs the Accounts of each Transaction', () =
     const transactions = data.transactions.map((row) =>
       row.id === patch.id ? { ...row, ...patch } : row,
     );
-    assert.throws(() => encodeBackup({ ...data, transactions }), /Transaction Account/);
+    assert.throws(() => assertCleanBackup({ ...data, transactions }), /Transaction Account/);
   }
 });
 
 test('native v1 backups without import keys remain readable', () => {
   const data = decodeBackup(native);
   assert.equal(data.moneyLoverImportRows, undefined);
-  assert.equal(decodeBackup(encodeBackup(data)).moneyLoverImportRows, undefined);
+  assert.equal(decodeBackup(JSON.stringify(data)).moneyLoverImportRows, undefined);
 });
 
 test('import row keys survive a JSON roundtrip and restore', async () => {
   const original = decodeBackup(native);
   const transactionId = original.transactions[0].id;
   original.moneyLoverImportRows = [{ rowKey: 'moneylover:row:1', transactionId }];
-  const json = encodeBackup(original);
+  assertCleanBackup(original);
+  const json = JSON.stringify(original);
   let replaced;
   const restored = await restoreBackup(
     {
-      snapshot: async () => original,
       replace: async (data) => {
         replaced = data;
       },
@@ -284,7 +285,7 @@ test('import rows of a deleted Transaction decode, but the strict check refuses 
   assert.deepEqual(decodeBackup(JSON.stringify(backup)).moneyLoverImportRows, [
     { rowKey: 'orphan', transactionId: 999 },
   ]);
-  assert.throws(() => encodeBackup(backup), /Invalid backup moneyLoverImportRows/);
+  assert.throws(() => assertCleanBackup(backup), /Invalid backup moneyLoverImportRows/);
 });
 
 test('invalid import metadata never reaches the replacement boundary', async () => {
@@ -386,19 +387,20 @@ test('received amounts are optional safe positive minor units on cross-Currency 
     receivedAmountMinor: 100,
   };
   data.transactions = [transaction];
-  assert.equal(decodeBackup(encodeBackup(data)).transactions[0].receivedAmountMinor, 100);
+  assertCleanBackup(data);
+  assert.equal(decodeBackup(JSON.stringify(data)).transactions[0].receivedAmountMinor, 100);
   for (const receivedAmountMinor of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
     transaction.receivedAmountMinor = receivedAmountMinor;
-    assert.throws(() => encodeBackup(data), /received|safe integer/);
+    assert.throws(() => assertCleanBackup(data), /received|safe integer/);
   }
   transaction.receivedAmountMinor = 100;
   transaction.type = 'EXPENSE';
-  assert.throws(() => encodeBackup(data), /amount received/);
+  assert.throws(() => assertCleanBackup(data), /amount received/);
   transaction.type = 'TRANSFER';
   data.accounts.at(-1).currencyCode = from.currencyCode;
-  assert.throws(() => encodeBackup(data), /amount received/);
+  assert.throws(() => assertCleanBackup(data), /amount received/);
   delete transaction.receivedAmountMinor;
-  assert.doesNotThrow(() => encodeBackup(data));
+  assert.doesNotThrow(() => assertCleanBackup(data));
 });
 
 const v2 = readFileSync(new URL('../../scripts/fixtures/backup-v2.json', import.meta.url), 'utf8');
@@ -408,6 +410,13 @@ test('a v2 file decodes, and encode then decode gives the same data', () => {
   assert.equal(data.schemaVersion, 2);
   assert.deepEqual(data, JSON.parse(v2));
   assert.deepEqual(decodeBackup(encodeBackup(data)), data);
+});
+
+test('encode writes only v2, so it refuses a v1 backup', () => {
+  assert.throws(
+    () => encodeBackup(decodeBackup(native)),
+    /Unknown backup field transferCandidates/,
+  );
 });
 
 test('a v2 file with a wrong structure is refused before any change', async (t) => {
