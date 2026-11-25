@@ -1,4 +1,4 @@
-import { decodeBackup, serializeBackupOperation, type BackupData } from '@/lib/backup';
+import { decodeBackup, serializeBackupOperation, type Backup } from '@/lib/backup';
 
 export type BackupInterval = 'off' | 'daily' | 'weekly';
 export type BackupFailureKind = 'network' | 'auth' | 'quota' | 'other';
@@ -68,7 +68,7 @@ export interface DriveBackupDependencies {
   signOut(): Promise<void>;
   drive: DriveFolder;
   snapshot(): Promise<{ json: string; transactions: number }>;
-  replace(data: BackupData): Promise<void>;
+  replace(data: Backup): Promise<void>;
   now(): number;
   /** Runs after each verified backup. An error here does not fail the backup. */
   backedUp?(): Promise<void>;

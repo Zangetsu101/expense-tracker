@@ -1,9 +1,14 @@
+import { readBackupV2, type BackupV2 } from './backup-v2.ts';
+
 // Native Android backup schema v1 (BackupModels.kt). Long values are JSON numbers;
-// JavaScript cannot preserve integers outside Number.MAX_SAFE_INTEGER.
+// JavaScript cannot preserve integers outside Number.MAX_SAFE_INTEGER. Export writes v1.
+// Restore reads v1 and v2 (ADR 0014).
 export const BACKUP_SCHEMA_VERSION = 1;
 
-export interface BackupData {
-  schemaVersion: number;
+export type Backup = BackupV1 | BackupV2;
+
+export interface BackupV1 {
+  schemaVersion: 1;
   accounts: {
     id: number;
     name: string;
@@ -161,29 +166,29 @@ function assertRawIntegersSafe(json: string): void {
  */
 type References = 'repair' | 'strict';
 
-/** Reads a backup file. It accepts references that the restore repairs or reports. */
-export function decodeBackup(json: string): BackupData {
-  return parseBackup(json, 'repair');
-}
-
-/** Throws if the cleaned rows of a restore are not a valid backup. */
-export function assertCleanBackup(data: BackupData): void {
-  parseBackup(JSON.stringify(data), 'strict');
-}
-
-function parseBackup(json: string, references: References): BackupData {
-  const strict = references === 'strict';
+/** Throws unless the text is a JSON object whose integers JavaScript can hold exactly. */
+function parseJson(json: string): Record<string, unknown> {
   assertRawIntegersSafe(json);
   const raw: unknown = JSON.parse(json);
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw))
     throw new Error('Invalid backup');
-  const data = raw as Record<string, unknown>;
-  if (
-    !Number.isInteger(data.schemaVersion) ||
-    (data.schemaVersion as number) < 1 ||
-    (data.schemaVersion as number) > BACKUP_SCHEMA_VERSION
-  )
-    throw new Error('Unsupported backup schema version');
+  return raw as Record<string, unknown>;
+}
+
+/** Reads a backup file. A v1 file can have references that the restore repairs or reports. */
+export function decodeBackup(json: string): Backup {
+  const data = parseJson(json);
+  return data.schemaVersion === 2 ? readBackupV2(data) : readV1(data, 'repair');
+}
+
+/** Throws if the cleaned rows of a v1 restore are not a valid backup. */
+export function assertCleanBackup(data: BackupV1): void {
+  readV1(parseJson(JSON.stringify(data)), 'strict');
+}
+
+function readV1(data: Record<string, unknown>, references: References): BackupV1 {
+  const strict = references === 'strict';
+  if (data.schemaVersion !== 1) throw new Error('Unsupported backup schema version');
   for (const key of arrays) {
     if (data[key] !== undefined && !Array.isArray(data[key]))
       throw new Error(`Invalid backup ${key}`);
@@ -222,35 +227,35 @@ function parseBackup(json: string, references: References): BackupData {
   validateCreditCards(data, strict);
   validateLending(data, strict);
   validateReimbursements(data, strict);
-  const settings = (data.settings ?? {}) as BackupData['settings'];
+  const settings = (data.settings ?? {}) as BackupV1['settings'];
   return {
-    schemaVersion: data.schemaVersion as number,
-    accounts: (data.accounts ?? []) as BackupData['accounts'],
-    categories: (data.categories ?? []) as BackupData['categories'],
-    transactions: (data.transactions ?? []) as BackupData['transactions'],
-    lineItems: (data.lineItems ?? []) as BackupData['lineItems'],
-    tags: (data.tags ?? []) as BackupData['tags'],
-    transactionTags: (data.transactionTags ?? []) as BackupData['transactionTags'],
-    transferCandidates: (data.transferCandidates ?? []) as BackupData['transferCandidates'],
+    schemaVersion: 1,
+    accounts: (data.accounts ?? []) as BackupV1['accounts'],
+    categories: (data.categories ?? []) as BackupV1['categories'],
+    transactions: (data.transactions ?? []) as BackupV1['transactions'],
+    lineItems: (data.lineItems ?? []) as BackupV1['lineItems'],
+    tags: (data.tags ?? []) as BackupV1['tags'],
+    transactionTags: (data.transactionTags ?? []) as BackupV1['transactionTags'],
+    transferCandidates: (data.transferCandidates ?? []) as BackupV1['transferCandidates'],
     settings: {
       favoriteAccountId: settings.favoriteAccountId ?? null,
       displayRate: settings.displayRate ?? null,
     },
     ...(data.creditCards !== undefined
-      ? { creditCards: data.creditCards as BackupData['creditCards'] }
+      ? { creditCards: data.creditCards as BackupV1['creditCards'] }
       : {}),
     ...(data.splitShares !== undefined
-      ? { splitShares: data.splitShares as BackupData['splitShares'] }
+      ? { splitShares: data.splitShares as BackupV1['splitShares'] }
       : {}),
     ...(data.reimbursements !== undefined
-      ? { reimbursements: data.reimbursements as BackupData['reimbursements'] }
+      ? { reimbursements: data.reimbursements as BackupV1['reimbursements'] }
       : {}),
-    ...(data.people !== undefined ? { people: data.people as BackupData['people'] } : {}),
+    ...(data.people !== undefined ? { people: data.people as BackupV1['people'] } : {}),
     ...(data.lendingEntries !== undefined
-      ? { lendingEntries: data.lendingEntries as BackupData['lendingEntries'] }
+      ? { lendingEntries: data.lendingEntries as BackupV1['lendingEntries'] }
       : {}),
     ...(data.moneyLoverImportRows !== undefined
-      ? { moneyLoverImportRows: data.moneyLoverImportRows as BackupData['moneyLoverImportRows'] }
+      ? { moneyLoverImportRows: data.moneyLoverImportRows as BackupV1['moneyLoverImportRows'] }
       : {}),
   };
 }
@@ -265,9 +270,9 @@ function parseBackup(json: string, references: References): BackupData {
  */
 function validateTransactionAccounts(data: Record<string, unknown>, strict: boolean): void {
   const currencies = new Map(
-    ((data.accounts ?? []) as BackupData['accounts']).map((row) => [row.id, row.currencyCode]),
+    ((data.accounts ?? []) as BackupV1['accounts']).map((row) => [row.id, row.currencyCode]),
   );
-  for (const row of (data.transactions ?? []) as BackupData['transactions']) {
+  for (const row of (data.transactions ?? []) as BackupV1['transactions']) {
     const sourceCurrency = currencies.get(row.accountId);
     const destinationCurrency = currencies.get(row.transferAccountId ?? NaN);
     const transfer = row.type === 'TRANSFER';
@@ -286,8 +291,8 @@ function validateTransactionAccounts(data: Record<string, unknown>, strict: bool
 function validateCreditCards(data: Record<string, unknown>, strict: boolean): void {
   if (data.creditCards === undefined) return;
   if (!Array.isArray(data.creditCards)) throw new Error('Invalid backup credit cards');
-  const cards = data.creditCards as NonNullable<BackupData['creditCards']>;
-  const accounts = (data.accounts ?? []) as BackupData['accounts'];
+  const cards = data.creditCards as NonNullable<BackupV1['creditCards']>;
+  const accounts = (data.accounts ?? []) as BackupV1['accounts'];
   const ids = new Set<number>();
   for (const card of cards) {
     if (
@@ -339,8 +344,8 @@ function validateLending(data: Record<string, unknown>, strict: boolean): void {
   }
   const ids = new Set<number>();
   const linked = new Set<number>();
-  const transactions = (data.transactions ?? []) as BackupData['transactions'];
-  const accounts = (data.accounts ?? []) as BackupData['accounts'];
+  const transactions = (data.transactions ?? []) as BackupV1['transactions'];
+  const accounts = (data.accounts ?? []) as BackupV1['accounts'];
   for (const entry of entries as unknown[]) {
     if (
       !record(entry) ||
@@ -363,7 +368,7 @@ function validateLending(data: Record<string, unknown>, strict: boolean): void {
       !(entry.note === null || typeof entry.note === 'string')
     )
       fail();
-    const row = entry as NonNullable<BackupData['lendingEntries']>[number];
+    const row = entry as NonNullable<BackupV1['lendingEntries']>[number];
     if (ids.has(row.id)) fail();
     ids.add(row.id);
     if (row.kind.startsWith('WRITE_OFF_')) {
@@ -398,14 +403,12 @@ function validateReimbursements(data: Record<string, unknown>, strict: boolean) 
     throw new Error('Invalid backup split or reimbursement metadata');
   if (!splitShares.length && !reimbursements.length) return;
   const transactions = new Map(
-    ((data.transactions ?? []) as BackupData['transactions']).map((row) => [row.id, row]),
+    ((data.transactions ?? []) as BackupV1['transactions']).map((row) => [row.id, row]),
   );
   const currencies = new Map(
-    ((data.accounts ?? []) as BackupData['accounts']).map((row) => [row.id, row.currencyCode]),
+    ((data.accounts ?? []) as BackupV1['accounts']).map((row) => [row.id, row.currencyCode]),
   );
-  const people = new Set(
-    ((data.people ?? []) as NonNullable<BackupData['people']>).map((p) => p.id),
-  );
+  const people = new Set(((data.people ?? []) as NonNullable<BackupV1['people']>).map((p) => p.id));
   const shares = new Set<string>();
   for (const row of splitShares) {
     const key = `${row?.expenseId}:${row?.personId}`;
@@ -458,19 +461,24 @@ function validateReimbursements(data: Record<string, unknown>, strict: boolean) 
   }
 }
 
-export function encodeBackup(data: BackupData): string {
+export function encodeBackup(data: Backup): string {
+  if (data.schemaVersion === 2) {
+    const json = JSON.stringify(data, null, 2);
+    readBackupV2(parseJson(json));
+    return json;
+  }
   if (data.schemaVersion !== BACKUP_SCHEMA_VERSION)
     throw new Error('Unsupported backup schema version');
   assertSafeLongs(data);
   const json = JSON.stringify(data, null, 2);
-  parseBackup(json, 'strict');
+  readV1(parseJson(json), 'strict');
   return json;
 }
 
 /** Storage and database boundaries supplied by the app. Import must replace atomically. */
 export interface BackupStore {
-  snapshot(): Promise<BackupData>;
-  replace(data: BackupData): Promise<void>;
+  snapshot(): Promise<BackupV1>;
+  replace(data: Backup): Promise<void>;
 }
 
 /** Share sheet and document picker boundary: URIs come from the system, never a raw path. */

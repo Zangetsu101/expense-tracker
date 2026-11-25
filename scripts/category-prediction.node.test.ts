@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { adaptBackup, evaluate, rank, replay } from './category-prediction.mjs';
 
@@ -224,4 +225,56 @@ test('top-3 misses when the target falls beyond the third candidate', () => {
     [...categories, fourth, extra],
   );
   assert.deepEqual(result.metrics['development/all/recent'], { n: 1, cold: 1, top1: 0, top3: 0 });
+});
+
+test('the adapter reads a v2 backup as the v1 export of the same data', () => {
+  const json = readFileSync(new URL('./fixtures/backup-v2.json', import.meta.url), 'utf8');
+  const { rows, baselineRows, provenance } = adaptBackup(json);
+  assert.deepEqual(rows, [
+    {
+      id: 1,
+      type: 'EXPENSE',
+      currency: 'BDT',
+      accountId: 1,
+      categoryId: 2,
+      amountMinor: 1500,
+      day: 20722,
+    },
+    {
+      id: 2,
+      type: 'INCOME',
+      currency: 'BDT',
+      accountId: 1,
+      categoryId: 3,
+      amountMinor: 90000,
+      day: 20722,
+    },
+    {
+      id: 7,
+      type: 'EXPENSE',
+      currency: 'BDT',
+      accountId: 2,
+      categoryId: 1,
+      amountMinor: 2500,
+      day: 20751,
+    },
+  ]);
+  assert.deepEqual(
+    baselineRows.map((row) => row.id),
+    [1, 2, 7],
+  );
+  assert.equal(provenance.schemaVersion, 2);
+  // A Write-off moves no money on an Account, so it is not a v1 Transaction.
+  assert.deepEqual(provenance.raw, {
+    accounts: 3,
+    categories: 3,
+    transactions: 6,
+    lendingEntries: 2,
+  });
+  assert.deepEqual(provenance.sources, { MANUAL: 6 });
+  assert.deepEqual(provenance.excluded, {
+    transfer_or_unknown_type: 1,
+    linked_person_movement: 1,
+    missing_or_mismatched_category: 1,
+  });
 });

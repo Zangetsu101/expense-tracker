@@ -1,0 +1,163 @@
+{
+  "schemaVersion": 2,
+  "accounts": [
+    { "id": 1, "name": "Cash", "currencyCode": "BDT", "openingBalanceMinor": 0 },
+    { "id": 2, "name": "Card", "currencyCode": "BDT", "openingBalanceMinor": 0 },
+    { "id": 3, "name": "Wallet", "currencyCode": "USD", "openingBalanceMinor": 500 }
+  ],
+  "creditCards": [{ "accountId": 2, "parentAccountId": 1, "statementDay": 5, "dueDay": 20 }],
+  "categories": [
+    { "id": 1, "name": "Food", "type": "EXPENSE", "parentId": null, "iconKey": "food" },
+    { "id": 2, "name": "Groceries", "type": "EXPENSE", "parentId": 1, "iconKey": null },
+    { "id": 3, "name": "Salary", "type": "INCOME", "parentId": null, "iconKey": null }
+  ],
+  "people": [
+    { "id": 1, "name": "Rafi" },
+    { "id": 2, "name": "Nadia" }
+  ],
+  "transactions": [
+    {
+      "id": 1,
+      "kind": "EXPENSE",
+      "direction": null,
+      "date": 20722,
+      "categoryId": 2,
+      "note": "Dinner",
+      "excludeFromReport": false
+    },
+    {
+      "id": 2,
+      "kind": "INCOME",
+      "direction": null,
+      "date": 20722,
+      "categoryId": 3,
+      "note": null,
+      "excludeFromReport": false
+    },
+    {
+      "id": 3,
+      "kind": "TRANSFER",
+      "direction": null,
+      "date": 20723,
+      "categoryId": null,
+      "note": null,
+      "excludeFromReport": false
+    },
+    {
+      "id": 4,
+      "kind": "LENDING",
+      "direction": "LENT",
+      "date": 20724,
+      "categoryId": null,
+      "note": "Loan",
+      "excludeFromReport": false
+    },
+    {
+      "id": 5,
+      "kind": "REIMBURSEMENT",
+      "direction": null,
+      "date": 20725,
+      "categoryId": null,
+      "note": null,
+      "excludeFromReport": false
+    },
+    {
+      "id": 6,
+      "kind": "WRITE_OFF",
+      "direction": "LENT",
+      "date": 20750,
+      "categoryId": null,
+      "note": "Forgiven",
+      "excludeFromReport": false
+    },
+    {
+      "id": 7,
+      "kind": "EXPENSE",
+      "direction": null,
+      "date": 20751,
+      "categoryId": 1,
+      "note": null,
+      "excludeFromReport": true
+    }
+  ],
+  "legs": [
+    {
+      "transactionId": 1,
+      "accountId": 1,
+      "personId": null,
+      "currencyCode": "BDT",
+      "amountMinor": -1500
+    },
+    {
+      "transactionId": 2,
+      "accountId": 1,
+      "personId": null,
+      "currencyCode": "BDT",
+      "amountMinor": 90000
+    },
+    {
+      "transactionId": 3,
+      "accountId": 1,
+      "personId": null,
+      "currencyCode": "BDT",
+      "amountMinor": -12000
+    },
+    {
+      "transactionId": 3,
+      "accountId": 3,
+      "personId": null,
+      "currencyCode": "USD",
+      "amountMinor": 100
+    },
+    {
+      "transactionId": 4,
+      "accountId": 1,
+      "personId": null,
+      "currencyCode": "BDT",
+      "amountMinor": -5000
+    },
+    {
+      "transactionId": 4,
+      "accountId": null,
+      "personId": 1,
+      "currencyCode": "BDT",
+      "amountMinor": 5000
+    },
+    {
+      "transactionId": 5,
+      "accountId": 1,
+      "personId": null,
+      "currencyCode": "BDT",
+      "amountMinor": 600
+    },
+    {
+      "transactionId": 6,
+      "accountId": null,
+      "personId": 1,
+      "currencyCode": "BDT",
+      "amountMinor": -500
+    },
+    {
+      "transactionId": 7,
+      "accountId": 2,
+      "personId": null,
+      "currencyCode": "BDT",
+      "amountMinor": -2500
+    }
+  ],
+  "lineItems": [
+    { "id": 1, "transactionId": 1, "name": "Rice", "amountMinor": 1000, "quantity": 2 },
+    { "id": 2, "transactionId": 1, "name": "Fish", "amountMinor": 500, "quantity": null }
+  ],
+  "tags": [{ "id": 1, "name": "trip" }],
+  "transactionTags": [
+    { "transactionId": 1, "tagId": 1 },
+    { "transactionId": 3, "tagId": 1 }
+  ],
+  "splitShares": [{ "expenseId": 1, "personId": 1, "amountMinor": 600 }],
+  "reimbursements": [{ "transactionId": 5, "expenseId": 1, "personId": 1 }],
+  "settings": {
+    "favoriteAccountId": 1,
+    "displayRate": { "base": "USD", "quote": "BDT", "rate": 120 }
+  }
+}

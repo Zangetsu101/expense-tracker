@@ -807,3 +807,130 @@ test('split shares, person payments and refunds survive a v1 backup round trip',
   await backupStore.replace(decoded);
   assert.deepEqual(decodeBackup(encodeBackup(await backupStore.snapshot())), decoded);
 });
+
+const v2File = () =>
+  readFileSync(new URL('../../scripts/fixtures/backup-v2.json', import.meta.url), 'utf8');
+function restoreText(text) {
+  return restoreBackup(
+    backupStore,
+    {
+      pickJsonDocument: async () => ({ uri: 'content://synthetic-backup', name: 'saved.json' }),
+      readText: async () => text,
+    },
+    async () => true,
+  );
+}
+/** The rows of each v2 table, in the order and with the fields of a v2 file. */
+const v2Tables = {
+  accounts: 'SELECT id, name, currencyCode, openingBalanceMinor FROM accounts ORDER BY id',
+  creditCards:
+    'SELECT accountId, parentAccountId, statementDay, dueDay FROM credit_cards ORDER BY accountId',
+  categories: 'SELECT id, name, type, parentId, iconKey FROM categories ORDER BY id',
+  people: 'SELECT id, name FROM people ORDER BY id',
+  transactions: `SELECT id, kind, direction, date, categoryId, note,
+    excludeFromReport = 1 AS excludeFromReport FROM transactions ORDER BY id`,
+  legs: `SELECT transactionId, accountId, personId, currencyCode, amountMinor FROM legs
+    ORDER BY transactionId, id`,
+  lineItems: 'SELECT id, transactionId, name, amountMinor, quantity FROM line_items ORDER BY id',
+  tags: 'SELECT id, name FROM tags ORDER BY id',
+  transactionTags:
+    'SELECT transactionId, tagId FROM transaction_tags ORDER BY transactionId, tagId',
+  splitShares:
+    'SELECT expenseId, personId, amountMinor FROM split_shares ORDER BY expenseId, personId',
+  reimbursements:
+    'SELECT transactionId, expenseId, personId FROM reimbursements ORDER BY transactionId',
+};
+function v2State() {
+  return Object.fromEntries(
+    Object.entries(v2Tables).map(([name, query]) => [
+      name,
+      sql
+        .prepare(query)
+        .all()
+        .map((row) =>
+          name === 'transactions'
+            ? { ...row, excludeFromReport: Boolean(row.excludeFromReport) }
+            : { ...row },
+        ),
+    ]),
+  );
+}
+const setting = (key) =>
+  sql.prepare('SELECT value FROM app_settings WHERE key = ?').get(key)?.value;
+
+test('a v2 file restores into the tables as the file has them, and device settings stay', async () => {
+  insert("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('deviceOnly', '\"kept\"')");
+  const file = JSON.parse(v2File());
+  assert.equal(await restoreText(v2File()), true);
+  const { schemaVersion, settings, ...tables } = file;
+  assert.equal(schemaVersion, 2);
+  assert.deepEqual(v2State(), tables);
+  assert.equal(setting('favoriteAccountId'), '1');
+  assert.deepEqual(JSON.parse(setting('displayRate')), settings.displayRate);
+  assert.equal(setting('deviceOnly'), '"kept"');
+  const { listLendingTotals } = await import('./lending.ts');
+  assert.equal((await listLendingTotals(1))[0].outstandingMinor, 4500);
+  assert.deepEqual(
+    { ...sql.prepare('SELECT paidMinor, leftMinor FROM split_share_progress').get() },
+    { paidMinor: 600, leftMinor: 0 },
+  );
+});
+
+test('a v1 export of a restored v2 file restores to the same data', async () => {
+  await restoreText(v2File());
+  const before = state();
+  const v1 = await backupStore.snapshot();
+  assert.equal(v1.schemaVersion, 1);
+  await replaceDocument(decodeBackup(encodeBackup(v1)));
+  assert.deepEqual(state(), before);
+});
+
+test('a v2 restore refuses rows that break the Legs model and changes nothing', async (t) => {
+  await restoreText(v2File());
+  const before = state();
+  const broken = (change) => {
+    const data = JSON.parse(v2File());
+    change(data);
+    return restoreText(JSON.stringify(data));
+  };
+  const transaction = (id) => ({
+    id,
+    kind: 'EXPENSE',
+    direction: null,
+    date: 20800,
+    categoryId: null,
+    note: null,
+    excludeFromReport: false,
+  });
+  const cases = [
+    [(data) => data.transactions.push(transaction(8)), /a Transaction without legs: 8/],
+    [
+      (data) =>
+        data.lineItems.push({
+          id: 9,
+          transactionId: 99,
+          name: 'Lost',
+          amountMinor: 1,
+          quantity: null,
+        }),
+      /Foreign key violations/,
+    ],
+    [
+      (data) => data.transactionTags.push({ transactionId: 2, tagId: 99 }),
+      /Foreign key violations/,
+    ],
+    [(data) => (data.legs[0].accountId = 99), /does not fit its Transaction or Account/],
+    [(data) => (data.legs[0].currencyCode = 'USD'), /does not fit its Transaction or Account/],
+    [(data) => (data.legs[3].amountMinor = -100), /a Transfer with the wrong legs: 3/],
+    [(data) => data.legs.splice(5, 1), /a lending Transaction with the wrong legs: 4/],
+    [(data) => (data.reimbursements[0].personId = 2), /does not fit its expense/],
+    [(data) => (data.transactions[3].categoryId = 1), /CHECK constraint failed/],
+    [(data) => data.tags.push({ id: 2, name: 'TRIP' }), /UNIQUE constraint failed/],
+    [(data) => (data.settings.favoriteAccountId = 99), /favorite Account 99/],
+  ];
+  for (const [index, [change, error]] of cases.entries())
+    await t.test(`case ${index + 1}: ${error}`, async () => {
+      await assert.rejects(broken(change), error);
+      assert.deepEqual(state(), before);
+    });
+});

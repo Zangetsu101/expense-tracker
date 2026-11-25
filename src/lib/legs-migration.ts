@@ -1,9 +1,11 @@
-// The move from the old schema to the legs model (ADR 0013), and the restore of v1 backup
-// rows. Both put the old rows in TEMP tables named legacy_*, clean them with the same SQL,
-// and run the same fill SQL. So the migration, the restore and the backup before the
-// migration share one mapping.
+// The move from the old schema to the legs model (ADR 0013), and the restore of backups.
+// The migration and the restore of v1 rows put the old rows in TEMP tables named legacy_*,
+// clean them with the same SQL, and run the same fill SQL. So the migration, the v1 restore
+// and the backup before the migration share one mapping. A v2 backup has the rows of the
+// legs schema, so its restore inserts them directly (ADR 0014).
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { assertCleanBackup, encodeBackup, type BackupData } from './backup.ts';
+import { assertCleanBackup, encodeBackup, type BackupV1 } from './backup.ts';
+import { backupV2Tables, type BackupV2 } from './backup-v2.ts';
 import { LEGS_SCHEMA_VERSION, legsSchema } from './legs-schema.ts';
 import { readAll } from './read-all.ts';
 
@@ -407,7 +409,7 @@ async function setUpLegacySchema(db: Connection) {
 }
 
 /** A v1 backup of the cleaned legacy_* TEMP tables. */
-async function snapshotLegacyTables(db: Connection): Promise<BackupData> {
+async function snapshotLegacyTables(db: Connection): Promise<BackupV1> {
   const all = <T = Record<string, unknown>>(query: string) => db.getAllAsync<T>(query);
   const bool = (rows: Record<string, unknown>[], fields: string[]) =>
     rows.map((row) => {
@@ -475,14 +477,14 @@ async function snapshotLegacyTables(db: Connection): Promise<BackupData> {
     settings: settings
       ? JSON.parse(settings.value)
       : { favoriteAccountId: favorite?.id ?? null, displayRate: null },
-  } as BackupData;
+  } as BackupV1;
 }
 
 /**
  * A v1 backup of a database with the old schema. It has the same cleaned rows that the
  * migration moves, so the backup cannot fail on rows that the old app left behind.
  */
-export async function legacySnapshot(db: Connection): Promise<BackupData> {
+export async function legacySnapshot(db: Connection): Promise<BackupV1> {
   await copyLegacyTables(db);
   try {
     await cleanLegacyTables(db);
@@ -567,32 +569,46 @@ export async function openLedger(db: MainConnection, saveBackup: (json: string) 
   await db.execAsync(legsSchema);
 }
 
+/**
+ * Deletes all data except device-local settings. This order passes the guards of the
+ * triggers. Deleting a Transaction deletes its Legs, split shares, Line Items and tags.
+ */
+const clearLedger = `DELETE FROM reimbursements; DELETE FROM transactions;
+  DELETE FROM credit_cards; DELETE FROM accounts; DELETE FROM people; DELETE FROM tags;
+  DELETE FROM categories;`;
+
 type SQLiteValue = string | number | null;
 const value = (item: unknown): SQLiteValue =>
   typeof item === 'boolean' ? Number(item) : ((item ?? null) as SQLiteValue);
+
+type Writer = Connection & Pick<SQLiteDatabase, 'runAsync'>;
+
+/** Inserts the rows into the table. A boolean becomes 0 or 1, and a missing field null. */
+async function insertRows(tx: Writer, table: string, columns: string[], rows: readonly object[]) {
+  const statement = `INSERT INTO ${table} (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`;
+  for (const row of rows)
+    await tx.runAsync(
+      statement,
+      columns.map((column) => value((row as Record<string, unknown>)[column])),
+    );
+}
+
+/**
+ * A restore can insert a parent Category after its children. With foreign keys on, SQLite
+ * checks them at the commit. With foreign keys off, checkLedger() checks them.
+ */
+const deferForeignKeys = (tx: Writer) => tx.execAsync('PRAGMA defer_foreign_keys = ON');
 
 /**
  * Replaces all data with the rows of a v1 backup. Call it inside a transaction. Device-local
  * settings stay. The v1 rows go into legacy_* TEMP tables, where the cleaning and the checks
  * run before any live row changes. Then the fill SQL of the migration makes the legs.
  */
-export async function restoreLegacyRows(
-  tx: Connection & Pick<SQLiteDatabase, 'runAsync'>,
-  data: BackupData,
-) {
-  // Parent Categories can come after their children. With foreign keys on, SQLite checks
-  // them at the commit. With foreign keys off, checkLedger() checks them.
-  await tx.execAsync('PRAGMA defer_foreign_keys = ON');
+export async function restoreLegacyRows(tx: Writer, data: BackupV1) {
+  await deferForeignKeys(tx);
   await createLegacyTables(tx);
-  const legacy = async (table: LegacyTable, rows: readonly object[]) => {
-    const columns = columnsOf(table);
-    const statement = `INSERT INTO temp.legacy_${table} (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`;
-    for (const row of rows)
-      await tx.runAsync(
-        statement,
-        columns.map((column) => value((row as Record<string, unknown>)[column])),
-      );
-  };
+  const legacy = (table: LegacyTable, rows: readonly object[]) =>
+    insertRows(tx, `temp.legacy_${table}`, columnsOf(table), rows);
   const withDate = <R extends { dateEpochDay: number }>({ dateEpochDay, ...row }: R) => ({
     ...row,
     date: dateEpochDay,
@@ -612,12 +628,37 @@ export async function restoreLegacyRows(
   await cleanLegacyTables(tx);
   // The cleaned rows must be a valid backup, as a backup that the app writes is.
   assertCleanBackup(await snapshotLegacyTables(tx));
-  // This order passes the guards of the triggers. Deleting a Transaction deletes its legs,
-  // split shares, Line Items and tags.
-  await tx.execAsync(`DELETE FROM reimbursements; DELETE FROM transactions;
-    DELETE FROM credit_cards; DELETE FROM accounts; DELETE FROM people; DELETE FROM tags;
-    DELETE FROM categories;`);
+  await tx.execAsync(clearLedger);
   await tx.execAsync(fillFromLegacy);
   await dropLegacyTables(tx);
+  await checkLedger(tx);
+}
+
+/**
+ * Replaces all data with the rows of a v2 backup (ADR 0014). Call it inside a transaction,
+ * and roll back if it throws. Device-local settings stay. The rows go directly into the
+ * tables. The CHECK constraints and the triggers check each row, and checkLedger() checks
+ * the rules that span rows. So a file with a missing parent row or a wrong set of Legs
+ * changes nothing.
+ */
+export async function restoreLegsRows(tx: Writer, data: BackupV2) {
+  await deferForeignKeys(tx);
+  await tx.execAsync(clearLedger);
+  for (const [name, { table, fields }] of Object.entries(backupV2Tables))
+    await insertRows(tx, table, Object.keys(fields), data[name as keyof typeof backupV2Tables]);
+  const { favoriteAccountId, displayRate } = data.settings;
+  await tx.execAsync("DELETE FROM app_settings WHERE key IN ('favoriteAccountId', 'displayRate')");
+  if (favoriteAccountId !== null) {
+    const favorite = await tx.runAsync(
+      "INSERT INTO app_settings (key, value) SELECT 'favoriteAccountId', json(id) FROM accounts WHERE id = ?",
+      [favoriteAccountId],
+    );
+    if (favorite.changes !== 1)
+      throw new Error(`The favorite Account ${favoriteAccountId} does not exist.`);
+  }
+  if (displayRate)
+    await tx.runAsync("INSERT INTO app_settings (key, value) VALUES ('displayRate', ?)", [
+      JSON.stringify(displayRate),
+    ]);
   await checkLedger(tx);
 }
