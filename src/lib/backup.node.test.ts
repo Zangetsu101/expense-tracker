@@ -9,7 +9,7 @@ const native = readFileSync(
   'utf8',
 );
 
-test('numeric backup encoding and decoding keep cumulative string slicing linear', () => {
+test('numeric backup decoding and the clean check keep cumulative string slicing linear', () => {
   const data = decodeBackup(native);
   data.transactions = Array.from({ length: 256 }, (_, index) => ({
     ...data.transactions[0],

@@ -5,19 +5,22 @@ import { File } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { database, favoriteAccountIdSql } from '@/lib/database';
 import { restoreLegacyRows, restoreLegsRows } from '@/lib/legs-migration';
-import { backupV2Tables, type BackupV2 } from '@/lib/backup-v2';
+import {
+  backupV2TableNames,
+  backupV2Tables,
+  type BackupV2,
+  type BackupV2Table,
+} from '@/lib/backup-v2';
+import { legOrder } from '@/lib/ledger-store';
 import { readAll } from '@/lib/read-all';
 import type { BackupDocuments, BackupStore } from '@/lib/backup';
 
-type TableName = keyof typeof backupV2Tables;
-const tableNames = Object.keys(backupV2Tables) as TableName[];
-
-/** The SQL that reads the rows of a v2 table, with the fields and in the order of a v2 file. */
-function v2Rows(name: TableName) {
+/** The rows of a v2 table in the order of a v2 file. */
+function selectV2Rows(name: BackupV2Table) {
   const { table, uniqueKey, fields } = backupV2Tables[name];
-  // A leg has no unique key. Use the order in which the app reads the Legs (ADR 0014).
-  const order =
-    name === 'legs' ? 'transactionId, personId IS NOT NULL, amountMinor, id' : uniqueKey.join(', ');
+  // A Leg has no unique key, so the Legs of a Transaction come in the order that the app
+  // reads them in (ADR 0014).
+  const order = name === 'legs' ? `transactionId, ${legOrder}` : uniqueKey.join(', ');
   return `SELECT ${Object.keys(fields).join(', ')} FROM ${table} ORDER BY ${order}`;
 }
 
@@ -32,7 +35,9 @@ export const backupStore: BackupStore = {
           "SELECT value FROM app_settings WHERE key = 'displayRate'",
         ),
         tables: readAll(
-          Object.fromEntries(tableNames.map((name) => [name, tx.getAllAsync(v2Rows(name))])),
+          Object.fromEntries(
+            backupV2TableNames.map((name) => [name, tx.getAllAsync(selectV2Rows(name))]),
+          ),
         ),
       });
       const rows = tables as Omit<BackupV2, 'schemaVersion' | 'settings'>;

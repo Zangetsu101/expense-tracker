@@ -100,8 +100,8 @@ export const backupV2Tables = {
     fields: { transactionId: integer, expenseId: integer, personId: orNull(integer) },
   },
 } as const;
-type TableName = keyof typeof backupV2Tables;
-const tableNames = Object.keys(backupV2Tables) as TableName[];
+export type BackupV2Table = keyof typeof backupV2Tables;
+export const backupV2TableNames = Object.keys(backupV2Tables) as BackupV2Table[];
 
 export interface BackupV2 {
   schemaVersion: 2;
@@ -154,7 +154,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
 /** Throws unless the rows have exactly the fields of the table, with valid values. */
-function checkTable(name: TableName, rows: unknown) {
+function checkTable(name: BackupV2Table, rows: unknown) {
   if (!Array.isArray(rows)) throw new Error(`Invalid backup ${name}`);
   const { uniqueKey, fields } = backupV2Tables[name];
   const checks: Record<string, Check> = fields;
@@ -190,7 +190,7 @@ export function readBackupV2(data: Record<string, unknown>): BackupV2 {
   for (const field of Object.keys(data))
     if (field !== 'schemaVersion' && field !== 'settings' && !(field in backupV2Tables))
       throw new Error(`Unknown backup field ${field}`);
-  for (const name of tableNames) checkTable(name, data[name]);
+  for (const name of backupV2TableNames) checkTable(name, data[name]);
   checkSettings(data.settings);
   return data as unknown as BackupV2;
 }

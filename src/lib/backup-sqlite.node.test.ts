@@ -133,7 +133,7 @@ function restoreText(text) {
   );
 }
 const replaceDocument = (data) => restoreText(JSON.stringify(data));
-/** The export, as the file has it. */
+/** The parsed JSON that the export writes. */
 const exported = async () => JSON.parse(encodeBackup(await backupStore.snapshot()));
 const legsOf = (backup, transactionId) =>
   backup.legs.filter((leg) => leg.transactionId === transactionId);
@@ -652,13 +652,13 @@ test('credit-card settings and parent links survive backup; v1 files without car
   assert.deepEqual(restored.creditCards, original.creditCards);
   assert.equal(restored.accounts.find((a) => a.id === cardId).openingBalanceMinor, -1200);
   const before = state();
-  for (const creditCards of [
-    [{ ...original.creditCards[0], parentAccountId: cardId }],
-    [{ ...original.creditCards[0], statementDay: 32 }],
-    [{ ...original.creditCards[0], accountId: 99999 }],
-    [original.creditCards[0], original.creditCards[0]],
+  for (const [creditCards, error] of [
+    [[{ ...original.creditCards[0], parentAccountId: cardId }], /accountId != parentAccountId/],
+    [[{ ...original.creditCards[0], statementDay: 32 }], /statementDay BETWEEN 1 AND 31/],
+    [[{ ...original.creditCards[0], accountId: 99999 }], /"table":"credit_cards"/],
+    [[original.creditCards[0], original.creditCards[0]], /Duplicate backup creditCards row 2/],
   ]) {
-    await assert.rejects(replaceDocument({ ...original, creditCards }));
+    await assert.rejects(replaceDocument({ ...original, creditCards }), error);
     assert.deepEqual(state(), before);
   }
   const v1 = fixture();
@@ -701,7 +701,7 @@ test('received amounts and a cross-Currency card parent survive JSON backup and 
   delete data.transactions[0].receivedAmountMinor;
   await replaceDocument(data);
   assert.equal((await accountBalances(99999)).find((a) => a.id === 2).balanceMinor, 1200000);
-  // An old file has no received amount, so the destination leg gets the amount sent.
+  // An old file has no received amount, so the destination Leg gets the amount sent.
   assert.deepEqual(
     legsOf(await exported(), 1).map((leg) => leg.amountMinor),
     [-1220000, 1220000],

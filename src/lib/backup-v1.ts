@@ -139,7 +139,7 @@ export function readBackupV1(data: Record<string, unknown>): BackupV1 {
   return readV1(data, 'repair');
 }
 
-/** Throws if the rows are not a valid backup that the app could write. */
+/** Throws if the rows are not a clean v1 backup, with no references to missing rows. */
 export function assertCleanBackup(data: BackupV1): void {
   readV1(JSON.parse(JSON.stringify(data)), 'strict');
 }
