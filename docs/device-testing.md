@@ -3,14 +3,14 @@
 ## Temporary Maestro flows in Expo Go (Android)
 
 Use temporary Maestro flows in `.scratch/` to verify functionality in Expo Go.
-Read `AGENTS.local.md` for this machine's SDK, emulator, and Maestro setup.
+Read `AGENTS.local.md` to choose a device and find the local tools.
 If a feature is unavailable in Expo Go, notify the user that it was not tested.
 
-Start with a running Android emulator, compatible Expo Go, and Metro running from
+Start with a connected Android phone or a running emulator, compatible Expo Go, and Metro running from
 this checkout (`pnpm start --go --lan`). Keep Metro running until testing finishes;
 the first bundle can take a minute.
 
-1. Select the emulator's serial from `adb devices` and forward Metro so Expo Go
+1. Select the device's serial from `adb devices` and forward Metro so Expo Go
    can reach it at the loopback URL below. Maestro uses the adb connection directly.
 
    ```bash
