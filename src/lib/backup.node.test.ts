@@ -174,7 +174,7 @@ test('a file can name a missing person, but the strict check refuses it', () => 
     dateEpochDay: 20000,
     note: null,
   };
-  // The restore names the missing person and stops (legs-migration.ts).
+  // The restore names the missing person and stops (backup-v1-restore.ts).
   const decoded = decodeBackup(JSON.stringify({ ...data, lendingEntries: [entry] }));
   assert.throws(() => assertCleanBackup(decoded), /lending metadata/);
 });

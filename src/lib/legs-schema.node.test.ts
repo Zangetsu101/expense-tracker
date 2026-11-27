@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
-import { legsSchema } from './legs-schema.ts';
+import { LEGS_SCHEMA_VERSION, legsSchema, openLedger } from './legs-schema.ts';
 
 function fixture(foreignKeys: boolean) {
   const sql = new DatabaseSync(':memory:');
@@ -170,3 +170,20 @@ for (const foreignKeys of [true, false]) {
       assert.equal(count(sql, `SELECT COUNT(*) FROM ${table}`), 0, table);
   });
 }
+
+test('a new install gets the legs schema, and a later start keeps the data', async () => {
+  const sql = new DatabaseSync(':memory:');
+  const db = {
+    execAsync: async (query: string) => sql.exec(query),
+    getFirstAsync: async (query: string) => ({ ...sql.prepare(query).get() }),
+    isInTransactionSync: () => sql.isTransaction,
+  } as never;
+  const value = (query: string) => Object.values(sql.prepare(query).get()!)[0];
+  await openLedger(db);
+  assert.equal(value('PRAGMA user_version'), LEGS_SCHEMA_VERSION);
+  assert.equal(value('PRAGMA foreign_keys'), 1);
+  assert.equal(value("SELECT COUNT(*) FROM sqlite_master WHERE name = 'legs'"), 1);
+  sql.exec("INSERT INTO accounts (id, name, currencyCode) VALUES (1, 'Cash', 'BDT')");
+  await openLedger(db);
+  assert.equal(value('SELECT COUNT(*) FROM accounts'), 1);
+});

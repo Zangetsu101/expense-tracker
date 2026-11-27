@@ -1,5 +1,7 @@
-// The SQLite schema of the legs model (ADR 0013). A new install runs it, the migration
-// runs it, and every later start runs it again. Tables and triggers use IF NOT EXISTS.
+import type { SQLiteDatabase } from 'expo-sqlite';
+
+// The SQLite schema of the legs model (ADR 0013). A new install runs it, and every later
+// start runs it again. Tables and triggers use IF NOT EXISTS.
 // Views are dropped and created again, so that a change to a view reaches old installs.
 //
 // A Transaction has one or more legs. Each leg moves a signed amount on one Account
@@ -19,7 +21,7 @@
 //   LENT      Account < 0: LEND     Account > 0: RECEIVE_REPAYMENT   no Account: WRITE_OFF_LENT
 //   BORROWED  Account > 0: BORROW   Account < 0: REPAY               no Account: WRITE_OFF_BORROWED
 
-/** PRAGMA user_version of a database with this schema. Version 0 is the old schema. */
+/** PRAGMA user_version of a database with this schema. Version 0 is a new database. */
 export const LEGS_SCHEMA_VERSION = 1;
 
 export const legsSchema = `
@@ -220,8 +222,7 @@ CREATE TRIGGER IF NOT EXISTS reimbursement_fits BEFORE INSERT ON reimbursements
   BEGIN SELECT RAISE(ABORT, 'This reimbursement does not fit its expense.'); END;
 
 -- Spending and income for reports. A reimbursement takes the Category of its Expense
--- and lowers spending in the month of its own date (ADR 0011). The columns are the same
--- as before the migration.
+-- and lowers spending in the month of its own date (ADR 0011).
 DROP VIEW IF EXISTS report_transactions;
 CREATE VIEW report_transactions AS
   SELECT t.id, l.accountId, t.date,
@@ -244,3 +245,26 @@ CREATE VIEW split_share_progress AS
     WHERE r.expenseId = s.expenseId AND r.personId = s.personId
   ), 0) AS paidMinor FROM split_shares s);
 `;
+
+type MainConnection = Pick<SQLiteDatabase, 'execAsync' | 'getFirstAsync' | 'isInTransactionSync'>;
+
+/**
+ * Prepares the main connection. A new install gets the legs schema. Every start runs the
+ * schema again, so that a changed trigger or view reaches the database.
+ */
+export async function openLedger(db: MainConnection) {
+  await db.execAsync('PRAGMA foreign_keys = ON');
+  const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
+  if (version!.user_version < LEGS_SCHEMA_VERSION) {
+    await db.execAsync('BEGIN EXCLUSIVE');
+    try {
+      await db.execAsync(legsSchema);
+      await db.execAsync(`PRAGMA user_version = ${LEGS_SCHEMA_VERSION}`);
+      await db.execAsync('COMMIT');
+    } catch (error) {
+      if (db.isInTransactionSync()) await db.execAsync('ROLLBACK');
+      throw error;
+    }
+  }
+  await db.execAsync(legsSchema);
+}

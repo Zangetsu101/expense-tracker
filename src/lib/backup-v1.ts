@@ -1,7 +1,7 @@
 // Backup schema v1: the format of the native Android app (BackupModels.kt) and of this app
-// before the legs model. Only a restore reads it, and only the backup before the migration
-// writes it (ADR 0014). Long values are JSON numbers, and JavaScript cannot keep integers
-// outside Number.MAX_SAFE_INTEGER.
+// before the legs model. Only a restore reads it, and the app does not write it (ADR 0014).
+// Long values are JSON numbers, and JavaScript cannot keep integers outside
+// Number.MAX_SAFE_INTEGER.
 
 export interface BackupV1 {
   schemaVersion: 1;
@@ -129,8 +129,7 @@ function assertSafeLongs(value: unknown): void {
  *   backup can keep rows of a deleted Transaction. The restore cleans them, as the old
  *   foreign key actions would have done. The restore also names each missing Account or
  *   person that a Leg or a split share needs, and stops.
- * - `strict`: refuse it. Use this mode for a backup that the app writes, and for the rows
- *   that a restore has cleaned.
+ * - `strict`: refuse it. Use this mode for the rows that a restore has cleaned.
  */
 type References = 'repair' | 'strict';
 

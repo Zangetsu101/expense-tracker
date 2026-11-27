@@ -1,5 +1,5 @@
 // Node test helpers that write Transactions to the legs schema from the row shape of the
-// screens: a type, an amount and the Accounts. They use the same mapping as the migration.
+// screens: a type, an amount and the Accounts. They use the same mapping as the v1 restore.
 import type { DatabaseSync } from 'node:sqlite';
 
 type LendingKind = 'LEND' | 'BORROW' | 'RECEIVE_REPAYMENT' | 'REPAY';

@@ -4,7 +4,8 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { File } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { database, favoriteAccountIdSql } from '@/lib/database';
-import { restoreLegacyRows, restoreLegsRows } from '@/lib/legs-migration';
+import { restoreLegsRows } from '@/lib/backup-restore';
+import { restoreLegacyRows } from '@/lib/backup-v1-restore';
 import {
   backupV2TableNames,
   backupV2Tables,

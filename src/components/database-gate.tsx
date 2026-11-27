@@ -7,8 +7,7 @@ import { theme } from '@/theme';
 const c = theme.colors;
 
 /**
- * Shows the app only after database() is ready. The first start after an update can
- * migrate the data (ADR 0013). If that fails, the migration rolls back and the screens stay
+ * Shows the app only after database() is ready. If the open fails, the screens stay
  * closed, so no screen and no scheduled backup tries again on its own.
  */
 export function DatabaseGate({ children }: { children: ReactNode }) {
