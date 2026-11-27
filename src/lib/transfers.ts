@@ -59,8 +59,8 @@ async function transferAccounts(tx: Pick<SQLiteDatabase, 'getAllAsync'>, input: 
   return accounts;
 }
 
-function receivedAmount(crossCurrency: boolean, input: TransferInput) {
-  if (!crossCurrency) return null;
+function receivedAmount(firstCurrency: string, secondCurrency: string, input: TransferInput) {
+  if (firstCurrency === secondCurrency) return null;
   if (!Number.isSafeInteger(input.receivedAmountMinor) || (input.receivedAmountMinor ?? 0) <= 0)
     throw new Error('Enter a positive amount received.');
   return input.receivedAmountMinor!;
@@ -77,7 +77,7 @@ export async function addTransfer(input: TransferInput & { date?: Date; tagText?
   let accountIds: number[] = [];
   await db.withExclusiveTransactionAsync(async (tx) => {
     const [first, second] = await transferAccounts(tx, input);
-    const received = receivedAmount(first.currencyCode !== second.currencyCode, input);
+    const received = receivedAmount(first.currencyCode, second.currencyCode, input);
     id = await insertTransaction(tx, {
       kind: 'TRANSFER',
       date: epochDay(date),
@@ -126,7 +126,7 @@ export async function saveTransferEdit(
     )
       throw new Error('Transaction was changed or removed. Reload before saving.');
     const [first, second] = await transferAccounts(tx, input);
-    const received = receivedAmount(first.currencyCode !== second.currencyCode, input);
+    const received = receivedAmount(first.currencyCode, second.currencyCode, input);
     await updateTransaction(tx, {
       id: original.id,
       kind: 'TRANSFER',

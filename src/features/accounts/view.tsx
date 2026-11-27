@@ -1,5 +1,6 @@
 import { Link } from 'expo-router';
-import { investmentReturnTotals } from '@/lib/investments';
+import type { DisplayRate } from '@/lib/display-rate';
+import { investmentReturnTotals, type InvestmentBalance } from '@/lib/investments';
 import type { ReactNode } from 'react';
 import { Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -260,6 +261,57 @@ export function AccountGroups({
   ));
 }
 
+function InvestmentRow({
+  account,
+  balance,
+  metrics,
+  rate,
+}: {
+  account: ManagedAccount;
+  balance: number;
+  metrics?: InvestmentBalance;
+  rate: DisplayRate | null;
+}) {
+  const currency = account.currencyCode;
+  const returns = metrics
+    ? investmentReturnTotals(metrics, rate)
+        .map((row) => formatBalance(row.amountMinor, row.currencyCode))
+        .join(' · ')
+    : '';
+  return (
+    <AccountRow>
+      <Link
+        href={{
+          pathname: '/accounts/investment',
+          params: { accountId: String(account.id) },
+        }}
+        asChild
+      >
+        <Pressable accessibilityRole="link" style={{ flex: 1, paddingVertical: 8, gap: 4 }}>
+          <View
+            style={{
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: 8,
+            }}
+          >
+            <Text style={{ color: colors.ink, fontSize: 16, fontWeight: '600' }}>
+              {account.name}
+            </Text>
+            <Text style={{ color: colors.accent }}>{formatBalance(balance, currency)}</Text>
+          </View>
+          {metrics && (
+            <Text style={{ color: colors.muted }}>
+              {`Invested ${formatBalance(metrics.investedMinor, currency)} · Return ${returns}`}
+            </Text>
+          )}
+        </Pressable>
+      </Link>
+    </AccountRow>
+  );
+}
+
 export function InvestmentGroup({ overview }: { overview: AccountsOverview }) {
   if (!overview.investments.length) return null;
   return (
@@ -268,46 +320,14 @@ export function InvestmentGroup({ overview }: { overview: AccountsOverview }) {
       {overview.accounts
         .filter((account) => account.isInvestment)
         .map((account) => {
-          const metrics = overview.investments.find((item) => item.id === account.id);
-          const currency = account.currencyCode;
-          const returns = metrics
-            ? investmentReturnTotals(metrics, overview.rate)
-                .map((row) => formatBalance(row.amountMinor, row.currencyCode))
-                .join(' · ')
-            : '';
           return (
-            <AccountRow key={account.id}>
-              <Link
-                href={{
-                  pathname: '/accounts/investment',
-                  params: { accountId: String(account.id) },
-                }}
-                asChild
-              >
-                <Pressable accessibilityRole="link" style={{ flex: 1, paddingVertical: 8, gap: 4 }}>
-                  <View
-                    style={{
-                      flexDirection: 'row',
-                      justifyContent: 'space-between',
-                      flexWrap: 'wrap',
-                      gap: 8,
-                    }}
-                  >
-                    <Text style={{ color: colors.ink, fontSize: 16, fontWeight: '600' }}>
-                      {account.name}
-                    </Text>
-                    <Text style={{ color: colors.accent }}>
-                      {formatBalance(overview.balances.get(account.id) ?? 0, currency)}
-                    </Text>
-                  </View>
-                  {metrics && (
-                    <Text style={{ color: colors.muted }}>
-                      {`Invested ${formatBalance(metrics.investedMinor, currency)} · Return ${returns}`}
-                    </Text>
-                  )}
-                </Pressable>
-              </Link>
-            </AccountRow>
+            <InvestmentRow
+              key={account.id}
+              account={account}
+              balance={overview.balances.get(account.id) ?? 0}
+              metrics={overview.investments.find((item) => item.id === account.id)}
+              rate={overview.rate}
+            />
           );
         })}
     </View>

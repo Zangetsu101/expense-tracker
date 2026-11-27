@@ -82,6 +82,16 @@ export function convertTo(
   rate: DisplayRate | null,
   target: string,
 ): number | null {
+  const total = convertToUnrounded(rows, rate, target);
+  return total === null ? null : Math.round(total);
+}
+
+/** The converted sum before rounding to a whole minor unit. */
+export function convertToUnrounded(
+  rows: { currencyCode: string; amountMinor: number }[],
+  rate: DisplayRate | null,
+  target: string,
+): number | null {
   let total = 0;
   for (const row of rows) {
     if (row.currencyCode === target) total += row.amountMinor;
@@ -91,7 +101,7 @@ export function convertTo(
       total += row.amountMinor / rate.rate;
     else return null;
   }
-  return Math.round(total);
+  return total;
 }
 
 /**

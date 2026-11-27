@@ -51,16 +51,6 @@ export async function addQuickTransaction(input: QuickAddInput, tagText: string)
       )
         throw new Error('Choose a person from the expense split.');
     }
-    if (input.investmentAccountId !== undefined) {
-      const liquid = await tx.getFirstAsync(
-        `SELECT 1 FROM accounts WHERE id = ?
-          AND id NOT IN (SELECT accountId FROM investments)
-          AND id NOT IN (SELECT accountId FROM credit_cards)`,
-        [input.accountId],
-      );
-      if (!liquid || input.type !== 'INCOME' || input.reimbursement)
-        throw new Error('A Dividend needs Income on a liquid destination Account.');
-    }
     const common = { date, note: input.note, accountId: input.accountId };
     id = await insertTransaction(
       tx,

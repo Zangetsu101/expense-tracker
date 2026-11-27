@@ -1,5 +1,5 @@
 import { use, useState, useTransition } from 'react';
-import { useQuery, useSuspenseQuery } from '@tanstack/react-query';
+import { useSuspenseQueries, useSuspenseQuery } from '@tanstack/react-query';
 import { Link, router, Stack, useLocalSearchParams } from 'expo-router';
 import { FlatList, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -10,10 +10,15 @@ import { QuickAddDate } from '@/components/quick-add-date';
 import { parseRouteId } from '@/lib/account-selection';
 import { parseOpeningBalance } from '@/lib/accounts';
 import { epochDay } from '@/lib/database';
-import { investmentHistory, investmentReturnTotals, recordValuation } from '@/lib/investments';
+import {
+  investmentHistory,
+  investmentReturnTotals,
+  recordValuation,
+  type InvestmentHistoryRow,
+} from '@/lib/investments';
 import { QueryTimeContext } from '@/lib/query-time';
 import { accountBalances } from '@/lib/reports';
-import { formatBalance, formatEpochDay, formatMoney } from '@/lib/transaction-format';
+import { formatBalance, formatEpochDay, formatSignedMoney } from '@/lib/transaction-format';
 import { theme } from '@/theme';
 import { accountsOverviewQuery } from './queries';
 import { useAccountSheet } from './account-editor';
@@ -21,10 +26,6 @@ import { WriteError } from './view';
 
 const c = theme.colors;
 const historyLabels = { VALUATION: 'Valuation', INCOME: 'Dividend', TRANSFER: 'Transfer' };
-
-function signed(minor: number, currency: string) {
-  return formatMoney(minor < 0 ? 'EXPENSE' : 'INCOME', Math.abs(minor), currency);
-}
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
@@ -37,16 +38,52 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
+function ValuationActions({
+  accountId,
+  day,
+  target,
+  currency,
+  pending,
+  onSave,
+}: {
+  accountId: number;
+  day: number;
+  target: number | undefined;
+  currency: string;
+  pending: boolean;
+  onSave: () => void;
+}) {
+  const { data, error, isFetching, refetch } = useSuspenseQuery({
+    queryKey: ['accounts', 'balances', day],
+    queryFn: () => accountBalances(day),
+  });
+  const balance = data.find(({ id }) => id === accountId)?.balanceMinor;
+  const delta = target !== undefined && balance !== undefined ? target - balance : undefined;
+  if (error && !isFetching)
+    return <FormButton label="Retry balance" variant="secondary" onPress={() => void refetch()} />;
+  return (
+    <>
+      {delta !== undefined && (
+        <Metric label="Value change" value={formatSignedMoney(delta, currency)} />
+      )}
+      <FormButton
+        label="Save value"
+        loading={pending}
+        disabled={!delta || isFetching}
+        onPress={onSave}
+      />
+    </>
+  );
+}
+
 function ValuationSheet({
   accountId,
   currency,
-  today,
   balance,
   onClose,
 }: {
   accountId: number;
   currency: string;
-  today: number;
   balance: number;
   onClose: () => void;
 }) {
@@ -57,13 +94,6 @@ function ValuationSheet({
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const day = epochDay(date);
-  const previous = useQuery({
-    queryKey: ['accounts', 'balances', day],
-    queryFn: () => accountBalances(day),
-    enabled: day !== today,
-  });
-  const asOf =
-    day === today ? balance : previous.data?.find(({ id }) => id === accountId)?.balanceMinor;
   let target: number | undefined;
   let amountError: string | undefined;
   if (text.trim()) {
@@ -75,7 +105,6 @@ function ValuationSheet({
       amountError = String(cause);
     }
   }
-  const delta = target !== undefined && asOf !== undefined ? target - asOf : undefined;
 
   function save() {
     if (pending || target === undefined) return;
@@ -111,35 +140,65 @@ function ValuationSheet({
           editable={!pending}
         />
         <QuickAddDate value={date} onChange={setDate} disabled={pending} />
-        {delta !== undefined && <Metric label="Value change" value={signed(delta, currency)} />}
-        {previous.isError && day !== today && (
-          <FormButton
-            label="Retry balance"
-            variant="secondary"
-            onPress={() => void previous.refetch()}
-          />
-        )}
         {amountError && <WriteError message={amountError} />}
         {error && <WriteError message={error} />}
-        <FormButton label="Save value" loading={pending} disabled={!delta} onPress={save} />
+        <QueryBoundary
+          resetKey={String(day)}
+          pending={<Text style={{ color: c.muted }}>Loading balance…</Text>}
+          error={(retry) => (
+            <FormButton label="Retry balance" variant="secondary" onPress={retry} />
+          )}
+        >
+          <ValuationActions
+            accountId={accountId}
+            day={day}
+            target={target}
+            currency={currency}
+            pending={pending}
+            onSave={save}
+          />
+        </QueryBoundary>
         <FormButton label="Cancel" variant="secondary" disabled={pending} onPress={onClose} />
       </ScrollView>
     </AppSheet>
   );
 }
 
+function HistoryRow({ row }: { row: InvestmentHistoryRow }) {
+  return (
+    <Link href={{ pathname: '/transaction/[id]', params: { id: String(row.id) } }} asChild>
+      <Pressable
+        accessibilityRole="link"
+        style={{ padding: 14, backgroundColor: c.surface, borderRadius: 12, gap: 6 }}
+      >
+        <Metric
+          label={historyLabels[row.kind]}
+          value={formatSignedMoney(row.amountMinor, row.currencyCode)}
+        />
+        <Text style={{ color: c.muted, fontSize: 12 }}>
+          {row.otherAccount ? `${row.otherAccount} · ` : ''}
+          {formatEpochDay(row.date)}
+        </Text>
+      </Pressable>
+    </Link>
+  );
+}
+
 function InvestmentDetail({ id, today }: { id: number; today: number }) {
-  const { data: overview } = useSuspenseQuery(accountsOverviewQuery(today));
+  const [{ data: overview }, history] = useSuspenseQueries({
+    queries: [
+      accountsOverviewQuery(today),
+      {
+        queryKey: ['accounts', 'investment', id, 'history'],
+        queryFn: () => investmentHistory(id),
+      },
+    ],
+  });
   const account = overview.accounts.find((item) => item.id === id && item.isInvestment);
   const metrics = overview.investments.find((item) => item.id === id);
   const accountSheet = useAccountSheet(overview.accounts);
   const [updating, setUpdating] = useState(false);
   const insets = useSafeAreaInsets();
-  const history = useQuery({
-    queryKey: ['accounts', 'investment', id, 'history'],
-    queryFn: () => investmentHistory(id),
-    enabled: !!account,
-  });
   if (!account || !metrics)
     return <Text style={{ color: c.muted, padding: 20 }}>Investment not found.</Text>;
   const currency = account.currencyCode;
@@ -169,7 +228,7 @@ function InvestmentDetail({ id, today }: { id: number; today: number }) {
       <FlatList
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 24, gap: 8 }}
-        data={history.data ?? []}
+        data={history.data}
         keyExtractor={(row) => String(row.id)}
         ListHeaderComponent={
           <View style={{ gap: 16, paddingBottom: 8 }}>
@@ -196,6 +255,7 @@ function InvestmentDetail({ id, today }: { id: number; today: number }) {
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
               <FormButton
                 label="Dividend"
+                disabled={!defaultCash}
                 variant="secondary"
                 onPress={() =>
                   router.push({
@@ -224,8 +284,11 @@ function InvestmentDetail({ id, today }: { id: number; today: number }) {
                 }
               />
             </View>
+            {!defaultCash && (
+              <Text style={{ color: c.muted }}>Add a liquid Account to receive dividends.</Text>
+            )}
             <Text style={{ color: c.text, fontWeight: '700', fontSize: 18 }}>History</Text>
-            {history.isError && (
+            {history.isError && !history.isFetching && (
               <FormButton
                 label="Retry history"
                 variant="secondary"
@@ -234,37 +297,14 @@ function InvestmentDetail({ id, today }: { id: number; today: number }) {
             )}
           </View>
         }
-        ListEmptyComponent={
-          history.isError ? undefined : (
-            <Text style={{ color: c.muted }}>
-              {history.isPending ? 'Loading history…' : 'No activity yet.'}
-            </Text>
-          )
-        }
-        renderItem={({ item }) => (
-          <Link href={{ pathname: '/transaction/[id]', params: { id: String(item.id) } }} asChild>
-            <Pressable
-              accessibilityRole="link"
-              style={{ padding: 14, backgroundColor: c.surface, borderRadius: 12, gap: 6 }}
-            >
-              <Metric
-                label={historyLabels[item.kind]}
-                value={signed(item.amountMinor, item.currencyCode)}
-              />
-              <Text style={{ color: c.muted, fontSize: 12 }}>
-                {item.otherAccount ? `${item.otherAccount} · ` : ''}
-                {formatEpochDay(item.date)}
-              </Text>
-            </Pressable>
-          </Link>
-        )}
+        ListEmptyComponent={<Text style={{ color: c.muted }}>No activity yet.</Text>}
+        renderItem={({ item }) => <HistoryRow row={item} />}
       />
       {accountSheet.sheet}
       {updating && (
         <ValuationSheet
           accountId={id}
           currency={currency}
-          today={today}
           balance={balance}
           onClose={() => setUpdating(false)}
         />

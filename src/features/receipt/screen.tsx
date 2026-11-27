@@ -20,7 +20,7 @@ import { WriteOffForm } from '@/features/lending/write-off-form';
 import { writeWithOverpaidCreditCheck } from '@/features/lending/view';
 import { parseOpeningBalance } from '@/lib/accounts';
 import { saveValuationEdit } from '@/lib/investments';
-import { formatEpochDay, formatMoney } from '@/lib/transaction-format';
+import { formatEpochDay, formatSignedMoney } from '@/lib/transaction-format';
 import { FormButton, FormInput } from '@/components/form-controls';
 import { deleteTransaction } from '@/lib/transaction-delete';
 import { saveTransferEdit, type EditableTransfer } from '@/lib/transfers';
@@ -385,11 +385,7 @@ function ReceiptView({
       <TransactionReceipt>
         <Text style={{ color: theme.colors.muted }}>Valuation · {receipt.accountName}</Text>
         <Text selectable style={{ color: theme.colors.accent, fontSize: 30, fontWeight: '700' }}>
-          {formatMoney(
-            receipt.amountMinor < 0 ? 'EXPENSE' : 'INCOME',
-            Math.abs(receipt.amountMinor),
-            receipt.currencyCode,
-          )}
+          {formatSignedMoney(receipt.amountMinor, receipt.currencyCode)}
         </Text>
         <Text style={{ color: theme.colors.muted }}>{formatEpochDay(receipt.date)}</Text>
       </TransactionReceipt>
@@ -422,32 +418,29 @@ function ValuationEditor({
 }) {
   const initial = (valuation.amountMinor / 100).toFixed(2);
   const [amount, setAmount] = useState(initial);
-  const [pending, setPending] = useState(false);
+  const [pending, startSave] = useTransition();
   const [committed, setCommitted] = useState(false);
   const [error, setError] = useState<string>();
-  const saving = useRef(false);
 
-  async function save() {
-    if (saving.current) return;
-    saving.current = true;
-    setPending(true);
+  function save() {
+    if (pending) return;
     setError(undefined);
     onSavingChange(true);
-    let didCommit = committed;
-    try {
-      if (!didCommit) {
-        await saveValuationEdit(valuation.id, valuation.amountMinor, parseOpeningBalance(amount));
-        didCommit = true;
-        setCommitted(true);
+    startSave(async () => {
+      let didCommit = committed;
+      try {
+        if (!didCommit) {
+          await saveValuationEdit(valuation.id, valuation.amountMinor, parseOpeningBalance(amount));
+          didCommit = true;
+          setCommitted(true);
+        }
+        await onSaved();
+      } catch (cause) {
+        setError(didCommit ? 'Could not refresh the receipt.' : String(cause));
+      } finally {
+        onSavingChange(false);
       }
-      await onSaved();
-    } catch (cause) {
-      setError(didCommit ? 'Could not refresh the receipt.' : String(cause));
-    } finally {
-      saving.current = false;
-      setPending(false);
-      onSavingChange(false);
-    }
+    });
   }
 
   return (
@@ -476,7 +469,7 @@ function ValuationEditor({
         label={committed ? 'Retry receipt' : 'Save Valuation'}
         loading={pending}
         disabled={disabled || (!committed && amount === initial)}
-        onPress={() => void save()}
+        onPress={save}
       />
       <FormButton
         label="Delete Valuation"

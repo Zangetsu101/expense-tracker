@@ -10,8 +10,6 @@ import { readAll } from '@/lib/read-all';
 import type { Backup, BackupV1, BackupDocuments, BackupStore } from '@/lib/backup';
 import { backupV3Tables, type BackupV3 } from './backup-v2.ts';
 
-// Export uses v1 when the ledger has no Investments. It derives the v1 rows from the Legs.
-//
 // A v1 lending entry needs an id. Each entry uses the id of its Transaction, so the ids
 // stay the same from one export to the next. A restore gives each Write-off a new
 // Transaction id after the highest id of the other Transactions.
@@ -28,22 +26,24 @@ export const backupStore: BackupStore = {
     await db.withExclusiveTransactionAsync(async (tx) => {
       const all = <T>(query: string) => tx.getAllAsync<T>(query);
       if (await tx.getFirstAsync('SELECT 1 FROM investments LIMIT 1')) {
-        const tables = await Promise.all(
-          Object.entries(backupV3Tables).map(async ([name, { table, fields, uniqueKey }]) => {
-            const order = uniqueKey.length
-              ? uniqueKey.join(', ')
-              : 'transactionId, personId IS NOT NULL, amountMinor, id';
-            const rows = await all<Record<string, unknown>>(
-              `SELECT ${Object.keys(fields).join(', ')} FROM ${table} ORDER BY ${order}`,
-            );
-            if (name === 'transactions')
-              for (const row of rows) row.excludeFromReport = Boolean(row.excludeFromReport);
-            return [name, rows] as const;
-          }),
-        );
-        const settings = await all<{ key: string; value: string }>(
-          "SELECT key, value FROM app_settings WHERE key IN ('favoriteAccountId', 'displayRate')",
-        );
+        const [tables, settings] = await Promise.all([
+          Promise.all(
+            Object.entries(backupV3Tables).map(async ([name, { table, fields, uniqueKey }]) => {
+              const order = uniqueKey.length
+                ? uniqueKey.join(', ')
+                : 'transactionId, personId IS NOT NULL, amountMinor, id';
+              const rows = await all<Record<string, unknown>>(
+                `SELECT ${Object.keys(fields).join(', ')} FROM ${table} ORDER BY ${order}`,
+              );
+              if (name === 'transactions')
+                for (const row of rows) row.excludeFromReport = Boolean(row.excludeFromReport);
+              return [name, rows] as const;
+            }),
+          ),
+          all<{ key: string; value: string }>(
+            "SELECT key, value FROM app_settings WHERE key IN ('favoriteAccountId', 'displayRate')",
+          ),
+        ]);
         snapshot = {
           ...Object.fromEntries(tables),
           schemaVersion: 3,

@@ -685,12 +685,15 @@ test('a cross-Currency dividend uses one amount and saves Income in the liquid A
       ...accounts,
       { id: 3, name: 'Fund', currencyCode: 'EUR', isFavorite: 0, isInvestment: 1 },
     ]);
-  jest.mocked(lastDividendCategory).mockResolvedValue({ categoryId: salary.id });
+  const lastCategory = Promise.withResolvers<{ categoryId: number }>();
+  jest.mocked(lastDividendCategory).mockReturnValue(lastCategory.promise);
   const { amount, mode, press } = await open();
   expect(await screen.findByRole('radio', { name: 'Capital withdrawal' })).toBeChecked();
   await mode('Dividend payout');
-  expect(await screen.findByRole('button', { name: 'Salary', selected: true })).toBeOnTheScreen();
   await amount(['5']);
+  expect(button('Save dividend')).toBeDisabled();
+  await act(async () => lastCategory.resolve({ categoryId: salary.id }));
+  expect(await screen.findByRole('button', { name: 'Salary', selected: true })).toBeOnTheScreen();
   await press('Save dividend');
   expect(addQuickTransaction).toHaveBeenCalledWith(
     expect.objectContaining({

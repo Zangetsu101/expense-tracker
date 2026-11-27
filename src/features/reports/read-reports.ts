@@ -41,15 +41,23 @@ export async function netWorthData(
   today: number,
 ): Promise<NetWorthInput> {
   const db = await database();
-  const [accounts, changes, lending, rate] = await Promise.all([
-    db.getAllAsync<NetWorthInput['accounts'][number] & { isFavorite: number }>(
+  const accountsRead = db
+    .getAllAsync<NetWorthInput['accounts'][number] & { isFavorite: number }>(
       `SELECT a.id, a.name, a.currencyCode, a.openingBalanceMinor, ${isFavoriteSql('a')} AS isFavorite,
       CASE WHEN EXISTS (SELECT 1 FROM investments WHERE accountId = a.id) THEN 'investment'
         WHEN EXISTS (SELECT 1 FROM credit_cards WHERE accountId = a.id) THEN 'card'
         ELSE 'liquid' END AS kind
       FROM accounts a ${accountId === null ? '' : 'WHERE a.id = ?'} ORDER BY a.name, a.id`,
       accountId === null ? [] : [accountId],
-    ),
+    )
+    .then(async (accounts) => ({
+      accounts,
+      investments: accounts.some(({ kind }) => kind === 'investment')
+        ? await investmentBalances(today)
+        : [],
+    }));
+  const [{ accounts, investments }, changes, lending, rate] = await Promise.all([
+    accountsRead,
     db.getAllAsync<NetWorthInput['changes'][number]>(
       `SELECT l.accountId,
       CAST(strftime('%Y', t.date * 86400, 'unixepoch') AS INTEGER) * 12
@@ -69,9 +77,6 @@ export async function netWorthData(
     getDisplayRate(),
   ]);
   const favorite = accounts.find((account) => account.isFavorite) ?? accounts[0];
-  const investments = accounts.some(({ kind }) => kind === 'investment')
-    ? await investmentBalances(today)
-    : [];
   return {
     accounts: accounts.map(({ isFavorite: _, ...account }) => ({
       ...account,

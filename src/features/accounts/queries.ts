@@ -6,17 +6,20 @@ import { investmentBalances } from '@/lib/investments';
 import { accountBalances } from '@/lib/reports';
 
 async function readAccountsOverview(today: number) {
-  const [accounts, totals, bills] = await Promise.all([
-    listManagedAccounts(),
+  const accountsRead = listManagedAccounts().then(async (accounts) => {
+    const [investments, rate] = accounts.some((account) => account.isInvestment)
+      ? await Promise.all([investmentBalances(today), getDisplayRate()])
+      : ([[], null] as const);
+    return { accounts, investments, rate };
+  });
+  const [{ accounts, investments, rate }, totals, bills] = await Promise.all([
+    accountsRead,
     accountBalances(today),
     creditCardBills(today),
   ]);
   const balances = new Map(totals.map((row) => [row.id, row.balanceMinor]));
   if (accounts.some((account) => !balances.has(account.id)))
     throw new Error('Account balances unavailable.');
-  const [investments, rate] = accounts.some((account) => account.isInvestment)
-    ? await Promise.all([investmentBalances(today), getDisplayRate()])
-    : [[], null];
   return { accounts, balances, bills, investments, rate };
 }
 

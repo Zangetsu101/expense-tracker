@@ -1,4 +1,4 @@
-import { use, useDeferredValue, useState } from 'react';
+import { use, useDeferredValue, useState, useTransition } from 'react';
 import { useQuery, useSuspenseQuery } from '@tanstack/react-query';
 import { QueryBoundary } from '@/components/query-error-boundary';
 import { setFavoriteAccount, type ManagedAccount } from '@/lib/accounts';
@@ -76,27 +76,26 @@ export default function AccountsScreen() {
     enabled: false,
   });
   const accountSheet = useAccountSheet(overview.data?.accounts ?? []);
-  const [favoritePending, setFavoritePending] = useState(false);
+  const [favoritePending, startFavoriteSave] = useTransition();
   const [favoriteError, setFavoriteError] = useState<string>();
   const pending = favoritePending || accountSheet.pending;
-  async function makeFavorite(id: number) {
+  function makeFavorite(id: number) {
     if (pending) return;
-    setFavoritePending(true);
     setFavoriteError(undefined);
-    try {
-      await setFavoriteAccount(id);
-    } catch (e) {
-      setFavoriteError(String(e));
-    } finally {
-      setFavoritePending(false);
-    }
+    startFavoriteSave(async () => {
+      try {
+        await setFavoriteAccount(id);
+      } catch (error) {
+        setFavoriteError(String(error));
+      }
+    });
   }
   const writes: Writes = {
     pending,
     favoriteError,
     onEdit: accountSheet.edit,
     onAdd: accountSheet.add,
-    onFavorite: (id) => void makeFavorite(id),
+    onFavorite: makeFavorite,
   };
 
   return (

@@ -239,7 +239,15 @@ CREATE TRIGGER IF NOT EXISTS reimbursement_fits BEFORE INSERT ON reimbursements
 CREATE TRIGGER IF NOT EXISTS investment_fits BEFORE INSERT ON investments
   WHEN NOT EXISTS (SELECT 1 FROM accounts WHERE id = NEW.accountId)
     OR EXISTS (SELECT 1 FROM credit_cards WHERE accountId = NEW.accountId OR parentAccountId = NEW.accountId)
-  BEGIN SELECT RAISE(ABORT, 'This Account is used by a Credit Card.'); END;
+  BEGIN SELECT RAISE(ABORT, 'This Account must exist and have no links to a Credit Card.'); END;
+CREATE TRIGGER IF NOT EXISTS keep_dividend_destination_investment BEFORE INSERT ON investments
+  WHEN EXISTS (SELECT 1 FROM investment_dividends d JOIN legs l ON l.transactionId = d.transactionId
+    WHERE l.accountId = NEW.accountId)
+  BEGIN SELECT RAISE(ABORT, 'Delete the dividends paid into this Account before changing its kind.'); END;
+CREATE TRIGGER IF NOT EXISTS keep_dividend_destination_card BEFORE INSERT ON credit_cards
+  WHEN EXISTS (SELECT 1 FROM investment_dividends d JOIN legs l ON l.transactionId = d.transactionId
+    WHERE l.accountId = NEW.accountId)
+  BEGIN SELECT RAISE(ABORT, 'Delete the dividends paid into this Account before changing its kind.'); END;
 CREATE TRIGGER IF NOT EXISTS investment_card_insert BEFORE INSERT ON credit_cards
   WHEN EXISTS (SELECT 1 FROM investments WHERE accountId IN (NEW.accountId, NEW.parentAccountId))
   BEGIN SELECT RAISE(ABORT, 'Choose a liquid Account for this Credit Card.'); END;
@@ -259,8 +267,9 @@ CREATE TRIGGER IF NOT EXISTS dividend_fits BEFORE INSERT ON investment_dividends
     OR NOT EXISTS (
       SELECT 1 FROM transactions t JOIN legs l ON l.transactionId = t.id
       WHERE t.id = NEW.transactionId AND t.kind = 'INCOME' AND l.accountId IS NOT NULL
-        AND l.accountId <> NEW.investmentAccountId)
-  BEGIN SELECT RAISE(ABORT, 'A Dividend needs Income on a different Account.'); END;
+        AND l.accountId NOT IN (SELECT accountId FROM investments)
+        AND l.accountId NOT IN (SELECT accountId FROM credit_cards))
+  BEGIN SELECT RAISE(ABORT, 'A Dividend needs Income on a liquid destination Account.'); END;
 CREATE TRIGGER IF NOT EXISTS delete_dividend_link AFTER DELETE ON transactions BEGIN
   DELETE FROM investment_dividends WHERE transactionId = OLD.id;
 END;

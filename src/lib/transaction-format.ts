@@ -76,6 +76,10 @@ export function formatMoney(
   return `${sign}${currencySymbol(currency)}${new Intl.NumberFormat('en-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(minor / 100)}`;
 }
 
+export function formatSignedMoney(minor: number, currency: string): string {
+  return formatMoney(minor < 0 ? 'EXPENSE' : 'INCOME', Math.abs(minor), currency);
+}
+
 export function formatBalance(minor: number, currency: string): string {
   return `${minor < 0 ? '−' : ''}${formatMoney('TRANSFER', Math.abs(minor), currency)}`;
 }

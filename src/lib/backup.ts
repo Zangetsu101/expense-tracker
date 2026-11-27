@@ -1,8 +1,8 @@
 import { readLegsBackup, type BackupV2, type BackupV3 } from './backup-v2.ts';
 
 // Native Android backup schema v1 (BackupModels.kt). Long values are JSON numbers;
-// JavaScript cannot preserve integers outside Number.MAX_SAFE_INTEGER. Export writes v1.
-// Restore reads v1 and v2 (ADR 0014).
+// JavaScript cannot preserve integers outside Number.MAX_SAFE_INTEGER.
+// Restore reads v1, v2 and v3 (ADR 0014 and ADR 0015).
 export const BACKUP_SCHEMA_VERSION = 1;
 
 export type Backup = BackupV1 | BackupV2 | BackupV3;

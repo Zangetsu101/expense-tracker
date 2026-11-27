@@ -190,7 +190,7 @@ function QuickAddForm() {
   const [note, setNote] = useState('');
   const [tags, setTags] = useState('');
   const [date, setDate] = useState(() => new Date());
-  const [saving, setSaving] = useState(false);
+  const [saving, startSave] = useTransition();
   const [creatingPerson, startCreatingPerson] = useTransition();
   const [shownPeople, showPendingPerson] = useOptimistic(people, withPendingPerson);
   const writePending = saving || creatingPerson;
@@ -256,7 +256,11 @@ function QuickAddForm() {
   let saveLabel: string;
   switch (mode) {
     case 'TRANSFER':
-      selectionReady = !!destination;
+      selectionReady =
+        !!destination &&
+        (!dividend ||
+          dividendCategory !== undefined ||
+          (!lastCategory.isPending && !dividendCategories.isPending));
       saveLabel = dividend ? 'Save dividend' : 'Save transfer';
       break;
     case 'PERSON':
@@ -321,85 +325,85 @@ function QuickAddForm() {
     setError('');
   }
 
-  async function save() {
+  function save() {
     if (writeInFlight.current || !canSave || !account || saveAmount === undefined) return;
     writeInFlight.current = true;
-    setSaving(true);
     setError('');
-    try {
-      if (!Number.isFinite(date.getTime()) || epochDay(date) > epochDay(new Date()))
-        throw new Error('Choose today or a past date.');
-      const amountMinor = saveAmount;
-      if (dividend && destination) {
-        await addQuickTransaction(
-          {
-            type: 'INCOME',
-            accountId: destination.id,
-            investmentAccountId: account.id,
+    startSave(async () => {
+      try {
+        if (!Number.isFinite(date.getTime()) || epochDay(date) > epochDay(new Date()))
+          throw new Error('Choose today or a past date.');
+        const amountMinor = saveAmount;
+        if (dividend && destination) {
+          await addQuickTransaction(
+            {
+              type: 'INCOME',
+              accountId: destination.id,
+              investmentAccountId: account.id,
+              amountMinor,
+              categoryId: dividendCategoryId,
+              date,
+              note: note.trim() || null,
+            },
+            tags,
+          );
+        } else if (mode === 'TRANSFER') {
+          await addTransfer({
             amountMinor,
-            categoryId: dividendCategoryId,
+            receivedAmountMinor,
+            fromAccountId: account.id,
+            toAccountId: toId!,
+            note,
             date,
-            note: note.trim() || null,
-          },
-          tags,
-        );
-      } else if (mode === 'TRANSFER') {
-        await addTransfer({
-          amountMinor,
-          receivedAmountMinor,
-          fromAccountId: account.id,
-          toAccountId: toId!,
-          note,
-          date,
-          tagText: tags,
-        });
-      } else if (mode === 'PERSON') {
-        const draft = {
-          personId: person!.id,
-          kind: action,
-          amountMinor,
-          accountId: account.id,
-          date: epochDay(date),
-          note,
-          tagText: tags,
-        };
-        const result = await saveLendingEntry(draft);
-        if (result.status === 'confirmation_required') {
-          if (!(await confirmOverpayment(result.warnings))) return;
-          await saveLendingEntry({ ...draft, confirmOverpayment: true });
-        }
-      } else {
-        await addQuickTransaction(
-          {
-            type: mode,
+            tagText: tags,
+          });
+        } else if (mode === 'PERSON') {
+          const draft = {
+            personId: person!.id,
+            kind: action,
             amountMinor,
             accountId: account.id,
-            categoryId: reimbursement ? null : categoryIds[mode]!,
-            ...(reimbursement && {
-              reimbursement: { expenseId: reimbursement.row.id, personId: payer ?? null },
-            }),
-            ...(mode === 'EXPENSE' &&
-              split.people.length > 0 && {
-                shares: splitShares(
-                  amountMinor,
-                  split.people.map((item) => item.id),
-                  split.fixed,
-                ).shares,
+            date: epochDay(date),
+            note,
+            tagText: tags,
+          };
+          const result = await saveLendingEntry(draft);
+          if (result.status === 'confirmation_required') {
+            if (!(await confirmOverpayment(result.warnings))) return;
+            await saveLendingEntry({ ...draft, confirmOverpayment: true });
+          }
+        } else {
+          await addQuickTransaction(
+            {
+              type: mode,
+              amountMinor,
+              accountId: account.id,
+              categoryId: reimbursement ? null : categoryIds[mode]!,
+              ...(reimbursement && {
+                reimbursement: { expenseId: reimbursement.row.id, personId: payer ?? null },
               }),
-            date,
-            note: note.trim() || null,
-          },
-          tags,
-        );
+              ...(mode === 'EXPENSE' &&
+                split.people.length > 0 && {
+                  shares: splitShares(
+                    amountMinor,
+                    split.people.map((item) => item.id),
+                    split.fixed,
+                  ).shares,
+                }),
+              date,
+              note: note.trim() || null,
+            },
+            tags,
+          );
+        }
+        writeInFlight.current = false;
+        router.back();
+      } catch (cause) {
+        setError(String(cause));
+      } finally {
+        writeInFlight.current = false;
       }
-      writeInFlight.current = false;
-      router.back();
-    } catch (cause) {
-      setError(String(cause));
-    } finally {
-      writeInFlight.current = false;
-      setSaving(false);
-    }
+    });
   }
 
   const transferAmount = mode === 'TRANSFER' && !dividend;

@@ -1,8 +1,8 @@
 // The move from the old schema to the legs model (ADR 0013), and the restore of backups.
 // The migration and the restore of v1 rows put the old rows in TEMP tables named legacy_*,
 // clean them with the same SQL, and run the same fill SQL. So the migration, the v1 restore
-// and the backup before the migration share one mapping. A v2 backup has the rows of the
-// legs schema, so its restore inserts them directly (ADR 0014).
+// and the backup before the migration share one mapping. Backups in v2 and v3 have the rows of the
+// legs schema, so restore inserts them directly (ADR 0014 and ADR 0015).
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { assertCleanBackup, encodeBackup, type BackupV1 } from './backup.ts';
 import { backupV3Tables, type BackupV2, type BackupV3 } from './backup-v2.ts';
@@ -669,7 +669,7 @@ export async function restoreLegacyRows(tx: Writer, data: BackupV1) {
 }
 
 /**
- * Replaces all data with the rows of a v2 backup (ADR 0014). Call it inside a transaction,
+ * Replaces all data with the rows of a backup with Legs (ADR 0014 and ADR 0015). Call it inside a transaction,
  * and roll back if it throws. Device-local settings stay. The rows go directly into the
  * tables. The CHECK constraints and the triggers check each row, and checkLedger() checks
  * the rules that span rows. So a file with a missing parent row or a wrong set of Legs
