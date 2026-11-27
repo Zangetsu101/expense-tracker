@@ -10,6 +10,7 @@ import {
   type LayoutChangeEvent,
   type PressableProps,
 } from 'react-native';
+import Animated, { LinearTransition, ReduceMotion } from 'react-native-reanimated';
 import { Skeleton } from './loading';
 import { useClippedChips } from './use-clipped-chips';
 import type { ManagedCategory } from '@/lib/categories';
@@ -20,6 +21,7 @@ const panel = '#1d2a30';
 const chipGap = 8;
 const chipRadius = 12;
 const chipRows = 3;
+const layoutTransition = LinearTransition.duration(500).reduceMotion(ReduceMotion.System);
 const styles = StyleSheet.create({
   section: { gap: 10 },
   selection: { color: ink },
@@ -84,6 +86,7 @@ function CategoryChip({
   label,
   selected,
   height,
+  animateLayout,
   onLayout,
   accessibilityProps,
   onPress,
@@ -91,6 +94,7 @@ function CategoryChip({
   label: string;
   selected: boolean;
   height: number;
+  animateLayout: boolean;
   onLayout: (event: LayoutChangeEvent) => void;
   accessibilityProps: Pick<
     PressableProps,
@@ -99,7 +103,11 @@ function CategoryChip({
   onPress: () => void;
 }) {
   return (
-    <View style={{ maxWidth: '100%' }} onLayout={onLayout}>
+    <Animated.View
+      layout={animateLayout ? layoutTransition : undefined}
+      style={{ maxWidth: '100%' }}
+      onLayout={onLayout}
+    >
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={label}
@@ -119,7 +127,7 @@ function CategoryChip({
           {label}
         </Text>
       </Pressable>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -131,6 +139,7 @@ export function QuickSelectCategory({
   disabled = false,
 }: Props) {
   const [query, setQuery] = useState('');
+  const [hasLaidOut, setHasLaidOut] = useState(false);
   const { chipHeight, maxHeight } = useChipLayout();
   const clipping = useClippedChips(maxHeight);
   const byId = new Map(categories.map((category) => [category.id, category]));
@@ -160,19 +169,25 @@ export function QuickSelectCategory({
       </Text>
       <CategorySearchInput value={query} onChangeText={setQuery} disabled={disabled} />
       <View>
-        <View style={[styles.chips, { maxHeight }]}>
+        <Animated.View
+          testID="category-chips"
+          layout={hasLaidOut ? layoutTransition : undefined}
+          onLayout={hasLaidOut ? undefined : () => setHasLaidOut(true)}
+          style={[styles.chips, { maxHeight }]}
+        >
           {matches.map((category) => (
             <CategoryChip
               key={category.id}
               label={path(category)}
               selected={activeId === category.id}
               height={chipHeight}
+              animateLayout={hasLaidOut}
               onLayout={clipping.onLayout(category.id)}
               accessibilityProps={clipping.accessibilityProps(category.id, disabled)}
               onPress={() => onSelect(category.id)}
             />
           ))}
-        </View>
+        </Animated.View>
         {matches.length === 0 && (
           <Text style={{ color: muted, padding: 12 }}>No matching categories</Text>
         )}

@@ -31,13 +31,36 @@ const categories: ManagedCategory[] = ['Food', 'Travel', 'Coffee', 'Shopping'].m
   emoji: null,
 }));
 const names = () => screen.getAllByRole('button').map((button) => button.props.accessibilityLabel);
-// RNTL does not run native layout. Deliver Yoga's result to the chip's measured wrapper.
-const layout = async (name: string, y: number) => {
+const chipLayout = (name: string) => {
   let measured = screen.getByRole('button', { name, includeHiddenElements: true }).parent;
   while (measured && !measured.props.onLayout) measured = measured.parent;
   if (!measured) throw new Error(`No layout boundary for ${name}`);
-  await fireEvent.layout(measured, { x: 0, y, width: 100, height: 40 });
+  return measured;
 };
+
+// RNTL does not run native layout. Send a layout event to the chip.
+const layout = (name: string, y: number) =>
+  fireEvent.layout(chipLayout(name), { x: 0, y, width: 100, height: 40 });
+
+test('the first Category layout is static and later ranking and search use layout transitions', async () => {
+  const user = userEvent.setup();
+  const props = { categories, onSelect: jest.fn() };
+  const list = () => screen.getByTestId('category-chips');
+  await render(<QuickSelectCategory {...props} />);
+  expect(list().props.layout).toBeUndefined();
+  expect(chipLayout('Travel').props.layout).toBeUndefined();
+
+  await fireEvent.layout(list(), { x: 0, y: 0, width: 346, height: 88 });
+  await screen.rerender(<QuickSelectCategory {...props} orderedIds={[2, 1, 3, 4]} />);
+  expect(names()).toEqual(['Travel', 'Food', 'Coffee', 'Shopping']);
+  expect(list().props.layout).toBeDefined();
+  expect(chipLayout('Travel').props.layout).toBeDefined();
+
+  await user.type(screen.getByLabelText('Search categories'), 'travel');
+  expect(names()).toEqual(['Travel']);
+  expect(list().props.layout).toBeDefined();
+  expect(chipLayout('Travel').props.layout).toBeDefined();
+});
 
 test('ranked order changes preserve the selected Category', async () => {
   const onSelect = jest.fn();
