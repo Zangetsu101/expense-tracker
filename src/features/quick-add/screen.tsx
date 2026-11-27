@@ -1,4 +1,4 @@
-import { useCallback, useOptimistic, useRef, useState, useTransition } from 'react';
+import { useCallback, useEffect, useOptimistic, useRef, useState, useTransition } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { categoriesQuery, peopleQuery, includeCreatedPerson, nextPersonId } from './queries.ts';
 import { accountsQuery } from '@/lib/account-queries';
@@ -14,7 +14,7 @@ import {
 import { splitShares } from '@/lib/reimbursements';
 import { TransferBillChoices } from './transfer-bill-choices.tsx';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { useHeaderHeight, useNavigation, usePreventRemove } from 'expo-router/react-navigation';
+import { useHeaderHeight, usePreventRemove } from 'expo-router/react-navigation';
 import {
   ActivityIndicator,
   Alert,
@@ -191,16 +191,17 @@ function QuickAddForm() {
   const [tags, setTags] = useState('');
   const [date, setDate] = useState(() => new Date());
   const [saving, startSave] = useTransition();
+  const [saved, setSaved] = useState(false);
   const [creatingPerson, startCreatingPerson] = useTransition();
   const [shownPeople, showPendingPerson] = useOptimistic(people, withPendingPerson);
   const writePending = saving || creatingPerson;
   const [error, setError] = useState('');
   // Block a second write before React shows the pending state.
   const writeInFlight = useRef(false);
-  const navigation = useNavigation();
-  usePreventRemove(writePending, ({ data: removal }) => {
-    if (!writeInFlight.current) navigation.dispatch(removal.action);
-  });
+  usePreventRemove(writePending, () => {});
+  useEffect(() => {
+    if (saved && !writePending) router.back();
+  }, [saved, writePending]);
   const currency =
     mode === 'PERSON' && action === initialAction && personId === routePersonId
       ? params.currency
@@ -281,7 +282,7 @@ function QuickAddForm() {
       if (reimbursement) saveLabel = 'Save reimbursement';
       break;
   }
-  const canSave = validAmount && !!account && selectionReady && !creatingPerson;
+  const canSave = validAmount && !!account && selectionReady && !creatingPerson && !saved;
 
   function addPerson(name: string, target: 'PERSON' | 'SPLIT') {
     const trimmed = name.trim();
@@ -396,8 +397,7 @@ function QuickAddForm() {
             tags,
           );
         }
-        writeInFlight.current = false;
-        router.back();
+        setSaved(true);
       } catch (cause) {
         setError(String(cause));
       } finally {
