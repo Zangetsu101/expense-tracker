@@ -21,6 +21,7 @@ export type EditableTransaction = LendingLabel & {
   note: string | null;
   excludeFromReport: number;
   reportExclusionLocked: number;
+  dividendInvestmentName?: string | null;
   tags: { id: number; name: string }[];
   lineItems: LineItem[];
 };
@@ -31,7 +32,9 @@ export type LineItem = { id?: number; name: string; amountMinor: number; quantit
 const editableRead = `SELECT t.id, t.type, t.amountMinor, t.date, t.accountId, t.categoryId,
   a.name AS accountName, a.currencyCode, c.name AS categoryName, t.note, t.excludeFromReport,
   t.personId, t.lendingKind, person.name AS personName,
-  CASE WHEN t.kind = 'LENDING' THEN 1 ELSE 0 END AS reportExclusionLocked
+  CASE WHEN t.kind = 'LENDING' THEN 1 ELSE 0 END AS reportExclusionLocked,
+  (SELECT a.name FROM investment_dividends d JOIN accounts a ON a.id = d.investmentAccountId
+    WHERE d.transactionId = t.id) AS dividendInvestmentName
   FROM ${accountTransactions} t JOIN accounts a ON a.id = t.accountId
   LEFT JOIN categories c ON c.id = t.categoryId
   LEFT JOIN people person ON person.id = t.personId

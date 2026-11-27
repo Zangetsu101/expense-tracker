@@ -1,6 +1,7 @@
 import { defaultCurrencyCode } from '@/lib/currency';
 import { database, isFavoriteSql } from '@/lib/database';
 import { lendingEntryRows } from '@/lib/ledger-store';
+import { investmentBalances } from '@/lib/investments';
 import { getDisplayRate } from '@/lib/display-rate-store';
 import { parsePeriodSetting } from '../home/period.ts';
 import type { NetWorthInput } from './net-worth.ts';
@@ -42,7 +43,10 @@ export async function netWorthData(
   const db = await database();
   const [accounts, changes, lending, rate] = await Promise.all([
     db.getAllAsync<NetWorthInput['accounts'][number] & { isFavorite: number }>(
-      `SELECT a.id, a.name, a.currencyCode, a.openingBalanceMinor, ${isFavoriteSql('a')} AS isFavorite
+      `SELECT a.id, a.name, a.currencyCode, a.openingBalanceMinor, ${isFavoriteSql('a')} AS isFavorite,
+      CASE WHEN EXISTS (SELECT 1 FROM investments WHERE accountId = a.id) THEN 'investment'
+        WHEN EXISTS (SELECT 1 FROM credit_cards WHERE accountId = a.id) THEN 'card'
+        ELSE 'liquid' END AS kind
       FROM accounts a ${accountId === null ? '' : 'WHERE a.id = ?'} ORDER BY a.name, a.id`,
       accountId === null ? [] : [accountId],
     ),
@@ -65,8 +69,14 @@ export async function netWorthData(
     getDisplayRate(),
   ]);
   const favorite = accounts.find((account) => account.isFavorite) ?? accounts[0];
+  const investments = accounts.some(({ kind }) => kind === 'investment')
+    ? await investmentBalances(today)
+    : [];
   return {
-    accounts: accounts.map(({ isFavorite: _, ...account }) => account),
+    accounts: accounts.map(({ isFavorite: _, ...account }) => ({
+      ...account,
+      investment: investments.find(({ id }) => id === account.id),
+    })),
     changes,
     lending,
     rate,

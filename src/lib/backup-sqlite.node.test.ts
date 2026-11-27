@@ -934,3 +934,111 @@ test('a v2 restore refuses rows that break the Legs model and changes nothing', 
       assert.deepEqual(state(), before);
     });
 });
+
+test('an Investment keeps its capital, Valuations and linked dividends through backup and restore', async () => {
+  await restoreText(v2File());
+  const { createAccount, listManagedAccounts, updateAccount, setFavoriteAccount } =
+    await import('./accounts.ts');
+  const { addTransfer } = await import('./transfers.ts');
+  const { addQuickTransaction } = await import('./quick-add-tags.ts');
+  const {
+    investmentBalances,
+    investmentHistory,
+    investmentReturnTotals,
+    recordValuation,
+    saveValuationEdit,
+  } = await import('./investments.ts');
+  const { accountBalances, rangeReport } = await import('./reports.ts');
+  const { epochDay } = await import('./database.ts');
+  const now = new Date();
+  const today = epochDay(now);
+  const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  const input = { name: 'Fund', currencyCode: 'USD', openingBalance: '100' };
+  await createAccount(input);
+  const fund = (await listManagedAccounts()).find(({ name }) => name === 'Fund');
+  await setFavoriteAccount(fund.id);
+  await updateAccount(fund.id, { ...input, isInvestment: true });
+  assert.equal((await listManagedAccounts()).find(({ id }) => id === fund.id).isFavorite, 0);
+  await assert.rejects(setFavoriteAccount(fund.id), /Favorite/);
+  await recordValuation(fund.id, 12000, today);
+  await addTransfer({
+    fromAccountId: 1,
+    toAccountId: fund.id,
+    amountMinor: 24000,
+    receivedAmountMinor: 2000,
+    note: null,
+    date: yesterday,
+  });
+  await addQuickTransaction(
+    {
+      type: 'INCOME',
+      accountId: 1,
+      investmentAccountId: fund.id,
+      amountMinor: 6000,
+      categoryId: 3,
+      date: now,
+      note: null,
+    },
+    '',
+  );
+  await assert.rejects(updateAccount(fund.id, input), /linked dividends/);
+  await assert.rejects(
+    addQuickTransaction(
+      {
+        type: 'INCOME',
+        accountId: 2,
+        investmentAccountId: fund.id,
+        amountMinor: 1,
+        categoryId: null,
+        date: now,
+        note: null,
+      },
+      '',
+    ),
+    /liquid destination/,
+  );
+
+  assert.equal((await accountBalances(today)).find(({ id }) => id === fund.id).balanceMinor, 14000);
+  const [balance] = await investmentBalances(today);
+  assert.equal(balance.investedMinor, 12000);
+  assert.equal(balance.growthMinor, 2000);
+  assert.deepEqual(balance.dividends, [{ currencyCode: 'BDT', amountMinor: 6000 }]);
+  assert.deepEqual(investmentReturnTotals(balance, { base: 'USD', quote: 'BDT', rate: 120 }), [
+    { currencyCode: 'USD', amountMinor: 2050 },
+  ]);
+  assert.deepEqual(
+    (await investmentHistory(fund.id)).map(({ kind }) => kind),
+    ['INCOME', 'VALUATION', 'TRANSFER'],
+  );
+  const { summaries } = await rangeReport(today - 1, today + 1);
+  assert.deepEqual(
+    summaries.find(({ currencyCode }) => currencyCode === 'USD'),
+    { currencyCode: 'USD', incomeMinor: 0, expenseMinor: 0, investedMinor: 2000 },
+  );
+  assert.deepEqual(
+    { ...summaries.find(({ currencyCode }) => currencyCode === 'BDT') },
+    { currencyCode: 'BDT', incomeMinor: 6000, expenseMinor: 0 },
+  );
+
+  const backup = await backupStore.snapshot();
+  assert.equal(backup.schemaVersion, 3);
+  await restoreText(v2File());
+  await restoreText(encodeBackup(backup));
+  assert.deepEqual(await backupStore.snapshot(), backup);
+
+  const damaged = { ...backup, investments: [] };
+  await assert.rejects(restoreText(JSON.stringify(damaged)), /does not fit/);
+  assert.deepEqual(await backupStore.snapshot(), backup);
+
+  const { deleteTransaction } = await import('./transaction-delete.ts');
+  const history = await investmentHistory(fund.id);
+  const valuation = history.find(({ kind }) => kind === 'VALUATION');
+  const dividend = history.find(({ kind }) => kind === 'INCOME');
+  await saveValuationEdit(valuation.id, 2000, -1000);
+  assert.equal((await accountBalances(today)).find(({ id }) => id === fund.id).balanceMinor, 11000);
+  await deleteTransaction(valuation.id);
+  await assert.rejects(updateAccount(fund.id, input), /linked dividends/);
+  await deleteTransaction(dividend.id);
+  await updateAccount(fund.id, input);
+  assert.equal((await backupStore.snapshot()).schemaVersion, 1);
+});

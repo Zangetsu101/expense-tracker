@@ -7,9 +7,10 @@ import { database, favoriteAccountIdSql, isFavoriteSql } from '@/lib/database';
 import { accountTransactions, lendingEntryRows } from '@/lib/ledger-store';
 import { restoreLegacyRows, restoreLegsRows } from '@/lib/legs-migration';
 import { readAll } from '@/lib/read-all';
-import type { BackupV1, BackupDocuments, BackupStore } from '@/lib/backup';
+import type { Backup, BackupV1, BackupDocuments, BackupStore } from '@/lib/backup';
+import { backupV3Tables, type BackupV3 } from './backup-v2.ts';
 
-// Export still writes v1 (ADR 0014). It derives the v1 rows from the Legs.
+// Export uses v1 when the ledger has no Investments. It derives the v1 rows from the Legs.
 //
 // A v1 lending entry needs an id. Each entry uses the id of its Transaction, so the ids
 // stay the same from one export to the next. A restore gives each Write-off a new
@@ -23,9 +24,37 @@ const v1Transactions = `SELECT t.id, t.type, t.amountMinor, t.receivedAmountMino
 export const backupStore: BackupStore = {
   async snapshot() {
     const db = await database();
-    let snapshot!: BackupV1;
+    let snapshot!: Backup;
     await db.withExclusiveTransactionAsync(async (tx) => {
       const all = <T>(query: string) => tx.getAllAsync<T>(query);
+      if (await tx.getFirstAsync('SELECT 1 FROM investments LIMIT 1')) {
+        const tables = await Promise.all(
+          Object.entries(backupV3Tables).map(async ([name, { table, fields, uniqueKey }]) => {
+            const order = uniqueKey.length
+              ? uniqueKey.join(', ')
+              : 'transactionId, personId IS NOT NULL, amountMinor, id';
+            const rows = await all<Record<string, unknown>>(
+              `SELECT ${Object.keys(fields).join(', ')} FROM ${table} ORDER BY ${order}`,
+            );
+            if (name === 'transactions')
+              for (const row of rows) row.excludeFromReport = Boolean(row.excludeFromReport);
+            return [name, rows] as const;
+          }),
+        );
+        const settings = await all<{ key: string; value: string }>(
+          "SELECT key, value FROM app_settings WHERE key IN ('favoriteAccountId', 'displayRate')",
+        );
+        snapshot = {
+          ...Object.fromEntries(tables),
+          schemaVersion: 3,
+          settings: {
+            favoriteAccountId: null,
+            displayRate: null,
+            ...Object.fromEntries(settings.map(({ key, value }) => [key, JSON.parse(value)])),
+          },
+        } as BackupV3;
+        return;
+      }
       const { favorite, displayRate, accounts, categories, transactions, ...tables } =
         await readAll({
           favorite: tx.getFirstAsync<{ id: number | null }>(`SELECT ${favoriteAccountIdSql} AS id`),
@@ -91,7 +120,7 @@ export const backupStore: BackupStore = {
   async replace(data) {
     const db = await database();
     await db.withExclusiveTransactionAsync((tx) =>
-      data.schemaVersion === 2 ? restoreLegsRows(tx, data) : restoreLegacyRows(tx, data),
+      data.schemaVersion === 1 ? restoreLegacyRows(tx, data) : restoreLegsRows(tx, data),
     );
     notifyDataChanged();
   },

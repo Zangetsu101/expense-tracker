@@ -28,6 +28,7 @@ import {
 import Animated from 'react-native-reanimated';
 import { epochDay } from '@/lib/database';
 import { addQuickTransaction } from '@/lib/quick-add-tags';
+import { lastDividendCategory } from '@/lib/investments';
 import { addTransfer } from '@/lib/transfers';
 import { createPerson, saveLendingEntry, type LendingKind, type Person } from '@/lib/lending';
 import type { LendingTotal } from '@/lib/lending-totals';
@@ -133,6 +134,7 @@ function QuickAddForm() {
     currency?: string;
     toId?: string;
     amountMinor?: string;
+    dividend?: string;
   }>();
   const initialAction = [...principalActions, ...repaymentActions].find(
     (option) => option.value === params.action,
@@ -156,6 +158,10 @@ function QuickAddForm() {
   const people = peopleRead.data?.people ?? [];
   const headerHeight = useHeaderHeight();
   const [amountMinor, setAmountMinor] = useState<number | undefined>(preset);
+  const [dividendSelected, setDividendSelected] = useState(params.dividend === '1');
+  const [dividendAmount, setDividendAmount] = useState<number>();
+  const [dividendCategory, setDividendCategory] = useState<number | null>();
+  const dividendDraft = useAmountInputDraft('', false);
   const [receivedAmountMinor, setReceivedAmountMinor] = useState<number>();
   const onTransferAmounts = useCallback((paid: number | undefined, received?: number) => {
     setAmountMinor(paid);
@@ -200,9 +206,10 @@ function QuickAddForm() {
       ? params.currency
       : undefined;
   const accountCurrency = reimbursement?.row.currencyCode ?? currency;
-  const account = accounts.find(
-    (item) => item.id === accountId && (!accountCurrency || item.currencyCode === accountCurrency),
-  );
+  const canUseSource = (item: (typeof accounts)[number]) =>
+    (mode === 'TRANSFER' || !item.isInvestment) &&
+    (!accountCurrency || item.currencyCode === accountCurrency);
+  const account = accounts.find((item) => item.id === accountId && canUseSource(item));
   const person = shownPeople.find((item) => item.id === personId);
   const orderedCategoryIds = useRankedCategories(
     categoryRead.data,
@@ -217,16 +224,40 @@ function QuickAddForm() {
     (mode === 'PERSON' && (action === 'BORROW' || action === 'RECEIVE_REPAYMENT'));
   const search = query.trim().toLocaleLowerCase();
   const destination = destinations.find((item) => item.id === toId);
+  const canPayDividend =
+    mode === 'TRANSFER' &&
+    !!account?.isInvestment &&
+    !!destination &&
+    !destination.isInvestment &&
+    !destination.isCreditCard;
+  const dividend = canPayDividend && dividendSelected;
+  const dividendCategories = useQuery({ ...categoriesQuery('INCOME'), enabled: false });
+  const lastCategory = useQuery({
+    queryKey: ['last-dividend-category'],
+    queryFn: lastDividendCategory,
+    enabled: dividend && dividendCategory === undefined,
+  });
+  const selectedDividendCategory =
+    dividendCategory === undefined ? lastCategory.data?.categoryId : dividendCategory;
+  const dividendCategoryId = dividendCategories.data?.some(
+    ({ id }) => id === selectedDividendCategory,
+  )
+    ? (selectedDividendCategory ?? null)
+    : null;
+  const saveAmount = dividend ? dividendAmount : amountMinor;
   const cross =
-    mode === 'TRANSFER' && destination && destination.currencyCode !== account?.currencyCode;
+    !dividend &&
+    mode === 'TRANSFER' &&
+    destination &&
+    destination.currencyCode !== account?.currencyCode;
   const validAmount =
-    amountMinor !== undefined && amountMinor > 0 && (!cross || receivedAmountMinor !== undefined);
+    saveAmount !== undefined && saveAmount > 0 && (!cross || receivedAmountMinor !== undefined);
   let selectionReady = false;
   let saveLabel: string;
   switch (mode) {
     case 'TRANSFER':
       selectionReady = !!destination;
-      saveLabel = 'Save transfer';
+      saveLabel = dividend ? 'Save dividend' : 'Save transfer';
       break;
     case 'PERSON':
       selectionReady = !!person;
@@ -291,14 +322,28 @@ function QuickAddForm() {
   }
 
   async function save() {
-    if (writeInFlight.current || !canSave || !account || amountMinor === undefined) return;
+    if (writeInFlight.current || !canSave || !account || saveAmount === undefined) return;
     writeInFlight.current = true;
     setSaving(true);
     setError('');
     try {
       if (!Number.isFinite(date.getTime()) || epochDay(date) > epochDay(new Date()))
         throw new Error('Choose today or a past date.');
-      if (mode === 'TRANSFER') {
+      const amountMinor = saveAmount;
+      if (dividend && destination) {
+        await addQuickTransaction(
+          {
+            type: 'INCOME',
+            accountId: destination.id,
+            investmentAccountId: account.id,
+            amountMinor,
+            categoryId: dividendCategoryId,
+            date,
+            note: note.trim() || null,
+          },
+          tags,
+        );
+      } else if (mode === 'TRANSFER') {
         await addTransfer({
           amountMinor,
           receivedAmountMinor,
@@ -357,17 +402,20 @@ function QuickAddForm() {
     }
   }
 
-  const AmountEntry = mode === 'TRANSFER' ? TransferAmountInput : ControlledAmountInput;
+  const transferAmount = mode === 'TRANSFER' && !dividend;
+  const AmountEntry = transferAmount ? TransferAmountInput : ControlledAmountInput;
+  const changeSingleAmount = dividend ? setDividendAmount : setAmountMinor;
   return (
     <AmountEntry
       source={account}
       destination={destination}
       initialReceived={preset}
       initialPaid={preset === undefined ? amountMinor : undefined}
-      draft={amountDraft}
-      currency={account?.currencyCode}
+      key={dividend ? 'dividend' : 'entry'}
+      draft={dividend ? dividendDraft : amountDraft}
+      currency={dividend ? destination.currencyCode : account?.currencyCode}
       disabled={saving}
-      onChange={mode === 'TRANSFER' ? onTransferAmounts : setAmountMinor}
+      onChange={transferAmount ? onTransferAmounts : changeSingleAmount}
     >
       {({ input, keypad, dismiss: dismissCalculator, editing, ...amountActions }) => (
         <KeyboardAvoidingView
@@ -412,6 +460,7 @@ function QuickAddForm() {
                     setPreset(undefined);
                   }
                   setMode(value);
+                  setDividendSelected(false);
                   setError('');
                 }}
               />
@@ -430,22 +479,17 @@ function QuickAddForm() {
                     >
                       <Label>{`${incoming ? 'Into' : 'From'} ${account?.name ?? 'an account'}`}</Label>
                       <AccountChoices
-                        accounts={
-                          accountCurrency
-                            ? readyAccounts.filter((item) => item.currencyCode === accountCurrency)
-                            : readyAccounts
-                        }
+                        accounts={readyAccounts.filter(canUseSource)}
                         selectedId={accountId}
                         disabled={saving}
                         onSelect={(id) => {
                           setAccountId(id);
+                          setDividendSelected(false);
                           setToId((current) => (current !== id ? current : undefined));
                           setError('');
                         }}
                       />
-                      {!readyAccounts.some(
-                        (item) => !accountCurrency || item.currencyCode === accountCurrency,
-                      ) && (
+                      {!readyAccounts.some(canUseSource) && (
                         <Text style={{ color: c.muted }}>
                           {accountCurrency
                             ? `Create a ${accountCurrency} account in Accounts to add this entry.`
@@ -460,7 +504,16 @@ function QuickAddForm() {
                           accounts={destinations}
                           selectedId={toId}
                           disabled={saving}
-                          onSelect={setToId}
+                          onSelect={(id) => {
+                            setToId(id);
+                            if (
+                              destinations.some(
+                                (item) =>
+                                  item.id === id && (item.isInvestment || item.isCreditCard),
+                              )
+                            )
+                              setDividendSelected(false);
+                          }}
                         />
                         {'applyReceivedPreset' in amountActions && (
                           <TransferBillChoices
@@ -479,6 +532,44 @@ function QuickAddForm() {
                   </View>
                 )}
               </ChoicesSection>
+              {canPayDividend && (
+                <JoinedChoice
+                  value={dividend ? 'DIVIDEND' : 'CAPITAL'}
+                  options={[
+                    { value: 'CAPITAL', label: 'Capital withdrawal' },
+                    { value: 'DIVIDEND', label: 'Dividend payout' },
+                  ]}
+                  onChange={(value) => setDividendSelected(value === 'DIVIDEND')}
+                  disabled={saving}
+                />
+              )}
+              {dividend && (
+                <View style={{ gap: 8 }}>
+                  <Label>Income category · optional</Label>
+                  <ChoicesSection
+                    options={categoriesQuery('INCOME')}
+                    label="income categories"
+                    layout="categories"
+                  >
+                    {(items) => (
+                      <>
+                        <QuickSelectCategory
+                          categories={items}
+                          selectedId={dividendCategoryId ?? undefined}
+                          onSelect={setDividendCategory}
+                          disabled={saving}
+                        />
+                        <JoinedChoice
+                          value={dividendCategoryId === null ? 'NONE' : ''}
+                          options={[{ value: 'NONE', label: 'No category' }]}
+                          disabled={saving}
+                          onChange={() => setDividendCategory(null)}
+                        />
+                      </>
+                    )}
+                  </ChoicesSection>
+                </View>
+              )}
               {mode === 'PERSON' && (
                 <View key="person" style={{ gap: 18 }}>
                   <View style={{ gap: 10 }}>

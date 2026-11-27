@@ -1,16 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
+import { legsSchema } from './legs-schema.ts';
 import { registerHooks, stripTypeScriptTypes } from 'node:module';
 
 const db = new DatabaseSync(':memory:');
 let failCommit = false;
-db.exec(
-  'CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT NOT NULL, currencyCode TEXT NOT NULL, openingBalanceMinor INTEGER NOT NULL DEFAULT 0); CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
-);
-db.exec(
-  'CREATE TABLE credit_cards (accountId INTEGER PRIMARY KEY, parentAccountId INTEGER, statementDay INTEGER, dueDay INTEGER)',
-);
+db.exec(legsSchema);
 const adapter = {
   runAsync: async (sql, params) => {
     const result = db.prepare(sql).run(...params);
@@ -173,7 +169,7 @@ test('cards keep non-card parents across Currencies; imported Accounts can be re
       isCreditCard: true,
       parentAccountId: card.id,
     }),
-    /non-card Account/,
+    /liquid Account/,
   );
   await assert.rejects(
     createAccount({

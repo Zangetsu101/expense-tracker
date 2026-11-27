@@ -49,7 +49,11 @@ function activityRow({
 const listOrder = 'ORDER BY t.date DESC, t.id DESC';
 const scopeFilter = (accountId: number | null) =>
   accountId === null
-    ? { sql: '1', params: [] }
+    ? {
+        sql: `(t.accountId NOT IN (SELECT accountId FROM investments)
+          OR t.transferAccountId NOT IN (SELECT accountId FROM investments))`,
+        params: [],
+      }
     : { sql: '(t.accountId = ? OR t.transferAccountId = ?)', params: [accountId, accountId] };
 
 export type HomeListPage = {
@@ -189,6 +193,7 @@ export async function homeDeckData(today: number): Promise<{
       FROM accounts a
       LEFT JOIN legs l ON l.accountId = a.id
       LEFT JOIN transactions t ON t.id = l.transactionId
+      WHERE a.id NOT IN (SELECT accountId FROM investments)
       GROUP BY a.id ORDER BY a.name, a.id`,
       [today, today],
     ),

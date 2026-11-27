@@ -3,7 +3,7 @@
 ## Language
 
 **Transaction**:
-A record of a movement of money, or of a Write-off that reduces what is owed. Its kind is Expense, Income, Transfer, lending, Write-off or reimbursement. A Transaction has one or more Legs.
+A record of a movement of money, a change in the value of an Investment, or a reduction of what is owed. A Transaction has one or more Legs.
 
 **Leg**:
 A part of a Transaction that moves a signed amount on exactly one Account or one Person, in the Leg's Currency. A positive Account Leg adds money to the Account. A positive Person Leg means that the person owes the user more, or that the user owes the person less.
@@ -24,11 +24,20 @@ The obligation that a lending Transaction or a Write-off belongs to: LENT (a per
 A Transaction that reduces what is owed in one Direction without moving money. It has one Person Leg and no Account Leg.
 
 **Account**:
-A place money sits, such as cash, a bank account, or a credit card. MoneyLover calls this a “wallet.” An Account has one Currency.
+A place money sits, such as cash, a bank account, a Credit Card, or an Investment. MoneyLover calls this a “wallet.” An Account has one Currency.
 _Avoid_: Wallet
 
 **Credit Card**:
-An Account that tracks money owed to a card issuer. It may name another non-card Account as the default source for settlement.
+An Account that tracks money owed to a card issuer. It may name a liquid Account as the default source for settlement.
+
+**Investment**:
+An Account that holds invested assets. Its value includes the capital in that Account and the gain or loss from Valuations.
+
+**Valuation**:
+A Transaction with one signed Leg that records a gain or loss on an Investment.
+
+**Dividend**:
+An Income Transaction that a liquid Account receives from an Investment. The Dividend contributes to the return of that Investment.
 
 **Bill**:
 The amount owed at the most recent statement date, reduced by subsequent payments and refunds. Without a statement day, the Bill is all currently owed. Purchases after the statement are not billed yet.

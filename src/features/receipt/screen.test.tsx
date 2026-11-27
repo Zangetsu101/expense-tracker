@@ -72,6 +72,10 @@ jest.mock('@/lib/database', () => {
     listAccounts: jest.fn(),
   };
 });
+jest.mock('@/lib/investments', () => ({
+  loadValuation: jest.fn().mockResolvedValue(null),
+  saveValuationEdit: jest.fn(),
+}));
 jest.mock('@/lib/lending', () => ({
   loadLendingEntry: jest.fn(),
   saveLendingEntry: jest.fn(),

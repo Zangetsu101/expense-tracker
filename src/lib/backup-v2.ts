@@ -100,8 +100,50 @@ export const backupV2Tables = {
     fields: { transactionId: integer, expenseId: integer, personId: orNull(integer) },
   },
 } as const;
-type TableName = keyof typeof backupV2Tables;
-const tableNames = Object.keys(backupV2Tables) as TableName[];
+const { accounts, transactions, legs, ...otherV2Tables } = backupV2Tables;
+export const backupV3Tables = {
+  accounts,
+  investments: {
+    table: 'investments',
+    uniqueKey: ['accountId'],
+    fields: { accountId: integer },
+  },
+  creditCards: otherV2Tables.creditCards,
+  categories: otherV2Tables.categories,
+  people: otherV2Tables.people,
+  tags: otherV2Tables.tags,
+  transactions: {
+    ...transactions,
+    fields: {
+      ...transactions.fields,
+      kind: oneOf(
+        'EXPENSE',
+        'INCOME',
+        'TRANSFER',
+        'LENDING',
+        'WRITE_OFF',
+        'REIMBURSEMENT',
+        'VALUATION',
+      ),
+    },
+  },
+  legs,
+  lineItems: otherV2Tables.lineItems,
+  transactionTags: otherV2Tables.transactionTags,
+  splitShares: otherV2Tables.splitShares,
+  reimbursements: otherV2Tables.reimbursements,
+  investmentDividends: {
+    table: 'investment_dividends',
+    uniqueKey: ['transactionId'],
+    fields: { transactionId: integer, investmentAccountId: integer },
+  },
+} as const;
+
+export type BackupV3 = Omit<BackupV2, 'schemaVersion'> & {
+  schemaVersion: 3;
+  investments: { accountId: number }[];
+  investmentDividends: { transactionId: number; investmentAccountId: number }[];
+};
 
 export interface BackupV2 {
   schemaVersion: 2;
@@ -154,9 +196,13 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
 /** Throws unless the rows have exactly the fields of the table, with valid values. */
-function checkTable(name: TableName, rows: unknown) {
+function checkTable(
+  name: string,
+  rows: unknown,
+  table: { uniqueKey: readonly string[]; fields: Record<string, Check> },
+) {
   if (!Array.isArray(rows)) throw new Error(`Invalid backup ${name}`);
-  const { uniqueKey, fields } = backupV2Tables[name];
+  const { uniqueKey, fields } = table;
   const checks: Record<string, Check> = fields;
   const keys = new Set<string>();
   rows.forEach((row: unknown, index) => {
@@ -185,12 +231,13 @@ function checkSettings(settings: unknown) {
   if (!valid) throw new Error('Invalid backup settings');
 }
 
-/** Throws if the structure of the data is not a valid v2 backup. */
-export function readBackupV2(data: Record<string, unknown>): BackupV2 {
+/** Checks the shape of a backup that stores Legs. */
+export function readLegsBackup(data: Record<string, unknown>): BackupV2 | BackupV3 {
+  const tables = data.schemaVersion === 3 ? backupV3Tables : backupV2Tables;
   for (const field of Object.keys(data))
-    if (field !== 'schemaVersion' && field !== 'settings' && !(field in backupV2Tables))
+    if (field !== 'schemaVersion' && field !== 'settings' && !Object.hasOwn(tables, field))
       throw new Error(`Unknown backup field ${field}`);
-  for (const name of tableNames) checkTable(name, data[name]);
+  for (const [name, table] of Object.entries(tables)) checkTable(name, data[name], table);
   checkSettings(data.settings);
-  return data as unknown as BackupV2;
+  return data as unknown as BackupV2 | BackupV3;
 }

@@ -760,6 +760,17 @@ export function TotalsView({
         <SummaryLine label="Income" amount={totals.incomeMinor} currency={currency} />
         <SummaryLine label="Expense" amount={totals.expenseMinor} currency={currency} />
         <SummaryLine label="Net" amount={totals.netMinor} currency={currency} />
+        {!!totals.investedMinor && (
+          <View
+            style={{ borderTopWidth: 1, borderStyle: 'dashed', borderColor: c.line, paddingTop: 8 }}
+          >
+            <SummaryLine
+              label={totals.investedMinor > 0 ? 'Invested' : 'Withdrawn from investments'}
+              amount={Math.abs(totals.investedMinor)}
+              currency={currency}
+            />
+          </View>
+        )}
       </Card>
       <Card gap={theme.spacing.lg}>
         <Heading>Spending by category</Heading>

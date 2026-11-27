@@ -19,5 +19,5 @@ assert.throws(
   () => decodeBackup('{"schemaVersion":1,"accounts":[{"id":9007199254740993}]}'),
   /too large/,
 );
-assert.throws(() => decodeBackup('{"schemaVersion":3}'), /Unsupported/);
+assert.throws(() => decodeBackup('{"schemaVersion":4}'), /Unsupported/);
 console.log('Backup JSON fixtures (v1 and v2) and unsafe integer checks passed');

@@ -9,6 +9,7 @@ import { creditCardBills } from '@/lib/credit-cards';
 import { notifyDataChanged } from '@/lib/data-changes';
 import { loadFirstTransferRate } from '@/lib/transfer-rate-store';
 import { addQuickTransaction } from '@/lib/quick-add-tags';
+import { lastDividendCategory } from '@/lib/investments';
 import { listCategoryEvidence } from '@/lib/category-prediction-history';
 import { listCategoriesByRecentUse, type ManagedCategory } from '@/lib/categories';
 import { listPeople, listLendingTotals, createPerson, saveLendingEntry } from '@/lib/lending';
@@ -64,6 +65,7 @@ jest.mock('@/features/home/read-home', () => ({
   expensesForReimbursement: jest.fn(),
 }));
 jest.mock('@/lib/quick-add-tags', () => ({ addQuickTransaction: jest.fn() }));
+jest.mock('@/lib/investments', () => ({ lastDividendCategory: jest.fn() }));
 jest.mock('@/lib/transfers', () => ({ addTransfer: jest.fn() }));
 jest.mock('@/lib/categories', () => ({ listCategoriesByRecentUse: jest.fn(async () => []) }));
 jest.mock('@/lib/lending', () => ({
@@ -673,4 +675,33 @@ test('links Income through the expense picker, fills the only outstanding share 
     }),
     '',
   );
+});
+
+test('a cross-Currency dividend uses one amount and saves Income in the liquid Account', async () => {
+  mockParams = { mode: 'TRANSFER', accountId: '3', toId: '1' };
+  jest
+    .mocked(listAccounts)
+    .mockResolvedValue([
+      ...accounts,
+      { id: 3, name: 'Fund', currencyCode: 'EUR', isFavorite: 0, isInvestment: 1 },
+    ]);
+  jest.mocked(lastDividendCategory).mockResolvedValue({ categoryId: salary.id });
+  const { amount, mode, press } = await open();
+  expect(await screen.findByRole('radio', { name: 'Capital withdrawal' })).toBeChecked();
+  await mode('Dividend payout');
+  expect(await screen.findByRole('button', { name: 'Salary', selected: true })).toBeOnTheScreen();
+  await amount(['5']);
+  await press('Save dividend');
+  expect(addQuickTransaction).toHaveBeenCalledWith(
+    expect.objectContaining({
+      type: 'INCOME',
+      accountId: 1,
+      investmentAccountId: 3,
+      amountMinor: 500,
+      categoryId: salary.id,
+    }),
+    '',
+  );
+  await mode('Expense');
+  expect(screen.queryByRole('button', { name: /Fund, EUR/ })).toBeNull();
 });

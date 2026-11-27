@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { registerHooks, stripTypeScriptTypes } from 'node:module';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
+import { legsSchema } from './legs-schema.ts';
 import { resolveSource } from '../test/node-source-resolve.ts';
 
 registerHooks({
@@ -143,7 +144,7 @@ function everything(sql: DatabaseSync) {
   const tables = rows(sql, "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name");
   return {
     schema: rows(sql, 'SELECT type, name, sql FROM sqlite_master ORDER BY type, name'),
-    rows: tables.map(({ name }) => rows(sql, `SELECT * FROM "${name}" ORDER BY 1, 2`)),
+    rows: tables.map(({ name }) => rows(sql, `SELECT * FROM "${name}" ORDER BY 1`)),
     version: value(sql, 'PRAGMA user_version'),
   };
 }
@@ -162,11 +163,11 @@ const data = (sql: DatabaseSync) => ({
       'split_shares',
       'reimbursements',
       'credit_cards',
-    ].map((table) => [table, rows(sql, `SELECT * FROM ${table} ORDER BY 1, 2`)]),
+    ].map((table) => [table, rows(sql, `SELECT * FROM ${table} ORDER BY 1`)]),
   ),
   legs: rows(
     sql,
-    'SELECT transactionId, accountId, personId, currencyCode, amountMinor FROM legs ORDER BY 1, 2, 3',
+    'SELECT transactionId, accountId, personId, currencyCode, amountMinor FROM legs ORDER BY 1, 3',
   ),
   settings: rows(
     sql,
@@ -186,7 +187,7 @@ test('the migration moves every old row to the legs model', async () => {
   assert.equal(snapshot.transactions.length, 10);
   assert.equal(snapshot.lendingEntries!.length, 6);
 
-  assert.equal(value(sql, 'PRAGMA user_version'), 1);
+  assert.equal(value(sql, 'PRAGMA user_version'), 2);
   assert.equal(value(sql, 'PRAGMA foreign_keys'), 1);
   assert.equal(value(sql, 'SELECT COUNT(*) FROM sqlite_temp_master'), 0);
   assert.deepEqual(rows(sql, 'PRAGMA foreign_key_check'), []);
@@ -401,7 +402,7 @@ test('a failed migration rolls back everything and can run again', async () => {
 
   sql.exec('DELETE FROM lending_entries WHERE id = 7');
   assert.equal(await migrateToLegs(connection(sql)), true);
-  assert.equal(value(sql, 'PRAGMA user_version'), 1);
+  assert.equal(value(sql, 'PRAGMA user_version'), 2);
 });
 
 test('the favorite comes from the old settings when no Account has the flag', async () => {
@@ -417,7 +418,7 @@ async function migrate(sql: DatabaseSync) {
   await openLedger(connection(sql), async (json) => {
     backup = json;
   });
-  assert.equal(value(sql, 'PRAGMA user_version'), 1);
+  assert.equal(value(sql, 'PRAGMA user_version'), 2);
   return decodeBackup(backup);
 }
 
@@ -555,7 +556,7 @@ test('an install from before received amounts gets the column, then the migratio
 test('a new install gets the legs schema without a backup', async () => {
   const sql = new DatabaseSync(':memory:');
   await openLedger(connection(sql), noBackup);
-  assert.equal(value(sql, 'PRAGMA user_version'), 1);
+  assert.equal(value(sql, 'PRAGMA user_version'), 2);
   assert.equal(value(sql, 'PRAGMA foreign_keys'), 1);
   assert.equal(value(sql, "SELECT COUNT(*) FROM sqlite_master WHERE name = 'legs'"), 1);
   assert.equal(value(sql, "SELECT COUNT(*) FROM sqlite_master WHERE name = 'lending_entries'"), 0);
@@ -608,11 +609,33 @@ test('database() writes the backup file, checks its size, then migrates', async 
   await assert.rejects(database(), /Could not save the backup/, 'a failure stays until a reset');
   resetDatabase();
   await database();
-  assert.equal(value(sql, 'PRAGMA user_version'), 1);
+  assert.equal(value(sql, 'PRAGMA user_version'), 2);
   const json = files.get('documents/expense-backup-before-legs-migration.json')!;
   assert.equal(decodeBackup(json).transactions.length, 10);
 
   const { removePreMigrationBackup } = await import('./pre-migration-backup.ts');
   removePreMigrationBackup();
   assert.equal(files.size, 0);
+});
+
+test('the Investment migration keeps Transactions and all their children', async () => {
+  const sql = oldDatabase();
+  await migrateToLegs(connection(sql));
+  const before = data(sql);
+  // Use the original kind constraint to exercise a database from before Investments.
+  sql.exec(`PRAGMA foreign_keys = OFF; PRAGMA legacy_alter_table = ON;
+    ALTER TABLE transactions RENAME TO previous_transactions;
+    ${legsSchema.replace(", 'VALUATION'", '')}
+    INSERT INTO transactions SELECT * FROM previous_transactions;
+    DROP TABLE previous_transactions;
+    PRAGMA user_version = 1;
+    PRAGMA legacy_alter_table = OFF; PRAGMA foreign_keys = ON;`);
+  // Recreate the triggers that were attached to the previous table.
+  sql.exec(legsSchema);
+  assert.throws(() => sql.exec("INSERT INTO transactions (kind, date) VALUES ('VALUATION', 100)"));
+  await openLedger(connection(sql), noBackup);
+  assert.deepEqual(data(sql), before);
+  assert.equal(value(sql, 'PRAGMA user_version'), 2);
+  assert.deepEqual(rows(sql, 'PRAGMA foreign_key_check'), []);
+  sql.exec("INSERT INTO transactions (kind, date) VALUES ('VALUATION', 100)");
 });

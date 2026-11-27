@@ -1,3 +1,4 @@
+import { loadValuation } from '@/lib/investments';
 import { reimbursementReceipt } from '@/features/home/read-home';
 import { queryOptions } from '@tanstack/react-query';
 import { loadEditableTransaction, type EditableTransaction } from '@/lib/transaction-edit';
@@ -9,7 +10,8 @@ export type Receipt =
       reimbursementDetails?: Awaited<ReturnType<typeof reimbursementReceipt>>;
     })
   | EditableTransfer
-  | WriteOffEntry;
+  | WriteOffEntry
+  | NonNullable<Awaited<ReturnType<typeof loadValuation>>>;
 
 /** Reads a Transaction or a Transfer. The result is null when neither exists. */
 export function receiptQuery(id: number) {
@@ -17,7 +19,7 @@ export function receiptQuery(id: number) {
     queryKey: ['receipt', id],
     queryFn: async (): Promise<Receipt | null> => {
       const row = await loadEditableTransaction(id);
-      if (!row) return loadTransfer(id);
+      if (!row) return (await loadTransfer(id)) ?? loadValuation(id);
       return { ...row, reimbursementDetails: await reimbursementReceipt(id, row.type) };
     },
   });

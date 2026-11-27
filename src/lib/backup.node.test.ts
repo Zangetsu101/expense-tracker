@@ -456,6 +456,6 @@ test('a v2 file with a wrong structure is refused before any change', async (t) 
   );
 });
 
-test('a backup with a schema version after 2 is refused', () => {
-  assert.throws(() => decodeBackup('{"schemaVersion":3}'), /Unsupported backup schema version/);
+test('a backup with a schema version after 3 is refused', () => {
+  assert.throws(() => decodeBackup('{"schemaVersion":4}'), /Unsupported backup schema version/);
 });

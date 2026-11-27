@@ -10,6 +10,7 @@ type QuickAddInput = {
   amountMinor: number;
   accountId: number;
   categoryId: number | null;
+  investmentAccountId?: number;
   shares?: SplitShare[];
   reimbursement?: { expenseId: number; personId: number | null };
   date: Date;
@@ -50,6 +51,16 @@ export async function addQuickTransaction(input: QuickAddInput, tagText: string)
       )
         throw new Error('Choose a person from the expense split.');
     }
+    if (input.investmentAccountId !== undefined) {
+      const liquid = await tx.getFirstAsync(
+        `SELECT 1 FROM accounts WHERE id = ?
+          AND id NOT IN (SELECT accountId FROM investments)
+          AND id NOT IN (SELECT accountId FROM credit_cards)`,
+        [input.accountId],
+      );
+      if (!liquid || input.type !== 'INCOME' || input.reimbursement)
+        throw new Error('A Dividend needs Income on a liquid destination Account.');
+    }
     const common = { date, note: input.note, accountId: input.accountId };
     id = await insertTransaction(
       tx,
@@ -82,6 +93,12 @@ export async function addQuickTransaction(input: QuickAddInput, tagText: string)
       await tx.runAsync(
         'INSERT INTO reimbursements (transactionId, expenseId, personId) VALUES (?, ?, ?)',
         [id, input.reimbursement.expenseId, input.reimbursement.personId],
+      );
+    }
+    if (input.investmentAccountId !== undefined) {
+      await tx.runAsync(
+        'INSERT INTO investment_dividends (transactionId, investmentAccountId) VALUES (?, ?)',
+        [id, input.investmentAccountId],
       );
     }
     await addTransactionTags(tx, id, tags);

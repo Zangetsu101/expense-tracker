@@ -8,6 +8,7 @@ import { parseRouteId } from '@/lib/account-selection';
 import { defaultCurrencyCode } from '@/lib/currency';
 import { epochDay } from '@/lib/database';
 import { QueryTimeContext } from '@/lib/query-time';
+import { investmentReturnTotals } from '@/lib/investments';
 import { formatBalance } from '@/lib/transaction-format';
 import { theme } from '@/theme';
 import { LineChart } from './charts.tsx';
@@ -442,6 +443,33 @@ function LendingCard({ series }: { series: NetWorthSeries }) {
   );
 }
 
+const worthGroups = [
+  { kind: 'liquid', label: 'Liquid', color: c.muted },
+  { kind: 'investment', label: 'Investments', color: c.accent },
+  { kind: 'card', label: 'Credit cards', color: c.warning },
+] as const;
+const liquidLineColor = '#8cc8ef';
+
+function WorthComposition({ series }: { series: NetWorthSeries }) {
+  const { liquid, investment, card } = series.composition;
+  const cash = Math.max(0, liquid);
+  const invested = Math.max(0, investment);
+  const format = (value: number) => formatBalance(value, series.currencyCode);
+  return (
+    <Card>
+      {cash + invested > 0 && (
+        <View style={{ height: 8, flexDirection: 'row', borderRadius: 4, overflow: 'hidden' }}>
+          {cash > 0 && <View style={{ flex: cash, backgroundColor: liquidLineColor }} />}
+          {invested > 0 && <View style={{ flex: invested, backgroundColor: c.accent }} />}
+        </View>
+      )}
+      <Text style={{ color: liquidLineColor }}>Liquid · {format(liquid)}</Text>
+      <Text style={{ color: c.accent }}>Invested · {format(investment)}</Text>
+      <Text style={{ color: c.warning }}>Credit cards · {format(card)}</Text>
+    </Card>
+  );
+}
+
 function NetWorthContent() {
   const today = useToday();
   const scope = useTrendScope();
@@ -475,57 +503,119 @@ function NetWorthContent() {
           />
         ))}
       </View>
-      {result.series.map((series) => (
-        <View key={series.currencyCode} style={{ gap: theme.spacing.lg }}>
-          <Headline
-            label={headlineLabel(series.currencyCode)}
-            head={formatBalance(series.totalMinor, series.currencyCode)}
-            color={c.accent}
-            note={`${signed(series.totalMinor - series.accounts[0], series.currencyCode)} since ${labels[0]}`}
-          />
-          <Card>
-            <LineChart
-              width={chartWidth}
-              height={170}
-              slots={result.points.length}
-              axis={thousands}
-              labels={labels}
-              lines={[
-                ...(singleAccount
-                  ? []
-                  : [{ values: series.withLending, color: c.muted, dashed: true, thin: true }]),
-                { values: series.accounts, color: c.accent },
-              ]}
-              accessibilityLabel={`Total at each month end, ${formatBalance(series.totalMinor, series.currencyCode)} today`}
+      {result.series.map((series) => {
+        const showLending =
+          !singleAccount &&
+          (!!series.lending.oweYouMinor ||
+            !!series.lending.youOweMinor ||
+            series.withLending.some((amount, index) => amount !== series.accounts[index]));
+        return (
+          <View key={series.currencyCode} style={{ gap: theme.spacing.lg }}>
+            <Headline
+              label={headlineLabel(series.currencyCode)}
+              head={formatBalance(series.totalMinor, series.currencyCode)}
+              color={c.accent}
+              note={`${signed(series.totalMinor - series.accounts[0], series.currencyCode)} since ${labels[0]}`}
             />
-            {!singleAccount && (
-              <View style={{ flexDirection: 'row', gap: theme.spacing.md }}>
-                <Text style={{ color: c.accent, fontSize: theme.type.caption }}>━ Accounts</Text>
-                <Text style={{ color: c.muted, fontSize: theme.type.caption }}>┄ With lending</Text>
-              </View>
-            )}
-            <Note>One point for each month end, at the Display Rate of today.</Note>
-          </Card>
-        </View>
-      ))}
+            {!singleAccount && <WorthComposition series={series} />}
+            <Card>
+              <LineChart
+                width={chartWidth}
+                height={170}
+                slots={result.points.length}
+                axis={thousands}
+                labels={labels}
+                lines={[
+                  ...(showLending
+                    ? [{ values: series.withLending, color: c.muted, dashed: true, thin: true }]
+                    : []),
+                  ...(!singleAccount
+                    ? [
+                        {
+                          values: series.liquidNet,
+                          color: liquidLineColor,
+                          dashed: true,
+                          thin: true,
+                        },
+                      ]
+                    : []),
+                  { values: series.accounts, color: c.accent },
+                ]}
+                accessibilityLabel={`Total at each month end, ${formatBalance(series.totalMinor, series.currencyCode)} today`}
+              />
+              {!singleAccount && (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.md }}>
+                  <Text style={{ color: c.accent, fontSize: theme.type.caption }}>━ Net worth</Text>
+                  <Text style={{ color: liquidLineColor, fontSize: theme.type.caption }}>
+                    ┄ Liquid (net of cards)
+                  </Text>
+                  {showLending && (
+                    <Text style={{ color: c.muted, fontSize: theme.type.caption }}>
+                      ┄ With lending
+                    </Text>
+                  )}
+                </View>
+              )}
+              <Note>One point for each month end, at the Display Rate of today.</Note>
+            </Card>
+          </View>
+        );
+      })}
       {!combined && <Note>Set a Display Rate in Settings to see one total.</Note>}
-      <Card>
-        {result.accounts.map((account) => (
-          <Line
-            key={account.id}
-            label={
-              account.mainMinor !== null && account.currencyCode !== result.series[0].currencyCode
-                ? `${account.name} · ${formatBalance(account.balanceMinor, account.currencyCode)}`
-                : account.name
-            }
-            value={
-              account.mainMinor === null
-                ? formatBalance(account.balanceMinor, account.currencyCode)
-                : formatBalance(account.mainMinor, result.series[0].currencyCode)
-            }
-            color={account.balanceMinor < 0 ? c.warning : c.text}
-          />
-        ))}
+      <Card gap={theme.spacing.lg}>
+        {worthGroups.map(({ kind, label, color }) => {
+          const accounts = result.accounts.filter((account) => (account.kind ?? 'liquid') === kind);
+          if (!accounts.length) return null;
+          return (
+            <View key={kind} style={{ gap: theme.spacing.sm }}>
+              {!singleAccount && (
+                <Text style={{ color, fontWeight: '600' }}>
+                  {label} ·{' '}
+                  {result.series
+                    .map(({ composition, currencyCode }) =>
+                      formatBalance(composition[kind], currencyCode),
+                    )
+                    .join(' · ')}
+                </Text>
+              )}
+              {accounts.map((account) => {
+                const currency = account.currencyCode;
+                const showConverted =
+                  combined &&
+                  account.mainMinor !== null &&
+                  currency !== result.series[0].currencyCode;
+                const metrics = account.investment;
+                const returns = metrics
+                  ? investmentReturnTotals(metrics, data.rate)
+                      .map((row) => signed(row.amountMinor, row.currencyCode))
+                      .join(' · ')
+                  : '';
+                return (
+                  <View key={account.id} style={{ gap: 4 }}>
+                    <Line
+                      label={
+                        showConverted
+                          ? `${account.name} · ${formatBalance(account.balanceMinor, currency)}`
+                          : account.name
+                      }
+                      value={
+                        showConverted
+                          ? formatBalance(account.mainMinor!, result.series[0].currencyCode)
+                          : formatBalance(account.balanceMinor, currency)
+                      }
+                      color={account.balanceMinor < 0 ? c.warning : c.text}
+                    />
+                    {metrics && (
+                      <Note>
+                        {`Invested ${formatBalance(metrics.investedMinor, currency)} · Return ${returns}`}
+                      </Note>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          );
+        })}
       </Card>
       {singleAccount ? (
         <Note>

@@ -109,3 +109,17 @@ test('all history starts at the first month with activity', () => {
     [today],
   );
 });
+
+test('Net worth includes the Investment while the Liquid line includes the Credit Card', () => {
+  const fund = { ...wise, kind: 'investment' };
+  const creditCard = { ...card, kind: 'card' };
+  const {
+    series: [series],
+  } = netWorth(
+    { accounts: [cash, creditCard, fund], changes, lending: [], rate, mainCurrency: 'BDT', today },
+    1,
+  );
+  assert.deepEqual(series.accounts, [2700, 2500]);
+  assert.deepEqual(series.liquidNet, [1200, 1000]);
+  assert.deepEqual(series.composition, { liquid: 1300, investment: 1500, card: -300 });
+});

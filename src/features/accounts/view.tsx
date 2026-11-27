@@ -1,3 +1,5 @@
+import { Link } from 'expo-router';
+import { investmentReturnTotals } from '@/lib/investments';
 import type { ReactNode } from 'react';
 import { Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -22,6 +24,7 @@ export type AccountForm = {
   currencyCode: string;
   openingBalance: string;
   isCreditCard?: boolean;
+  isInvestment?: boolean;
   parentAccountId?: number | null;
   statementDay?: number | null;
   dueDay?: number | null;
@@ -65,26 +68,28 @@ function OverviewCard({ children }: { children: ReactNode }) {
 export function BalanceOverview({ overview }: { overview: AccountsOverview }) {
   return (
     <OverviewCard>
-      {groupByCurrency(overview.accounts.filter((a) => !a.card)).map(([code, group]) => {
-        const total = group.reduce(
-          (sum, account) => sum + (overview.balances.get(account.id) ?? 0),
-          0,
-        );
-        return (
-          <Text
-            key={code}
-            selectable
-            style={{
-              color: total < 0 ? colors.negative : colors.ink,
-              fontSize: 26,
-              fontWeight: '700',
-              fontVariant: ['tabular-nums'],
-            }}
-          >
-            {formatBalance(total, code)}
-          </Text>
-        );
-      })}
+      {groupByCurrency(overview.accounts.filter((a) => !a.card && !a.isInvestment)).map(
+        ([code, group]) => {
+          const total = group.reduce(
+            (sum, account) => sum + (overview.balances.get(account.id) ?? 0),
+            0,
+          );
+          return (
+            <Text
+              key={code}
+              selectable
+              style={{
+                color: total < 0 ? colors.negative : colors.ink,
+                fontSize: 26,
+                fontWeight: '700',
+                fontVariant: ['tabular-nums'],
+              }}
+            >
+              {formatBalance(total, code)}
+            </Text>
+          );
+        },
+      )}
       {groupByCurrency(overview.accounts.filter((a) => !!a.card)).map(([code, group]) => (
         <Text key={`bills-${code}`} style={{ color: colors.negative }}>
           Bills to settle ·{' '}
@@ -93,6 +98,15 @@ export function BalanceOverview({ overview }: { overview: AccountsOverview }) {
               (sum, a) => sum + (overview.bills.find((b) => b.accountId === a.id)?.billMinor ?? 0),
               0,
             ),
+            code,
+          )}
+        </Text>
+      ))}
+      {groupByCurrency(overview.accounts.filter((a) => a.isInvestment)).map(([code, group]) => (
+        <Text key={`invested-${code}`} style={{ color: colors.accent }}>
+          Invested ·{' '}
+          {formatBalance(
+            group.reduce((sum, a) => sum + (overview.balances.get(a.id) ?? 0), 0),
             code,
           )}
         </Text>
@@ -184,7 +198,8 @@ export function AccountGroups({
 }) {
   if (overview.accounts.length === 0)
     return <Text style={{ color: colors.muted }}>No accounts yet.</Text>;
-  return groupByCurrency(overview.accounts).map(([code, group]) => (
+  const accounts = overview.accounts.filter((account) => !account.isInvestment);
+  return groupByCurrency(accounts).map(([code, group]) => (
     <View key={code} style={{ gap: 8 }}>
       <GroupTitle>
         {code} · {countLabel(group.length, 'account', 'accounts')}
@@ -243,6 +258,60 @@ export function AccountGroups({
       })}
     </View>
   ));
+}
+
+export function InvestmentGroup({ overview }: { overview: AccountsOverview }) {
+  if (!overview.investments.length) return null;
+  return (
+    <View style={{ gap: 8 }}>
+      <GroupTitle>Investments</GroupTitle>
+      {overview.accounts
+        .filter((account) => account.isInvestment)
+        .map((account) => {
+          const metrics = overview.investments.find((item) => item.id === account.id);
+          const currency = account.currencyCode;
+          const returns = metrics
+            ? investmentReturnTotals(metrics, overview.rate)
+                .map((row) => formatBalance(row.amountMinor, row.currencyCode))
+                .join(' · ')
+            : '';
+          return (
+            <AccountRow key={account.id}>
+              <Link
+                href={{
+                  pathname: '/accounts/investment',
+                  params: { accountId: String(account.id) },
+                }}
+                asChild
+              >
+                <Pressable accessibilityRole="link" style={{ flex: 1, paddingVertical: 8, gap: 4 }}>
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      justifyContent: 'space-between',
+                      flexWrap: 'wrap',
+                      gap: 8,
+                    }}
+                  >
+                    <Text style={{ color: colors.ink, fontSize: 16, fontWeight: '600' }}>
+                      {account.name}
+                    </Text>
+                    <Text style={{ color: colors.accent }}>
+                      {formatBalance(overview.balances.get(account.id) ?? 0, currency)}
+                    </Text>
+                  </View>
+                  {metrics && (
+                    <Text style={{ color: colors.muted }}>
+                      {`Invested ${formatBalance(metrics.investedMinor, currency)} · Return ${returns}`}
+                    </Text>
+                  )}
+                </Pressable>
+              </Link>
+            </AccountRow>
+          );
+        })}
+    </View>
+  );
 }
 
 export function AccountsBalanceSkeleton() {
@@ -304,6 +373,9 @@ export function AddAccountSheet({
 }) {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
+  let kind: 'CARD' | 'INVESTMENT' | 'ACCOUNT' = 'ACCOUNT';
+  if (form.isCreditCard) kind = 'CARD';
+  else if (form.isInvestment) kind = 'INVESTMENT';
   let openingLabel = 'Opening balance';
   if (form.isCreditCard) openingLabel = form.id ? 'Opening amount owed' : 'Owed now';
   return (
@@ -326,21 +398,24 @@ export function AddAccountSheet({
           {form.id ? 'Edit account' : 'Add account'}
         </Text>
         <JoinedChoice
-          value={form.isCreditCard ? 'CARD' : 'ACCOUNT'}
+          value={kind}
           options={[
             { value: 'ACCOUNT', label: 'Account' },
             { value: 'CARD', label: 'Credit card' },
+            { value: 'INVESTMENT', label: 'Investment' },
           ]}
           disabled={pending}
           onChange={(value) => {
-            if ((value === 'CARD') === !!form.isCreditCard) return;
+            if (value === kind) return;
             onChange({
               ...form,
               isCreditCard: value === 'CARD',
+              isInvestment: value === 'INVESTMENT',
               parentAccountId: null,
-              openingBalance: form.id
-                ? reverseAmountSign(form.openingBalance)
-                : form.openingBalance,
+              openingBalance:
+                form.id && (value === 'CARD') !== !!form.isCreditCard
+                  ? reverseAmountSign(form.openingBalance)
+                  : form.openingBalance,
             });
           }}
         />
@@ -380,7 +455,7 @@ export function AddAccountSheet({
               options={[
                 { value: '', label: 'None' },
                 ...accounts
-                  .filter((a) => !a.card && a.id !== form.id)
+                  .filter((a) => !a.card && !a.isInvestment && a.id !== form.id)
                   .map((a) => ({ value: String(a.id), label: a.name })),
               ]}
               disabled={pending}

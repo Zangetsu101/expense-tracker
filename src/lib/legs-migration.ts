@@ -5,8 +5,8 @@
 // legs schema, so its restore inserts them directly (ADR 0014).
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { assertCleanBackup, encodeBackup, type BackupV1 } from './backup.ts';
-import { backupV2Tables, type BackupV2 } from './backup-v2.ts';
-import { LEGS_SCHEMA_VERSION, legsSchema } from './legs-schema.ts';
+import { backupV3Tables, type BackupV2, type BackupV3 } from './backup-v2.ts';
+import { LEGS_SCHEMA_VERSION, legsSchema, transactionTable } from './legs-schema.ts';
 import { readAll } from './read-all.ts';
 
 type Connection = Pick<SQLiteDatabase, 'execAsync' | 'getAllAsync' | 'getFirstAsync'>;
@@ -368,6 +368,10 @@ const ledgerChecks = {
     AND NOT (accountLegs = 1 AND personLegs = 0 AND high < 0)`,
   'an Income or reimbursement with the wrong legs': `SELECT id FROM (${shape})
     WHERE kind IN ('INCOME', 'REIMBURSEMENT') AND NOT (accountLegs = 1 AND personLegs = 0 AND low > 0)`,
+  'a Valuation with the wrong legs': `SELECT id FROM (${shape}) WHERE kind = 'VALUATION'
+    AND NOT (accountLegs = 1 AND personLegs = 0)`,
+  'a Valuation outside an Investment': `SELECT t.id FROM transactions t JOIN legs l ON l.transactionId = t.id
+    WHERE t.kind = 'VALUATION' AND l.accountId NOT IN (SELECT accountId FROM investments)`,
   'a Transfer with the wrong legs': `SELECT id FROM (${shape}) WHERE kind = 'TRANSFER'
     AND NOT (accountLegs = 2 AND personLegs = 0 AND accounts = 2 AND low < 0 AND high > 0
       AND (currencies = 2 OR accountSum = 0))`,
@@ -506,7 +510,7 @@ async function userVersion(db: Connection) {
  * legs schema. On an error it rolls back and throws, and the next start tries again.
  */
 export async function migrateToLegs(db: MainConnection): Promise<boolean> {
-  if ((await userVersion(db)) >= LEGS_SCHEMA_VERSION) return false;
+  if ((await userVersion(db)) !== 0) return false;
   if (db.isInTransactionSync()) throw new Error('Run the migration outside a transaction.');
   // SQLite ignores this PRAGMA inside a transaction, so it comes before BEGIN.
   await db.execAsync('PRAGMA foreign_keys = OFF');
@@ -538,6 +542,34 @@ export async function migrateToLegs(db: MainConnection): Promise<boolean> {
   }
 }
 
+/** Rebuilds the kind constraint without deleting the children of any Transaction. */
+async function migrateInvestments(db: MainConnection) {
+  if (db.isInTransactionSync()) throw new Error('Run the migration outside a transaction.');
+  try {
+    await db.execAsync('PRAGMA foreign_keys = OFF; PRAGMA legacy_alter_table = ON;');
+    const foreignKeys = await db.getFirstAsync<{ foreign_keys: number }>('PRAGMA foreign_keys');
+    if (foreignKeys?.foreign_keys !== 0) throw new Error('Could not turn foreign keys off.');
+    await db.execAsync(`BEGIN EXCLUSIVE;
+      DROP VIEW report_transactions;
+      DROP VIEW split_share_progress;
+      DROP TRIGGER leg_fits_on_insert;
+      DROP TRIGGER leg_fits_on_update;
+      ${transactionTable('new_transactions')}
+      INSERT INTO new_transactions SELECT * FROM transactions;
+      DROP TABLE transactions;
+      ALTER TABLE new_transactions RENAME TO transactions;
+      ${legsSchema}
+      PRAGMA user_version = ${LEGS_SCHEMA_VERSION};`);
+    await checkLedger(db);
+    await db.execAsync('COMMIT');
+  } catch (error) {
+    if (db.isInTransactionSync()) await db.execAsync('ROLLBACK');
+    throw error;
+  } finally {
+    await db.execAsync('PRAGMA legacy_alter_table = OFF; PRAGMA foreign_keys = ON;');
+  }
+}
+
 /**
  * Prepares the main connection. A new install gets the legs schema. A database with the
  * old schema gets a v1 backup from `saveBackup`, then the migration. If `saveBackup`
@@ -545,7 +577,9 @@ export async function migrateToLegs(db: MainConnection): Promise<boolean> {
  */
 export async function openLedger(db: MainConnection, saveBackup: (json: string) => Promise<void>) {
   await db.execAsync('PRAGMA foreign_keys = ON');
-  if ((await userVersion(db)) < LEGS_SCHEMA_VERSION) {
+  const version = await userVersion(db);
+  if (version === 1) await migrateInvestments(db);
+  if (version === 0) {
     const old = await db.getFirstAsync(
       "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'transactions'",
     );
@@ -574,7 +608,7 @@ export async function openLedger(db: MainConnection, saveBackup: (json: string) 
  * triggers. Deleting a Transaction deletes its Legs, split shares, Line Items and tags.
  */
 const clearLedger = `DELETE FROM reimbursements; DELETE FROM transactions;
-  DELETE FROM credit_cards; DELETE FROM accounts; DELETE FROM people; DELETE FROM tags;
+  DELETE FROM investments; DELETE FROM credit_cards; DELETE FROM accounts; DELETE FROM people; DELETE FROM tags;
   DELETE FROM categories;`;
 
 type SQLiteValue = string | number | null;
@@ -641,20 +675,26 @@ export async function restoreLegacyRows(tx: Writer, data: BackupV1) {
  * the rules that span rows. So a file with a missing parent row or a wrong set of Legs
  * changes nothing.
  */
-export async function restoreLegsRows(tx: Writer, data: BackupV2) {
+export async function restoreLegsRows(tx: Writer, data: BackupV2 | BackupV3) {
   await deferForeignKeys(tx);
   await tx.execAsync(clearLedger);
-  for (const [name, { table, fields }] of Object.entries(backupV2Tables))
-    await insertRows(tx, table, Object.keys(fields), data[name as keyof typeof backupV2Tables]);
+  const rows =
+    data.schemaVersion === 3 ? data : { ...data, investments: [], investmentDividends: [] };
+  for (const name of Object.keys(backupV3Tables) as (keyof typeof backupV3Tables)[]) {
+    const { table, fields } = backupV3Tables[name];
+    await insertRows(tx, table, Object.keys(fields), rows[name]);
+  }
   const { favoriteAccountId, displayRate } = data.settings;
   await tx.execAsync("DELETE FROM app_settings WHERE key IN ('favoriteAccountId', 'displayRate')");
   if (favoriteAccountId !== null) {
     const favorite = await tx.runAsync(
-      "INSERT INTO app_settings (key, value) SELECT 'favoriteAccountId', json(id) FROM accounts WHERE id = ?",
+      "INSERT INTO app_settings (key, value) SELECT 'favoriteAccountId', json(id) FROM accounts WHERE id = ? AND id NOT IN (SELECT accountId FROM investments)",
       [favoriteAccountId],
     );
     if (favorite.changes !== 1)
-      throw new Error(`The favorite Account ${favoriteAccountId} does not exist.`);
+      throw new Error(
+        `The favorite Account ${favoriteAccountId} must exist and cannot be an Investment.`,
+      );
   }
   if (displayRate)
     await tx.runAsync("INSERT INTO app_settings (key, value) VALUES ('displayRate', ?)", [

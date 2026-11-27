@@ -1,11 +1,11 @@
-import { readBackupV2, type BackupV2 } from './backup-v2.ts';
+import { readLegsBackup, type BackupV2, type BackupV3 } from './backup-v2.ts';
 
 // Native Android backup schema v1 (BackupModels.kt). Long values are JSON numbers;
 // JavaScript cannot preserve integers outside Number.MAX_SAFE_INTEGER. Export writes v1.
 // Restore reads v1 and v2 (ADR 0014).
 export const BACKUP_SCHEMA_VERSION = 1;
 
-export type Backup = BackupV1 | BackupV2;
+export type Backup = BackupV1 | BackupV2 | BackupV3;
 
 export interface BackupV1 {
   schemaVersion: 1;
@@ -178,7 +178,9 @@ function parseJson(json: string): Record<string, unknown> {
 /** Reads a backup file. A v1 file can have references that the restore repairs or reports. */
 export function decodeBackup(json: string): Backup {
   const data = parseJson(json);
-  return data.schemaVersion === 2 ? readBackupV2(data) : readV1(data, 'repair');
+  return data.schemaVersion === 2 || data.schemaVersion === 3
+    ? readLegsBackup(data)
+    : readV1(data, 'repair');
 }
 
 /** Throws if the cleaned rows of a v1 restore are not a valid backup. */
@@ -462,9 +464,9 @@ function validateReimbursements(data: Record<string, unknown>, strict: boolean) 
 }
 
 export function encodeBackup(data: Backup): string {
-  if (data.schemaVersion === 2) {
+  if (data.schemaVersion === 2 || data.schemaVersion === 3) {
     const json = JSON.stringify(data, null, 2);
-    readBackupV2(parseJson(json));
+    readLegsBackup(parseJson(json));
     return json;
   }
   if (data.schemaVersion !== BACKUP_SCHEMA_VERSION)
@@ -477,7 +479,7 @@ export function encodeBackup(data: Backup): string {
 
 /** Storage and database boundaries supplied by the app. Import must replace atomically. */
 export interface BackupStore {
-  snapshot(): Promise<BackupV1>;
+  snapshot(): Promise<Backup>;
   replace(data: Backup): Promise<void>;
 }
 

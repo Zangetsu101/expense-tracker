@@ -11,6 +11,7 @@
 //   LENDING         an Account leg and a Person leg with opposite signs
 //   WRITE_OFF       one Person leg: LENT < 0, BORROWED > 0
 //   REIMBURSEMENT   one Account leg > 0, and a row in reimbursements
+//   VALUATION       one signed Investment leg
 //
 // A positive Person leg means that the person owes the user more, or the user owes less.
 // LENDING and WRITE_OFF also store the Direction (ADR 0003). With the sign of the Account
@@ -20,7 +21,22 @@
 //   BORROWED  Account > 0: BORROW   Account < 0: REPAY               no Account: WRITE_OFF_BORROWED
 
 /** PRAGMA user_version of a database with this schema. Version 0 is the old schema. */
-export const LEGS_SCHEMA_VERSION = 1;
+export const LEGS_SCHEMA_VERSION = 2;
+
+export const transactionTable = (table = 'transactions') => `CREATE TABLE IF NOT EXISTS ${table} (
+  id INTEGER PRIMARY KEY,
+  kind TEXT NOT NULL
+    CHECK(kind IN ('EXPENSE', 'INCOME', 'TRANSFER', 'LENDING', 'WRITE_OFF', 'REIMBURSEMENT', 'VALUATION')),
+  direction TEXT CHECK(direction IN ('LENT', 'BORROWED')),
+  date INTEGER NOT NULL,
+  categoryId INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+  note TEXT,
+  excludeFromReport INTEGER NOT NULL DEFAULT 0 CHECK(excludeFromReport IN (0, 1)),
+  CHECK((kind IN ('LENDING', 'WRITE_OFF')) = (direction IS NOT NULL)),
+  CHECK(categoryId IS NULL OR kind IN ('EXPENSE', 'INCOME')),
+  CHECK(excludeFromReport = 0 OR kind IN ('EXPENSE', 'INCOME', 'REIMBURSEMENT'))
+);
+`;
 
 export const legsSchema = `
 CREATE TABLE IF NOT EXISTS accounts (
@@ -38,6 +54,10 @@ CREATE TABLE IF NOT EXISTS credit_cards (
   CHECK(accountId != parentAccountId)
 );
 
+CREATE TABLE IF NOT EXISTS investments (
+  accountId INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS categories (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
@@ -51,19 +71,7 @@ CREATE TABLE IF NOT EXISTS people (
   name TEXT NOT NULL COLLATE NOCASE UNIQUE CHECK(length(trim(name)) > 0)
 );
 
-CREATE TABLE IF NOT EXISTS transactions (
-  id INTEGER PRIMARY KEY,
-  kind TEXT NOT NULL
-    CHECK(kind IN ('EXPENSE', 'INCOME', 'TRANSFER', 'LENDING', 'WRITE_OFF', 'REIMBURSEMENT')),
-  direction TEXT CHECK(direction IN ('LENT', 'BORROWED')),
-  date INTEGER NOT NULL,
-  categoryId INTEGER REFERENCES categories(id) ON DELETE SET NULL,
-  note TEXT,
-  excludeFromReport INTEGER NOT NULL DEFAULT 0 CHECK(excludeFromReport IN (0, 1)),
-  CHECK((kind IN ('LENDING', 'WRITE_OFF')) = (direction IS NOT NULL)),
-  CHECK(categoryId IS NULL OR kind IN ('EXPENSE', 'INCOME')),
-  CHECK(excludeFromReport = 0 OR kind IN ('EXPENSE', 'INCOME', 'REIMBURSEMENT'))
-);
+${transactionTable()}
 CREATE INDEX IF NOT EXISTS transactions_date ON transactions(date);
 
 CREATE TABLE IF NOT EXISTS legs (
@@ -113,6 +121,12 @@ CREATE TABLE IF NOT EXISTS reimbursements (
   FOREIGN KEY(expenseId, personId) REFERENCES split_shares(expenseId, personId) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS reimbursements_expense_person ON reimbursements(expenseId, personId);
+
+CREATE TABLE IF NOT EXISTS investment_dividends (
+  transactionId INTEGER PRIMARY KEY REFERENCES transactions(id) ON DELETE CASCADE,
+  investmentAccountId INTEGER NOT NULL REFERENCES investments(accountId)
+);
+CREATE INDEX IF NOT EXISTS dividends_investment ON investment_dividends(investmentAccountId);
 
 -- One row for each setting. Each value is JSON.
 -- Portable: favoriteAccountId, displayRate. Device-local: every other key.
@@ -170,6 +184,7 @@ CREATE TRIGGER IF NOT EXISTS leg_fits_on_insert BEFORE INSERT ON legs
     (t.kind = 'EXPENSE' AND NEW.accountId IS NOT NULL AND NEW.amountMinor < 0) OR
     (t.kind IN ('INCOME', 'REIMBURSEMENT') AND NEW.accountId IS NOT NULL AND NEW.amountMinor > 0) OR
     (t.kind = 'TRANSFER' AND NEW.accountId IS NOT NULL) OR
+    (t.kind = 'VALUATION' AND EXISTS (SELECT 1 FROM investments WHERE accountId = NEW.accountId)) OR
     t.kind = 'LENDING' OR
     (t.kind = 'WRITE_OFF' AND NEW.personId IS NOT NULL
       AND (NEW.amountMinor < 0) = (t.direction = 'LENT'))))
@@ -183,6 +198,7 @@ CREATE TRIGGER IF NOT EXISTS leg_fits_on_update
     (t.kind = 'EXPENSE' AND NEW.accountId IS NOT NULL AND NEW.amountMinor < 0) OR
     (t.kind IN ('INCOME', 'REIMBURSEMENT') AND NEW.accountId IS NOT NULL AND NEW.amountMinor > 0) OR
     (t.kind = 'TRANSFER' AND NEW.accountId IS NOT NULL) OR
+    (t.kind = 'VALUATION' AND EXISTS (SELECT 1 FROM investments WHERE accountId = NEW.accountId)) OR
     t.kind = 'LENDING' OR
     (t.kind = 'WRITE_OFF' AND NEW.personId IS NOT NULL
       AND (NEW.amountMinor < 0) = (t.direction = 'LENT'))))
@@ -218,6 +234,36 @@ CREATE TRIGGER IF NOT EXISTS reimbursement_fits BEFORE INSERT ON reimbursements
     OR (NEW.personId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM split_shares
       WHERE expenseId = NEW.expenseId AND personId = NEW.personId))
   BEGIN SELECT RAISE(ABORT, 'This reimbursement does not fit its expense.'); END;
+
+-- These checks also run on connections with foreign keys off.
+CREATE TRIGGER IF NOT EXISTS investment_fits BEFORE INSERT ON investments
+  WHEN NOT EXISTS (SELECT 1 FROM accounts WHERE id = NEW.accountId)
+    OR EXISTS (SELECT 1 FROM credit_cards WHERE accountId = NEW.accountId OR parentAccountId = NEW.accountId)
+  BEGIN SELECT RAISE(ABORT, 'This Account is used by a Credit Card.'); END;
+CREATE TRIGGER IF NOT EXISTS investment_card_insert BEFORE INSERT ON credit_cards
+  WHEN EXISTS (SELECT 1 FROM investments WHERE accountId IN (NEW.accountId, NEW.parentAccountId))
+  BEGIN SELECT RAISE(ABORT, 'Choose a liquid Account for this Credit Card.'); END;
+CREATE TRIGGER IF NOT EXISTS keep_investment BEFORE DELETE ON investments
+  WHEN EXISTS (SELECT 1 FROM investment_dividends WHERE investmentAccountId = OLD.accountId)
+    OR EXISTS (SELECT 1 FROM legs l JOIN transactions t ON t.id = l.transactionId
+      WHERE l.accountId = OLD.accountId AND t.kind = 'VALUATION')
+  BEGIN SELECT RAISE(ABORT, 'Delete the Valuations and linked dividends before changing this Investment.'); END;
+CREATE TRIGGER IF NOT EXISTS delete_investment_settings AFTER DELETE ON accounts BEGIN
+  DELETE FROM investments WHERE accountId = OLD.id;
+END;
+CREATE TRIGGER IF NOT EXISTS clear_investment_favorite AFTER INSERT ON investments BEGIN
+  DELETE FROM app_settings WHERE key = 'favoriteAccountId' AND CAST(value AS INTEGER) = NEW.accountId;
+END;
+CREATE TRIGGER IF NOT EXISTS dividend_fits BEFORE INSERT ON investment_dividends
+  WHEN NOT EXISTS (SELECT 1 FROM investments WHERE accountId = NEW.investmentAccountId)
+    OR NOT EXISTS (
+      SELECT 1 FROM transactions t JOIN legs l ON l.transactionId = t.id
+      WHERE t.id = NEW.transactionId AND t.kind = 'INCOME' AND l.accountId IS NOT NULL
+        AND l.accountId <> NEW.investmentAccountId)
+  BEGIN SELECT RAISE(ABORT, 'A Dividend needs Income on a different Account.'); END;
+CREATE TRIGGER IF NOT EXISTS delete_dividend_link AFTER DELETE ON transactions BEGIN
+  DELETE FROM investment_dividends WHERE transactionId = OLD.id;
+END;
 
 -- Spending and income for reports. A reimbursement takes the Category of its Expense
 -- and lowers spending in the month of its own date (ADR 0011). The columns are the same
