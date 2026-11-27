@@ -97,17 +97,7 @@ export function ControlledAmountInput({
       <Text
         style={{ color: c.muted, fontSize: 12 }}
       >{`Amount · ${currency ?? 'Select account'}`}</Text>
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          borderBottomWidth: 1,
-          borderColor: c.line,
-        }}
-      >
-        <Text style={{ color: c.text, fontSize: 48, fontWeight: '300' }}>
-          {amountSymbol(currency)}
-        </Text>
+      <View style={{ borderBottomWidth: 1, borderColor: c.line }}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Amount"
@@ -119,16 +109,19 @@ export function ControlledAmountInput({
             Keyboard.dismiss();
             setCalculatorOpen(true);
           }}
-          style={{ flex: 1, minHeight: 64, justifyContent: 'center' }}
+          style={{ minHeight: 64, justifyContent: 'center' }}
         >
           <Text
             style={{
               color: amount ? c.text : c.muted,
               fontSize: 48,
               fontWeight: '300',
+              lineHeight: 60,
+              includeFontPadding: false,
               fontVariant: ['tabular-nums'],
             }}
           >
+            <Text style={{ color: c.text }}>{amountSymbol(currency)}</Text>
             {amount || '0.00'}
           </Text>
         </Pressable>

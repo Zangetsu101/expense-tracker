@@ -2,6 +2,7 @@ import { View } from 'react-native';
 import type { Account } from '@/lib/database';
 import { epochDay } from '@/lib/database';
 import { formatBalance } from '@/lib/transaction-format';
+import { Skeleton } from '@/components/loading';
 import { FormButton } from '@/components/form-controls';
 import { ChoicesSection } from './view.tsx';
 import { cardBillsQuery } from './queries.ts';
@@ -19,7 +20,12 @@ export function TransferBillChoices({
     <ChoicesSection
       options={cardBillsQuery(epochDay(new Date()))}
       label="card bills"
-      layout="bills"
+      pending={
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <Skeleton width={130} height={48} />
+          <Skeleton width={130} height={48} />
+        </View>
+      }
     >
       {(bills) =>
         bills

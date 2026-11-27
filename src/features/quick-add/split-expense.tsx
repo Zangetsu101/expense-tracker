@@ -6,7 +6,7 @@ import type { Person } from '@/lib/lending';
 import { formatBalance, formatMoney } from '@/lib/transaction-format';
 import { splitShares } from '@/lib/reimbursements';
 import { theme } from '@/theme';
-import { ChoicesSection } from './view';
+import { ChoicesSection, PeopleChoicesSkeleton } from './view';
 import { peopleQuery } from './queries';
 
 const c = theme.colors;
@@ -131,7 +131,11 @@ export function SplitExpense({
             onChangeText={setSearch}
             editable={!disabled}
           />
-          <ChoicesSection options={peopleQuery()} label="people" layout="people">
+          <ChoicesSection
+            options={peopleQuery()}
+            label="people"
+            pending={<PeopleChoicesSkeleton />}
+          >
             {() => (
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                 {people
