@@ -1,5 +1,6 @@
 import { act, screen, userEvent } from '@testing-library/react-native';
 import { epochDay } from '@/lib/database';
+import { investmentHistory } from '@/lib/investments';
 import { createQueryClient } from '@/lib/query-client';
 import { accountBalances } from '@/lib/reports';
 import { renderWithQueries } from '@/test/render-with-queries';
@@ -22,7 +23,7 @@ jest.mock('@/lib/investments', () => ({
 }));
 jest.mock('@/lib/reports', () => ({ accountBalances: jest.fn() }));
 
-test('a failed balance refresh uses the sheet fallback and retry keeps the draft', async () => {
+function cachedOverview() {
   const today = epochDay(new Date());
   const client = createQueryClient();
   const overview = {
@@ -45,7 +46,57 @@ test('a failed balance refresh uses the sheet fallback and retry keeps the draft
   } satisfies AccountsOverview;
   client.setQueryDefaults(['accounts', 'overview'], { staleTime: Infinity });
   client.setQueryData(accountsOverviewQuery(today).queryKey, overview);
-  const balance = { id: 1, name: 'Fund', currencyCode: 'USD', balanceMinor: 10000 };
+  return { client, today };
+}
+
+const balance = { id: 1, name: 'Fund', currencyCode: 'USD', balanceMinor: 10000 };
+
+test('Investment detail reserves the summary, actions and History until the reads finish', async () => {
+  const { client } = cachedOverview();
+  const history = Promise.withResolvers<Awaited<ReturnType<typeof investmentHistory>>>();
+  jest.mocked(investmentHistory).mockReturnValueOnce(history.promise);
+  await renderWithQueries(<InvestmentScreen />, client);
+
+  try {
+    expect(
+      await screen.findByRole('progressbar', { name: 'Loading investment' }),
+    ).toBeOnTheScreen();
+    expect(screen.getByText('Current value')).toBeOnTheScreen();
+    expect(screen.getByText('History')).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: 'Update value' })).toBeNull();
+  } finally {
+    await act(async () => history.resolve([]));
+  }
+  expect(await screen.findByRole('button', { name: 'Update value' })).toBeEnabled();
+  expect(screen.queryByRole('progressbar', { name: 'Loading investment' })).toBeNull();
+});
+
+test('the balance skeleton keeps the Valuation draft and date controls available', async () => {
+  const { client } = cachedOverview();
+  const pending = Promise.withResolvers<Awaited<ReturnType<typeof accountBalances>>>();
+  jest.mocked(accountBalances).mockReturnValueOnce(pending.promise);
+  const user = userEvent.setup();
+  await renderWithQueries(<InvestmentScreen />, client);
+  await user.press(await screen.findByRole('button', { name: 'Update value' }));
+
+  try {
+    expect(await screen.findByRole('progressbar', { name: 'Loading balance' })).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: 'Save value' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Yesterday' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled();
+    const input = screen.getByLabelText('New total');
+    await user.clear(input);
+    await user.type(input, '120');
+  } finally {
+    await act(async () => pending.resolve([balance]));
+  }
+  expect(await screen.findByText('+$20.00')).toBeOnTheScreen();
+  expect(screen.getByRole('button', { name: 'Save value' })).toBeEnabled();
+  expect(screen.getByLabelText('New total')).toHaveDisplayValue('120');
+});
+
+test('a failed balance refresh uses the sheet fallback and retry keeps the draft', async () => {
+  const { client, today } = cachedOverview();
   const read = jest.mocked(accountBalances);
   read.mockResolvedValueOnce([balance]);
   const user = userEvent.setup();

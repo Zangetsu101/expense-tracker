@@ -1,10 +1,19 @@
-import { use, useState, useTransition } from 'react';
+import { use, useState, useTransition, type ReactNode } from 'react';
 import { useSuspenseQueries, useSuspenseQuery } from '@tanstack/react-query';
 import { Link, router, Stack, useLocalSearchParams } from 'expo-router';
-import { FlatList, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
+import {
+  FlatList,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppSheet } from '@/components/app-sheet';
 import { FormButton, FormInput } from '@/components/form-controls';
+import { Skeleton } from '@/components/loading';
 import { QueryBoundary } from '@/components/query-error-boundary';
 import { QuickAddDate } from '@/components/quick-add-date';
 import { parseRouteId } from '@/lib/account-selection';
@@ -25,15 +34,136 @@ import { useAccountSheet } from './account-editor';
 import { WriteError } from './view';
 
 const c = theme.colors;
+const currentValueLineHeight = 40;
 const historyLabels = { VALUATION: 'Valuation', INCOME: 'Dividend', TRANSFER: 'Transfer' };
 
-function Metric({ label, value }: { label: string; value: string }) {
+const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: c.background },
+  content: { padding: 20, gap: 8 },
+  sections: { gap: 16, paddingBottom: 8 },
+  summary: { backgroundColor: c.raised, borderRadius: 20, padding: 20, gap: 12 },
+  currentValue: {
+    color: c.accent,
+    fontSize: 30,
+    fontWeight: '700',
+    lineHeight: currentValueLineHeight,
+    includeFontPadding: false,
+  },
+  actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  historyHeading: { color: c.text, fontWeight: '700', fontSize: 18 },
+  historyRow: { padding: 14, backgroundColor: c.surface, borderRadius: 12, gap: 6 },
+});
+
+function Metric({ label, value }: { label: string; value?: string }) {
   return (
-    <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 12,
+      }}
+    >
       <Text style={{ color: c.muted }}>{label}</Text>
-      <Text selectable style={{ color: c.text, flexShrink: 1, textAlign: 'right' }}>
-        {value}
-      </Text>
+      {value === undefined ? (
+        <Skeleton width={76} />
+      ) : (
+        <Text selectable style={{ color: c.text, flexShrink: 1, textAlign: 'right' }}>
+          {value}
+        </Text>
+      )}
+    </View>
+  );
+}
+
+function InvestmentSummary({ value, children }: { value?: string; children: ReactNode }) {
+  const { fontScale } = useWindowDimensions();
+  return (
+    <View style={[styles.summary, value === undefined && { backgroundColor: c.surface }]}>
+      <Text style={{ color: c.muted }}>Current value</Text>
+      {value === undefined ? (
+        <View
+          style={{
+            height: Math.ceil(currentValueLineHeight * fontScale),
+            justifyContent: 'center',
+          }}
+        >
+          <Skeleton width="55%" height={24} />
+        </View>
+      ) : (
+        <Text selectable style={styles.currentValue}>
+          {value}
+        </Text>
+      )}
+      {children}
+    </View>
+  );
+}
+
+function ActionSkeleton({ width = '100%' }: { width?: '100%' | number }) {
+  const { fontScale } = useWindowDimensions();
+  return (
+    <Skeleton
+      width={width}
+      height={Math.max(theme.controlHeight, Math.ceil(20 * fontScale) + 18)}
+      borderRadius={theme.radius.control}
+    />
+  );
+}
+
+function InvestmentDetailSkeleton() {
+  const insets = useSafeAreaInsets();
+  const { fontScale } = useWindowDimensions();
+  return (
+    <ScrollView
+      style={styles.screen}
+      contentInsetAdjustmentBehavior="automatic"
+      contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
+    >
+      <View
+        accessible
+        accessibilityRole="progressbar"
+        accessibilityLabel="Loading investment"
+        style={{ gap: 8 }}
+      >
+        <View style={styles.sections}>
+          <InvestmentSummary>
+            <Metric label="Invested" />
+            <Metric label="Total return" />
+            <Metric label="Value growth" />
+            <Metric label="Dividends paid" />
+          </InvestmentSummary>
+          <ActionSkeleton />
+          <View style={styles.actionRow}>
+            <ActionSkeleton width={Math.ceil(66 * fontScale) + 26} />
+            <ActionSkeleton width={Math.ceil(62 * fontScale) + 26} />
+          </View>
+          <Text style={styles.historyHeading}>History</Text>
+        </View>
+        {[0, 1].map((row) => (
+          <View key={row} style={styles.historyRow}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <Skeleton width="32%" height={Math.ceil(21 * fontScale)} />
+              <Skeleton width="25%" height={Math.ceil(21 * fontScale)} />
+            </View>
+            <Skeleton width="42%" height={Math.ceil(17 * fontScale)} />
+          </View>
+        ))}
+      </View>
+    </ScrollView>
+  );
+}
+
+function ValuationActionsSkeleton({ showDelta }: { showDelta: boolean }) {
+  return (
+    <View
+      accessible
+      accessibilityRole="progressbar"
+      accessibilityLabel="Loading balance"
+      style={{ gap: 16 }}
+    >
+      {showDelta && <Metric label="Value change" />}
+      <ActionSkeleton />
     </View>
   );
 }
@@ -145,7 +275,7 @@ function ValuationSheet({
         {error && <WriteError message={error} />}
         <QueryBoundary
           key={day}
-          pending={<Text style={{ color: c.muted }}>Loading balance…</Text>}
+          pending={<ValuationActionsSkeleton showDelta={target !== undefined} />}
           error={(retry) => (
             <>
               <WriteError message="Could not load the balance." />
@@ -171,10 +301,7 @@ function ValuationSheet({
 function HistoryRow({ row }: { row: InvestmentHistoryRow }) {
   return (
     <Link href={{ pathname: '/transaction/[id]', params: { id: String(row.id) } }} asChild>
-      <Pressable
-        accessibilityRole="link"
-        style={{ padding: 14, backgroundColor: c.surface, borderRadius: 12, gap: 6 }}
-      >
+      <Pressable accessibilityRole="link" style={styles.historyRow}>
         <Metric
           label={historyLabels[row.kind]}
           value={formatSignedMoney(row.amountMinor, row.currencyCode)}
@@ -214,7 +341,7 @@ function InvestmentDetail({ id, today }: { id: number; today: number }) {
   const defaultCash = liquid.find((item) => item.isFavorite) ?? liquid[0];
 
   return (
-    <View style={{ flex: 1, backgroundColor: c.background }}>
+    <View style={styles.screen}>
       <Stack.Screen
         options={{
           title: account.name,
@@ -231,16 +358,12 @@ function InvestmentDetail({ id, today }: { id: number; today: number }) {
       />
       <FlatList
         contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 24, gap: 8 }}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
         data={history.data}
         keyExtractor={(row) => String(row.id)}
         ListHeaderComponent={
-          <View style={{ gap: 16, paddingBottom: 8 }}>
-            <View style={{ backgroundColor: c.raised, borderRadius: 20, padding: 20, gap: 12 }}>
-              <Text style={{ color: c.muted }}>Current value</Text>
-              <Text selectable style={{ color: c.accent, fontSize: 30, fontWeight: '700' }}>
-                {formatBalance(balance, currency)}
-              </Text>
+          <View style={styles.sections}>
+            <InvestmentSummary value={formatBalance(balance, currency)}>
               <Metric label="Invested" value={formatBalance(metrics.investedMinor, currency)} />
               <Metric label="Total return" value={totalReturn} />
               <Metric label="Value growth" value={formatBalance(metrics.growthMinor, currency)} />
@@ -254,9 +377,9 @@ function InvestmentDetail({ id, today }: { id: number; today: number }) {
                     : formatBalance(0, currency)
                 }
               />
-            </View>
+            </InvestmentSummary>
             <FormButton label="Update value" onPress={() => setUpdating(true)} />
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            <View style={styles.actionRow}>
               <FormButton
                 label="Dividend"
                 disabled={!defaultCash}
@@ -291,7 +414,7 @@ function InvestmentDetail({ id, today }: { id: number; today: number }) {
             {!defaultCash && (
               <Text style={{ color: c.muted }}>Add a liquid Account to receive dividends.</Text>
             )}
-            <Text style={{ color: c.text, fontWeight: '700', fontSize: 18 }}>History</Text>
+            <Text style={styles.historyHeading}>History</Text>
             {history.isError && !history.isFetching && (
               <FormButton
                 label="Retry history"
@@ -324,7 +447,7 @@ export function InvestmentScreen() {
   return (
     <QueryBoundary
       resetKey={`${id}-${today}`}
-      pending={<Text style={{ color: c.muted, padding: 20 }}>Loading investment…</Text>}
+      pending={<InvestmentDetailSkeleton />}
       error={(retry) => <FormButton label="Retry investment" variant="secondary" onPress={retry} />}
     >
       {id ? (
