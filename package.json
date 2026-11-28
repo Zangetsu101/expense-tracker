@@ -2,7 +2,7 @@
   "name": "expense-tracker-expo",
   "main": "./index.js",
   "type": "module",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "dependencies": {
     "@expo/dom-webview": "~58.0.2",
     "@expo/ui": "~58.0.28",
