@@ -412,11 +412,8 @@ test('a v2 file decodes, and encode then decode gives the same data', () => {
   assert.deepEqual(decodeBackup(encodeBackup(data)), data);
 });
 
-test('encode writes only v2, so it refuses a v1 backup', () => {
-  assert.throws(
-    () => encodeBackup(decodeBackup(native)),
-    /Unknown backup field transferCandidates/,
-  );
+test('encode refuses a v1 backup', () => {
+  assert.throws(() => encodeBackup(decodeBackup(native)), /Unsupported backup schema version/);
 });
 
 test('a v2 file with a wrong structure is refused before any change', async (t) => {
