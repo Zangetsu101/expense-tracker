@@ -69,6 +69,15 @@ function Label({ children }: { children: string }) {
   return <Text style={{ color: c.muted, fontSize: 12 }}>{children}</Text>;
 }
 
+function AccountSelectionSkeleton({ label }: { label: string }) {
+  return (
+    <View style={{ gap: 10 }}>
+      <Label>{label}</Label>
+      <AccountChoicesSkeleton />
+    </View>
+  );
+}
+
 function CancelAction({ disabled = false }: { disabled?: boolean }) {
   return (
     <Pressable
@@ -427,16 +436,8 @@ function QuickAddForm() {
                 label="accounts"
                 pending={
                   <>
-                    <View style={{ gap: 10 }}>
-                      <Label>{accountLabel}</Label>
-                      <AccountChoicesSkeleton />
-                    </View>
-                    {mode === 'TRANSFER' && (
-                      <View style={{ gap: 10 }}>
-                        <Label>{destinationLabel}</Label>
-                        <AccountChoicesSkeleton />
-                      </View>
-                    )}
+                    <AccountSelectionSkeleton label={accountLabel} />
+                    {mode === 'TRANSFER' && <AccountSelectionSkeleton label={destinationLabel} />}
                   </>
                 }
               >
@@ -668,21 +669,14 @@ function QuickAddForm() {
                   label={`${categoryMode === 'EXPENSE' ? 'expense' : 'income'} categories`}
                 >
                   {(readyCategories) => (
-                    <>
-                      <QuickSelectCategory
-                        categories={readyCategories}
-                        orderedIds={orderedCategoryIds}
-                        selectedId={categoryIds[categoryMode]}
-                        disabled={saving}
-                        onSelect={(id) => setCategoryIds((ids) => ({ ...ids, [categoryMode]: id }))}
-                      />
-                      {!readyCategories.length && (
-                        <Text style={{ color: c.muted }}>
-                          Create an {categoryMode === 'EXPENSE' ? 'expense' : 'income'} category in
-                          Settings before saving.
-                        </Text>
-                      )}
-                    </>
+                    <QuickSelectCategory
+                      categories={readyCategories}
+                      orderedIds={orderedCategoryIds}
+                      selectedId={categoryIds[categoryMode]}
+                      disabled={saving}
+                      emptyMessage={`Create an ${categoryMode === 'EXPENSE' ? 'expense' : 'income'} category in Settings before saving.`}
+                      onSelect={(id) => setCategoryIds((ids) => ({ ...ids, [categoryMode]: id }))}
+                    />
                   )}
                 </ChoicesSection>
               )}

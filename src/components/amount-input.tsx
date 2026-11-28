@@ -7,6 +7,12 @@ import { AmountCalculator } from './amount-calculator.tsx';
 import { theme } from '@/theme';
 
 const c = theme.colors;
+const amountTextStyle = {
+  fontSize: 48,
+  fontWeight: '300',
+  lineHeight: 60,
+  includeFontPadding: false,
+} as const;
 function amountSymbol(currency: string | undefined) {
   if (currency === 'BDT') return '৳';
   if (currency === 'USD') return '$';
@@ -92,6 +98,7 @@ export function ControlledAmountInput({
     const subscription = BackHandler.addEventListener('hardwareBackPress', onHardwareBack);
     return () => subscription.remove();
   }, [calculatorOpen]);
+  const symbol = amountSymbol(currency);
   const input = (
     <View style={{ gap: 6 }}>
       <Text
@@ -109,19 +116,15 @@ export function ControlledAmountInput({
             Keyboard.dismiss();
             setCalculatorOpen(true);
           }}
-          style={{ minHeight: 64, justifyContent: 'center' }}
+          style={{ flexDirection: 'row', minHeight: 64, alignItems: 'center' }}
         >
+          {!!symbol && <Text style={[amountTextStyle, { color: c.text }]}>{symbol}</Text>}
           <Text
-            style={{
-              color: amount ? c.text : c.muted,
-              fontSize: 48,
-              fontWeight: '300',
-              lineHeight: 60,
-              includeFontPadding: false,
-              fontVariant: ['tabular-nums'],
-            }}
+            style={[
+              amountTextStyle,
+              { color: amount ? c.text : c.muted, flexShrink: 1, fontVariant: ['tabular-nums'] },
+            ]}
           >
-            <Text style={{ color: c.text }}>{amountSymbol(currency)}</Text>
             {amount || '0.00'}
           </Text>
         </Pressable>

@@ -5,8 +5,11 @@ import { pressableOpacity, theme } from '@/theme';
 import { Shimmer } from './loading';
 
 const c = theme.colors;
+const accountChipGap = 8;
 const accountStyles = StyleSheet.create({
-  choices: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  choices: { flexDirection: 'row', flexWrap: 'wrap', gap: accountChipGap },
+  skeletonRows: { gap: accountChipGap },
+  skeletonRow: { flexDirection: 'row', gap: accountChipGap },
   chip: {
     minHeight: 48,
     maxWidth: '100%',
@@ -18,24 +21,51 @@ const accountStyles = StyleSheet.create({
   },
 });
 
+function AccountChipLabel({
+  name,
+  currency,
+  selected = false,
+}: {
+  name: string;
+  currency: string;
+  selected?: boolean;
+}) {
+  return (
+    <Text style={{ fontSize: 14, color: selected ? c.onSelected : c.text }}>
+      {name}
+      {'  '}
+      <Text style={{ fontSize: 11, color: selected ? c.onSelected : c.muted }}>{currency}</Text>
+    </Text>
+  );
+}
+
 export function AccountChoicesSkeleton() {
   return (
     <View
-      style={accountStyles.choices}
+      style={accountStyles.skeletonRows}
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
     >
-      {['Checking', 'Cash', 'Credit card'].map((name) => (
-        <View
-          key={name}
-          style={[accountStyles.chip, { backgroundColor: c.raised, overflow: 'hidden' }]}
-        >
-          <Text style={{ fontSize: 14, opacity: 0 }}>
-            {name}
-            {'  '}
-            <Text style={{ fontSize: 11 }}>USD</Text>
-          </Text>
-          <Shimmer />
+      {[
+        ['Checking', 'Cash'],
+        ['Card', 'Savings'],
+        ['Credit card', 'Travel'],
+      ].map(([first, second]) => (
+        <View key={first} style={accountStyles.skeletonRow}>
+          {[first, second].map((name) => (
+            <View
+              key={name}
+              style={[
+                accountStyles.chip,
+                { backgroundColor: c.raised, overflow: 'hidden', flexShrink: 1 },
+              ]}
+            >
+              <View style={{ opacity: 0 }}>
+                <AccountChipLabel name={name} currency="USD" />
+              </View>
+              <Shimmer />
+            </View>
+          ))}
         </View>
       ))}
     </View>
@@ -73,14 +103,11 @@ export function AccountChoices({
               },
             ]}
           >
-            <Text style={{ color: selected ? c.onSelected : c.text, fontSize: 14 }}>
-              {account.name}
-              {account.isFavorite ? ' ★' : ''}
-              {'  '}
-              <Text style={{ color: selected ? c.onSelected : c.muted, fontSize: 11 }}>
-                {account.currencyCode}
-              </Text>
-            </Text>
+            <AccountChipLabel
+              name={account.isFavorite ? `${account.name} ★` : account.name}
+              currency={account.currencyCode}
+              selected={selected}
+            />
           </Pressable>
         );
       })}

@@ -57,6 +57,7 @@ type Props = {
   selectedId?: number;
   onSelect: (id: number) => void;
   disabled?: boolean;
+  emptyMessage?: string;
 };
 
 function CategorySearchInput({
@@ -83,18 +84,20 @@ function CategorySearchInput({
 }
 
 function CategoryChip({
+  id,
   label,
   selected,
   height,
-  animateLayout,
+  layout,
   onLayout,
   accessibilityProps,
   onPress,
 }: {
+  id: number;
   label: string;
   selected: boolean;
   height: number;
-  animateLayout: boolean;
+  layout: typeof layoutTransition | undefined;
   onLayout: (event: LayoutChangeEvent) => void;
   accessibilityProps: Pick<
     PressableProps,
@@ -104,7 +107,8 @@ function CategoryChip({
 }) {
   return (
     <Animated.View
-      layout={animateLayout ? layoutTransition : undefined}
+      testID={`category-chip-${id}`}
+      layout={layout}
       style={{ maxWidth: '100%' }}
       onLayout={onLayout}
     >
@@ -137,9 +141,12 @@ export function QuickSelectCategory({
   selectedId,
   onSelect,
   disabled = false,
+  emptyMessage,
 }: Props) {
   const [query, setQuery] = useState('');
   const [hasLaidOut, setHasLaidOut] = useState(false);
+  const layout = hasLaidOut ? layoutTransition : undefined;
+  const search = query.trim().toLocaleLowerCase();
   const { chipHeight, maxHeight } = useChipLayout();
   const clipping = useClippedChips(maxHeight);
   const byId = new Map(categories.map((category) => [category.id, category]));
@@ -159,8 +166,7 @@ export function QuickSelectCategory({
   const matches = (orderedIds ?? categories.map((category) => category.id))
     .map((id) => byId.get(id))
     .filter(
-      (item): item is ManagedCategory =>
-        !!item && path(item).toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()),
+      (item): item is ManagedCategory => !!item && path(item).toLocaleLowerCase().includes(search),
     );
   return (
     <View style={styles.section}>
@@ -168,20 +174,20 @@ export function QuickSelectCategory({
         Selected: {active ? path(active) : 'None'}
       </Text>
       <CategorySearchInput value={query} onChangeText={setQuery} disabled={disabled} />
-      <View>
+      <View style={{ minHeight: search ? undefined : maxHeight }}>
         <Animated.View
-          testID="category-chips"
-          layout={hasLaidOut ? layoutTransition : undefined}
+          layout={layout}
           onLayout={hasLaidOut ? undefined : () => setHasLaidOut(true)}
           style={[styles.chips, { maxHeight }]}
         >
           {matches.map((category) => (
             <CategoryChip
               key={category.id}
+              id={category.id}
               label={path(category)}
               selected={activeId === category.id}
               height={chipHeight}
-              animateLayout={hasLaidOut}
+              layout={layout}
               onLayout={clipping.onLayout(category.id)}
               accessibilityProps={clipping.accessibilityProps(category.id, disabled)}
               onPress={() => onSelect(category.id)}
@@ -189,7 +195,9 @@ export function QuickSelectCategory({
           ))}
         </Animated.View>
         {matches.length === 0 && (
-          <Text style={{ color: muted, padding: 12 }}>No matching categories</Text>
+          <Text style={{ color: muted, padding: 12 }}>
+            {(categories.length === 0 ? emptyMessage : undefined) ?? 'No matching categories'}
+          </Text>
         )}
         {active &&
           (!matches.some((item) => item.id === active.id) ||

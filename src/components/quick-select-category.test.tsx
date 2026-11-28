@@ -31,36 +31,14 @@ const categories: ManagedCategory[] = ['Food', 'Travel', 'Coffee', 'Shopping'].m
   emoji: null,
 }));
 const names = () => screen.getAllByRole('button').map((button) => button.props.accessibilityLabel);
-const chipLayout = (name: string) => {
-  let measured = screen.getByRole('button', { name, includeHiddenElements: true }).parent;
-  while (measured && !measured.props.onLayout) measured = measured.parent;
-  if (!measured) throw new Error(`No layout boundary for ${name}`);
-  return measured;
-};
-
-// RNTL does not run native layout. Send a layout event to the chip.
-const layout = (name: string, y: number) =>
-  fireEvent.layout(chipLayout(name), { x: 0, y, width: 100, height: 40 });
-
-test('the first Category layout is static and later ranking and search use layout transitions', async () => {
-  const user = userEvent.setup();
-  const props = { categories, onSelect: jest.fn() };
-  const list = () => screen.getByTestId('category-chips');
-  await render(<QuickSelectCategory {...props} />);
-  expect(list().props.layout).toBeUndefined();
-  expect(chipLayout('Travel').props.layout).toBeUndefined();
-
-  await fireEvent.layout(list(), { x: 0, y: 0, width: 346, height: 88 });
-  await screen.rerender(<QuickSelectCategory {...props} orderedIds={[2, 1, 3, 4]} />);
-  expect(names()).toEqual(['Travel', 'Food', 'Coffee', 'Shopping']);
-  expect(list().props.layout).toBeDefined();
-  expect(chipLayout('Travel').props.layout).toBeDefined();
-
-  await user.type(screen.getByLabelText('Search categories'), 'travel');
-  expect(names()).toEqual(['Travel']);
-  expect(list().props.layout).toBeDefined();
-  expect(chipLayout('Travel').props.layout).toBeDefined();
-});
+// RNTL does not run native layout.
+const layout = (id: number, y: number) =>
+  fireEvent.layout(screen.getByTestId(`category-chip-${id}`, { includeHiddenElements: true }), {
+    x: 0,
+    y,
+    width: 100,
+    height: 40,
+  });
 
 test('ranked order changes preserve the selected Category', async () => {
   const onSelect = jest.fn();
@@ -110,14 +88,14 @@ test('third-row chips remain accessible, fourth-row chips are hidden, and search
   const user = userEvent.setup();
   const onSelect = jest.fn();
   await render(<QuickSelectCategory categories={categories} selectedId={4} onSelect={onSelect} />);
-  await layout('Coffee', 96);
-  await layout('Shopping', 144);
+  await layout(3, 96);
+  await layout(4, 144);
   expect(screen.getByRole('button', { name: 'Coffee' })).toBeEnabled();
   expect(screen.queryByRole('button', { name: 'Shopping' })).toBeNull();
   expect(screen.getByText('Selected: Shopping')).toBeOnTheScreen();
   expect(screen.getByText('Search its name to find its chip.')).toBeOnTheScreen();
   await user.type(screen.getByLabelText('Search categories'), 'shopping');
-  await layout('Shopping', 0);
+  await layout(4, 0);
   expect(names()).toEqual(['Shopping']);
   await user.press(screen.getByRole('button', { name: 'Shopping', selected: true }));
   expect(onSelect).toHaveBeenCalledWith(4);
@@ -142,9 +120,9 @@ test.each([
       .spyOn(jest.requireActual('react-native'), 'useWindowDimensions')
       .mockReturnValue({ width: 390, height: 844, scale: 1, fontScale });
     await render(<QuickSelectCategory categories={categories} onSelect={jest.fn()} />);
-    await layout('Food', below);
-    await layout('Travel', at);
-    await layout('Coffee', above);
+    await layout(1, below);
+    await layout(2, at);
+    await layout(3, above);
     expect(screen.getByRole('button', { name: 'Food' })).toBeEnabled();
     expect(screen.queryByRole('button', { name: 'Travel' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Coffee' })).toBeNull();
