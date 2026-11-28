@@ -1,9 +1,76 @@
-import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { Account } from '@/lib/database';
 import type { LendingTotal } from '@/lib/lending-totals';
 import { pressableOpacity, theme } from '@/theme';
+import { Shimmer } from './loading';
 
 const c = theme.colors;
+const accountChipGap = 8;
+const accountStyles = StyleSheet.create({
+  choices: { flexDirection: 'row', flexWrap: 'wrap', gap: accountChipGap },
+  skeletonRows: { gap: accountChipGap },
+  skeletonRow: { flexDirection: 'row', gap: accountChipGap },
+  chip: {
+    minHeight: 48,
+    maxWidth: '100%',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderCurve: 'continuous',
+    justifyContent: 'center',
+  },
+});
+
+function AccountChipLabel({
+  name,
+  currency,
+  selected = false,
+}: {
+  name: string;
+  currency: string;
+  selected?: boolean;
+}) {
+  return (
+    <Text style={{ fontSize: 14, color: selected ? c.onSelected : c.text }}>
+      {name}
+      {'  '}
+      <Text style={{ fontSize: 11, color: selected ? c.onSelected : c.muted }}>{currency}</Text>
+    </Text>
+  );
+}
+
+export function AccountChoicesSkeleton() {
+  return (
+    <View
+      style={accountStyles.skeletonRows}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+    >
+      {[
+        ['Checking', 'Cash'],
+        ['Card', 'Savings'],
+        ['Credit card', 'Travel'],
+      ].map(([first, second]) => (
+        <View key={first} style={accountStyles.skeletonRow}>
+          {[first, second].map((name) => (
+            <View
+              key={name}
+              style={[
+                accountStyles.chip,
+                { backgroundColor: c.raised, overflow: 'hidden', flexShrink: 1 },
+              ]}
+            >
+              <View style={{ opacity: 0 }}>
+                <AccountChipLabel name={name} currency="USD" />
+              </View>
+              <Shimmer />
+            </View>
+          ))}
+        </View>
+      ))}
+    </View>
+  );
+}
 
 export function AccountChoices({
   accounts,
@@ -17,7 +84,7 @@ export function AccountChoices({
   onSelect: (id: number) => void;
 }) {
   return (
-    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+    <View style={accountStyles.choices}>
       {accounts.map((account) => {
         const selected = account.id === selectedId;
         return (
@@ -28,26 +95,19 @@ export function AccountChoices({
             accessibilityState={{ selected, disabled }}
             disabled={disabled}
             onPress={() => onSelect(account.id)}
-            style={({ pressed }) => ({
-              minHeight: 48,
-              maxWidth: '100%',
-              paddingHorizontal: 14,
-              paddingVertical: 10,
-              borderRadius: 14,
-              borderCurve: 'continuous',
-              justifyContent: 'center',
-              backgroundColor: selected ? c.selected : '#1d2a30',
-              opacity: pressableOpacity({ disabled, pressed }, { disabled: 0.45, pressed: 0.7 }),
-            })}
+            style={({ pressed }) => [
+              accountStyles.chip,
+              {
+                backgroundColor: selected ? c.selected : '#1d2a30',
+                opacity: pressableOpacity({ disabled, pressed }, { disabled: 0.45, pressed: 0.7 }),
+              },
+            ]}
           >
-            <Text style={{ color: selected ? c.onSelected : c.text, fontSize: 14 }}>
-              {account.name}
-              {account.isFavorite ? ' ★' : ''}
-              {'  '}
-              <Text style={{ color: selected ? c.onSelected : c.muted, fontSize: 11 }}>
-                {account.currencyCode}
-              </Text>
-            </Text>
+            <AccountChipLabel
+              name={account.isFavorite ? `${account.name} ★` : account.name}
+              currency={account.currencyCode}
+              selected={selected}
+            />
           </Pressable>
         );
       })}

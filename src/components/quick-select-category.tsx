@@ -2,6 +2,7 @@ import { theme } from '@/theme';
 import { useState } from 'react';
 import {
   Pressable,
+  StyleSheet,
   Text,
   TextInput,
   View,
@@ -10,13 +11,45 @@ import {
   type PressableProps,
 } from 'react-native';
 import Animated, { LinearTransition, ReduceMotion } from 'react-native-reanimated';
+import { Skeleton } from './loading';
 import { useClippedChips } from './use-clipped-chips';
 import type { ManagedCategory } from '@/lib/categories';
 
 const ink = '#f2f4f0';
 const muted = '#aab9b7';
 const panel = '#1d2a30';
+const chipGap = 8;
+const chipRadius = 12;
+const chipRows = 3;
 const layoutTransition = LinearTransition.duration(500).reduceMotion(ReduceMotion.System);
+const styles = StyleSheet.create({
+  section: { gap: 10 },
+  selection: { color: ink },
+  chips: { overflow: 'hidden', flexDirection: 'row', flexWrap: 'wrap', gap: chipGap },
+});
+
+function useChipLayout() {
+  const { fontScale } = useWindowDimensions();
+  const chipHeight = 20 + 20 * fontScale;
+  return { chipHeight, maxHeight: chipRows * chipHeight + (chipRows - 1) * chipGap };
+}
+
+export function CategoryChoicesSkeleton() {
+  const { chipHeight, maxHeight } = useChipLayout();
+  return (
+    <View style={styles.section}>
+      <Text style={styles.selection}>Selected: None</Text>
+      <CategorySearchInput disabled />
+      <View style={[styles.chips, { height: maxHeight }]}>
+        {(['26%', '31%', '27%', '38%', '22%', '25%', '23%', '32%', '28%'] as const).map(
+          (width, index) => (
+            <Skeleton key={index} width={width} height={chipHeight} borderRadius={chipRadius} />
+          ),
+        )}
+      </View>
+    </View>
+  );
+}
 
 type Props = {
   categories: ManagedCategory[];
@@ -24,9 +57,10 @@ type Props = {
   selectedId?: number;
   onSelect: (id: number) => void;
   disabled?: boolean;
+  emptyMessage?: string;
 };
 
-export function CategorySearchInput({
+function CategorySearchInput({
   value = '',
   onChangeText,
   disabled = false,
@@ -50,16 +84,20 @@ export function CategorySearchInput({
 }
 
 function CategoryChip({
+  id,
   label,
   selected,
   height,
+  layout,
   onLayout,
   accessibilityProps,
   onPress,
 }: {
+  id: number;
   label: string;
   selected: boolean;
   height: number;
+  layout: typeof layoutTransition | undefined;
   onLayout: (event: LayoutChangeEvent) => void;
   accessibilityProps: Pick<
     PressableProps,
@@ -68,7 +106,12 @@ function CategoryChip({
   onPress: () => void;
 }) {
   return (
-    <Animated.View layout={layoutTransition} style={{ maxWidth: '100%' }} onLayout={onLayout}>
+    <Animated.View
+      testID={`category-chip-${id}`}
+      layout={layout}
+      style={{ maxWidth: '100%' }}
+      onLayout={onLayout}
+    >
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={label}
@@ -78,7 +121,7 @@ function CategoryChip({
         style={{
           paddingHorizontal: 13,
           paddingVertical: 10,
-          borderRadius: 12,
+          borderRadius: chipRadius,
           maxWidth: '100%',
           height,
           backgroundColor: selected ? theme.colors.selected : '#29343a',
@@ -98,11 +141,13 @@ export function QuickSelectCategory({
   selectedId,
   onSelect,
   disabled = false,
+  emptyMessage,
 }: Props) {
   const [query, setQuery] = useState('');
-  const { fontScale } = useWindowDimensions();
-  const chipHeight = 20 + 20 * fontScale;
-  const maxHeight = chipHeight * 3 + 16;
+  const [hasLaidOut, setHasLaidOut] = useState(false);
+  const layout = hasLaidOut ? layoutTransition : undefined;
+  const search = query.trim().toLocaleLowerCase();
+  const { chipHeight, maxHeight } = useChipLayout();
   const clipping = useClippedChips(maxHeight);
   const byId = new Map(categories.map((category) => [category.id, category]));
   const path = (category: ManagedCategory) => {
@@ -121,32 +166,28 @@ export function QuickSelectCategory({
   const matches = (orderedIds ?? categories.map((category) => category.id))
     .map((id) => byId.get(id))
     .filter(
-      (item): item is ManagedCategory =>
-        !!item && path(item).toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()),
+      (item): item is ManagedCategory => !!item && path(item).toLocaleLowerCase().includes(search),
     );
   return (
-    <View style={{ gap: 10 }}>
-      <Text selectable accessibilityLiveRegion="polite" style={{ color: ink }}>
+    <View style={styles.section}>
+      <Text selectable accessibilityLiveRegion="polite" style={styles.selection}>
         Selected: {active ? path(active) : 'None'}
       </Text>
       <CategorySearchInput value={query} onChangeText={setQuery} disabled={disabled} />
-      <View>
+      <View style={{ minHeight: search ? undefined : maxHeight }}>
         <Animated.View
-          layout={layoutTransition}
-          style={{
-            maxHeight,
-            overflow: 'hidden',
-            flexDirection: 'row',
-            flexWrap: 'wrap',
-            gap: 8,
-          }}
+          layout={layout}
+          onLayout={hasLaidOut ? undefined : () => setHasLaidOut(true)}
+          style={[styles.chips, { maxHeight }]}
         >
           {matches.map((category) => (
             <CategoryChip
               key={category.id}
+              id={category.id}
               label={path(category)}
               selected={activeId === category.id}
               height={chipHeight}
+              layout={layout}
               onLayout={clipping.onLayout(category.id)}
               accessibilityProps={clipping.accessibilityProps(category.id, disabled)}
               onPress={() => onSelect(category.id)}
@@ -154,7 +195,9 @@ export function QuickSelectCategory({
           ))}
         </Animated.View>
         {matches.length === 0 && (
-          <Text style={{ color: muted, padding: 12 }}>No matching categories</Text>
+          <Text style={{ color: muted, padding: 12 }}>
+            {(categories.length === 0 ? emptyMessage : undefined) ?? 'No matching categories'}
+          </Text>
         )}
         {active &&
           (!matches.some((item) => item.id === active.id) ||

@@ -2,7 +2,7 @@ import { useCallback, useOptimistic, useRef, useState, useTransition } from 'rea
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { categoriesQuery, peopleQuery, includeCreatedPerson, nextPersonId } from './queries.ts';
 import { accountsQuery } from '@/lib/account-queries';
-import { ChoicesSection, layoutTransition } from './view.tsx';
+import { ChoicesSection, layoutTransition, PeopleChoicesSkeleton } from './view.tsx';
 import { ExpenseLink, type LinkableExpense } from './expense-link';
 import {
   removeSplitPerson,
@@ -35,8 +35,12 @@ import { TransferAmountInput } from '@/components/transfer-amount-input';
 import { ControlledAmountInput, useAmountInputDraft } from '@/components/amount-input';
 import { useRankedCategories } from './use-ranked-categories.ts';
 import { QuickAddDate } from '@/components/quick-add-date';
-import { QuickSelectCategory } from '@/components/quick-select-category';
-import { AccountChoices, personBalanceSummary } from '@/components/entry-choices';
+import { CategoryChoicesSkeleton, QuickSelectCategory } from '@/components/quick-select-category';
+import {
+  AccountChoices,
+  AccountChoicesSkeleton,
+  personBalanceSummary,
+} from '@/components/entry-choices';
 import { FormButton, FormInput, JoinedChoice } from '@/components/form-controls';
 import { parseRouteId } from '@/lib/account-selection';
 import { useClippedChips } from '@/components/use-clipped-chips';
@@ -63,6 +67,15 @@ const repaymentActions = [
 
 function Label({ children }: { children: string }) {
   return <Text style={{ color: c.muted, fontSize: 12 }}>{children}</Text>;
+}
+
+function AccountSelectionSkeleton({ label }: { label: string }) {
+  return (
+    <View style={{ gap: 10 }}>
+      <Label>{label}</Label>
+      <AccountChoicesSkeleton />
+    </View>
+  );
 }
 
 function CancelAction({ disabled = false }: { disabled?: boolean }) {
@@ -215,8 +228,10 @@ function QuickAddForm() {
   const incoming =
     mode === 'INCOME' ||
     (mode === 'PERSON' && (action === 'BORROW' || action === 'RECEIVE_REPAYMENT'));
+  const accountLabel = `${incoming ? 'Into' : 'From'} ${account?.name ?? 'an account'}`;
   const search = query.trim().toLocaleLowerCase();
   const destination = destinations.find((item) => item.id === toId);
+  const destinationLabel = `To ${destination?.name ?? 'another account'}`;
   const cross =
     mode === 'TRANSFER' && destination && destination.currencyCode !== account?.currencyCode;
   const validAmount =
@@ -419,8 +434,12 @@ function QuickAddForm() {
                 key="accounts"
                 options={accountsQuery()}
                 label="accounts"
-                layout="accounts"
-                pendingLabel={incoming ? 'Into' : 'From'}
+                pending={
+                  <>
+                    <AccountSelectionSkeleton label={accountLabel} />
+                    {mode === 'TRANSFER' && <AccountSelectionSkeleton label={destinationLabel} />}
+                  </>
+                }
               >
                 {(readyAccounts) => (
                   <View style={{ gap: 10 }}>
@@ -428,7 +447,7 @@ function QuickAddForm() {
                       accessibilityLabel={incoming ? 'Destination account' : 'Source account'}
                       style={{ gap: 10 }}
                     >
-                      <Label>{`${incoming ? 'Into' : 'From'} ${account?.name ?? 'an account'}`}</Label>
+                      <Label>{accountLabel}</Label>
                       <AccountChoices
                         accounts={
                           accountCurrency
@@ -455,7 +474,7 @@ function QuickAddForm() {
                     </View>
                     {mode === 'TRANSFER' && (
                       <View accessibilityLabel="Transfer destination" style={{ gap: 10 }}>
-                        <Label>{`To ${destinations.find((item) => item.id === toId)?.name ?? 'another account'}`}</Label>
+                        <Label>{destinationLabel}</Label>
                         <AccountChoices
                           accounts={destinations}
                           selectedId={toId}
@@ -491,7 +510,11 @@ function QuickAddForm() {
                       editable={!saving}
                     />
                   </View>
-                  <ChoicesSection options={peopleQuery()} label="people" layout="people">
+                  <ChoicesSection
+                    options={peopleQuery()}
+                    label="people"
+                    pending={<PeopleChoicesSkeleton />}
+                  >
                     {(readyPeople) => {
                       const matches = shownPeople.filter((item) =>
                         item.name.toLocaleLowerCase().includes(search),
@@ -641,26 +664,19 @@ function QuickAddForm() {
               {categoryMode && !reimbursement && (
                 <ChoicesSection
                   key={categoryMode}
-                  layout="categories"
+                  pending={<CategoryChoicesSkeleton />}
                   options={categoriesQuery(categoryMode)}
                   label={`${categoryMode === 'EXPENSE' ? 'expense' : 'income'} categories`}
                 >
                   {(readyCategories) => (
-                    <>
-                      <QuickSelectCategory
-                        categories={readyCategories}
-                        orderedIds={orderedCategoryIds}
-                        selectedId={categoryIds[categoryMode]}
-                        disabled={saving}
-                        onSelect={(id) => setCategoryIds((ids) => ({ ...ids, [categoryMode]: id }))}
-                      />
-                      {!readyCategories.length && (
-                        <Text style={{ color: c.muted }}>
-                          Create an {categoryMode === 'EXPENSE' ? 'expense' : 'income'} category in
-                          Settings before saving.
-                        </Text>
-                      )}
-                    </>
+                    <QuickSelectCategory
+                      categories={readyCategories}
+                      orderedIds={orderedCategoryIds}
+                      selectedId={categoryIds[categoryMode]}
+                      disabled={saving}
+                      emptyMessage={`Create an ${categoryMode === 'EXPENSE' ? 'expense' : 'income'} category in Settings before saving.`}
+                      onSelect={(id) => setCategoryIds((ids) => ({ ...ids, [categoryMode]: id }))}
+                    />
                   )}
                 </ChoicesSection>
               )}
