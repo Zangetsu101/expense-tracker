@@ -7,7 +7,7 @@ const read = (name) => readFileSync(new URL(`./fixtures/${name}`, import.meta.ur
 const v1 = decodeBackup(read('backup-v1.json'));
 assert.equal(v1.schemaVersion, 1);
 assert.equal(v1.transactions[0].amountMinor, 1234);
-assert.throws(() => encodeBackup(v1), /Unknown backup field/);
+assert.throws(() => encodeBackup(v1), /Unsupported backup schema version/);
 assert.equal(decodeBackup(read('native-shaped-backup-v1.json')).schemaVersion, 1);
 
 const v2 = decodeBackup(read('backup-v2.json'));
