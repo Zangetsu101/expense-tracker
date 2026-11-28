@@ -48,6 +48,7 @@ export function AmountCalculator({
   const [contentHeight, setContentHeight] = useState(0);
   const height = useSharedValue(0);
   useEffect(() => {
+    if (open && contentHeight === 0) return;
     height.value = withTiming(open ? contentHeight : 0, {
       duration: 220,
       easing: Easing.out(Easing.cubic),

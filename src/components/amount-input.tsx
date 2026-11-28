@@ -48,6 +48,8 @@ export function useAmountInputDraft(initialAmount = '', initiallyOpen = true) {
 type Props = {
   currency?: string;
   disabled?: boolean;
+  deferKeypad?: boolean;
+  onRequestKeypad?: () => void;
   onChange: (amountMinor: number | undefined) => void;
   children: (slots: AmountInputSlots) => ReactNode;
 };
@@ -68,6 +70,8 @@ export function ControlledAmountInput({
   currency,
   draft,
   disabled: pending = false,
+  deferKeypad = false,
+  onRequestKeypad,
   onChange,
   children,
 }: Props & { draft: ReturnType<typeof useAmountInputDraft> }) {
@@ -113,6 +117,7 @@ export function ControlledAmountInput({
           accessibilityState={{ disabled: pending }}
           disabled={pending}
           onPress={() => {
+            onRequestKeypad?.();
             Keyboard.dismiss();
             setCalculatorOpen(true);
           }}
@@ -138,7 +143,7 @@ export function ControlledAmountInput({
   );
   const keypad = (
     <AmountCalculator
-      open={calculatorOpen}
+      open={calculatorOpen && !deferKeypad}
       bottomInset={insets.bottom}
       error={entry.error}
       onKey={(key) => setEntry((current) => pressAmountKey(current, key))}
