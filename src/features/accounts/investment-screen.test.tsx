@@ -51,7 +51,7 @@ function cachedOverview() {
 
 const balance = { id: 1, name: 'Fund', currencyCode: 'USD', balanceMinor: 10000 };
 
-test('Investment detail reserves the summary, actions and History until the reads finish', async () => {
+test('Investment detail shows disabled actions until the reads finish', async () => {
   const { client } = cachedOverview();
   const history = Promise.withResolvers<Awaited<ReturnType<typeof investmentHistory>>>();
   jest.mocked(investmentHistory).mockReturnValueOnce(history.promise);
@@ -64,15 +64,19 @@ test('Investment detail reserves the summary, actions and History until the read
     expect(screen.getByText('Current value')).toBeOnTheScreen();
     expect(screen.getByText('History')).toBeOnTheScreen();
     expect(screen.getByText('Add a liquid Account to receive dividends.')).toBeOnTheScreen();
-    expect(screen.queryByRole('button', { name: 'Update value' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Update value' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Dividend' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Transfer' })).toBeDisabled();
   } finally {
     await act(async () => history.resolve([]));
   }
   expect(await screen.findByRole('button', { name: 'Update value' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Dividend' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Transfer' })).toBeEnabled();
   expect(screen.queryByRole('progressbar', { name: 'Loading investment' })).toBeNull();
 });
 
-test('the balance skeleton keeps the Valuation draft and date controls available', async () => {
+test('Save value stays disabled while the balance loads and the draft stays editable', async () => {
   const { client } = cachedOverview();
   const pending = Promise.withResolvers<Awaited<ReturnType<typeof accountBalances>>>();
   jest.mocked(accountBalances).mockReturnValueOnce(pending.promise);
@@ -82,7 +86,7 @@ test('the balance skeleton keeps the Valuation draft and date controls available
 
   try {
     expect(await screen.findByRole('progressbar', { name: 'Loading balance' })).toBeOnTheScreen();
-    expect(screen.queryByRole('button', { name: 'Save value' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Save value' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Yesterday' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled();
     const input = screen.getByLabelText('New total');

@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppSheet } from '@/components/app-sheet';
-import { FormButton, FormButtonSkeleton, FormInput } from '@/components/form-controls';
+import { FormButton, FormInput } from '@/components/form-controls';
 import { Skeleton } from '@/components/loading';
 import { QueryBoundary } from '@/components/query-error-boundary';
 import { QuickAddDate } from '@/components/quick-add-date';
@@ -131,23 +131,20 @@ function InvestmentDetailSkeleton({ today }: { today: number }) {
       contentInsetAdjustmentBehavior="automatic"
       contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
     >
-      <View
-        accessible
-        accessibilityRole="progressbar"
-        accessibilityLabel="Loading investment"
-        style={{ gap: 8 }}
-      >
+      <View style={{ gap: 8 }}>
         <View style={styles.sections}>
-          <InvestmentSummary>
-            <Metric label="Invested" />
-            <Metric label="Total return" />
-            <Metric label="Value growth" />
-            <Metric label="Dividends paid" />
-          </InvestmentSummary>
-          <FormButtonSkeleton label="Update value" />
+          <View accessible accessibilityRole="progressbar" accessibilityLabel="Loading investment">
+            <InvestmentSummary>
+              <Metric label="Invested" />
+              <Metric label="Total return" />
+              <Metric label="Value growth" />
+              <Metric label="Dividends paid" />
+            </InvestmentSummary>
+          </View>
+          <FormButton label="Update value" disabled />
           <View style={styles.actionRow}>
-            <FormButtonSkeleton label="Dividend" />
-            <FormButtonSkeleton label="Transfer" />
+            <FormButton label="Dividend" variant="secondary" disabled />
+            <FormButton label="Transfer" variant="secondary" disabled />
           </View>
           {overview &&
             !overview.accounts.some((account) => !account.card && !account.isInvestment) && (
@@ -166,20 +163,6 @@ function InvestmentDetailSkeleton({ today }: { today: number }) {
         ))}
       </View>
     </ScrollView>
-  );
-}
-
-function ValuationActionsSkeleton({ children }: { children: ReactNode }) {
-  return (
-    <View
-      accessible
-      accessibilityRole="progressbar"
-      accessibilityLabel="Loading balance"
-      style={{ gap: 16 }}
-    >
-      {children}
-      <FormButtonSkeleton label="Save value" />
-    </View>
   );
 }
 
@@ -291,9 +274,18 @@ function ValuationSheet({
         <QueryBoundary
           key={day}
           pending={
-            <ValuationActionsSkeleton>
-              {target !== undefined && <Metric label="Value change" />}
-            </ValuationActionsSkeleton>
+            <>
+              {target !== undefined && (
+                <View
+                  accessible
+                  accessibilityRole="progressbar"
+                  accessibilityLabel="Loading balance"
+                >
+                  <Metric label="Value change" />
+                </View>
+              )}
+              <FormButton label="Save value" disabled />
+            </>
           }
           error={(retry) => (
             <>

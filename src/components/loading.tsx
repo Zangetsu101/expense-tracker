@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { AccessibilityInfo, Animated, Easing, View, type DimensionValue } from 'react-native';
 import { theme } from '@/theme';
 
-export function Shimmer() {
+function Shimmer() {
   const [progress] = useState(() => new Animated.Value(0));
   const [width, setWidth] = useState(0);
   const [reduceMotion, setReduceMotion] = useState(true);

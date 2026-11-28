@@ -2,8 +2,6 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 
 import type { StyleProp, TextInputProps, ViewStyle } from 'react-native';
 import { pressableOpacity, theme as t } from '@/theme';
 
-import { Shimmer } from './loading';
-
 const c = t.colors;
 const buttonTextColors = { primary: c.onSelected, danger: c.warning, secondary: c.text };
 const buttonStyles = StyleSheet.create({
@@ -20,31 +18,13 @@ const buttonStyles = StyleSheet.create({
   label: { fontSize: t.type.body, fontWeight: '600' },
 });
 
-export function FormButtonSkeleton({ label }: { label: string }) {
-  return (
-    <View
-      accessibilityElementsHidden
-      importantForAccessibility="no-hide-descendants"
-      style={[
-        buttonStyles.frame,
-        { borderColor: 'transparent', backgroundColor: c.raised, overflow: 'hidden' },
-      ]}
-    >
-      <Text style={[buttonStyles.label, { opacity: 0 }]}>{label}</Text>
-      <Shimmer />
-    </View>
-  );
-}
-
 type FormButtonProps = {
   label: string;
-  onPress: () => void;
   variant?: 'primary' | 'secondary' | 'danger';
-  disabled?: boolean;
   loading?: boolean;
   accessibilityLabel?: string;
   style?: StyleProp<ViewStyle>;
-};
+} & ({ onPress: () => void; disabled?: boolean } | { onPress?: never; disabled: true });
 
 export function FormButton({
   label,
