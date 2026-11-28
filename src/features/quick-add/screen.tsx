@@ -1,4 +1,4 @@
-import { useCallback, useOptimistic, useRef, useState, useTransition } from 'react';
+import { useCallback, useEffect, useOptimistic, useRef, useState, useTransition } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { categoriesQuery, peopleQuery, includeCreatedPerson, nextPersonId } from './queries.ts';
 import { accountsQuery } from '@/lib/account-queries';
@@ -16,6 +16,7 @@ import { TransferBillChoices } from './transfer-bill-choices.tsx';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight, useNavigation, usePreventRemove } from 'expo-router/react-navigation';
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
@@ -43,6 +44,7 @@ import { useClippedChips } from '@/components/use-clipped-chips';
 import { pressableOpacity, theme } from '@/theme';
 
 const AnimatedFormButton = Animated.createAnimatedComponent(FormButton);
+const keypadEntryDelay = 350;
 const c = theme.colors;
 type Mode = 'EXPENSE' | 'INCOME' | 'TRANSFER' | 'PERSON';
 type PersonAction = Extract<LendingKind, 'LEND' | 'BORROW' | 'RECEIVE_REPAYMENT' | 'REPAY'>;
@@ -148,6 +150,23 @@ function QuickAddForm() {
     preset === undefined ? '' : (preset / 100).toFixed(2),
     preset === undefined,
   );
+  const [keypadReady, setKeypadReady] = useState(preset !== undefined);
+  useEffect(() => {
+    if (keypadReady) return;
+    let active = true;
+    const timer = setTimeout(() => setKeypadReady(true), keypadEntryDelay);
+    void AccessibilityInfo.isReduceMotionEnabled()
+      .then((enabled) => {
+        if (!active || !enabled) return;
+        clearTimeout(timer);
+        setKeypadReady(true);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [keypadReady]);
   const categoryMode = mode === 'EXPENSE' || mode === 'INCOME' ? mode : undefined;
   const categoryRead = useQuery({ ...categoriesQuery(categoryMode ?? 'EXPENSE'), enabled: false });
   const peopleRead = useQuery({ ...peopleQuery(), enabled: false });
@@ -366,6 +385,7 @@ function QuickAddForm() {
       initialPaid={preset === undefined ? amountMinor : undefined}
       draft={amountDraft}
       currency={account?.currencyCode}
+      keypadReady={keypadReady}
       disabled={saving}
       onChange={mode === 'TRANSFER' ? onTransferAmounts : setAmountMinor}
     >

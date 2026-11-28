@@ -49,6 +49,7 @@ export function TransferAmountInput({
   initialReceived,
   editingTransfer = false,
   disabled = false,
+  keypadReady = true,
   onChange,
   children,
 }: {
@@ -58,6 +59,7 @@ export function TransferAmountInput({
   initialReceived?: number;
   editingTransfer?: boolean;
   disabled?: boolean;
+  keypadReady?: boolean;
   onChange: (paid: number | undefined, received: number | undefined) => void;
   children: (slots: AmountSlots) => ReactNode;
 }) {
@@ -323,7 +325,7 @@ export function TransferAmountInput({
           change(next.amount);
         }}
         onDone={dismiss}
-        open={focus !== null && !disabled && ready}
+        open={focus !== null && !disabled && ready && keypadReady}
         bottomInset={insets.bottom}
       />
     ),

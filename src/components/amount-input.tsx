@@ -42,6 +42,7 @@ export function useAmountInputDraft(initialAmount = '', initiallyOpen = true) {
 type Props = {
   currency?: string;
   disabled?: boolean;
+  keypadReady?: boolean;
   onChange: (amountMinor: number | undefined) => void;
   children: (slots: AmountInputSlots) => ReactNode;
 };
@@ -62,6 +63,7 @@ export function ControlledAmountInput({
   currency,
   draft,
   disabled: pending = false,
+  keypadReady = true,
   onChange,
   children,
 }: Props & { draft: ReturnType<typeof useAmountInputDraft> }) {
@@ -142,7 +144,7 @@ export function ControlledAmountInput({
   );
   const keypad = (
     <AmountCalculator
-      open={calculatorOpen}
+      open={calculatorOpen && keypadReady}
       bottomInset={insets.bottom}
       error={entry.error}
       onKey={(key) => setEntry((current) => pressAmountKey(current, key))}
