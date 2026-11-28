@@ -1,6 +1,6 @@
 import { defaultCurrencyCode } from './currency.ts';
 import { notifyDataChanged } from './data-changes.ts';
-import { openLedger } from './legs-migration.ts';
+import { openLedger } from './legs-schema.ts';
 import * as SQLite from 'expo-sqlite';
 
 export type Account = { id: number; name: string; currencyCode: string; isFavorite: number };
@@ -11,24 +11,17 @@ export const favoriteAccountIdSql =
 /** SQL that is 1 for the favorite Account and 0 for the others. */
 export const isFavoriteSql = (account: string) => `(${account}.id IS ${favoriteAccountIdSql})`;
 
-/** Writes the v1 backup before the migration. The module loads only when a migration runs. */
-async function saveBackupBeforeMigration(json: string) {
-  const { writePreMigrationBackup } = await import('./pre-migration-backup.ts');
-  await writePreMigrationBackup(json);
-}
-
 let connection: Promise<SQLite.SQLiteDatabase> | undefined;
 let failed = false;
 /**
- * Opens the database. The promise resolves only after the schema is ready. A database
- * with the old schema is migrated first, so no other read can run inside the migration.
- * All callers share one promise. A failed promise stays until resetDatabase(), so a render
- * or a background task cannot start a second migration on its own.
+ * Opens the database. The promise resolves only after the schema is ready. All callers
+ * share one promise. A failed promise stays until resetDatabase(), so a render or a
+ * background task cannot open the database again on its own.
  */
 export function database() {
   connection ??= SQLite.openDatabaseAsync('expense-poc.db')
     .then(async (db) => {
-      await openLedger(db, saveBackupBeforeMigration);
+      await openLedger(db);
       const cash = await db.runAsync(
         "INSERT INTO accounts (name, currencyCode) SELECT 'Cash', ? WHERE NOT EXISTS (SELECT 1 FROM accounts)",
         [defaultCurrencyCode],

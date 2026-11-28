@@ -105,7 +105,6 @@ function setup(email: string | null = 'you@example.com') {
       replaced.push(data);
     },
     now: () => now,
-    backedUp: jest.fn(async () => {}),
   };
   const backups = createDriveBackups(deps);
   return {
@@ -388,21 +387,6 @@ describe('failures', () => {
     const failed = await s.runDue();
     expect(failed.lastError?.message).toBe('Backup verification failed.');
     expect(s.google.files.size).toBe(1);
-  });
-
-  test('only a verified backup reports success to the app', async () => {
-    const s = await connected();
-    expect(s.deps.backedUp).toHaveBeenCalledTimes(1);
-    s.google.drive.download = async () => '{';
-    s.advance(day);
-    await s.runDue();
-    expect(s.deps.backedUp).toHaveBeenCalledTimes(1);
-    s.deps.backedUp.mockRejectedValueOnce(new Error('file is busy'));
-    s.google.drive.download = async (id) => s.google.files.get(id)!.json;
-    s.advance(day);
-    const saved = await s.runDue();
-    expect(s.deps.backedUp).toHaveBeenCalledTimes(2);
-    expect(saved.lastError).toBeNull();
   });
 
   test('retention removes only tracked files, after the new backup is saved', async () => {

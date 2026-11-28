@@ -1,42 +1,21 @@
-// The move from the old schema to the legs model (ADR 0013), and the restore of backups.
-// The migration and the restore of v1 rows put the old rows in TEMP tables named legacy_*,
-// clean them with the same SQL, and run the same fill SQL. So the migration, the v1 restore
-// and the backup before the migration share one mapping. A v2 backup has the rows of the
-// legs schema, so its restore inserts them directly (ADR 0014).
-import type { SQLiteDatabase } from 'expo-sqlite';
-import { assertCleanBackup, encodeBackup, type BackupV1 } from './backup.ts';
-import { backupV2Tables, type BackupV2 } from './backup-v2.ts';
-import { LEGS_SCHEMA_VERSION, legsSchema } from './legs-schema.ts';
+// The restore of a v1 backup into the legs schema (ADR 0013, ADR 0014). The v1 rows go into
+// TEMP tables named legacy_*, with the columns of the old schema. SQL there cleans them,
+// and then it fills the legs schema from them.
+import { assertCleanBackup, type BackupV1 } from './backup-v1.ts';
+import {
+  checkLedger,
+  clearLedger,
+  deferForeignKeys,
+  insertRows,
+  type Connection,
+  type Writer,
+} from './backup-restore.ts';
 import { readAll } from './read-all.ts';
 
-type Connection = Pick<SQLiteDatabase, 'execAsync' | 'getAllAsync' | 'getFirstAsync'>;
-type MainConnection = Connection & Pick<SQLiteDatabase, 'isInTransactionSync'>;
-
 /**
- * The setup of the old schema, from the last version before the legs model. The migration
- * runs it first, so that every old table and column exists, also on old installs. The last
- * old version added receivedAmountMinor with ALTER TABLE, so this SQL does not have it.
- */
-export const legacySchema = `
-CREATE TABLE IF NOT EXISTS accounts (id INTEGER PRIMARY KEY, name TEXT NOT NULL, currencyCode TEXT NOT NULL, openingBalanceMinor INTEGER NOT NULL DEFAULT 0, isFavorite INTEGER NOT NULL DEFAULT 0);
-CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, parentId INTEGER REFERENCES categories(id) ON DELETE SET NULL, iconKey TEXT, needsReview INTEGER NOT NULL DEFAULT 0);
-CREATE TABLE IF NOT EXISTS transactions (id INTEGER PRIMARY KEY, type TEXT NOT NULL, amountMinor INTEGER NOT NULL CHECK(amountMinor > 0), date INTEGER NOT NULL, accountId INTEGER NOT NULL REFERENCES accounts(id), transferAccountId INTEGER REFERENCES accounts(id), categoryId INTEGER REFERENCES categories(id) ON DELETE SET NULL, note TEXT, excludeFromReport INTEGER NOT NULL DEFAULT 0, source TEXT NOT NULL DEFAULT 'MANUAL');
-CREATE TABLE IF NOT EXISTS line_items (id INTEGER PRIMARY KEY, transactionId INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE, name TEXT NOT NULL, amountMinor INTEGER NOT NULL, quantity REAL);
-CREATE TABLE IF NOT EXISTS tags (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE);
-CREATE TABLE IF NOT EXISTS transaction_tags (transactionId INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE, tagId INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE, PRIMARY KEY(transactionId, tagId));
-CREATE TABLE IF NOT EXISTS transfer_candidates (id INTEGER PRIMARY KEY, outgoingTxnId INTEGER NOT NULL, incomingTxnId INTEGER NOT NULL, confidenceNote TEXT NOT NULL, resolved INTEGER NOT NULL DEFAULT 0);
-CREATE TABLE IF NOT EXISTS moneylover_import_rows (rowKey TEXT PRIMARY KEY, transactionId INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE);
-CREATE TABLE IF NOT EXISTS people (id INTEGER PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE UNIQUE CHECK(length(trim(name)) > 0));
-CREATE TABLE IF NOT EXISTS lending_entries (id INTEGER PRIMARY KEY, personId INTEGER NOT NULL REFERENCES people(id), kind TEXT NOT NULL CHECK(kind IN ('LEND','BORROW','RECEIVE_REPAYMENT','REPAY','WRITE_OFF_LENT','WRITE_OFF_BORROWED')), transactionId INTEGER UNIQUE REFERENCES transactions(id) ON DELETE CASCADE, currencyCode TEXT NOT NULL, amountMinor INTEGER NOT NULL CHECK(amountMinor > 0), date INTEGER NOT NULL, note TEXT, CHECK((kind IN ('WRITE_OFF_LENT','WRITE_OFF_BORROWED') AND transactionId IS NULL) OR (kind IN ('LEND','BORROW','RECEIVE_REPAYMENT','REPAY') AND transactionId IS NOT NULL)));
-CREATE TABLE IF NOT EXISTS credit_cards (accountId INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE, parentAccountId INTEGER REFERENCES accounts(id), statementDay INTEGER CHECK(statementDay BETWEEN 1 AND 31), dueDay INTEGER CHECK(dueDay BETWEEN 1 AND 31), CHECK(accountId != parentAccountId));
-CREATE TABLE IF NOT EXISTS split_shares (expenseId INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE, personId INTEGER NOT NULL REFERENCES people(id), amountMinor INTEGER NOT NULL CHECK(amountMinor >= 0), PRIMARY KEY(expenseId, personId));
-CREATE TABLE IF NOT EXISTS reimbursements (transactionId INTEGER PRIMARY KEY REFERENCES transactions(id) ON DELETE CASCADE, expenseId INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE, personId INTEGER, FOREIGN KEY(expenseId, personId) REFERENCES split_shares(expenseId, personId) ON DELETE CASCADE);
-CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);`;
-
-/**
- * The old tables, with the columns and types that the backup, the cleaning and the fill
- * use. The types give the TEMP copies the affinity of the old tables, so a number from
- * JavaScript is stored as an INTEGER.
+ * The tables of the old schema, with the columns and types that a v1 backup, the cleaning
+ * and the fill use. The types give the TEMP tables the affinity of the old tables, so a
+ * number from JavaScript is stored as an INTEGER.
  */
 const legacyTables = {
   accounts: {
@@ -108,8 +87,6 @@ const legacyTables = {
 type LegacyTable = keyof typeof legacyTables;
 const legacyNames = Object.keys(legacyTables) as LegacyTable[];
 const columnsOf = (table: LegacyTable) => Object.keys(legacyTables[table]);
-/** The migration keeps this old table, so that device-local settings stay. */
-const keptTable: LegacyTable = 'app_settings';
 
 /** Makes an empty TEMP copy of each old table, named legacy_*. */
 async function createLegacyTables(db: Connection) {
@@ -124,17 +101,6 @@ async function createLegacyTables(db: Connection) {
       )
       .join('\n'),
   );
-}
-
-/** Copies the old tables of the main database to the TEMP tables. */
-async function copyLegacyTables(db: Connection) {
-  await createLegacyTables(db);
-  for (const table of legacyNames) {
-    const columns = columnsOf(table).join(', ');
-    await db.execAsync(
-      `INSERT INTO temp.legacy_${table} (${columns}) SELECT ${columns} FROM main.${table}`,
-    );
-  }
 }
 
 async function dropLegacyTables(db: Connection) {
@@ -331,9 +297,8 @@ INSERT INTO reimbursements (transactionId, expenseId, personId)
   SELECT transactionId, expenseId, personId FROM legacy_reimbursements;
 
 -- One row for each portable setting. Device-local rows stay as they are.
--- The favorite comes from the account flag, or else from the old settings JSON.
-DELETE FROM app_settings
-  WHERE key IN ('backupSettings', 'scheduledBackups', 'favoriteAccountId', 'displayRate');
+-- The favorite comes from the account flag, or else from the settings of the file.
+DELETE FROM app_settings WHERE key IN ('favoriteAccountId', 'displayRate');
 INSERT INTO app_settings (key, value)
   SELECT 'favoriteAccountId', json(id) FROM (
     SELECT id, 0 AS rank FROM legacy_accounts WHERE isFavorite = 1
@@ -348,65 +313,6 @@ INSERT INTO app_settings (key, value)
 
 DROP TABLE temp.new_write_offs;
 `;
-
-// Rules that span several rows, so CHECKs and triggers cannot test them. Each query must
-// find no rows after a fill.
-const shape = `SELECT t.id, t.kind, t.direction,
-    SUM(l.accountId IS NOT NULL) AS accountLegs, SUM(l.personId IS NOT NULL) AS personLegs,
-    SUM(CASE WHEN l.accountId IS NOT NULL THEN l.amountMinor END) AS accountSum,
-    SUM(CASE WHEN l.personId IS NOT NULL THEN l.amountMinor END) AS personSum,
-    COUNT(DISTINCT l.accountId) AS accounts, COUNT(DISTINCT l.currencyCode) AS currencies,
-    MIN(l.amountMinor) AS low, MAX(l.amountMinor) AS high
-  FROM transactions t LEFT JOIN legs l ON l.transactionId = t.id GROUP BY t.id`;
-const ledgerChecks = {
-  // Read the id as text: a number above this limit has no exact JavaScript value.
-  'a Transaction id that is too large': `SELECT CAST(id AS TEXT) AS id FROM transactions
-    WHERE id > ${Number.MAX_SAFE_INTEGER}`,
-  'a Transaction without legs': `SELECT t.id FROM transactions t
-    WHERE NOT EXISTS (SELECT 1 FROM legs WHERE transactionId = t.id)`,
-  'an Expense with the wrong legs': `SELECT id FROM (${shape}) WHERE kind = 'EXPENSE'
-    AND NOT (accountLegs = 1 AND personLegs = 0 AND high < 0)`,
-  'an Income or reimbursement with the wrong legs': `SELECT id FROM (${shape})
-    WHERE kind IN ('INCOME', 'REIMBURSEMENT') AND NOT (accountLegs = 1 AND personLegs = 0 AND low > 0)`,
-  'a Transfer with the wrong legs': `SELECT id FROM (${shape}) WHERE kind = 'TRANSFER'
-    AND NOT (accountLegs = 2 AND personLegs = 0 AND accounts = 2 AND low < 0 AND high > 0
-      AND (currencies = 2 OR accountSum = 0))`,
-  'a lending Transaction with the wrong legs': `SELECT id FROM (${shape}) WHERE kind = 'LENDING'
-    AND NOT (accountLegs = 1 AND personLegs = 1 AND currencies = 1 AND accountSum = -personSum)`,
-  'a Write-off with the wrong legs': `SELECT id FROM (${shape}) WHERE kind = 'WRITE_OFF'
-    AND NOT (accountLegs = 0 AND personLegs = 1 AND (personSum < 0) = (direction = 'LENT'))`,
-  'a reimbursement kind without its row': `SELECT t.id FROM transactions t
-    LEFT JOIN reimbursements r ON r.transactionId = t.id
-    WHERE (t.kind = 'REIMBURSEMENT') <> (r.transactionId IS NOT NULL)`,
-  'a reimbursement in another Currency': `SELECT r.transactionId FROM reimbursements r
-    JOIN legs pl ON pl.transactionId = r.transactionId AND pl.accountId IS NOT NULL
-    JOIN legs xl ON xl.transactionId = r.expenseId AND xl.accountId IS NOT NULL
-    WHERE pl.currencyCode <> xl.currencyCode`,
-  'a split share on a Transaction that is not an Expense': `SELECT s.expenseId FROM split_shares s
-    JOIN transactions t ON t.id = s.expenseId WHERE t.kind <> 'EXPENSE'`,
-};
-
-/** Throws if the data breaks a rule of the legs model or a foreign key. */
-async function checkLedger(db: Connection) {
-  const violations = await db.getAllAsync<Record<string, unknown>>('PRAGMA foreign_key_check');
-  if (violations.length)
-    throw new Error(`Foreign key violations: ${JSON.stringify(violations.slice(0, 5))}`);
-  for (const [problem, query] of Object.entries(ledgerChecks)) {
-    const rows = await db.getAllAsync<{ id: number }>(`${query} LIMIT 5`);
-    if (rows.length)
-      throw new Error(`The data has ${problem}: ${rows.map((row) => Object.values(row)[0])}`);
-  }
-}
-
-/** Runs the old schema setup, so that every old table and column exists. */
-async function setUpLegacySchema(db: Connection) {
-  await db.execAsync(legacySchema);
-  const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(transactions)');
-  if (!columns.some((column) => column.name === 'receivedAmountMinor'))
-    await db.execAsync(
-      'ALTER TABLE transactions ADD COLUMN receivedAmountMinor INTEGER CHECK(receivedAmountMinor > 0)',
-    );
-}
 
 /** A v1 backup of the cleaned legacy_* TEMP tables. */
 async function snapshotLegacyTables(db: Connection): Promise<BackupV1> {
@@ -481,128 +387,9 @@ async function snapshotLegacyTables(db: Connection): Promise<BackupV1> {
 }
 
 /**
- * A v1 backup of a database with the old schema. It has the same cleaned rows that the
- * migration moves, so the backup cannot fail on rows that the old app left behind.
- */
-export async function legacySnapshot(db: Connection): Promise<BackupV1> {
-  await copyLegacyTables(db);
-  try {
-    await cleanLegacyTables(db);
-    return await snapshotLegacyTables(db);
-  } finally {
-    await dropLegacyTables(db);
-  }
-}
-
-async function userVersion(db: Connection) {
-  return (await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version'))!.user_version;
-}
-
-/**
- * Moves a database with the old schema to the legs schema. It follows SQLite's steps for
- * a schema change: foreign keys off before the transaction, one exclusive transaction,
- * copy, drop, create, fill, then a check before the commit. Run it on the main connection
- * before anything else uses the connection. Returns false if the database already has the
- * legs schema. On an error it rolls back and throws, and the next start tries again.
- */
-export async function migrateToLegs(db: MainConnection): Promise<boolean> {
-  if ((await userVersion(db)) >= LEGS_SCHEMA_VERSION) return false;
-  if (db.isInTransactionSync()) throw new Error('Run the migration outside a transaction.');
-  // SQLite ignores this PRAGMA inside a transaction, so it comes before BEGIN.
-  await db.execAsync('PRAGMA foreign_keys = OFF');
-  try {
-    const foreignKeys = await db.getFirstAsync<{ foreign_keys: number }>('PRAGMA foreign_keys');
-    if (foreignKeys?.foreign_keys !== 0) throw new Error('Could not turn foreign keys off.');
-    await db.execAsync('BEGIN EXCLUSIVE');
-    // The old tables go only to TEMP tables, so the database file keeps no second copy.
-    await copyLegacyTables(db);
-    await cleanLegacyTables(db);
-    await db.execAsync(`DROP VIEW IF EXISTS report_transactions;
-      DROP VIEW IF EXISTS split_share_progress;
-      ${legacyNames
-        .filter((table) => table !== keptTable)
-        .map((table) => `DROP TABLE main.${table};`)
-        .join('\n')}`);
-    await db.execAsync(legsSchema);
-    await db.execAsync(fillFromLegacy);
-    await dropLegacyTables(db);
-    await checkLedger(db);
-    await db.execAsync(`PRAGMA user_version = ${LEGS_SCHEMA_VERSION}`);
-    await db.execAsync('COMMIT');
-    return true;
-  } catch (error) {
-    if (db.isInTransactionSync()) await db.execAsync('ROLLBACK');
-    throw error;
-  } finally {
-    await db.execAsync('PRAGMA foreign_keys = ON');
-  }
-}
-
-/**
- * Prepares the main connection. A new install gets the legs schema. A database with the
- * old schema gets a v1 backup from `saveBackup`, then the migration. If `saveBackup`
- * throws, the database stays as it is.
- */
-export async function openLedger(db: MainConnection, saveBackup: (json: string) => Promise<void>) {
-  await db.execAsync('PRAGMA foreign_keys = ON');
-  if ((await userVersion(db)) < LEGS_SCHEMA_VERSION) {
-    const old = await db.getFirstAsync(
-      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'transactions'",
-    );
-    if (old) {
-      await setUpLegacySchema(db);
-      await saveBackup(encodeBackup(await legacySnapshot(db)));
-      await migrateToLegs(db);
-    } else {
-      await db.execAsync('BEGIN EXCLUSIVE');
-      try {
-        await db.execAsync(legsSchema);
-        await db.execAsync(`PRAGMA user_version = ${LEGS_SCHEMA_VERSION}`);
-        await db.execAsync('COMMIT');
-      } catch (error) {
-        if (db.isInTransactionSync()) await db.execAsync('ROLLBACK');
-        throw error;
-      }
-    }
-  }
-  // Run the schema on every start, so that a changed trigger or view reaches this database.
-  await db.execAsync(legsSchema);
-}
-
-/**
- * Deletes all data except device-local settings. This order passes the guards of the
- * triggers. Deleting a Transaction deletes its Legs, split shares, Line Items and tags.
- */
-const clearLedger = `DELETE FROM reimbursements; DELETE FROM transactions;
-  DELETE FROM credit_cards; DELETE FROM accounts; DELETE FROM people; DELETE FROM tags;
-  DELETE FROM categories;`;
-
-type SQLiteValue = string | number | null;
-const value = (item: unknown): SQLiteValue =>
-  typeof item === 'boolean' ? Number(item) : ((item ?? null) as SQLiteValue);
-
-type Writer = Connection & Pick<SQLiteDatabase, 'runAsync'>;
-
-/** Inserts the rows into the table. A boolean becomes 0 or 1, and a missing field null. */
-async function insertRows(tx: Writer, table: string, columns: string[], rows: readonly object[]) {
-  const statement = `INSERT INTO ${table} (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`;
-  for (const row of rows)
-    await tx.runAsync(
-      statement,
-      columns.map((column) => value((row as Record<string, unknown>)[column])),
-    );
-}
-
-/**
- * A restore can insert a parent Category after its children. With foreign keys on, SQLite
- * checks them at the commit. With foreign keys off, checkLedger() checks them.
- */
-const deferForeignKeys = (tx: Writer) => tx.execAsync('PRAGMA defer_foreign_keys = ON');
-
-/**
  * Replaces all data with the rows of a v1 backup. Call it inside a transaction. Device-local
  * settings stay. The v1 rows go into legacy_* TEMP tables, where the cleaning and the checks
- * run before any live row changes. Then the fill SQL of the migration makes the legs.
+ * run before any live row changes. Then the fill SQL makes the legs.
  */
 export async function restoreLegacyRows(tx: Writer, data: BackupV1) {
   await deferForeignKeys(tx);
@@ -631,34 +418,5 @@ export async function restoreLegacyRows(tx: Writer, data: BackupV1) {
   await tx.execAsync(clearLedger);
   await tx.execAsync(fillFromLegacy);
   await dropLegacyTables(tx);
-  await checkLedger(tx);
-}
-
-/**
- * Replaces all data with the rows of a v2 backup (ADR 0014). Call it inside a transaction,
- * and roll back if it throws. Device-local settings stay. The rows go directly into the
- * tables. The CHECK constraints and the triggers check each row, and checkLedger() checks
- * the rules that span rows. So a file with a missing parent row or a wrong set of Legs
- * changes nothing.
- */
-export async function restoreLegsRows(tx: Writer, data: BackupV2) {
-  await deferForeignKeys(tx);
-  await tx.execAsync(clearLedger);
-  for (const [name, { table, fields }] of Object.entries(backupV2Tables))
-    await insertRows(tx, table, Object.keys(fields), data[name as keyof typeof backupV2Tables]);
-  const { favoriteAccountId, displayRate } = data.settings;
-  await tx.execAsync("DELETE FROM app_settings WHERE key IN ('favoriteAccountId', 'displayRate')");
-  if (favoriteAccountId !== null) {
-    const favorite = await tx.runAsync(
-      "INSERT INTO app_settings (key, value) SELECT 'favoriteAccountId', json(id) FROM accounts WHERE id = ?",
-      [favoriteAccountId],
-    );
-    if (favorite.changes !== 1)
-      throw new Error(`The favorite Account ${favoriteAccountId} does not exist.`);
-  }
-  if (displayRate)
-    await tx.runAsync("INSERT INTO app_settings (key, value) VALUES ('displayRate', ?)", [
-      JSON.stringify(displayRate),
-    ]);
   await checkLedger(tx);
 }

@@ -1,0 +1,338 @@
+{
+  "schemaVersion": 1,
+  "accounts": [
+    {
+      "id": 1,
+      "name": "Cash",
+      "currencyCode": "BDT",
+      "openingBalanceMinor": 1000,
+      "isFavorite": false
+    },
+    {
+      "id": 2,
+      "name": "Wise",
+      "currencyCode": "USD",
+      "openingBalanceMinor": 0,
+      "isFavorite": true
+    },
+    {
+      "id": 3,
+      "name": "Bank",
+      "currencyCode": "BDT",
+      "openingBalanceMinor": 0,
+      "isFavorite": false
+    }
+  ],
+  "categories": [
+    {
+      "id": 1,
+      "name": "Food",
+      "type": "EXPENSE",
+      "parentId": null,
+      "iconKey": "F",
+      "needsReview": false
+    },
+    {
+      "id": 2,
+      "name": "Loan",
+      "type": "EXPENSE",
+      "parentId": null,
+      "iconKey": null,
+      "needsReview": true
+    },
+    {
+      "id": 3,
+      "name": "Debt",
+      "type": "INCOME",
+      "parentId": null,
+      "iconKey": null,
+      "needsReview": false
+    },
+    {
+      "id": 4,
+      "name": "Gifts",
+      "type": "EXPENSE",
+      "parentId": null,
+      "iconKey": null,
+      "needsReview": false
+    },
+    {
+      "id": 5,
+      "name": "Flowers",
+      "type": "EXPENSE",
+      "parentId": 4,
+      "iconKey": null,
+      "needsReview": false
+    },
+    {
+      "id": 6,
+      "name": "Loans",
+      "type": "EXPENSE",
+      "parentId": null,
+      "iconKey": null,
+      "needsReview": false
+    },
+    {
+      "id": 7,
+      "name": "Family",
+      "type": "EXPENSE",
+      "parentId": 6,
+      "iconKey": null,
+      "needsReview": false
+    }
+  ],
+  "transactions": [
+    {
+      "id": 1,
+      "type": "EXPENSE",
+      "amountMinor": 500,
+      "dateEpochDay": 100,
+      "accountId": 1,
+      "transferAccountId": null,
+      "categoryId": 1,
+      "note": "lunch",
+      "excludeFromReport": false,
+      "source": "MANUAL"
+    },
+    {
+      "id": 2,
+      "type": "INCOME",
+      "amountMinor": 9000,
+      "dateEpochDay": 101,
+      "accountId": 1,
+      "transferAccountId": null,
+      "categoryId": 3,
+      "note": null,
+      "excludeFromReport": true,
+      "source": "IMPORT"
+    },
+    {
+      "id": 3,
+      "type": "TRANSFER",
+      "amountMinor": 12000,
+      "dateEpochDay": 102,
+      "accountId": 1,
+      "transferAccountId": 2,
+      "categoryId": null,
+      "note": "fx",
+      "excludeFromReport": true,
+      "source": "MANUAL",
+      "receivedAmountMinor": 100
+    },
+    {
+      "id": 4,
+      "type": "TRANSFER",
+      "amountMinor": 300,
+      "dateEpochDay": 102,
+      "accountId": 1,
+      "transferAccountId": 3,
+      "categoryId": null,
+      "note": null,
+      "excludeFromReport": false,
+      "source": "MANUAL"
+    },
+    {
+      "id": 5,
+      "type": "EXPENSE",
+      "amountMinor": 700,
+      "dateEpochDay": 103,
+      "accountId": 1,
+      "transferAccountId": null,
+      "categoryId": 2,
+      "note": "lent",
+      "excludeFromReport": true,
+      "source": "MANUAL"
+    },
+    {
+      "id": 6,
+      "type": "INCOME",
+      "amountMinor": 200,
+      "dateEpochDay": 104,
+      "accountId": 1,
+      "transferAccountId": null,
+      "categoryId": 3,
+      "note": null,
+      "excludeFromReport": true,
+      "source": "MANUAL"
+    },
+    {
+      "id": 7,
+      "type": "INCOME",
+      "amountMinor": 400,
+      "dateEpochDay": 105,
+      "accountId": 3,
+      "transferAccountId": null,
+      "categoryId": null,
+      "note": null,
+      "excludeFromReport": true,
+      "source": "MANUAL"
+    },
+    {
+      "id": 8,
+      "type": "EXPENSE",
+      "amountMinor": 100,
+      "dateEpochDay": 106,
+      "accountId": 3,
+      "transferAccountId": null,
+      "categoryId": 6,
+      "note": null,
+      "excludeFromReport": true,
+      "source": "MANUAL"
+    },
+    {
+      "id": 9,
+      "type": "EXPENSE",
+      "amountMinor": 1000,
+      "dateEpochDay": 107,
+      "accountId": 1,
+      "transferAccountId": null,
+      "categoryId": 7,
+      "note": null,
+      "excludeFromReport": false,
+      "source": "MANUAL"
+    },
+    {
+      "id": 10,
+      "type": "INCOME",
+      "amountMinor": 300,
+      "dateEpochDay": 108,
+      "accountId": 1,
+      "transferAccountId": null,
+      "categoryId": null,
+      "note": null,
+      "excludeFromReport": true,
+      "source": "MANUAL"
+    }
+  ],
+  "lineItems": [
+    {
+      "id": 1,
+      "transactionId": 1,
+      "name": "rice",
+      "amountMinor": 300,
+      "quantity": 2
+    }
+  ],
+  "tags": [
+    {
+      "id": 1,
+      "name": "trip"
+    }
+  ],
+  "transactionTags": [
+    {
+      "transactionId": 1,
+      "tagId": 1
+    }
+  ],
+  "transferCandidates": [
+    {
+      "id": 1,
+      "outgoingTxnId": 1,
+      "incomingTxnId": 2,
+      "confidenceNote": "x",
+      "resolved": false
+    }
+  ],
+  "moneyLoverImportRows": [
+    {
+      "rowKey": "row-1",
+      "transactionId": 2
+    }
+  ],
+  "creditCards": [],
+  "people": [
+    {
+      "id": 1,
+      "name": "Ali"
+    },
+    {
+      "id": 2,
+      "name": "Bina"
+    }
+  ],
+  "splitShares": [
+    {
+      "expenseId": 9,
+      "personId": 1,
+      "amountMinor": 400
+    }
+  ],
+  "reimbursements": [
+    {
+      "transactionId": 10,
+      "expenseId": 9,
+      "personId": 1
+    }
+  ],
+  "lendingEntries": [
+    {
+      "id": 1,
+      "personId": 1,
+      "kind": "LEND",
+      "transactionId": 5,
+      "currencyCode": "BDT",
+      "amountMinor": 700,
+      "dateEpochDay": 103,
+      "note": "lent"
+    },
+    {
+      "id": 2,
+      "personId": 1,
+      "kind": "RECEIVE_REPAYMENT",
+      "transactionId": 6,
+      "currencyCode": "BDT",
+      "amountMinor": 200,
+      "dateEpochDay": 104,
+      "note": null
+    },
+    {
+      "id": 3,
+      "personId": 2,
+      "kind": "BORROW",
+      "transactionId": 7,
+      "currencyCode": "BDT",
+      "amountMinor": 400,
+      "dateEpochDay": 105,
+      "note": null
+    },
+    {
+      "id": 4,
+      "personId": 2,
+      "kind": "REPAY",
+      "transactionId": 8,
+      "currencyCode": "BDT",
+      "amountMinor": 100,
+      "dateEpochDay": 106,
+      "note": null
+    },
+    {
+      "id": 5,
+      "personId": 1,
+      "kind": "WRITE_OFF_LENT",
+      "transactionId": null,
+      "currencyCode": "BDT",
+      "amountMinor": 50,
+      "dateEpochDay": 110,
+      "note": "waived"
+    },
+    {
+      "id": 6,
+      "personId": 2,
+      "kind": "WRITE_OFF_BORROWED",
+      "transactionId": null,
+      "currencyCode": "EUR",
+      "amountMinor": 20,
+      "dateEpochDay": 111,
+      "note": null
+    }
+  ],
+  "settings": {
+    "favoriteAccountId": 1,
+    "displayRate": {
+      "base": "USD",
+      "quote": "BDT",
+      "rate": 120
+    }
+  }
+}

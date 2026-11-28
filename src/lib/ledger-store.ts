@@ -97,7 +97,8 @@ async function currencies(tx: Reader, transaction: NewTransaction) {
   return (id: number) => map.get(id)!;
 }
 
-const legOrder = 'ORDER BY personId IS NOT NULL, amountMinor, id';
+/** The order in which the app reads the Legs of a Transaction. */
+export const legOrder = 'personId IS NOT NULL, amountMinor, id';
 
 async function insertLegs(tx: Writer, id: number, legs: ReturnType<typeof toLegs>) {
   for (const leg of legs)
@@ -141,7 +142,7 @@ export async function updateTransaction(tx: Writer, transaction: Transaction) {
   if (result.changes !== 1)
     throw new Error('Transaction was changed or removed. Reload before saving.');
   const old = await tx.getAllAsync<{ id: number; personId: number | null }>(
-    `SELECT id, personId FROM legs WHERE transactionId = ? ${legOrder}`,
+    `SELECT id, personId FROM legs WHERE transactionId = ? ORDER BY ${legOrder}`,
     [transaction.id],
   );
   // toLegs() gives Account legs first, and the source before the destination.
@@ -170,7 +171,7 @@ export async function loadTransaction(tx: Reader, id: number): Promise<Transacti
   const [legs, reimbursement] = await Promise.all([
     tx.getAllAsync<LegRow>(
       `SELECT transactionId, accountId, personId, currencyCode, amountMinor FROM legs
-      WHERE transactionId = ? ${legOrder}`,
+      WHERE transactionId = ? ORDER BY ${legOrder}`,
       [id],
     ),
     tx.getFirstAsync<ReimbursementRow>(
