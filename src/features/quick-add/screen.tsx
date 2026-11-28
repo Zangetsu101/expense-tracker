@@ -1,4 +1,4 @@
-import { useCallback, useOptimistic, useRef, useState, useTransition } from 'react';
+import { useCallback, useEffect, useOptimistic, useRef, useState, useTransition } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { categoriesQuery, peopleQuery, includeCreatedPerson, nextPersonId } from './queries.ts';
 import { accountsQuery } from '@/lib/account-queries';
@@ -16,6 +16,7 @@ import { TransferBillChoices } from './transfer-bill-choices.tsx';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight, useNavigation, usePreventRemove } from 'expo-router/react-navigation';
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
@@ -149,9 +150,22 @@ function QuickAddForm() {
     preset === undefined ? '' : (preset / 100).toFixed(2),
     preset === undefined,
   );
-  const [initialKeypadDelay, setInitialKeypadDelay] = useState(
-    preset === undefined ? keypadEntryDelay : 0,
-  );
+  const [deferKeypad, setDeferKeypad] = useState(preset === undefined);
+  const endKeypadPause = useCallback(() => setDeferKeypad(false), []);
+  useEffect(() => {
+    if (!deferKeypad) return;
+    let active = true;
+    const timer = setTimeout(endKeypadPause, keypadEntryDelay);
+    void AccessibilityInfo.isReduceMotionEnabled()
+      .then((enabled) => {
+        if (active && enabled) endKeypadPause();
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [deferKeypad, endKeypadPause]);
   const categoryMode = mode === 'EXPENSE' || mode === 'INCOME' ? mode : undefined;
   const categoryRead = useQuery({ ...categoriesQuery(categoryMode ?? 'EXPENSE'), enabled: false });
   const peopleRead = useQuery({ ...peopleQuery(), enabled: false });
@@ -370,7 +384,8 @@ function QuickAddForm() {
       initialPaid={preset === undefined ? amountMinor : undefined}
       draft={amountDraft}
       currency={account?.currencyCode}
-      initialKeypadDelay={initialKeypadDelay}
+      deferKeypad={deferKeypad}
+      onRequestKeypad={endKeypadPause}
       disabled={saving}
       onChange={mode === 'TRANSFER' ? onTransferAmounts : setAmountMinor}
     >
@@ -393,6 +408,7 @@ function QuickAddForm() {
             keyboardShouldPersistTaps="handled"
             onScrollBeginDrag={() => {
               dismissCalculator();
+              endKeypadPause();
             }}
             contentContainerStyle={{ padding: 22, gap: 18, paddingBottom: 48 }}
           >
@@ -401,6 +417,7 @@ function QuickAddForm() {
               style={{ gap: 18 }}
               onTouchStart={() => {
                 dismissCalculator();
+                endKeypadPause();
               }}
             >
               <JoinedChoice
@@ -416,7 +433,7 @@ function QuickAddForm() {
                     );
                     setPreset(undefined);
                   }
-                  if (mode !== value) setInitialKeypadDelay(0);
+                  if (mode !== value) endKeypadPause();
                   setMode(value);
                   setError('');
                 }}
