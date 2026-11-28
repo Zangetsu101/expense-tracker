@@ -3,112 +3,59 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { File } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
-import { database, favoriteAccountIdSql, isFavoriteSql } from '@/lib/database';
-import { accountTransactions, lendingEntryRows } from '@/lib/ledger-store';
-import { restoreLegacyRows, restoreLegsRows } from '@/lib/legs-migration';
+import { database, favoriteAccountIdSql } from '@/lib/database';
+import { restoreLegsRows } from '@/lib/backup-restore';
+import { restoreLegacyRows } from '@/lib/backup-v1-restore';
+import { backupV2Tables, backupV3Tables, type BackupV2, type BackupV3 } from '@/lib/backup-v2';
+import { legOrder } from '@/lib/ledger-store';
 import { readAll } from '@/lib/read-all';
-import type { Backup, BackupV1, BackupDocuments, BackupStore } from '@/lib/backup';
-import { backupV3Tables, type BackupV3 } from './backup-v2.ts';
+import type { BackupDocuments, BackupStore } from '@/lib/backup';
 
-// A v1 lending entry needs an id. Each entry uses the id of its Transaction, so the ids
-// stay the same from one export to the next. A restore gives each Write-off a new
-// Transaction id after the highest id of the other Transactions.
-
-/** The v1 Transactions: every Transaction that moves money on an Account. */
-const v1Transactions = `SELECT t.id, t.type, t.amountMinor, t.receivedAmountMinor,
-  t.date AS dateEpochDay, t.accountId, t.transferAccountId, t.categoryId, t.note,
-  t.excludeFromReport FROM ${accountTransactions} t ORDER BY t.id`;
+/** Selects the fields in a backup table in their export order. */
+function selectBackupRows({
+  table,
+  uniqueKey,
+  fields,
+}: {
+  table: string;
+  uniqueKey: readonly string[];
+  fields: object;
+}) {
+  // A Leg has no unique key, so the Legs of a Transaction come in the order that the app
+  // reads them in (ADR 0014).
+  const order = table === 'legs' ? `transactionId, ${legOrder}` : uniqueKey.join(', ');
+  return `SELECT ${Object.keys(fields).join(', ')} FROM ${table} ORDER BY ${order}`;
+}
 
 export const backupStore: BackupStore = {
   async snapshot() {
     const db = await database();
-    let snapshot!: Backup;
+    let snapshot!: BackupV2 | BackupV3;
     await db.withExclusiveTransactionAsync(async (tx) => {
-      const all = <T>(query: string) => tx.getAllAsync<T>(query);
-      if (await tx.getFirstAsync('SELECT 1 FROM investments LIMIT 1')) {
-        const [tables, settings] = await Promise.all([
-          Promise.all(
-            Object.entries(backupV3Tables).map(async ([name, { table, fields, uniqueKey }]) => {
-              const order = uniqueKey.length
-                ? uniqueKey.join(', ')
-                : 'transactionId, personId IS NOT NULL, amountMinor, id';
-              const rows = await all<Record<string, unknown>>(
-                `SELECT ${Object.keys(fields).join(', ')} FROM ${table} ORDER BY ${order}`,
-              );
-              if (name === 'transactions')
-                for (const row of rows) row.excludeFromReport = Boolean(row.excludeFromReport);
-              return [name, rows] as const;
-            }),
+      const hasInvestments = !!(await tx.getFirstAsync('SELECT 1 FROM investments LIMIT 1'));
+      const backupTables = hasInvestments ? backupV3Tables : backupV2Tables;
+      const { favorite, displayRate, tables } = await readAll({
+        favorite: tx.getFirstAsync<{ id: number | null }>(`SELECT ${favoriteAccountIdSql} AS id`),
+        displayRate: tx.getFirstAsync<{ value: string }>(
+          "SELECT value FROM app_settings WHERE key = 'displayRate'",
+        ),
+        tables: readAll(
+          Object.fromEntries(
+            Object.entries(backupTables).map(([name, table]) => [
+              name,
+              tx.getAllAsync(selectBackupRows(table)),
+            ]),
           ),
-          all<{ key: string; value: string }>(
-            "SELECT key, value FROM app_settings WHERE key IN ('favoriteAccountId', 'displayRate')",
-          ),
-        ]);
-        snapshot = {
-          ...Object.fromEntries(tables),
-          schemaVersion: 3,
-          settings: {
-            favoriteAccountId: null,
-            displayRate: null,
-            ...Object.fromEntries(settings.map(({ key, value }) => [key, JSON.parse(value)])),
-          },
-        } as BackupV3;
-        return;
-      }
-      const { favorite, displayRate, accounts, categories, transactions, ...tables } =
-        await readAll({
-          favorite: tx.getFirstAsync<{ id: number | null }>(`SELECT ${favoriteAccountIdSql} AS id`),
-          displayRate: tx.getFirstAsync<{ value: string }>(
-            "SELECT value FROM app_settings WHERE key = 'displayRate'",
-          ),
-          accounts: all<Omit<BackupV1['accounts'][number], 'isFavorite'> & { isFavorite: number }>(
-            `SELECT a.id, a.name, a.currencyCode, a.openingBalanceMinor,
-            ${isFavoriteSql('a')} AS isFavorite FROM accounts a ORDER BY a.id`,
-          ),
-          categories: all<BackupV1['categories'][number]>(
-            'SELECT id, name, type, parentId, iconKey FROM categories ORDER BY id',
-          ),
-          transactions: all<
-            Omit<BackupV1['transactions'][number], 'excludeFromReport' | 'source'> & {
-              excludeFromReport: number;
-            }
-          >(v1Transactions),
-          lineItems: all<BackupV1['lineItems'][number]>(
-            'SELECT id, transactionId, name, amountMinor, quantity FROM line_items ORDER BY id',
-          ),
-          tags: all<BackupV1['tags'][number]>('SELECT id, name FROM tags ORDER BY id'),
-          transactionTags: all<BackupV1['transactionTags'][number]>(
-            'SELECT transactionId, tagId FROM transaction_tags ORDER BY transactionId, tagId',
-          ),
-          creditCards: all<NonNullable<BackupV1['creditCards']>[number]>(
-            'SELECT accountId, parentAccountId, statementDay, dueDay FROM credit_cards ORDER BY accountId',
-          ),
-          people: all<NonNullable<BackupV1['people']>[number]>(
-            'SELECT id, name FROM people ORDER BY id',
-          ),
-          splitShares: all<NonNullable<BackupV1['splitShares']>[number]>(
-            'SELECT expenseId, personId, amountMinor FROM split_shares ORDER BY expenseId, personId',
-          ),
-          reimbursements: all<NonNullable<BackupV1['reimbursements']>[number]>(
-            'SELECT transactionId, expenseId, personId FROM reimbursements ORDER BY transactionId',
-          ),
-          lendingEntries: all<NonNullable<BackupV1['lendingEntries']>[number]>(
-            `SELECT id, personId, kind, transactionId, currencyCode, amountMinor,
-            date AS dateEpochDay, note FROM (${lendingEntryRows}) ORDER BY id`,
-          ),
-        });
+        ),
+      });
+      const rows = tables as Omit<BackupV3, 'schemaVersion' | 'settings'>;
       snapshot = {
-        schemaVersion: 1,
-        ...tables,
-        accounts: accounts.map((row) => ({ ...row, isFavorite: Boolean(row.isFavorite) })),
-        categories: categories.map((row) => ({ ...row, needsReview: false })),
-        transactions: transactions.map(({ receivedAmountMinor, ...row }) => ({
+        schemaVersion: hasInvestments ? 3 : 2,
+        ...rows,
+        transactions: rows.transactions.map((row) => ({
           ...row,
-          ...(receivedAmountMinor === null ? {} : { receivedAmountMinor }),
           excludeFromReport: Boolean(row.excludeFromReport),
-          source: 'MANUAL',
         })),
-        transferCandidates: [],
         settings: {
           favoriteAccountId: favorite?.id ?? null,
           displayRate: displayRate ? JSON.parse(displayRate.value) : null,

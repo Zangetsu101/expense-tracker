@@ -1,5 +1,8 @@
-// The SQLite schema of the legs model (ADR 0013). A new install runs it, the migration
-// runs it, and every later start runs it again. Tables and triggers use IF NOT EXISTS.
+import type { SQLiteDatabase } from 'expo-sqlite';
+import { checkLedger, type Connection } from './backup-restore.ts';
+
+// The SQLite schema of the legs model (ADR 0013). A new install runs it, and every later
+// start runs it again. Tables and triggers use IF NOT EXISTS.
 // Views are dropped and created again, so that a change to a view reaches old installs.
 //
 // A Transaction has one or more legs. Each leg moves a signed amount on one Account
@@ -20,10 +23,10 @@
 //   LENT      Account < 0: LEND     Account > 0: RECEIVE_REPAYMENT   no Account: WRITE_OFF_LENT
 //   BORROWED  Account > 0: BORROW   Account < 0: REPAY               no Account: WRITE_OFF_BORROWED
 
-/** PRAGMA user_version of a database with this schema. Version 0 is the old schema. */
+/** PRAGMA user_version of a database with this schema. Version 0 is a new database. */
 export const LEGS_SCHEMA_VERSION = 2;
 
-export const transactionTable = (table = 'transactions') => `CREATE TABLE IF NOT EXISTS ${table} (
+const transactionTable = (table = 'transactions') => `CREATE TABLE IF NOT EXISTS ${table} (
   id INTEGER PRIMARY KEY,
   kind TEXT NOT NULL
     CHECK(kind IN ('EXPENSE', 'INCOME', 'TRANSFER', 'LENDING', 'WRITE_OFF', 'REIMBURSEMENT', 'VALUATION')),
@@ -275,8 +278,7 @@ CREATE TRIGGER IF NOT EXISTS delete_dividend_link AFTER DELETE ON transactions B
 END;
 
 -- Spending and income for reports. A reimbursement takes the Category of its Expense
--- and lowers spending in the month of its own date (ADR 0011). The columns are the same
--- as before the migration.
+-- and lowers spending in the month of its own date (ADR 0011).
 DROP VIEW IF EXISTS report_transactions;
 CREATE VIEW report_transactions AS
   SELECT t.id, l.accountId, t.date,
@@ -299,3 +301,58 @@ CREATE VIEW split_share_progress AS
     WHERE r.expenseId = s.expenseId AND r.personId = s.personId
   ), 0) AS paidMinor FROM split_shares s);
 `;
+
+type MainConnection = Connection & Pick<SQLiteDatabase, 'isInTransactionSync'>;
+
+/** Rebuilds the kind constraint without deleting the children of any Transaction. */
+async function migrateInvestments(db: MainConnection) {
+  if (db.isInTransactionSync()) throw new Error('Run the migration outside a transaction.');
+  try {
+    await db.execAsync('PRAGMA foreign_keys = OFF; PRAGMA legacy_alter_table = ON;');
+    const foreignKeys = await db.getFirstAsync<{ foreign_keys: number }>('PRAGMA foreign_keys');
+    if (foreignKeys?.foreign_keys !== 0) throw new Error('Could not turn foreign keys off.');
+    await db.execAsync(`BEGIN EXCLUSIVE;
+      DROP VIEW report_transactions;
+      DROP VIEW split_share_progress;
+      DROP TRIGGER leg_fits_on_insert;
+      DROP TRIGGER leg_fits_on_update;
+      ${transactionTable('new_transactions')}
+      INSERT INTO new_transactions SELECT * FROM transactions;
+      DROP TABLE transactions;
+      ALTER TABLE new_transactions RENAME TO transactions;
+      ${legsSchema}
+      PRAGMA user_version = ${LEGS_SCHEMA_VERSION};`);
+    await checkLedger(db);
+    await db.execAsync('COMMIT');
+  } catch (error) {
+    if (db.isInTransactionSync()) await db.execAsync('ROLLBACK');
+    throw error;
+  } finally {
+    await db.execAsync('PRAGMA legacy_alter_table = OFF; PRAGMA foreign_keys = ON;');
+  }
+}
+
+/**
+ * Prepares the main connection. A new install gets the legs schema. Every start runs the
+ * schema again, so that a changed trigger or view reaches the database.
+ */
+export async function openLedger(db: MainConnection) {
+  await db.execAsync('PRAGMA foreign_keys = ON');
+  const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
+  if (version!.user_version === 1) {
+    await migrateInvestments(db);
+    return;
+  }
+  if (version!.user_version === 0) {
+    await db.execAsync('BEGIN EXCLUSIVE');
+    try {
+      await db.execAsync(legsSchema);
+      await db.execAsync(`PRAGMA user_version = ${LEGS_SCHEMA_VERSION}`);
+      await db.execAsync('COMMIT');
+    } catch (error) {
+      if (db.isInTransactionSync()) await db.execAsync('ROLLBACK');
+      throw error;
+    }
+  }
+  await db.execAsync(legsSchema);
+}

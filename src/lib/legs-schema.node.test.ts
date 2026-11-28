@@ -4,12 +4,12 @@
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
-import { legsSchema } from './legs-schema.ts';
+import { LEGS_SCHEMA_VERSION, legsSchema, openLedger } from './legs-schema.ts';
 
-function fixture(foreignKeys: boolean) {
+function fixture(foreignKeys: boolean, schema = legsSchema) {
   const sql = new DatabaseSync(':memory:');
   sql.exec(`PRAGMA foreign_keys = ${foreignKeys ? 'ON' : 'OFF'}`);
-  sql.exec(legsSchema);
+  sql.exec(schema);
   sql.exec(`
     INSERT INTO accounts (id, name, currencyCode) VALUES (1, 'Cash', 'BDT'), (2, 'Wise', 'USD');
     INSERT INTO credit_cards (accountId, parentAccountId) VALUES (2, 1);
@@ -170,3 +170,49 @@ for (const foreignKeys of [true, false]) {
       assert.equal(count(sql, `SELECT COUNT(*) FROM ${table}`), 0, table);
   });
 }
+
+test('a new install gets the legs schema, and a later start keeps the data', async () => {
+  const sql = new DatabaseSync(':memory:');
+  const db = {
+    execAsync: async (query: string) => sql.exec(query),
+    getFirstAsync: async (query: string) => ({ ...sql.prepare(query).get() }),
+    isInTransactionSync: () => sql.isTransaction,
+  } as never;
+  const value = (query: string) => Object.values(sql.prepare(query).get()!)[0];
+  await openLedger(db);
+  assert.equal(value('PRAGMA user_version'), LEGS_SCHEMA_VERSION);
+  assert.equal(value('PRAGMA foreign_keys'), 1);
+  assert.equal(value("SELECT COUNT(*) FROM sqlite_master WHERE name = 'legs'"), 1);
+  sql.exec("INSERT INTO accounts (id, name, currencyCode) VALUES (1, 'Cash', 'BDT')");
+  await openLedger(db);
+  assert.equal(value('SELECT COUNT(*) FROM accounts'), 1);
+});
+
+test('the Investment migration keeps Transactions and their children', async () => {
+  const sql = fixture(true, legsSchema.replace(", 'VALUATION'", ''));
+  sql.exec('PRAGMA user_version = 1');
+  const db = {
+    execAsync: async (query: string) => sql.exec(query),
+    getAllAsync: async (query: string) => sql.prepare(query).all(),
+    getFirstAsync: async (query: string) => sql.prepare(query).get(),
+    isInTransactionSync: () => sql.isTransaction,
+  } as never;
+  const tables = [
+    'transactions',
+    'legs',
+    'split_shares',
+    'reimbursements',
+    'line_items',
+    'transaction_tags',
+  ];
+  const snapshot = () => tables.map((table) => sql.prepare(`SELECT * FROM ${table}`).all());
+  const before = snapshot();
+  const valuation = "INSERT INTO transactions (kind, date) VALUES ('VALUATION', 100)";
+
+  assert.throws(() => sql.exec(valuation));
+  await openLedger(db);
+  assert.deepEqual(snapshot(), before);
+  assert.deepEqual(sql.prepare('PRAGMA foreign_key_check').all(), []);
+  assert.equal(sql.prepare('PRAGMA user_version').get()!.user_version, LEGS_SCHEMA_VERSION);
+  sql.exec(valuation);
+});

@@ -121,16 +121,27 @@ function state() {
 function insert(query, ...values) {
   sql.prepare(query).run(...values);
 }
-function replaceDocument(data) {
+/** Restores the JSON text as the app does: decode, confirm, then replace. */
+function restoreText(text) {
   return restoreBackup(
     backupStore,
     {
       pickJsonDocument: async () => ({ uri: 'content://synthetic-backup', name: 'saved.json' }),
-      readText: async () => encodeBackup(data),
+      readText: async () => text,
     },
     async () => true,
   );
 }
+const replaceDocument = (data) => restoreText(JSON.stringify(data));
+/** The parsed JSON that the export writes. */
+const exported = async () => JSON.parse(encodeBackup(await backupStore.snapshot()));
+const legsOf = (backup, transactionId) =>
+  backup.legs.filter((leg) => leg.transactionId === transactionId);
+/** A v1 file with one Account, one Category and one Expense. */
+const fixture = () =>
+  decodeBackup(
+    readFileSync(new URL('../../scripts/fixtures/backup-v1.json', import.meta.url), 'utf8'),
+  );
 
 test('SQLite snapshot and replace retain Accounts, Categories, Transfers, tags, Line Items and settings', async () => {
   insert(
@@ -168,37 +179,39 @@ test('SQLite snapshot and replace retain Accounts, Categories, Transfers, tags, 
     "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('displayRate', ?)",
     JSON.stringify({ base: 'BDT', quote: 'USD', rate: 0.01 }),
   );
-  const original = await backupStore.snapshot();
-  const json = encodeBackup(original);
+  const original = await exported();
+  assert.equal(original.schemaVersion, 2);
   assert.equal(original.categories.find((row) => row.id === 21).parentId, 20);
   assert.equal(original.transactions.find((row) => row.id === 31).excludeFromReport, true);
   assert.deepEqual(
-    { ...original.transactions.find((row) => row.id === 30) },
+    original.transactions.find((row) => row.id === 30),
     {
       id: 30,
-      type: 'TRANSFER',
-      amountMinor: 500,
-      dateEpochDay: 20120,
-      accountId: 10,
-      transferAccountId: 11,
+      kind: 'TRANSFER',
+      direction: null,
+      date: 20120,
       categoryId: null,
       note: null,
       excludeFromReport: false,
-      source: 'MANUAL',
     },
-    'a Transfer in one Currency has no received amount',
+  );
+  assert.deepEqual(
+    legsOf(original, 30),
+    [
+      { transactionId: 30, accountId: 10, personId: null, currencyCode: 'BDT', amountMinor: -500 },
+      { transactionId: 30, accountId: 11, personId: null, currencyCode: 'BDT', amountMinor: 500 },
+    ],
+    'the Legs come in the order that the app reads them in',
   );
   assert.deepEqual(original.settings, {
     favoriteAccountId: 10,
     displayRate: { base: 'BDT', quote: 'USD', rate: 0.01 },
   });
-  assert.equal(original.accounts.find((row) => row.id === 10).isFavorite, true);
-  assert.deepEqual(original.transferCandidates, []);
   const before = state();
   addTransaction(sql, { id: 99, type: 'EXPENSE', amountMinor: 1, date: 20122, accountId: 10 });
-  await replaceDocument(decodeBackup(json));
+  await replaceDocument(original);
   assert.deepEqual(state(), before);
-  assert.deepEqual(await backupStore.snapshot(), original);
+  assert.deepEqual(await exported(), original);
 });
 
 test('lending links, write-offs and people survive restore', async () => {
@@ -227,61 +240,29 @@ test('lending links, write-offs and people survive restore', async () => {
     false,
     '',
   );
-  const original = await backupStore.snapshot();
+  const original = await exported();
+  const row = (id) => original.transactions.find((item) => item.id === id);
   assert.deepEqual(
-    original.lendingEntries.map((entry) => ({ ...entry })),
+    [row(lent.id), row(writeOff.id)].map(({ kind, direction, note }) => [kind, direction, note]),
     [
-      {
-        id: lent.id,
-        personId: person.id,
-        kind: 'LEND',
-        transactionId: lent.id,
-        currencyCode: 'BDT',
-        amountMinor: 1000,
-        dateEpochDay: 20149,
-        note: 'edited principal note',
-      },
-      {
-        id: writeOff.id,
-        personId: person.id,
-        kind: 'WRITE_OFF_LENT',
-        transactionId: null,
-        currencyCode: 'BDT',
-        amountMinor: 100,
-        dateEpochDay: 20150,
-        note: 'synthetic waiver',
-      },
+      ['LENDING', 'LENT', 'edited principal note'],
+      ['WRITE_OFF', 'LENT', 'synthetic waiver'],
     ],
-    'each entry uses the id of its Transaction',
   );
-  const linked = original.transactions.find((row) => row.id === lent.id);
-  assert.deepEqual(
-    [linked.type, linked.excludeFromReport, linked.categoryId],
-    ['EXPENSE', true, null],
-  );
-  assert.equal(
-    original.transactions.some((row) => row.id === writeOff.id),
-    false,
-    'a Write-off is not a v1 Transaction',
-  );
-  assert.deepEqual(
-    original.people.map((row) => ({ ...row })),
-    [person],
-  );
+  assert.deepEqual(legsOf(original, writeOff.id), [
+    {
+      transactionId: writeOff.id,
+      accountId: null,
+      personId: person.id,
+      currencyCode: 'BDT',
+      amountMinor: -100,
+    },
+  ]);
+  assert.deepEqual(original.people, [person]);
   const before = state();
-  await replaceDocument(decodeBackup(encodeBackup(original)));
+  await replaceDocument(original);
   assert.deepEqual(state(), before);
-  const restored = await backupStore.snapshot();
-  const highest = Math.max(...original.transactions.map((row) => row.id));
-  assert.equal(
-    restored.lendingEntries[1].id,
-    highest + 1,
-    'a restored Write-off gets the next id after the other Transactions',
-  );
-  assert.deepEqual(
-    { ...restored, lendingEntries: restored.lendingEntries.map(({ id, ...entry }) => entry) },
-    { ...original, lendingEntries: original.lendingEntries.map(({ id, ...entry }) => entry) },
-  );
+  assert.deepEqual(await exported(), original, 'a Write-off keeps its id');
   assert.equal((await lending.listLendingEntries(person.id)).length, 2);
   assert.equal((await lending.listLendingTotals(person.id))[0].outstandingMinor, 900);
 });
@@ -294,49 +275,77 @@ test('native v1 fixture restores into SQLite and drops the MoneyLover data', asy
   const data = decodeBackup(native);
   assert.equal(data.moneyLoverImportRows, undefined);
   await replaceDocument(data);
-  const restored = await backupStore.snapshot();
-  const expected = {
-    ...data,
-    categories: [...data.categories].sort((a, b) => a.id - b.id),
-    // The legs model has no source and no transfer candidates (ADR 0012), and it keeps the
-    // received amount of every Transfer between Currencies (ADR 0013).
-    transactions: data.transactions.map((row) => ({
-      ...row,
-      ...(row.id === 101 ? { receivedAmountMinor: row.amountMinor } : {}),
-      source: 'MANUAL',
-    })),
-    transferCandidates: [],
-  };
-  for (const key of [
-    'accounts',
-    'categories',
-    'transactions',
-    'lineItems',
-    'tags',
-    'transactionTags',
-    'transferCandidates',
-    'settings',
-  ])
-    assert.deepEqual(
-      JSON.parse(JSON.stringify(restored[key])),
-      JSON.parse(JSON.stringify(expected[key])),
-      key,
-    );
-  assert.equal(restored.moneyLoverImportRows, undefined);
-  assert.deepEqual(restored.people, []);
-  assert.deepEqual(restored.lendingEntries, []);
+  const bdt = { personId: null, currencyCode: 'BDT' };
+  const usd = { personId: null, currencyCode: 'USD' };
+  // The legs model has no source and no transfer candidates (ADR 0012), and it keeps the
+  // received amount of every Transfer between Currencies (ADR 0013).
+  assert.deepEqual(await exported(), {
+    schemaVersion: 2,
+    accounts: [
+      { id: 1, name: 'Cash', currencyCode: 'BDT', openingBalanceMinor: 5000 },
+      { id: 2, name: 'Bank USD', currencyCode: 'USD', openingBalanceMinor: 0 },
+    ],
+    creditCards: [],
+    categories: [
+      { id: 10, name: 'Food', type: 'EXPENSE', parentId: null, iconKey: null },
+      { id: 11, name: 'Groceries', type: 'EXPENSE', parentId: 10, iconKey: 'cart' },
+      { id: 12, name: 'Salary', type: 'INCOME', parentId: null, iconKey: null },
+    ],
+    people: [],
+    tags: [
+      { id: 300, name: 'work' },
+      { id: 301, name: 'reimbursable' },
+    ],
+    transactions: [
+      {
+        id: 100,
+        kind: 'EXPENSE',
+        direction: null,
+        date: 20000,
+        categoryId: 11,
+        note: 'lunch, with a comma',
+        excludeFromReport: false,
+      },
+      {
+        id: 101,
+        kind: 'TRANSFER',
+        direction: null,
+        date: 20001,
+        categoryId: null,
+        note: null,
+        excludeFromReport: false,
+      },
+      {
+        id: 102,
+        kind: 'INCOME',
+        direction: null,
+        date: 20002,
+        categoryId: 12,
+        note: null,
+        excludeFromReport: true,
+      },
+    ],
+    legs: [
+      { transactionId: 100, accountId: 1, ...bdt, amountMinor: -1299 },
+      { transactionId: 101, accountId: 1, ...bdt, amountMinor: -100000 },
+      { transactionId: 101, accountId: 2, ...usd, amountMinor: 100000 },
+      { transactionId: 102, accountId: 2, ...usd, amountMinor: 500000 },
+    ],
+    lineItems: [{ id: 200, transactionId: 100, name: 'Sandwich', amountMinor: 999, quantity: 2 }],
+    transactionTags: [
+      { transactionId: 100, tagId: 300 },
+      { transactionId: 102, tagId: 301 },
+    ],
+    splitShares: [],
+    reimbursements: [],
+    settings: { favoriteAccountId: 1, displayRate: { base: 'USD', quote: 'BDT', rate: 120 } },
+  });
 });
 
 test('failed SQLite replacement rolls back every table including settings', async () => {
   const before = state();
   const data = await backupStore.snapshot();
-  data.accounts.push({
-    id: 999,
-    name: 'New',
-    currencyCode: 'BDT',
-    openingBalanceMinor: 0,
-    isFavorite: false,
-  });
+  data.accounts.push({ id: 999, name: 'New', currencyCode: 'BDT', openingBalanceMinor: 0 });
   data.settings.displayRate = null;
   sql.exec(
     "CREATE TRIGGER fail_backup BEFORE INSERT ON line_items BEGIN SELECT RAISE(ABORT, 'forced backup failure'); END",
@@ -349,9 +358,9 @@ test('failed SQLite replacement rolls back every table including settings', asyn
   }
 });
 
-test('a restore rejects rows that break the legs model and changes nothing', async () => {
+test('a v1 restore rejects rows that break the legs model and changes nothing', async () => {
   const before = state();
-  const data = await backupStore.snapshot();
+  const data = fixture();
   data.transactions.push({
     id: 998,
     type: 'EXPENSE',
@@ -371,10 +380,6 @@ test('a restore rejects rows that break the legs model and changes nothing', asy
   assert.deepEqual(state(), before);
 });
 
-const fixture = () =>
-  decodeBackup(
-    readFileSync(new URL('../../scripts/fixtures/backup-v1.json', import.meta.url), 'utf8'),
-  );
 const writeOff = (id, amountMinor = 100) => ({
   id,
   personId: 1,
@@ -408,28 +413,19 @@ test('a restore leaves out rows of a deleted Transaction and repairs missing Cat
   data.people = [{ id: 1, name: 'Ali' }];
   data.lendingEntries = [writeOff(4)];
   await replaceDocument(data);
-  const restored = await backupStore.snapshot();
-  assert.equal(restored.lendingEntries[0].id, 2);
-  assert.deepEqual(restored.lineItems, []);
+  const restored = await exported();
   assert.deepEqual(
-    restored.transactionTags.map((link) => ({ ...link })),
-    [{ transactionId: 1, tagId: 5 }],
+    restored.transactions.map(({ id, kind }) => [id, kind]),
+    [
+      [1, 'EXPENSE'],
+      [2, 'WRITE_OFF'],
+    ],
   );
+  assert.deepEqual(restored.lineItems, []);
+  assert.deepEqual(restored.transactionTags, [{ transactionId: 1, tagId: 5 }]);
   assert.equal(restored.categories.find((row) => row.id === 2).parentId, null);
   assert.equal(restored.transactions[0].categoryId, null);
 });
-
-/** Restores the JSON text as the app does: decode, confirm, then replace. */
-function restoreJson(json) {
-  return restoreBackup(
-    backupStore,
-    {
-      pickJsonDocument: async () => ({ uri: 'content://old-backup', name: 'old.json' }),
-      readText: async () => json,
-    },
-    async () => true,
-  );
-}
 
 test('a restore of a raw file deletes each kind of row that a delete left behind', async () => {
   // A clean backup with an Expense, a split share, a reimbursement and a card.
@@ -454,7 +450,7 @@ test('a restore of a raw file deletes each kind of row that a delete left behind
   clean.creditCards = [{ accountId: 2, parentAccountId: 1, statementDay: null, dueDay: null }];
   clean.lendingEntries = [];
   clean.moneyLoverImportRows = [];
-  await restoreJson(JSON.stringify(clean));
+  await restoreText(JSON.stringify(clean));
   const expected = await backupStore.snapshot();
 
   // Transaction 9 and Account 9 were deleted. Each row below points to one of them.
@@ -484,17 +480,17 @@ test('a restore of a raw file deletes each kind of row that a delete left behind
     ],
   };
   for (const [key, rows] of Object.entries(orphans)) {
-    await restoreJson(JSON.stringify(fixture()));
-    assert.equal(await restoreJson(JSON.stringify({ ...clean, [key]: rows })), true, key);
+    await restoreText(JSON.stringify(fixture()));
+    assert.equal(await restoreText(JSON.stringify({ ...clean, [key]: rows })), true, key);
     assert.deepEqual(await backupStore.snapshot(), expected, key);
   }
 
   // A reimbursement whose split share was deleted goes with the share.
-  await restoreJson(JSON.stringify({ ...clean, splitShares: [] }));
+  await restoreText(JSON.stringify({ ...clean, splitShares: [] }));
   const withoutShare = await backupStore.snapshot();
   assert.deepEqual(withoutShare.reimbursements, []);
   // A missing card parent becomes no parent, as SET NULL would do.
-  await restoreJson(
+  await restoreText(
     JSON.stringify({ ...clean, creditCards: [{ ...clean.creditCards[0], parentAccountId: 9 }] }),
   );
   assert.equal((await backupStore.snapshot()).creditCards[0].parentAccountId, null);
@@ -503,12 +499,14 @@ test('a restore of a raw file deletes each kind of row that a delete left behind
 test('a raw file with a received amount on an Expense restores without it', async () => {
   const data = fixture();
   data.transactions[0].receivedAmountMinor = 50;
-  assert.equal(await restoreJson(JSON.stringify(data)), true);
-  assert.equal((await backupStore.snapshot()).transactions[0].receivedAmountMinor, undefined);
+  assert.equal(await restoreText(JSON.stringify(data)), true);
+  assert.deepEqual((await exported()).legs, [
+    { transactionId: 1, accountId: 1, personId: null, currencyCode: 'BDT', amountMinor: -1234 },
+  ]);
 });
 
 test('a raw file with a Transfer from a missing Account stops and names the row', async () => {
-  await restoreJson(JSON.stringify(fixture()));
+  await restoreText(JSON.stringify(fixture()));
   const before = state();
   const data = fixture();
   data.transactions[0] = {
@@ -519,12 +517,12 @@ test('a raw file with a Transfer from a missing Account stops and names the row'
     transferAccountId: 9,
     receivedAmountMinor: 100,
   };
-  await assert.rejects(restoreJson(JSON.stringify(data)), /Row 1 of transactions needs Account 8/);
+  await assert.rejects(restoreText(JSON.stringify(data)), /Row 1 of transactions needs Account 8/);
   assert.deepEqual(state(), before);
 });
 
 test('a raw file with a Transfer to a missing Account stops and names the row', async () => {
-  await restoreJson(JSON.stringify(fixture()));
+  await restoreText(JSON.stringify(fixture()));
   const before = state();
   const data = fixture();
   data.accounts.push({
@@ -542,21 +540,21 @@ test('a raw file with a Transfer to a missing Account stops and names the row', 
     receivedAmountMinor: 100,
   };
   await assert.rejects(
-    restoreJson(JSON.stringify(data)),
+    restoreText(JSON.stringify(data)),
     /Row 1 of transactions needs destination Account 9/,
   );
   assert.deepEqual(state(), before);
 });
 
 test('a file that names a missing person stops before any change', async () => {
-  await restoreJson(JSON.stringify(fixture()));
+  await restoreText(JSON.stringify(fixture()));
   const before = state();
   const data = fixture();
   data.people = [{ id: 1, name: 'Ali' }];
   data.lendingEntries = [writeOff(1)];
   data.lendingEntries[0].personId = 7;
   await assert.rejects(
-    restoreJson(JSON.stringify(data)),
+    restoreText(JSON.stringify(data)),
     /Row 1 of lending_entries needs person 7, which does not exist/,
   );
   assert.deepEqual(state(), before);
@@ -592,7 +590,7 @@ test('a restore refuses a Write-off id above the safe integer range and changes 
   // A large lending entry id does not matter: Write-offs get the next ids in order.
   data.lendingEntries = [writeOff(Number.MAX_SAFE_INTEGER, 100)];
   await replaceDocument(data);
-  assert.equal((await backupStore.snapshot()).lendingEntries[0].id, Number.MAX_SAFE_INTEGER);
+  assert.equal((await backupStore.snapshot()).transactions[1].id, Number.MAX_SAFE_INTEGER);
   await replaceDocument(fixture());
   const restoredOnce = state();
   data.lendingEntries.push(writeOff(1, 50));
@@ -636,8 +634,8 @@ test('snapshot reads every table in one transaction and restore preserves device
   );
 });
 
-test('credit-card settings and parent links survive backup; native backups clear them', async () => {
-  const original = await backupStore.snapshot();
+test('credit-card settings and parent links survive backup; v1 files without cards clear them', async () => {
+  const original = await exported();
   const parent = original.accounts[0];
   const cardId = Math.max(...original.accounts.map((a) => a.id)) + 1;
   original.accounts.push({
@@ -645,28 +643,28 @@ test('credit-card settings and parent links survive backup; native backups clear
     name: 'Backup card',
     currencyCode: parent.currencyCode,
     openingBalanceMinor: -1200,
-    isFavorite: false,
   });
   original.creditCards = [
     { accountId: cardId, parentAccountId: parent.id, statementDay: 31, dueDay: 5 },
   ];
-  await replaceDocument(decodeBackup(encodeBackup(original)));
-  const restored = await backupStore.snapshot();
-  assert.deepEqual(
-    restored.creditCards.map((card) => ({ ...card })),
-    original.creditCards,
-  );
+  await replaceDocument(original);
+  const restored = await exported();
+  assert.deepEqual(restored.creditCards, original.creditCards);
   assert.equal(restored.accounts.find((a) => a.id === cardId).openingBalanceMinor, -1200);
-  for (const creditCards of [
-    [{ ...original.creditCards[0], parentAccountId: cardId }],
-    [{ ...original.creditCards[0], statementDay: 32 }],
-    [{ ...original.creditCards[0], accountId: 99999 }],
-    [original.creditCards[0], original.creditCards[0]],
-  ])
-    assert.throws(() => encodeBackup({ ...original, creditCards }), /credit.card/);
-  delete original.creditCards;
-  await replaceDocument(decodeBackup(encodeBackup(original)));
-  assert.deepEqual((await backupStore.snapshot()).creditCards, []);
+  const before = state();
+  for (const [creditCards, error] of [
+    [[{ ...original.creditCards[0], parentAccountId: cardId }], /accountId != parentAccountId/],
+    [[{ ...original.creditCards[0], statementDay: 32 }], /statementDay BETWEEN 1 AND 31/],
+    [[{ ...original.creditCards[0], accountId: 99999 }], /"table":"credit_cards"/],
+    [[original.creditCards[0], original.creditCards[0]], /Duplicate backup creditCards row 2/],
+  ]) {
+    await assert.rejects(replaceDocument({ ...original, creditCards }), error);
+    assert.deepEqual(state(), before);
+  }
+  const v1 = fixture();
+  assert.equal(v1.creditCards, undefined);
+  await replaceDocument(v1);
+  assert.deepEqual((await exported()).creditCards, []);
 });
 
 test('received amounts and a cross-Currency card parent survive JSON backup and replacement; old backups still restore', async () => {
@@ -691,17 +689,23 @@ test('received amounts and a cross-Currency card parent survive JSON backup and 
     },
   ];
   data.creditCards = [{ accountId: 2, parentAccountId: 1, statementDay: null, dueDay: null }];
-  await backupStore.replace(decodeBackup(encodeBackup(data)));
-  const saved = await backupStore.snapshot();
-  assert.equal(saved.transactions[0].receivedAmountMinor, 10000);
+  await replaceDocument(data);
+  const saved = await exported();
+  assert.deepEqual(
+    legsOf(saved, 1).map((leg) => leg.amountMinor),
+    [-1220000, 10000],
+  );
   assert.equal(saved.creditCards[0].parentAccountId, 1);
   const { accountBalances } = await import('./reports.ts');
   assert.equal((await accountBalances(99999)).find((a) => a.id === 2).balanceMinor, -10000);
   delete data.transactions[0].receivedAmountMinor;
-  await backupStore.replace(decodeBackup(encodeBackup(data)));
+  await replaceDocument(data);
   assert.equal((await accountBalances(99999)).find((a) => a.id === 2).balanceMinor, 1200000);
-  // The destination leg now stores the amount, so the next backup has it.
-  assert.equal((await backupStore.snapshot()).transactions[0].receivedAmountMinor, 1220000);
+  // An old file has no received amount, so the destination Leg gets the amount sent.
+  assert.deepEqual(
+    legsOf(await exported(), 1).map((leg) => leg.amountMinor),
+    [-1220000, 1220000],
+  );
 });
 
 test('first-rate lookup finds the newest Transfer in either direction and gives Display Rate priority', async () => {
@@ -744,9 +748,8 @@ test('first-rate lookup finds the newest Transfer in either direction and gives 
   });
 });
 
-test('split shares, person payments and refunds survive a v1 backup round trip', async () => {
-  const original = await backupStore.snapshot();
-  const account = original.accounts[0];
+test('split shares, person payments and refunds survive a backup round trip', async () => {
+  const account = (await backupStore.snapshot()).accounts[0];
   const { addQuickTransaction } = await import('./quick-add-tags.ts');
   const { createPerson } = await import('./lending.ts');
   const person = await createPerson('Split backup person');
@@ -787,39 +790,28 @@ test('split shares, person payments and refunds survive a v1 backup round trip',
     { ...entry, type: 'INCOME', amountMinor: 200, reimbursement: { expenseId, personId: null } },
     '',
   );
-  const snapshot = await backupStore.snapshot();
-  const decoded = decodeBackup(encodeBackup(snapshot));
-  assert.deepEqual(decoded.splitShares, [{ expenseId, personId: person.id, amountMinor: 2000 }]);
+  const backup = await exported();
+  assert.deepEqual(backup.splitShares, [{ expenseId, personId: person.id, amountMinor: 2000 }]);
   assert.deepEqual(
-    decoded.reimbursements.map(({ personId }) => personId),
+    backup.reimbursements.map(({ personId }) => personId),
     [person.id, null],
   );
-  assert.throws(() => encodeBackup({ ...decoded, splitShares: [] }), /reimbursement/);
-  const early = structuredClone(decoded);
+  const before = state();
+  await assert.rejects(replaceDocument({ ...backup, splitShares: [] }), /does not fit its expense/);
+  const early = structuredClone(backup);
   const payment = early.transactions.find(({ id }) => id === early.reimbursements[0].transactionId);
-  payment.dateEpochDay = early.transactions.find(({ id }) => id === expenseId).dateEpochDay - 1;
-  assert.throws(() => decodeBackup(JSON.stringify(early)), /reimbursement/);
-  const legacy = { ...original };
-  delete legacy.splitShares;
-  delete legacy.reimbursements;
-  await backupStore.replace(decodeBackup(encodeBackup(legacy)));
-  assert.deepEqual((await backupStore.snapshot()).reimbursements, []);
-  await backupStore.replace(decoded);
-  assert.deepEqual(decodeBackup(encodeBackup(await backupStore.snapshot())), decoded);
+  payment.date = early.transactions.find(({ id }) => id === expenseId).date - 1;
+  await assert.rejects(replaceDocument(early), /does not fit its expense/);
+  assert.deepEqual(state(), before);
+  // A v1 file from before split shares has no reimbursements.
+  await replaceDocument(fixture());
+  assert.deepEqual((await exported()).reimbursements, []);
+  await replaceDocument(backup);
+  assert.deepEqual(await exported(), backup);
 });
 
 const v2File = () =>
   readFileSync(new URL('../../scripts/fixtures/backup-v2.json', import.meta.url), 'utf8');
-function restoreText(text) {
-  return restoreBackup(
-    backupStore,
-    {
-      pickJsonDocument: async () => ({ uri: 'content://synthetic-backup', name: 'saved.json' }),
-      readText: async () => text,
-    },
-    async () => true,
-  );
-}
 /** The rows of each v2 table, in the order and with the fields of a v2 file. */
 const v2Tables = {
   accounts: 'SELECT id, name, currencyCode, openingBalanceMinor FROM accounts ORDER BY id',
@@ -876,13 +868,9 @@ test('a v2 file restores into the tables as the file has them, and device settin
   );
 });
 
-test('a v1 export of a restored v2 file restores to the same data', async () => {
+test('an export of a restored v2 file gives the same file', async () => {
   await restoreText(v2File());
-  const before = state();
-  const v1 = await backupStore.snapshot();
-  assert.equal(v1.schemaVersion, 1);
-  await replaceDocument(decodeBackup(encodeBackup(v1)));
-  assert.deepEqual(state(), before);
+  assert.deepEqual(JSON.parse(encodeBackup(await backupStore.snapshot())), JSON.parse(v2File()));
 });
 
 test('a v2 restore refuses rows that break the Legs model and changes nothing', async (t) => {

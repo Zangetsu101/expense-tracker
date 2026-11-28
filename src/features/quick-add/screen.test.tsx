@@ -134,6 +134,31 @@ async function open(client?: QueryClient) {
   };
   return { user, press, mode, type, amount };
 }
+test('the keypad appears after the Quick Add pause', async () => {
+  jest.mocked(AccessibilityInfo.isReduceMotionEnabled).mockResolvedValue(false);
+  await open();
+
+  await act(() => jest.advanceTimersByTime(349));
+  expect(screen.queryByRole('button', { name: 'Hide amount keypad' })).toBeNull();
+
+  await act(() => jest.advanceTimersByTime(1));
+  expect(button('Hide amount keypad')).toBeOnTheScreen();
+});
+
+test.each(['EXPENSE', 'TRANSFER'])(
+  'tapping the amount in %s skips the Quick Add pause',
+  async (mode) => {
+    jest.mocked(AccessibilityInfo.isReduceMotionEnabled).mockResolvedValue(false);
+    mockParams = { ...mockParams, mode };
+    const { press } = await open();
+    expect(screen.queryByRole('button', { name: 'Hide amount keypad' })).toBeNull();
+
+    await press('Amount');
+
+    expect(button('Hide amount keypad')).toBeOnTheScreen();
+  },
+);
+
 test('ranking changes after Done and saving requires choosing a category', async () => {
   jest
     .mocked(listCategoryEvidence)

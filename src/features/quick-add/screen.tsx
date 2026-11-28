@@ -2,7 +2,7 @@ import { useCallback, useEffect, useOptimistic, useRef, useState, useTransition 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { categoriesQuery, peopleQuery, includeCreatedPerson, nextPersonId } from './queries.ts';
 import { accountsQuery } from '@/lib/account-queries';
-import { ChoicesSection, layoutTransition } from './view.tsx';
+import { ChoicesSection, layoutTransition, PeopleChoicesSkeleton } from './view.tsx';
 import { ExpenseLink, type LinkableExpense } from './expense-link';
 import {
   removeSplitPerson,
@@ -16,6 +16,7 @@ import { TransferBillChoices } from './transfer-bill-choices.tsx';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight, usePreventRemove } from 'expo-router/react-navigation';
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
@@ -36,14 +37,19 @@ import { TransferAmountInput } from '@/components/transfer-amount-input';
 import { ControlledAmountInput, useAmountInputDraft } from '@/components/amount-input';
 import { useRankedCategories } from './use-ranked-categories.ts';
 import { QuickAddDate } from '@/components/quick-add-date';
-import { QuickSelectCategory } from '@/components/quick-select-category';
-import { AccountChoices, personBalanceSummary } from '@/components/entry-choices';
+import { CategoryChoicesSkeleton, QuickSelectCategory } from '@/components/quick-select-category';
+import {
+  AccountChoices,
+  AccountChoicesSkeleton,
+  personBalanceSummary,
+} from '@/components/entry-choices';
 import { FormButton, FormInput, JoinedChoice } from '@/components/form-controls';
 import { parseRouteId } from '@/lib/account-selection';
 import { useClippedChips } from '@/components/use-clipped-chips';
 import { pressableOpacity, theme } from '@/theme';
 
 const AnimatedFormButton = Animated.createAnimatedComponent(FormButton);
+const keypadEntryDelay = 350;
 const c = theme.colors;
 type Mode = 'EXPENSE' | 'INCOME' | 'TRANSFER' | 'PERSON';
 type PersonAction = Extract<LendingKind, 'LEND' | 'BORROW' | 'RECEIVE_REPAYMENT' | 'REPAY'>;
@@ -64,6 +70,15 @@ const repaymentActions = [
 
 function Label({ children }: { children: string }) {
   return <Text style={{ color: c.muted, fontSize: 12 }}>{children}</Text>;
+}
+
+function AccountSelectionSkeleton({ label }: { label: string }) {
+  return (
+    <View style={{ gap: 10 }}>
+      <Label>{label}</Label>
+      <AccountChoicesSkeleton />
+    </View>
+  );
 }
 
 function CancelAction({ disabled = false }: { disabled?: boolean }) {
@@ -150,6 +165,22 @@ function QuickAddForm() {
     preset === undefined ? '' : (preset / 100).toFixed(2),
     preset === undefined,
   );
+  const [deferKeypad, setDeferKeypad] = useState(preset === undefined);
+  const endKeypadPause = useCallback(() => setDeferKeypad(false), []);
+  useEffect(() => {
+    if (!deferKeypad) return;
+    let active = true;
+    const timer = setTimeout(endKeypadPause, keypadEntryDelay);
+    void AccessibilityInfo.isReduceMotionEnabled()
+      .then((enabled) => {
+        if (active && enabled) endKeypadPause();
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [deferKeypad, endKeypadPause]);
   const categoryMode = mode === 'EXPENSE' || mode === 'INCOME' ? mode : undefined;
   const categoryRead = useQuery({ ...categoriesQuery(categoryMode ?? 'EXPENSE'), enabled: false });
   const peopleRead = useQuery({ ...peopleQuery(), enabled: false });
@@ -223,6 +254,7 @@ function QuickAddForm() {
   const incoming =
     mode === 'INCOME' ||
     (mode === 'PERSON' && (action === 'BORROW' || action === 'RECEIVE_REPAYMENT'));
+  const accountLabel = `${incoming ? 'Into' : 'From'} ${account?.name ?? 'an account'}`;
   const search = query.trim().toLocaleLowerCase();
   const destination = destinations.find((item) => item.id === toId);
   const canPayDividend =
@@ -246,6 +278,7 @@ function QuickAddForm() {
     ? (selectedDividendCategory ?? null)
     : null;
   const saveAmount = dividend ? dividendAmount : amountMinor;
+  const destinationLabel = `To ${destination?.name ?? 'another account'}`;
   const cross =
     !dividend &&
     mode === 'TRANSFER' &&
@@ -418,6 +451,8 @@ function QuickAddForm() {
       key={dividend ? 'dividend' : 'entry'}
       draft={dividend ? dividendDraft : amountDraft}
       currency={dividend ? destination.currencyCode : account?.currencyCode}
+      deferKeypad={deferKeypad}
+      onRequestKeypad={endKeypadPause}
       disabled={saving}
       onChange={transferAmount ? onTransferAmounts : changeSingleAmount}
     >
@@ -440,6 +475,7 @@ function QuickAddForm() {
             keyboardShouldPersistTaps="handled"
             onScrollBeginDrag={() => {
               dismissCalculator();
+              endKeypadPause();
             }}
             contentContainerStyle={{ padding: 22, gap: 18, paddingBottom: 48 }}
           >
@@ -448,6 +484,7 @@ function QuickAddForm() {
               style={{ gap: 18 }}
               onTouchStart={() => {
                 dismissCalculator();
+                endKeypadPause();
               }}
             >
               <JoinedChoice
@@ -463,6 +500,7 @@ function QuickAddForm() {
                     );
                     setPreset(undefined);
                   }
+                  if (mode !== value) endKeypadPause();
                   setMode(value);
                   setDividendSelected(false);
                   setError('');
@@ -472,8 +510,12 @@ function QuickAddForm() {
                 key="accounts"
                 options={accountsQuery()}
                 label="accounts"
-                layout="accounts"
-                pendingLabel={incoming ? 'Into' : 'From'}
+                pending={
+                  <>
+                    <AccountSelectionSkeleton label={accountLabel} />
+                    {mode === 'TRANSFER' && <AccountSelectionSkeleton label={destinationLabel} />}
+                  </>
+                }
               >
                 {(readyAccounts) => (
                   <View style={{ gap: 10 }}>
@@ -481,7 +523,7 @@ function QuickAddForm() {
                       accessibilityLabel={incoming ? 'Destination account' : 'Source account'}
                       style={{ gap: 10 }}
                     >
-                      <Label>{`${incoming ? 'Into' : 'From'} ${account?.name ?? 'an account'}`}</Label>
+                      <Label>{accountLabel}</Label>
                       <AccountChoices
                         accounts={readyAccounts.filter(canUseSource)}
                         selectedId={accountId}
@@ -503,7 +545,7 @@ function QuickAddForm() {
                     </View>
                     {mode === 'TRANSFER' && (
                       <View accessibilityLabel="Transfer destination" style={{ gap: 10 }}>
-                        <Label>{`To ${destinations.find((item) => item.id === toId)?.name ?? 'another account'}`}</Label>
+                        <Label>{destinationLabel}</Label>
                         <AccountChoices
                           accounts={destinations}
                           selectedId={toId}
@@ -553,7 +595,7 @@ function QuickAddForm() {
                   <ChoicesSection
                     options={categoriesQuery('INCOME')}
                     label="income categories"
-                    layout="categories"
+                    pending={<CategoryChoicesSkeleton />}
                   >
                     {(items) => (
                       <>
@@ -586,7 +628,11 @@ function QuickAddForm() {
                       editable={!saving}
                     />
                   </View>
-                  <ChoicesSection options={peopleQuery()} label="people" layout="people">
+                  <ChoicesSection
+                    options={peopleQuery()}
+                    label="people"
+                    pending={<PeopleChoicesSkeleton />}
+                  >
                     {(readyPeople) => {
                       const matches = shownPeople.filter((item) =>
                         item.name.toLocaleLowerCase().includes(search),
@@ -736,26 +782,19 @@ function QuickAddForm() {
               {categoryMode && !reimbursement && (
                 <ChoicesSection
                   key={categoryMode}
-                  layout="categories"
+                  pending={<CategoryChoicesSkeleton />}
                   options={categoriesQuery(categoryMode)}
                   label={`${categoryMode === 'EXPENSE' ? 'expense' : 'income'} categories`}
                 >
                   {(readyCategories) => (
-                    <>
-                      <QuickSelectCategory
-                        categories={readyCategories}
-                        orderedIds={orderedCategoryIds}
-                        selectedId={categoryIds[categoryMode]}
-                        disabled={saving}
-                        onSelect={(id) => setCategoryIds((ids) => ({ ...ids, [categoryMode]: id }))}
-                      />
-                      {!readyCategories.length && (
-                        <Text style={{ color: c.muted }}>
-                          Create an {categoryMode === 'EXPENSE' ? 'expense' : 'income'} category in
-                          Settings before saving.
-                        </Text>
-                      )}
-                    </>
+                    <QuickSelectCategory
+                      categories={readyCategories}
+                      orderedIds={orderedCategoryIds}
+                      selectedId={categoryIds[categoryMode]}
+                      disabled={saving}
+                      emptyMessage={`Create an ${categoryMode === 'EXPENSE' ? 'expense' : 'income'} category in Settings before saving.`}
+                      onSelect={(id) => setCategoryIds((ids) => ({ ...ids, [categoryMode]: id }))}
+                    />
                   )}
                 </ChoicesSection>
               )}

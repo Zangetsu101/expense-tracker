@@ -233,6 +233,8 @@ function checkSettings(settings: unknown) {
 
 /** Checks the shape of a backup that stores Legs. */
 export function readLegsBackup(data: Record<string, unknown>): BackupV2 | BackupV3 {
+  if (data.schemaVersion !== 2 && data.schemaVersion !== 3)
+    throw new Error('Unsupported backup schema version');
   const tables = data.schemaVersion === 3 ? backupV3Tables : backupV2Tables;
   for (const field of Object.keys(data))
     if (field !== 'schemaVersion' && field !== 'settings' && !Object.hasOwn(tables, field))

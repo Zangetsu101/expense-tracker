@@ -7,6 +7,12 @@ import { AmountCalculator } from './amount-calculator.tsx';
 import { theme } from '@/theme';
 
 const c = theme.colors;
+const amountTextStyle = {
+  fontSize: 48,
+  fontWeight: '300',
+  lineHeight: 60,
+  includeFontPadding: false,
+} as const;
 function amountSymbol(currency: string | undefined) {
   if (currency === 'BDT') return '৳';
   if (currency === 'USD') return '$';
@@ -42,6 +48,8 @@ export function useAmountInputDraft(initialAmount = '', initiallyOpen = true) {
 type Props = {
   currency?: string;
   disabled?: boolean;
+  deferKeypad?: boolean;
+  onRequestKeypad?: () => void;
   onChange: (amountMinor: number | undefined) => void;
   children: (slots: AmountInputSlots) => ReactNode;
 };
@@ -62,6 +70,8 @@ export function ControlledAmountInput({
   currency,
   draft,
   disabled: pending = false,
+  deferKeypad = false,
+  onRequestKeypad,
   onChange,
   children,
 }: Props & { draft: ReturnType<typeof useAmountInputDraft> }) {
@@ -92,22 +102,13 @@ export function ControlledAmountInput({
     const subscription = BackHandler.addEventListener('hardwareBackPress', onHardwareBack);
     return () => subscription.remove();
   }, [calculatorOpen]);
+  const symbol = amountSymbol(currency);
   const input = (
     <View style={{ gap: 6 }}>
       <Text
         style={{ color: c.muted, fontSize: 12 }}
       >{`Amount · ${currency ?? 'Select account'}`}</Text>
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          borderBottomWidth: 1,
-          borderColor: c.line,
-        }}
-      >
-        <Text style={{ color: c.text, fontSize: 48, fontWeight: '300' }}>
-          {amountSymbol(currency)}
-        </Text>
+      <View style={{ borderBottomWidth: 1, borderColor: c.line }}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Amount"
@@ -116,18 +117,18 @@ export function ControlledAmountInput({
           accessibilityState={{ disabled: pending }}
           disabled={pending}
           onPress={() => {
+            onRequestKeypad?.();
             Keyboard.dismiss();
             setCalculatorOpen(true);
           }}
-          style={{ flex: 1, minHeight: 64, justifyContent: 'center' }}
+          style={{ flexDirection: 'row', minHeight: 64, alignItems: 'center' }}
         >
+          {!!symbol && <Text style={[amountTextStyle, { color: c.text }]}>{symbol}</Text>}
           <Text
-            style={{
-              color: amount ? c.text : c.muted,
-              fontSize: 48,
-              fontWeight: '300',
-              fontVariant: ['tabular-nums'],
-            }}
+            style={[
+              amountTextStyle,
+              { color: amount ? c.text : c.muted, flexShrink: 1, fontVariant: ['tabular-nums'] },
+            ]}
           >
             {amount || '0.00'}
           </Text>
@@ -142,7 +143,7 @@ export function ControlledAmountInput({
   );
   const keypad = (
     <AmountCalculator
-      open={calculatorOpen}
+      open={calculatorOpen && !deferKeypad}
       bottomInset={insets.bottom}
       error={entry.error}
       onKey={(key) => setEntry((current) => pressAmountKey(current, key))}

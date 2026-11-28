@@ -10,81 +10,24 @@ import { QueryBoundary } from '@/components/query-error-boundary';
 import { Skeleton } from '@/components/loading';
 import { FormButton } from '@/components/form-controls';
 import { theme } from '@/theme';
-import { CategorySearchInput } from '@/components/quick-select-category';
-
-type ChoicesLayout = 'accounts' | 'categories' | 'people' | 'bills';
 
 export const layoutTransition = LinearTransition.springify()
   .dampingRatio(2)
   .duration(300)
   .reduceMotion(ReduceMotion.System);
 
-function PillSkeletonRows({
-  height,
-  borderRadius,
-  columns,
-}: {
-  height: number;
-  borderRadius: number;
-  columns: 2 | 3 | 4;
-}) {
+export function PeopleChoicesSkeleton() {
   return (
     <View style={{ gap: 8 }}>
       {[0, 1].map((row) => (
         <View key={row} style={{ flexDirection: 'row', gap: 8 }}>
-          {Array.from({ length: columns }, (_, column) => (
+          {Array.from({ length: 2 }, (_, column) => (
             <View key={column} style={{ flex: 1 }}>
-              <Skeleton width="100%" height={height} borderRadius={borderRadius} />
+              <Skeleton width="100%" height={48} borderRadius={14} />
             </View>
           ))}
         </View>
       ))}
-    </View>
-  );
-}
-
-function ChoicesSkeleton({
-  label,
-  layout,
-  pendingLabel,
-}: {
-  label: string;
-  layout: ChoicesLayout;
-  pendingLabel?: string;
-}) {
-  let content: ReactNode;
-  if (layout === 'bills')
-    content = (
-      <View style={{ flexDirection: 'row', gap: 8 }}>
-        <Skeleton width={130} height={48} />
-        <Skeleton width={130} height={48} />
-      </View>
-    );
-  else if (layout === 'categories')
-    content = (
-      <>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <Text style={{ color: theme.colors.text }}>Selected:</Text>
-          <Skeleton width="35%" height={16} />
-        </View>
-        <CategorySearchInput disabled />
-        <PillSkeletonRows height={38} borderRadius={12} columns={4} />
-      </>
-    );
-  else if (layout === 'accounts')
-    content = (
-      <>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <Text style={{ color: theme.colors.muted, fontSize: 12 }}>{pendingLabel}</Text>
-          <Skeleton width="35%" height={12} />
-        </View>
-        <PillSkeletonRows height={48} borderRadius={14} columns={3} />
-      </>
-    );
-  else content = <PillSkeletonRows height={48} borderRadius={14} columns={2} />;
-  return (
-    <View accessibilityLabel={`Loading ${label}`} style={{ gap: 10 }}>
-      {content}
     </View>
   );
 }
@@ -121,19 +64,21 @@ function ReadyChoices<T, K extends QueryKey>({
 export function ChoicesSection<T, K extends QueryKey>({
   options,
   label,
-  layout,
-  pendingLabel,
+  pending,
   children,
 }: {
   options: UseSuspenseQueryOptions<T, Error, T, K>;
   label: string;
-  layout: ChoicesLayout;
-  pendingLabel?: string;
+  pending: ReactNode;
   children: (data: T) => ReactNode;
 }) {
   return (
     <QueryBoundary
-      pending={<ChoicesSkeleton label={label} layout={layout} pendingLabel={pendingLabel} />}
+      pending={
+        <View accessibilityLabel={`Loading ${label}`} style={{ gap: 10 }}>
+          {pending}
+        </View>
+      }
       error={(retry) => (
         <View style={{ gap: 10 }}>
           <ChoicesError label={label} retry={retry} />
