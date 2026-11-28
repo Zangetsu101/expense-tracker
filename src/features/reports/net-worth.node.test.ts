@@ -109,3 +109,40 @@ test('all history starts at the first month with activity', () => {
     [today],
   );
 });
+
+test('Net worth includes the Investment while the Liquid line includes the Credit Card', () => {
+  const fund = { ...wise, kind: 'investment' };
+  const creditCard = { ...card, kind: 'card' };
+  const {
+    series: [series],
+  } = netWorth(
+    { accounts: [cash, creditCard, fund], changes, lending: [], rate, mainCurrency: 'BDT', today },
+    1,
+  );
+  assert.deepEqual(series.accounts, [2700, 2500]);
+  assert.deepEqual(series.liquidNet, [1200, 1000]);
+  assert.deepEqual(series.composition, { liquid: 1300, investment: 1500, card: -300 });
+});
+
+test('the composition retains proportions when converted balances round to zero', () => {
+  const accounts = [
+    { ...cash, openingBalanceMinor: 40 },
+    { ...cash, id: 4, openingBalanceMinor: 40, kind: 'investment' },
+  ];
+  const {
+    series: [series],
+  } = netWorth(
+    {
+      accounts,
+      changes: [],
+      lending: [],
+      rate: { ...rate, rate: 120 },
+      mainCurrency: 'USD',
+      today,
+    },
+    1,
+  );
+  assert.equal(series.totalMinor, 1);
+  assert.equal(series.composition.liquid, 1 / 3);
+  assert.equal(series.composition.investment, 1 / 3);
+});

@@ -1,7 +1,6 @@
-// The restore of a backup into the legs schema (ADR 0014). A v2 file has the rows of the
-// legs schema, so its restore inserts them directly. backup-v1-restore.ts restores a v1 file.
+// Restore inserts the rows of v2 and v3 backups directly into the legs schema.
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { backupV2Tables, type BackupV2 } from './backup-v2.ts';
+import { backupV3Tables, type BackupV2, type BackupV3 } from './backup-v2.ts';
 
 export type Connection = Pick<SQLiteDatabase, 'execAsync' | 'getAllAsync' | 'getFirstAsync'>;
 
@@ -24,6 +23,10 @@ const ledgerChecks = {
     AND NOT (accountLegs = 1 AND personLegs = 0 AND high < 0)`,
   'an Income or reimbursement with the wrong legs': `SELECT id FROM (${shape})
     WHERE kind IN ('INCOME', 'REIMBURSEMENT') AND NOT (accountLegs = 1 AND personLegs = 0 AND low > 0)`,
+  'a Valuation with the wrong legs': `SELECT id FROM (${shape}) WHERE kind = 'VALUATION'
+    AND NOT (accountLegs = 1 AND personLegs = 0)`,
+  'a Valuation outside an Investment': `SELECT t.id FROM transactions t JOIN legs l ON l.transactionId = t.id
+    WHERE t.kind = 'VALUATION' AND l.accountId NOT IN (SELECT accountId FROM investments)`,
   'a Transfer with the wrong legs': `SELECT id FROM (${shape}) WHERE kind = 'TRANSFER'
     AND NOT (accountLegs = 2 AND personLegs = 0 AND accounts = 2 AND low < 0 AND high > 0
       AND (currencies = 2 OR accountSum = 0))`,
@@ -59,7 +62,7 @@ export async function checkLedger(db: Connection) {
  * triggers. Deleting a Transaction deletes its Legs, split shares, Line Items and tags.
  */
 export const clearLedger = `DELETE FROM reimbursements; DELETE FROM transactions;
-  DELETE FROM credit_cards; DELETE FROM accounts; DELETE FROM people; DELETE FROM tags;
+  DELETE FROM investments; DELETE FROM credit_cards; DELETE FROM accounts; DELETE FROM people; DELETE FROM tags;
   DELETE FROM categories;`;
 
 type SQLiteValue = string | number | null;
@@ -90,26 +93,33 @@ export async function insertRows(
 export const deferForeignKeys = (tx: Writer) => tx.execAsync('PRAGMA defer_foreign_keys = ON');
 
 /**
- * Replaces all data with the rows of a v2 backup (ADR 0014). Call it inside a transaction,
- * and roll back if it throws. Device-local settings stay. The rows go directly into the
+ * Replaces all data with the rows of a backup that stores Legs (ADR 0014 and ADR 0015).
+ * Call it inside a transaction and roll back if it throws. Device-local settings stay.
+ * Restore inserts the rows directly into the
  * tables. The CHECK constraints and the triggers check each row, and checkLedger() checks
  * the rules that span rows. So a file with a missing parent row or a wrong set of Legs
  * changes nothing.
  */
-export async function restoreLegsRows(tx: Writer, data: BackupV2) {
+export async function restoreLegsRows(tx: Writer, data: BackupV2 | BackupV3) {
   await deferForeignKeys(tx);
   await tx.execAsync(clearLedger);
-  for (const [name, { table, fields }] of Object.entries(backupV2Tables))
-    await insertRows(tx, table, Object.keys(fields), data[name as keyof typeof backupV2Tables]);
+  const rows =
+    data.schemaVersion === 3 ? data : { ...data, investments: [], investmentDividends: [] };
+  for (const name of Object.keys(backupV3Tables) as (keyof typeof backupV3Tables)[]) {
+    const { table, fields } = backupV3Tables[name];
+    await insertRows(tx, table, Object.keys(fields), rows[name]);
+  }
   const { favoriteAccountId, displayRate } = data.settings;
   await tx.execAsync("DELETE FROM app_settings WHERE key IN ('favoriteAccountId', 'displayRate')");
   if (favoriteAccountId !== null) {
     const favorite = await tx.runAsync(
-      "INSERT INTO app_settings (key, value) SELECT 'favoriteAccountId', json(id) FROM accounts WHERE id = ?",
+      "INSERT INTO app_settings (key, value) SELECT 'favoriteAccountId', json(id) FROM accounts WHERE id = ? AND id NOT IN (SELECT accountId FROM investments)",
       [favoriteAccountId],
     );
     if (favorite.changes !== 1)
-      throw new Error(`The favorite Account ${favoriteAccountId} does not exist.`);
+      throw new Error(
+        `The favorite Account ${favoriteAccountId} must exist and cannot be an Investment.`,
+      );
   }
   if (displayRate)
     await tx.runAsync("INSERT INTO app_settings (key, value) VALUES ('displayRate', ?)", [

@@ -53,7 +53,8 @@ export const accountTransactions = `(SELECT t.id, t.kind, t.date, t.categoryId, 
   LEFT JOIN legs destination ON t.kind = 'TRANSFER' AND destination.transactionId = t.id
     AND destination.amountMinor > 0
   LEFT JOIN legs person ON t.kind = 'LENDING' AND person.transactionId = t.id
-    AND person.personId IS NOT NULL)`;
+    AND person.personId IS NOT NULL
+  WHERE t.kind <> 'VALUATION')`;
 
 /**
  * SQL for the lending entries: one row for each lending Transaction and each Write-off.
@@ -110,6 +111,16 @@ async function insertLegs(tx: Writer, id: number, legs: ReturnType<typeof toLegs
 
 /** Saves a new Transaction with its legs, and returns its id. */
 export async function insertTransaction(tx: Writer, transaction: NewTransaction): Promise<number> {
+  if (
+    transaction.kind !== 'TRANSFER' &&
+    transaction.kind !== 'VALUATION' &&
+    transaction.kind !== 'WRITE_OFF'
+  ) {
+    const investment = await tx.getFirstAsync('SELECT 1 FROM investments WHERE accountId = ?', [
+      transaction.accountId,
+    ]);
+    if (investment) throw new Error('Choose a regular Account or Credit Card.');
+  }
   const legs = toLegs(transaction, await currencies(tx, transaction));
   const row = toTransactionRow(transaction);
   const result = await tx.runAsync(

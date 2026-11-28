@@ -1,18 +1,30 @@
-import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { StyleProp, TextInputProps, ViewStyle } from 'react-native';
 import { pressableOpacity, theme as t } from '@/theme';
 
 const c = t.colors;
 const buttonTextColors = { primary: c.onSelected, danger: c.warning, secondary: c.text };
+const buttonStyles = StyleSheet.create({
+  frame: {
+    minHeight: t.controlHeight,
+    paddingHorizontal: t.spacing.md,
+    paddingVertical: t.spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderRadius: t.radius.control,
+    borderCurve: 'continuous',
+  },
+  label: { fontSize: t.type.body, fontWeight: '600' },
+});
+
 type FormButtonProps = {
   label: string;
-  onPress: () => void;
   variant?: 'primary' | 'secondary' | 'danger';
-  disabled?: boolean;
   loading?: boolean;
   accessibilityLabel?: string;
   style?: StyleProp<ViewStyle>;
-};
+} & ({ onPress: () => void; disabled?: boolean } | { onPress?: never; disabled: true });
 
 export function FormButton({
   label,
@@ -33,16 +45,9 @@ export function FormButton({
       disabled={blocked}
       onPress={onPress}
       style={({ pressed }) => [
+        buttonStyles.frame,
         {
-          minHeight: t.controlHeight,
-          paddingHorizontal: t.spacing.md,
-          paddingVertical: t.spacing.sm,
-          alignItems: 'center',
-          justifyContent: 'center',
-          borderWidth: 1,
           borderColor: variant === 'primary' ? c.selected : c.line,
-          borderRadius: t.radius.control,
-          borderCurve: 'continuous',
           backgroundColor: variant === 'primary' ? c.selected : 'transparent',
           opacity: pressableOpacity(
             { disabled: blocked, pressed },
@@ -55,7 +60,7 @@ export function FormButton({
       {loading ? (
         <ActivityIndicator color={color} />
       ) : (
-        <Text style={{ color, fontSize: t.type.body, fontWeight: '600' }}>{label}</Text>
+        <Text style={[buttonStyles.label, { color }]}>{label}</Text>
       )}
     </Pressable>
   );

@@ -3,7 +3,7 @@
 // There are two levels:
 //   - Row types match what SQLite returns. They are loose, like the table.
 //   - Transaction is a union with one member for each kind. Each member has only the
-//     fields that its kind allows, and its amounts are positive. The member says which
+//     fields that its kind allows, and Valuation amounts are signed. The member says which
 //     way the money moves, and toLegs() gives the signs. So code outside this file
 //     cannot write a leg with the wrong sign or the wrong target.
 //
@@ -12,7 +12,7 @@
 // Transaction can trust its shape.
 
 export type TransactionKind =
-  'EXPENSE' | 'INCOME' | 'TRANSFER' | 'LENDING' | 'WRITE_OFF' | 'REIMBURSEMENT';
+  'EXPENSE' | 'INCOME' | 'TRANSFER' | 'LENDING' | 'WRITE_OFF' | 'REIMBURSEMENT' | 'VALUATION';
 /** The obligation that a lending movement belongs to (ADR 0003). */
 export type Direction = 'LENT' | 'BORROWED';
 /** What the user did. Person mode in Quick Add shows these four actions. */
@@ -47,7 +47,7 @@ export type ReimbursementRow = {
 };
 
 // ---------------------------------------------------------------------------------------
-// Transactions. Every amountMinor here is a positive number of minor units.
+// Transactions. Each amountMinor is positive except for the signed amount of a Valuation.
 
 type Common = {
   id: number;
@@ -106,7 +106,11 @@ export type Reimbursement = Common & {
   personId: number | null;
 };
 
-export type Transaction = Expense | Income | Transfer | Lending | WriteOff | Reimbursement;
+/** A signed change in the value of an Investment. */
+export type Valuation = Common & { kind: 'VALUATION'; accountId: number; amountMinor: number };
+
+export type Transaction =
+  Expense | Income | Transfer | Lending | WriteOff | Reimbursement | Valuation;
 
 /** A Transaction before it is saved. */
 export type NewTransaction = Transaction extends infer T
@@ -160,6 +164,7 @@ export function toLegs(
   switch (transaction.kind) {
     case 'EXPENSE':
       return [account(transaction.accountId, -transaction.amountMinor)];
+    case 'VALUATION':
     case 'INCOME':
     case 'REIMBURSEMENT':
       return [account(transaction.accountId, transaction.amountMinor)];
@@ -240,6 +245,12 @@ export function parseTransaction(
         categoryId: row.categoryId,
         excludeFromReport: row.excludeFromReport === 1,
       };
+    }
+    case 'VALUATION': {
+      shape(1, 0);
+      const [leg] = accounts;
+      if (leg.amountMinor === 0) fail('(VALUATION) has a zero amount');
+      return { ...common, kind: row.kind, accountId: leg.accountId, amountMinor: leg.amountMinor };
     }
     case 'TRANSFER': {
       shape(2, 0);

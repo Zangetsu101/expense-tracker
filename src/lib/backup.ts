@@ -1,8 +1,8 @@
 import { readBackupV1, type BackupV1 } from './backup-v1.ts';
-import { readBackupV2, type BackupV2 } from './backup-v2.ts';
+import { readLegsBackup, type BackupV2, type BackupV3 } from './backup-v2.ts';
 
-// Export writes backup schema v2. Restore reads v1 and v2 (ADR 0014).
-export type Backup = BackupV1 | BackupV2;
+type LegsBackup = BackupV2 | BackupV3;
+export type Backup = BackupV1 | LegsBackup;
 
 // Scan numeric tokens before JSON.parse rounds large integers. Fractional display rates
 // are permitted; all bare integers must fit in JavaScript's exact integer range.
@@ -44,19 +44,21 @@ function parseJson(json: string): Record<string, unknown> {
 /** Reads a backup file. A v1 file can have references that the restore repairs or reports. */
 export function decodeBackup(json: string): Backup {
   const data = parseJson(json);
-  return data.schemaVersion === 2 ? readBackupV2(data) : readBackupV1(data);
+  return data.schemaVersion === 2 || data.schemaVersion === 3
+    ? readLegsBackup(data)
+    : readBackupV1(data);
 }
 
-/** The text of a v2 backup. Throws if the data is not a valid v2 backup. */
-export function encodeBackup(data: BackupV2): string {
+/** The text of a backup that stores Legs. Throws if the data is invalid. */
+export function encodeBackup(data: LegsBackup): string {
   const json = JSON.stringify(data, null, 2);
-  readBackupV2(parseJson(json));
+  readLegsBackup(parseJson(json));
   return json;
 }
 
 /** Storage and database boundaries supplied by the app. Import must replace atomically. */
 export interface BackupStore {
-  snapshot(): Promise<BackupV2>;
+  snapshot(): Promise<LegsBackup>;
   replace(data: Backup): Promise<void>;
 }
 

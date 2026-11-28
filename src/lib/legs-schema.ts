@@ -1,4 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { checkLedger, type Connection } from './backup-restore.ts';
 
 // The SQLite schema of the legs model (ADR 0013). A new install runs it, and every later
 // start runs it again. Tables and triggers use IF NOT EXISTS.
@@ -13,6 +14,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 //   LENDING         an Account leg and a Person leg with opposite signs
 //   WRITE_OFF       one Person leg: LENT < 0, BORROWED > 0
 //   REIMBURSEMENT   one Account leg > 0, and a row in reimbursements
+//   VALUATION       one signed Investment leg
 //
 // A positive Person leg means that the person owes the user more, or the user owes less.
 // LENDING and WRITE_OFF also store the Direction (ADR 0003). With the sign of the Account
@@ -22,7 +24,22 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 //   BORROWED  Account > 0: BORROW   Account < 0: REPAY               no Account: WRITE_OFF_BORROWED
 
 /** PRAGMA user_version of a database with this schema. Version 0 is a new database. */
-export const LEGS_SCHEMA_VERSION = 1;
+export const LEGS_SCHEMA_VERSION = 2;
+
+const transactionTable = (table = 'transactions') => `CREATE TABLE IF NOT EXISTS ${table} (
+  id INTEGER PRIMARY KEY,
+  kind TEXT NOT NULL
+    CHECK(kind IN ('EXPENSE', 'INCOME', 'TRANSFER', 'LENDING', 'WRITE_OFF', 'REIMBURSEMENT', 'VALUATION')),
+  direction TEXT CHECK(direction IN ('LENT', 'BORROWED')),
+  date INTEGER NOT NULL,
+  categoryId INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+  note TEXT,
+  excludeFromReport INTEGER NOT NULL DEFAULT 0 CHECK(excludeFromReport IN (0, 1)),
+  CHECK((kind IN ('LENDING', 'WRITE_OFF')) = (direction IS NOT NULL)),
+  CHECK(categoryId IS NULL OR kind IN ('EXPENSE', 'INCOME')),
+  CHECK(excludeFromReport = 0 OR kind IN ('EXPENSE', 'INCOME', 'REIMBURSEMENT'))
+);
+`;
 
 export const legsSchema = `
 CREATE TABLE IF NOT EXISTS accounts (
@@ -40,6 +57,10 @@ CREATE TABLE IF NOT EXISTS credit_cards (
   CHECK(accountId != parentAccountId)
 );
 
+CREATE TABLE IF NOT EXISTS investments (
+  accountId INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS categories (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
@@ -53,19 +74,7 @@ CREATE TABLE IF NOT EXISTS people (
   name TEXT NOT NULL COLLATE NOCASE UNIQUE CHECK(length(trim(name)) > 0)
 );
 
-CREATE TABLE IF NOT EXISTS transactions (
-  id INTEGER PRIMARY KEY,
-  kind TEXT NOT NULL
-    CHECK(kind IN ('EXPENSE', 'INCOME', 'TRANSFER', 'LENDING', 'WRITE_OFF', 'REIMBURSEMENT')),
-  direction TEXT CHECK(direction IN ('LENT', 'BORROWED')),
-  date INTEGER NOT NULL,
-  categoryId INTEGER REFERENCES categories(id) ON DELETE SET NULL,
-  note TEXT,
-  excludeFromReport INTEGER NOT NULL DEFAULT 0 CHECK(excludeFromReport IN (0, 1)),
-  CHECK((kind IN ('LENDING', 'WRITE_OFF')) = (direction IS NOT NULL)),
-  CHECK(categoryId IS NULL OR kind IN ('EXPENSE', 'INCOME')),
-  CHECK(excludeFromReport = 0 OR kind IN ('EXPENSE', 'INCOME', 'REIMBURSEMENT'))
-);
+${transactionTable()}
 CREATE INDEX IF NOT EXISTS transactions_date ON transactions(date);
 
 CREATE TABLE IF NOT EXISTS legs (
@@ -115,6 +124,12 @@ CREATE TABLE IF NOT EXISTS reimbursements (
   FOREIGN KEY(expenseId, personId) REFERENCES split_shares(expenseId, personId) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS reimbursements_expense_person ON reimbursements(expenseId, personId);
+
+CREATE TABLE IF NOT EXISTS investment_dividends (
+  transactionId INTEGER PRIMARY KEY REFERENCES transactions(id) ON DELETE CASCADE,
+  investmentAccountId INTEGER NOT NULL REFERENCES investments(accountId)
+);
+CREATE INDEX IF NOT EXISTS dividends_investment ON investment_dividends(investmentAccountId);
 
 -- One row for each setting. Each value is JSON.
 -- Portable: favoriteAccountId, displayRate. Device-local: every other key.
@@ -172,6 +187,7 @@ CREATE TRIGGER IF NOT EXISTS leg_fits_on_insert BEFORE INSERT ON legs
     (t.kind = 'EXPENSE' AND NEW.accountId IS NOT NULL AND NEW.amountMinor < 0) OR
     (t.kind IN ('INCOME', 'REIMBURSEMENT') AND NEW.accountId IS NOT NULL AND NEW.amountMinor > 0) OR
     (t.kind = 'TRANSFER' AND NEW.accountId IS NOT NULL) OR
+    (t.kind = 'VALUATION' AND EXISTS (SELECT 1 FROM investments WHERE accountId = NEW.accountId)) OR
     t.kind = 'LENDING' OR
     (t.kind = 'WRITE_OFF' AND NEW.personId IS NOT NULL
       AND (NEW.amountMinor < 0) = (t.direction = 'LENT'))))
@@ -185,6 +201,7 @@ CREATE TRIGGER IF NOT EXISTS leg_fits_on_update
     (t.kind = 'EXPENSE' AND NEW.accountId IS NOT NULL AND NEW.amountMinor < 0) OR
     (t.kind IN ('INCOME', 'REIMBURSEMENT') AND NEW.accountId IS NOT NULL AND NEW.amountMinor > 0) OR
     (t.kind = 'TRANSFER' AND NEW.accountId IS NOT NULL) OR
+    (t.kind = 'VALUATION' AND EXISTS (SELECT 1 FROM investments WHERE accountId = NEW.accountId)) OR
     t.kind = 'LENDING' OR
     (t.kind = 'WRITE_OFF' AND NEW.personId IS NOT NULL
       AND (NEW.amountMinor < 0) = (t.direction = 'LENT'))))
@@ -221,6 +238,45 @@ CREATE TRIGGER IF NOT EXISTS reimbursement_fits BEFORE INSERT ON reimbursements
       WHERE expenseId = NEW.expenseId AND personId = NEW.personId))
   BEGIN SELECT RAISE(ABORT, 'This reimbursement does not fit its expense.'); END;
 
+-- These checks also run on connections with foreign keys off.
+CREATE TRIGGER IF NOT EXISTS investment_fits BEFORE INSERT ON investments
+  WHEN NOT EXISTS (SELECT 1 FROM accounts WHERE id = NEW.accountId)
+    OR EXISTS (SELECT 1 FROM credit_cards WHERE accountId = NEW.accountId OR parentAccountId = NEW.accountId)
+  BEGIN SELECT RAISE(ABORT, 'This Account must exist and have no links to a Credit Card.'); END;
+CREATE TRIGGER IF NOT EXISTS keep_dividend_destination_investment BEFORE INSERT ON investments
+  WHEN EXISTS (SELECT 1 FROM investment_dividends d JOIN legs l ON l.transactionId = d.transactionId
+    WHERE l.accountId = NEW.accountId)
+  BEGIN SELECT RAISE(ABORT, 'Delete the dividends paid into this Account before changing its kind.'); END;
+CREATE TRIGGER IF NOT EXISTS keep_dividend_destination_card BEFORE INSERT ON credit_cards
+  WHEN EXISTS (SELECT 1 FROM investment_dividends d JOIN legs l ON l.transactionId = d.transactionId
+    WHERE l.accountId = NEW.accountId)
+  BEGIN SELECT RAISE(ABORT, 'Delete the dividends paid into this Account before changing its kind.'); END;
+CREATE TRIGGER IF NOT EXISTS investment_card_insert BEFORE INSERT ON credit_cards
+  WHEN EXISTS (SELECT 1 FROM investments WHERE accountId IN (NEW.accountId, NEW.parentAccountId))
+  BEGIN SELECT RAISE(ABORT, 'Choose a liquid Account for this Credit Card.'); END;
+CREATE TRIGGER IF NOT EXISTS keep_investment BEFORE DELETE ON investments
+  WHEN EXISTS (SELECT 1 FROM investment_dividends WHERE investmentAccountId = OLD.accountId)
+    OR EXISTS (SELECT 1 FROM legs l JOIN transactions t ON t.id = l.transactionId
+      WHERE l.accountId = OLD.accountId AND t.kind = 'VALUATION')
+  BEGIN SELECT RAISE(ABORT, 'Delete the Valuations and linked dividends before changing this Investment.'); END;
+CREATE TRIGGER IF NOT EXISTS delete_investment_settings AFTER DELETE ON accounts BEGIN
+  DELETE FROM investments WHERE accountId = OLD.id;
+END;
+CREATE TRIGGER IF NOT EXISTS clear_investment_favorite AFTER INSERT ON investments BEGIN
+  DELETE FROM app_settings WHERE key = 'favoriteAccountId' AND CAST(value AS INTEGER) = NEW.accountId;
+END;
+CREATE TRIGGER IF NOT EXISTS dividend_fits BEFORE INSERT ON investment_dividends
+  WHEN NOT EXISTS (SELECT 1 FROM investments WHERE accountId = NEW.investmentAccountId)
+    OR NOT EXISTS (
+      SELECT 1 FROM transactions t JOIN legs l ON l.transactionId = t.id
+      WHERE t.id = NEW.transactionId AND t.kind = 'INCOME' AND l.accountId IS NOT NULL
+        AND l.accountId NOT IN (SELECT accountId FROM investments)
+        AND l.accountId NOT IN (SELECT accountId FROM credit_cards))
+  BEGIN SELECT RAISE(ABORT, 'A Dividend needs Income on a liquid destination Account.'); END;
+CREATE TRIGGER IF NOT EXISTS delete_dividend_link AFTER DELETE ON transactions BEGIN
+  DELETE FROM investment_dividends WHERE transactionId = OLD.id;
+END;
+
 -- Spending and income for reports. A reimbursement takes the Category of its Expense
 -- and lowers spending in the month of its own date (ADR 0011).
 DROP VIEW IF EXISTS report_transactions;
@@ -246,7 +302,35 @@ CREATE VIEW split_share_progress AS
   ), 0) AS paidMinor FROM split_shares s);
 `;
 
-type MainConnection = Pick<SQLiteDatabase, 'execAsync' | 'getFirstAsync' | 'isInTransactionSync'>;
+type MainConnection = Connection & Pick<SQLiteDatabase, 'isInTransactionSync'>;
+
+/** Rebuilds the kind constraint without deleting the children of any Transaction. */
+async function migrateInvestments(db: MainConnection) {
+  if (db.isInTransactionSync()) throw new Error('Run the migration outside a transaction.');
+  try {
+    await db.execAsync('PRAGMA foreign_keys = OFF; PRAGMA legacy_alter_table = ON;');
+    const foreignKeys = await db.getFirstAsync<{ foreign_keys: number }>('PRAGMA foreign_keys');
+    if (foreignKeys?.foreign_keys !== 0) throw new Error('Could not turn foreign keys off.');
+    await db.execAsync(`BEGIN EXCLUSIVE;
+      DROP VIEW report_transactions;
+      DROP VIEW split_share_progress;
+      DROP TRIGGER leg_fits_on_insert;
+      DROP TRIGGER leg_fits_on_update;
+      ${transactionTable('new_transactions')}
+      INSERT INTO new_transactions SELECT * FROM transactions;
+      DROP TABLE transactions;
+      ALTER TABLE new_transactions RENAME TO transactions;
+      ${legsSchema}
+      PRAGMA user_version = ${LEGS_SCHEMA_VERSION};`);
+    await checkLedger(db);
+    await db.execAsync('COMMIT');
+  } catch (error) {
+    if (db.isInTransactionSync()) await db.execAsync('ROLLBACK');
+    throw error;
+  } finally {
+    await db.execAsync('PRAGMA legacy_alter_table = OFF; PRAGMA foreign_keys = ON;');
+  }
+}
 
 /**
  * Prepares the main connection. A new install gets the legs schema. Every start runs the
@@ -255,7 +339,11 @@ type MainConnection = Pick<SQLiteDatabase, 'execAsync' | 'getFirstAsync' | 'isIn
 export async function openLedger(db: MainConnection) {
   await db.execAsync('PRAGMA foreign_keys = ON');
   const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
-  if (version!.user_version < LEGS_SCHEMA_VERSION) {
+  if (version!.user_version === 1) {
+    await migrateInvestments(db);
+    return;
+  }
+  if (version!.user_version === 0) {
     await db.execAsync('BEGIN EXCLUSIVE');
     try {
       await db.execAsync(legsSchema);

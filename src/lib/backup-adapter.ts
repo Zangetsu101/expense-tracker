@@ -6,30 +6,34 @@ import * as Sharing from 'expo-sharing';
 import { database, favoriteAccountIdSql } from '@/lib/database';
 import { restoreLegsRows } from '@/lib/backup-restore';
 import { restoreLegacyRows } from '@/lib/backup-v1-restore';
-import {
-  backupV2TableNames,
-  backupV2Tables,
-  type BackupV2,
-  type BackupV2Table,
-} from '@/lib/backup-v2';
+import { backupV2Tables, backupV3Tables, type BackupV2, type BackupV3 } from '@/lib/backup-v2';
 import { legOrder } from '@/lib/ledger-store';
 import { readAll } from '@/lib/read-all';
 import type { BackupDocuments, BackupStore } from '@/lib/backup';
 
-/** The rows of a v2 table in the order of a v2 file. */
-function selectV2Rows(name: BackupV2Table) {
-  const { table, uniqueKey, fields } = backupV2Tables[name];
+/** Selects the fields in a backup table in their export order. */
+function selectBackupRows({
+  table,
+  uniqueKey,
+  fields,
+}: {
+  table: string;
+  uniqueKey: readonly string[];
+  fields: object;
+}) {
   // A Leg has no unique key, so the Legs of a Transaction come in the order that the app
   // reads them in (ADR 0014).
-  const order = name === 'legs' ? `transactionId, ${legOrder}` : uniqueKey.join(', ');
+  const order = table === 'legs' ? `transactionId, ${legOrder}` : uniqueKey.join(', ');
   return `SELECT ${Object.keys(fields).join(', ')} FROM ${table} ORDER BY ${order}`;
 }
 
 export const backupStore: BackupStore = {
   async snapshot() {
     const db = await database();
-    let snapshot!: BackupV2;
+    let snapshot!: BackupV2 | BackupV3;
     await db.withExclusiveTransactionAsync(async (tx) => {
+      const hasInvestments = !!(await tx.getFirstAsync('SELECT 1 FROM investments LIMIT 1'));
+      const backupTables = hasInvestments ? backupV3Tables : backupV2Tables;
       const { favorite, displayRate, tables } = await readAll({
         favorite: tx.getFirstAsync<{ id: number | null }>(`SELECT ${favoriteAccountIdSql} AS id`),
         displayRate: tx.getFirstAsync<{ value: string }>(
@@ -37,13 +41,16 @@ export const backupStore: BackupStore = {
         ),
         tables: readAll(
           Object.fromEntries(
-            backupV2TableNames.map((name) => [name, tx.getAllAsync(selectV2Rows(name))]),
+            Object.entries(backupTables).map(([name, table]) => [
+              name,
+              tx.getAllAsync(selectBackupRows(table)),
+            ]),
           ),
         ),
       });
-      const rows = tables as Omit<BackupV2, 'schemaVersion' | 'settings'>;
+      const rows = tables as Omit<BackupV3, 'schemaVersion' | 'settings'>;
       snapshot = {
-        schemaVersion: 2,
+        schemaVersion: hasInvestments ? 3 : 2,
         ...rows,
         transactions: rows.transactions.map((row) => ({
           ...row,
@@ -60,7 +67,7 @@ export const backupStore: BackupStore = {
   async replace(data) {
     const db = await database();
     await db.withExclusiveTransactionAsync((tx) =>
-      data.schemaVersion === 2 ? restoreLegsRows(tx, data) : restoreLegacyRows(tx, data),
+      data.schemaVersion === 1 ? restoreLegacyRows(tx, data) : restoreLegsRows(tx, data),
     );
     notifyDataChanged();
   },

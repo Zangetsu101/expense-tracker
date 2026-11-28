@@ -3,7 +3,14 @@ import { notifyDataChanged } from './data-changes.ts';
 import { openLedger } from './legs-schema.ts';
 import * as SQLite from 'expo-sqlite';
 
-export type Account = { id: number; name: string; currencyCode: string; isFavorite: number };
+export type Account = {
+  id: number;
+  name: string;
+  currencyCode: string;
+  isFavorite: number;
+  isInvestment?: number;
+  isCreditCard?: number;
+};
 
 /** SQL for the id of the favorite Account, or null. */
 export const favoriteAccountIdSql =
@@ -52,17 +59,21 @@ export function resetDatabase() {
 
 export async function listAccounts() {
   return (await database()).getAllAsync<Account>(
-    `SELECT a.id, a.name, a.currencyCode, ${isFavoriteSql('a')} AS isFavorite FROM accounts a
+    `SELECT a.id, a.name, a.currencyCode, ${isFavoriteSql('a')} AS isFavorite,
+      EXISTS (SELECT 1 FROM investments WHERE accountId = a.id) AS isInvestment,
+      EXISTS (SELECT 1 FROM credit_cards WHERE accountId = a.id) AS isCreditCard
+    FROM accounts a
     ORDER BY isFavorite DESC, a.name, a.id`,
   );
 }
 export async function setFavoriteAccount(accountId: number) {
   const db = await database();
   await db.withExclusiveTransactionAsync(async (tx) => {
-    const account = await tx.getFirstAsync<{ id: number }>('SELECT id FROM accounts WHERE id = ?', [
-      accountId,
-    ]);
-    if (!account) throw new Error('Account not found.');
+    const account = await tx.getFirstAsync<{ id: number }>(
+      'SELECT id FROM accounts WHERE id = ? AND id NOT IN (SELECT accountId FROM investments)',
+      [accountId],
+    );
+    if (!account) throw new Error('Choose a regular Account or Credit Card as Favorite.');
     await tx.runAsync(
       "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('favoriteAccountId', json(?))",
       [accountId],

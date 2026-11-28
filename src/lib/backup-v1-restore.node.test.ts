@@ -83,7 +83,12 @@ function everything(sql: DatabaseSync) {
   const tables = rows(sql, "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name");
   return {
     schema: rows(sql, 'SELECT type, name, sql FROM sqlite_master ORDER BY type, name'),
-    rows: tables.map(({ name }) => rows(sql, `SELECT * FROM "${name}" ORDER BY 1, 2`)),
+    rows: tables.map(({ name }) => {
+      const order = rows(sql, `PRAGMA table_info("${name}")`)
+        .map(({ cid }) => Number(cid) + 1)
+        .join(', ');
+      return rows(sql, `SELECT * FROM "${name}" ORDER BY ${order}`);
+    }),
     version: value(sql, 'PRAGMA user_version'),
   };
 }

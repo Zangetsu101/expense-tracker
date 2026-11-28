@@ -9,6 +9,7 @@ import { creditCardBills } from '@/lib/credit-cards';
 import { notifyDataChanged } from '@/lib/data-changes';
 import { loadFirstTransferRate } from '@/lib/transfer-rate-store';
 import { addQuickTransaction } from '@/lib/quick-add-tags';
+import { lastDividendCategory } from '@/lib/investments';
 import { listCategoryEvidence } from '@/lib/category-prediction-history';
 import { listCategoriesByRecentUse, type ManagedCategory } from '@/lib/categories';
 import { listPeople, listLendingTotals, createPerson, saveLendingEntry } from '@/lib/lending';
@@ -19,7 +20,6 @@ import type { ListRow } from '@/features/home/list';
 import { categoriesQuery, peopleQuery } from './queries';
 import QuickAdd from './screen';
 
-const mockDispatch = jest.fn();
 let mockParams: {
   personId?: string;
   action?: string;
@@ -43,7 +43,6 @@ jest.mock('expo-router', () => ({
 }));
 jest.mock('expo-router/react-navigation', () => ({
   useHeaderHeight: () => 0,
-  useNavigation: () => ({ dispatch: mockDispatch }),
   usePreventRemove: jest.fn(),
 }));
 jest.mock('react-native-safe-area-context', () => ({
@@ -64,6 +63,7 @@ jest.mock('@/features/home/read-home', () => ({
   expensesForReimbursement: jest.fn(),
 }));
 jest.mock('@/lib/quick-add-tags', () => ({ addQuickTransaction: jest.fn() }));
+jest.mock('@/lib/investments', () => ({ lastDividendCategory: jest.fn() }));
 jest.mock('@/lib/transfers', () => ({ addTransfer: jest.fn() }));
 jest.mock('@/lib/categories', () => ({ listCategoriesByRecentUse: jest.fn(async () => []) }));
 jest.mock('@/lib/lending', () => ({
@@ -278,7 +278,7 @@ test('a rejected save keeps the draft and blocks another submission while pendin
   expect(button('Save expense')).toBeBusy();
   const removal = jest.mocked(usePreventRemove).mock.lastCall;
   await act(() => removal?.[1]?.({ data: { action: { type: 'GO_BACK' } }, repeat: jest.fn() }));
-  expect(mockDispatch).not.toHaveBeenCalled();
+  expect(router.back).not.toHaveBeenCalled();
   expect(jest.mocked(usePreventRemove).mock.lastCall?.[0]).toBe(true);
   await act(async () => request.reject(Error('Save failed')));
   expect(await screen.findByText(/Save failed/)).toBeOnTheScreen();
@@ -695,6 +695,44 @@ test('links Income through the expense picker, fills the only outstanding share 
       amountMinor: 900,
       categoryId: null,
       reimbursement: { expenseId: 40, personId: 1 },
+    }),
+    '',
+  );
+});
+
+test('a cross-Currency dividend uses one amount and saves Income in the liquid Account', async () => {
+  mockParams = { mode: 'TRANSFER', accountId: '3', toId: '1' };
+  jest
+    .mocked(listAccounts)
+    .mockResolvedValue([
+      ...accounts,
+      { id: 3, name: 'Fund', currencyCode: 'EUR', isFavorite: 0, isInvestment: 1 },
+    ]);
+  const lastCategory = Promise.withResolvers<{ categoryId: number }>();
+  jest.mocked(lastDividendCategory).mockReturnValue(lastCategory.promise);
+  const { amount, mode, press } = await open();
+  expect(await screen.findByRole('radio', { name: 'Capital withdrawal' })).toBeChecked();
+  await mode('Expense');
+  expect(screen.queryByRole('button', { name: /Fund, EUR/ })).toBeNull();
+  await mode('Transfer');
+  await mode('Dividend payout');
+  await amount(['5']);
+  expect(button('Save dividend')).toBeDisabled();
+  await act(async () => lastCategory.resolve({ categoryId: salary.id }));
+  expect(await screen.findByRole('button', { name: 'Salary', selected: true })).toBeOnTheScreen();
+  const guardWhenLeaving = jest.fn();
+  jest.mocked(router.back).mockImplementationOnce(() => {
+    guardWhenLeaving(jest.mocked(usePreventRemove).mock.lastCall?.[0]);
+  });
+  await press('Save dividend');
+  await waitFor(() => expect(guardWhenLeaving).toHaveBeenCalledWith(false));
+  expect(addQuickTransaction).toHaveBeenCalledWith(
+    expect.objectContaining({
+      type: 'INCOME',
+      accountId: 1,
+      investmentAccountId: 3,
+      amountMinor: 500,
+      categoryId: salary.id,
     }),
     '',
   );

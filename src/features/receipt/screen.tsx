@@ -18,7 +18,10 @@ import { dateFromEpochDay, epochDay } from '@/lib/database';
 import { deleteLendingEntry, type WriteOffEntry } from '@/lib/lending';
 import { WriteOffForm } from '@/features/lending/write-off-form';
 import { writeWithOverpaidCreditCheck } from '@/features/lending/view';
-import { FormButton } from '@/components/form-controls';
+import { parseOpeningBalance } from '@/lib/accounts';
+import { saveValuationEdit } from '@/lib/investments';
+import { formatEpochDay, formatSignedMoney } from '@/lib/transaction-format';
+import { FormButton, FormInput } from '@/components/form-controls';
 import { deleteTransaction } from '@/lib/transaction-delete';
 import { saveTransferEdit, type EditableTransfer } from '@/lib/transfers';
 import { theme } from '@/theme';
@@ -35,7 +38,7 @@ import {
 function PostedTransactionReceipt({
   transaction,
 }: {
-  transaction: Exclude<Receipt, EditableTransfer>;
+  transaction: Exclude<Receipt, EditableTransfer | ValuationReceipt>;
 }) {
   const writeOff = transaction.type === 'WRITE_OFF';
   const reimbursement = writeOff ? undefined : transaction.reimbursementDetails;
@@ -45,6 +48,11 @@ function PostedTransactionReceipt({
   return (
     <TransactionReceipt>
       <TransactionReceipt.Summary transaction={transaction} reimbursement={reimbursement} />
+      {!writeOff && transaction.dividendInvestmentName && (
+        <Text style={{ color: theme.colors.accent }}>
+          Dividend from {transaction.dividendInvestmentName}
+        </Text>
+      )}
       {reimbursedExpense && <ReimbursedExpense expense={reimbursedExpense} />}
       {transaction.type === 'EXPENSE' && reimbursement && (
         <ExpenseReimbursementPanels
@@ -224,6 +232,18 @@ function ReceiptSession({ id, writeOff }: { id: number; writeOff: boolean }) {
         onSaved={onSaved}
       />
     );
+  } else if (snapshot?.type === 'VALUATION') {
+    title = 'Edit Valuation';
+    body = (
+      <ValuationEditor
+        valuation={snapshot}
+        disabled={deleting || closing}
+        onDirtyChange={setDirty}
+        onSavingChange={onSavingChange}
+        onDelete={confirmDelete}
+        onSaved={onSaved}
+      />
+    );
   } else if (snapshot?.type === 'WRITE_OFF') {
     title = 'Edit write-off';
     body = (
@@ -358,15 +378,106 @@ function ReceiptView({
   showRefreshAlert: boolean;
   onRetry: () => void;
 }) {
+  let body;
+  if (receipt.type === 'TRANSFER') body = <TransferReceipt key={receipt.id} transfer={receipt} />;
+  else if (receipt.type === 'VALUATION') {
+    body = (
+      <TransactionReceipt>
+        <Text style={{ color: theme.colors.muted }}>Valuation · {receipt.accountName}</Text>
+        <Text selectable style={{ color: theme.colors.accent, fontSize: 30, fontWeight: '700' }}>
+          {formatSignedMoney(receipt.amountMinor, receipt.currencyCode)}
+        </Text>
+        <Text style={{ color: theme.colors.muted }}>{formatEpochDay(receipt.date)}</Text>
+      </TransactionReceipt>
+    );
+  } else body = <PostedTransactionReceipt key={receipt.id} transaction={receipt} />;
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
       {showRefreshAlert && <ReceiptRefreshAlert retry={onRetry} />}
-      {receipt.type === 'TRANSFER' ? (
-        <TransferReceipt key={receipt.id} transfer={receipt} />
-      ) : (
-        <PostedTransactionReceipt key={receipt.id} transaction={receipt} />
-      )}
+      {body}
     </View>
+  );
+}
+
+type ValuationReceipt = Extract<Receipt, { type: 'VALUATION' }>;
+
+function ValuationEditor({
+  valuation,
+  disabled,
+  onDirtyChange,
+  onSavingChange,
+  onDelete,
+  onSaved,
+}: {
+  valuation: ValuationReceipt;
+  disabled: boolean;
+  onDirtyChange: (value: boolean) => void;
+  onSavingChange: (value: boolean) => void;
+  onDelete: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  const initial = (valuation.amountMinor / 100).toFixed(2);
+  const [amount, setAmount] = useState(initial);
+  const [pending, startSave] = useTransition();
+  const [committed, setCommitted] = useState(false);
+  const [error, setError] = useState<string>();
+
+  function save() {
+    if (pending) return;
+    setError(undefined);
+    onSavingChange(true);
+    startSave(async () => {
+      let didCommit = committed;
+      try {
+        if (!didCommit) {
+          await saveValuationEdit(valuation.id, valuation.amountMinor, parseOpeningBalance(amount));
+          didCommit = true;
+          setCommitted(true);
+        }
+        await onSaved();
+      } catch (cause) {
+        setError(didCommit ? 'Could not refresh the receipt.' : String(cause));
+      } finally {
+        onSavingChange(false);
+      }
+    });
+  }
+
+  return (
+    <ScrollView
+      style={{ flex: 1, backgroundColor: theme.colors.background }}
+      contentContainerStyle={{ padding: 20, gap: 16 }}
+      keyboardShouldPersistTaps="handled"
+    >
+      <Text style={{ color: theme.colors.muted }}>Value change in {valuation.currencyCode}</Text>
+      <FormInput
+        accessibilityLabel="Value change"
+        value={amount}
+        onChangeText={(value) => {
+          setAmount(value);
+          onDirtyChange(value !== initial);
+        }}
+        editable={!disabled && !pending && !committed}
+        keyboardType="numbers-and-punctuation"
+      />
+      {error && (
+        <Text accessibilityRole="alert" style={{ color: theme.colors.warning }}>
+          {error}
+        </Text>
+      )}
+      <FormButton
+        label={committed ? 'Retry receipt' : 'Save Valuation'}
+        loading={pending}
+        disabled={disabled || (!committed && amount === initial)}
+        onPress={save}
+      />
+      <FormButton
+        label="Delete Valuation"
+        variant="danger"
+        disabled={disabled || pending || committed}
+        onPress={onDelete}
+      />
+    </ScrollView>
   );
 }
 

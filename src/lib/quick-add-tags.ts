@@ -10,6 +10,7 @@ type QuickAddInput = {
   amountMinor: number;
   accountId: number;
   categoryId: number | null;
+  investmentAccountId?: number;
   shares?: SplitShare[];
   reimbursement?: { expenseId: number; personId: number | null };
   date: Date;
@@ -82,6 +83,12 @@ export async function addQuickTransaction(input: QuickAddInput, tagText: string)
       await tx.runAsync(
         'INSERT INTO reimbursements (transactionId, expenseId, personId) VALUES (?, ?, ?)',
         [id, input.reimbursement.expenseId, input.reimbursement.personId],
+      );
+    }
+    if (input.investmentAccountId !== undefined) {
+      await tx.runAsync(
+        'INSERT INTO investment_dividends (transactionId, investmentAccountId) VALUES (?, ?)',
+        [id, input.investmentAccountId],
       );
     }
     await addTransactionTags(tx, id, tags);

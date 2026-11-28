@@ -922,3 +922,139 @@ test('a v2 restore refuses rows that break the Legs model and changes nothing', 
       assert.deepEqual(state(), before);
     });
 });
+
+async function investmentFixture() {
+  const empty = JSON.parse(v2File());
+  for (const table of [
+    'transactions',
+    'legs',
+    'lineItems',
+    'transactionTags',
+    'splitShares',
+    'reimbursements',
+  ])
+    empty[table] = [];
+  await restoreText(JSON.stringify(empty));
+  const accounts = await import('./accounts.ts');
+  const input = { name: 'Fund', currencyCode: 'USD', openingBalance: '100' };
+  await accounts.createAccount({ ...input, isInvestment: true });
+  await accounts.createAccount({ name: 'Payout cash', currencyCode: 'BDT', openingBalance: '0' });
+  const managed = await accounts.listManagedAccounts();
+  const fund = managed.find(({ name }) => name === input.name);
+  const payout = managed.find(({ name }) => name === 'Payout cash');
+  const investment = await import('./investments.ts');
+  const { addQuickTransaction } = await import('./quick-add-tags.ts');
+  const { epochDay } = await import('./database.ts');
+  const date = new Date(2025, 0, 2);
+  const day = epochDay(date);
+  const addDividend = (accountId = payout.id) =>
+    addQuickTransaction(
+      {
+        type: 'INCOME',
+        accountId,
+        investmentAccountId: fund.id,
+        amountMinor: 6000,
+        categoryId: 3,
+        date,
+        note: null,
+      },
+      '',
+    );
+  return { accounts, input, fund, payout, investment, addDividend, day };
+}
+
+test('a backdated Transfer preserves the gain from a Valuation and a Dividend counts as Income', async () => {
+  const { fund, investment, addDividend, day } = await investmentFixture();
+  const { addTransfer } = await import('./transfers.ts');
+  const { accountBalances, rangeReport } = await import('./reports.ts');
+  await investment.recordValuation(fund.id, 12000, day);
+  await addTransfer({
+    fromAccountId: 1,
+    toAccountId: fund.id,
+    amountMinor: 24000,
+    receivedAmountMinor: 2000,
+    note: null,
+    date: new Date(2025, 0, 1),
+  });
+  await addDividend();
+
+  assert.equal((await accountBalances(day)).find(({ id }) => id === fund.id).balanceMinor, 14000);
+  const [balance] = await investment.investmentBalances(day);
+  assert.equal(balance.investedMinor, 12000);
+  assert.equal(balance.growthMinor, 2000);
+  assert.deepEqual(balance.dividends, [{ currencyCode: 'BDT', amountMinor: 6000 }]);
+  assert.deepEqual(
+    investment.investmentReturnTotals(balance, { base: 'USD', quote: 'BDT', rate: 120 }),
+    [{ currencyCode: 'USD', amountMinor: 2050 }],
+  );
+  assert.deepEqual(
+    (await investment.investmentHistory(fund.id)).map(({ kind }) => kind),
+    ['INCOME', 'VALUATION', 'TRANSFER'],
+  );
+  const { summaries } = await rangeReport(day - 1, day + 1);
+  assert.deepEqual(
+    summaries.find(({ currencyCode }) => currencyCode === 'USD'),
+    { currencyCode: 'USD', incomeMinor: 0, expenseMinor: 0, investedMinor: 2000 },
+  );
+  assert.deepEqual(
+    { ...summaries.find(({ currencyCode }) => currencyCode === 'BDT') },
+    { currencyCode: 'BDT', incomeMinor: 6000, expenseMinor: 0 },
+  );
+});
+
+test('new Investments clear Favorite and linked Transactions limit conversion', async () => {
+  const { accounts, input, fund, payout, investment, addDividend, day } = await investmentFixture();
+  const { deleteTransaction } = await import('./transaction-delete.ts');
+  const { accountBalances } = await import('./reports.ts');
+  await accounts.updateAccount(fund.id, input);
+  await accounts.setFavoriteAccount(fund.id);
+  await accounts.updateAccount(fund.id, { ...input, isInvestment: true });
+  assert.equal(
+    (await accounts.listManagedAccounts()).find(({ id }) => id === fund.id).isFavorite,
+    0,
+  );
+  await assert.rejects(accounts.setFavoriteAccount(fund.id), /Favorite/);
+  await investment.recordValuation(fund.id, 12000, day);
+  await assert.rejects(accounts.updateAccount(fund.id, input), /Valuations/);
+  await assert.rejects(addDividend(2), /liquid destination/);
+  await addDividend();
+  for (const kind of [{ isCreditCard: true }, { isInvestment: true }])
+    await assert.rejects(
+      accounts.updateAccount(payout.id, {
+        name: payout.name,
+        currencyCode: payout.currencyCode,
+        openingBalance: '0',
+        ...kind,
+      }),
+      /dividends paid into this Account/,
+    );
+
+  const history = await investment.investmentHistory(fund.id);
+  const valuation = history.find(({ kind }) => kind === 'VALUATION');
+  const dividend = history.find(({ kind }) => kind === 'INCOME');
+  await investment.saveValuationEdit(valuation.id, 2000, -1000);
+  assert.equal((await accountBalances(day)).find(({ id }) => id === fund.id).balanceMinor, 9000);
+  await deleteTransaction(valuation.id);
+  await assert.rejects(accounts.updateAccount(fund.id, input), /linked dividends/);
+  await deleteTransaction(dividend.id);
+  await accounts.updateAccount(fund.id, input);
+});
+
+test('a v3 backup restores Valuations and Dividend links and rejects a card as the Dividend recipient', async () => {
+  const { fund, investment, addDividend, day } = await investmentFixture();
+  await investment.recordValuation(fund.id, 12000, day);
+  await addDividend();
+  const backup = await backupStore.snapshot();
+  assert.equal(backup.schemaVersion, 3);
+  await restoreText(v2File());
+  await restoreText(encodeBackup(backup));
+  assert.deepEqual(await backupStore.snapshot(), backup);
+
+  const missingInvestment = { ...backup, investments: [] };
+  await assert.rejects(restoreText(JSON.stringify(missingInvestment)), /does not fit/);
+  const cardRecipient = structuredClone(backup);
+  const { transactionId } = cardRecipient.investmentDividends[0];
+  cardRecipient.legs.find((leg) => leg.transactionId === transactionId).accountId = 2;
+  await assert.rejects(restoreText(JSON.stringify(cardRecipient)), /liquid destination/);
+  assert.deepEqual(await backupStore.snapshot(), backup);
+});

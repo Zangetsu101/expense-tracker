@@ -1,16 +1,11 @@
-import { use, useDeferredValue, useState } from 'react';
+import { use, useDeferredValue, useState, useTransition } from 'react';
 import { useQuery, useSuspenseQuery } from '@tanstack/react-query';
 import { QueryBoundary } from '@/components/query-error-boundary';
-import {
-  createAccount,
-  reverseAmountSign,
-  updateAccount,
-  setFavoriteAccount,
-  type ManagedAccount,
-} from '@/lib/accounts';
+import { setFavoriteAccount, type ManagedAccount } from '@/lib/accounts';
 import { epochDay } from '@/lib/database';
 import { QueryTimeContext } from '@/lib/query-time';
 import { LendingCard } from '@/features/lending/overview-screen';
+import { useAccountSheet } from './account-editor';
 import { accountsOverviewQuery } from './queries.ts';
 import {
   AccountGroups,
@@ -19,11 +14,10 @@ import {
   AccountsHeader,
   AccountsLayout,
   AccountsSkeleton,
-  AddAccountSheet,
   BalanceOverview,
+  InvestmentGroup,
   RefreshAlert,
   WriteError,
-  type AccountForm,
 } from './view.tsx';
 
 type Writes = {
@@ -47,6 +41,7 @@ function AccountsContent({ today, writes }: { today: number; writes: Writes }) {
         onFavorite={writes.onFavorite}
         onEdit={writes.onEdit}
       />
+      <InvestmentGroup overview={data} />
     </>
   );
 }
@@ -75,95 +70,36 @@ function AccountsSection({ writes }: { writes: Writes }) {
   );
 }
 
-const emptyForm: AccountForm = { name: '', currencyCode: '', openingBalance: '0' };
-
 export default function AccountsScreen() {
   const overview = useQuery({
     ...accountsOverviewQuery(epochDay(use(QueryTimeContext))),
     enabled: false,
   });
-  const [form, setForm] = useState(emptyForm);
-  const [sheet, setSheet] = useState(false);
-  const [pending, setPending] = useState(false);
-  const [formError, setFormError] = useState<string>();
+  const accountSheet = useAccountSheet(overview.data?.accounts ?? []);
+  const [favoritePending, startFavoriteSave] = useTransition();
   const [favoriteError, setFavoriteError] = useState<string>();
-
-  async function save() {
+  const pending = favoritePending || accountSheet.pending;
+  function makeFavorite(id: number) {
     if (pending) return;
-    setPending(true);
-    setFormError(undefined);
-    try {
-      const input = {
-        ...form,
-        openingBalance: form.isCreditCard
-          ? reverseAmountSign(form.openingBalance)
-          : form.openingBalance,
-      };
-      if (form.id) await updateAccount(form.id, input);
-      else await createAccount(input);
-      setForm(emptyForm);
-      setSheet(false);
-    } catch (e) {
-      setFormError(String(e));
-    } finally {
-      setPending(false);
-    }
-  }
-  async function makeFavorite(id: number) {
-    if (pending) return;
-    setPending(true);
     setFavoriteError(undefined);
-    try {
-      await setFavoriteAccount(id);
-    } catch (e) {
-      setFavoriteError(String(e));
-    } finally {
-      setPending(false);
-    }
+    startFavoriteSave(async () => {
+      try {
+        await setFavoriteAccount(id);
+      } catch (error) {
+        setFavoriteError(String(error));
+      }
+    });
   }
   const writes: Writes = {
     pending,
     favoriteError,
-    onEdit: (account) => {
-      setForm({
-        id: account.id,
-        name: account.name,
-        currencyCode: account.currencyCode,
-        openingBalance: String(
-          (account.card ? -account.openingBalanceMinor : account.openingBalanceMinor) / 100,
-        ),
-        isCreditCard: !!account.card,
-        parentAccountId: account.card?.parentAccountId,
-        statementDay: account.card?.statementDay,
-        dueDay: account.card?.dueDay,
-      });
-      setFormError(undefined);
-      setSheet(true);
-    },
-    onAdd: () => {
-      setForm(emptyForm);
-      setFormError(undefined);
-      setSheet(true);
-    },
-    onFavorite: (id) => void makeFavorite(id),
+    onEdit: accountSheet.edit,
+    onAdd: accountSheet.add,
+    onFavorite: makeFavorite,
   };
 
   return (
-    <AccountsLayout
-      sheet={
-        sheet && (
-          <AddAccountSheet
-            accounts={overview.data?.accounts ?? []}
-            form={form}
-            onChange={setForm}
-            pending={pending}
-            error={formError}
-            onSave={() => void save()}
-            onClose={() => setSheet(false)}
-          />
-        )
-      }
-    >
+    <AccountsLayout sheet={accountSheet.sheet}>
       <AccountsSection writes={writes} />
     </AccountsLayout>
   );

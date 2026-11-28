@@ -49,13 +49,18 @@ function sides(input: TransferInput, received: number | null) {
   };
 }
 
-async function receivedAmount(tx: Pick<SQLiteDatabase, 'getAllAsync'>, input: TransferInput) {
-  const accounts = await tx.getAllAsync<{ id: number; currencyCode: string }>(
-    'SELECT id, currencyCode FROM accounts WHERE id IN (?, ?)',
+async function transferAccounts(tx: Pick<SQLiteDatabase, 'getAllAsync'>, input: TransferInput) {
+  const accounts = await tx.getAllAsync<{ id: number; currencyCode: string; isInvestment: number }>(
+    `SELECT a.id, a.currencyCode, EXISTS (SELECT 1 FROM investments WHERE accountId = a.id) AS isInvestment
+    FROM accounts a WHERE a.id IN (?, ?)`,
     [input.fromAccountId, input.toAccountId],
   );
   if (accounts.length !== 2) throw new Error('Account not found.');
-  if (accounts[0].currencyCode === accounts[1].currencyCode) return null;
+  return accounts;
+}
+
+function receivedAmount(firstCurrency: string, secondCurrency: string, input: TransferInput) {
+  if (firstCurrency === secondCurrency) return null;
   if (!Number.isSafeInteger(input.receivedAmountMinor) || (input.receivedAmountMinor ?? 0) <= 0)
     throw new Error('Enter a positive amount received.');
   return input.receivedAmountMinor!;
@@ -69,21 +74,23 @@ export async function addTransfer(input: TransferInput & { date?: Date; tagText?
   validateTransfer(input);
   const db = await database();
   let id = 0;
+  let accountIds: number[] = [];
   await db.withExclusiveTransactionAsync(async (tx) => {
-    const received = await receivedAmount(tx, input);
+    const [first, second] = await transferAccounts(tx, input);
+    const received = receivedAmount(first.currencyCode, second.currencyCode, input);
     id = await insertTransaction(tx, {
       kind: 'TRANSFER',
       date: epochDay(date),
       note: input.note?.trim() || null,
       ...sides(input, received),
     });
+    const visible = new Set(
+      [first, second].filter((account) => !account.isInvestment).map(({ id }) => id),
+    );
+    accountIds = [input.fromAccountId, input.toAccountId].filter((id) => visible.has(id));
     await addTransactionTags(tx, id, tags);
   });
-  notifyDataChanged({
-    id,
-    date: epochDay(date),
-    accountIds: [input.fromAccountId, input.toAccountId],
-  });
+  notifyDataChanged(accountIds.length ? { id, date: epochDay(date), accountIds } : undefined);
 }
 
 const transferRead = `SELECT t.id, t.type, t.amountMinor, t.receivedAmountMinor, t.date,
@@ -118,7 +125,8 @@ export async function saveTransferEdit(
       current.receivedAmountMinor !== (original.receivedAmountMinor ?? null)
     )
       throw new Error('Transaction was changed or removed. Reload before saving.');
-    const received = await receivedAmount(tx, input);
+    const [first, second] = await transferAccounts(tx, input);
+    const received = receivedAmount(first.currencyCode, second.currencyCode, input);
     await updateTransaction(tx, {
       id: original.id,
       kind: 'TRANSFER',
