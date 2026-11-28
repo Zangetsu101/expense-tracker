@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useOptimistic, useRef, useState, useTransition } from 'react';
+import { useCallback, useOptimistic, useRef, useState, useTransition } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { categoriesQuery, peopleQuery, includeCreatedPerson, nextPersonId } from './queries.ts';
 import { accountsQuery } from '@/lib/account-queries';
@@ -16,7 +16,6 @@ import { TransferBillChoices } from './transfer-bill-choices.tsx';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight, useNavigation, usePreventRemove } from 'expo-router/react-navigation';
 import {
-  AccessibilityInfo,
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
@@ -150,23 +149,9 @@ function QuickAddForm() {
     preset === undefined ? '' : (preset / 100).toFixed(2),
     preset === undefined,
   );
-  const [keypadReady, setKeypadReady] = useState(preset !== undefined);
-  useEffect(() => {
-    if (keypadReady) return;
-    let active = true;
-    const timer = setTimeout(() => setKeypadReady(true), keypadEntryDelay);
-    void AccessibilityInfo.isReduceMotionEnabled()
-      .then((enabled) => {
-        if (!active || !enabled) return;
-        clearTimeout(timer);
-        setKeypadReady(true);
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-      clearTimeout(timer);
-    };
-  }, [keypadReady]);
+  const [initialKeypadDelay, setInitialKeypadDelay] = useState(
+    preset === undefined ? keypadEntryDelay : 0,
+  );
   const categoryMode = mode === 'EXPENSE' || mode === 'INCOME' ? mode : undefined;
   const categoryRead = useQuery({ ...categoriesQuery(categoryMode ?? 'EXPENSE'), enabled: false });
   const peopleRead = useQuery({ ...peopleQuery(), enabled: false });
@@ -385,7 +370,7 @@ function QuickAddForm() {
       initialPaid={preset === undefined ? amountMinor : undefined}
       draft={amountDraft}
       currency={account?.currencyCode}
-      keypadReady={keypadReady}
+      initialKeypadDelay={initialKeypadDelay}
       disabled={saving}
       onChange={mode === 'TRANSFER' ? onTransferAmounts : setAmountMinor}
     >
@@ -431,6 +416,7 @@ function QuickAddForm() {
                     );
                     setPreset(undefined);
                   }
+                  if (mode !== value) setInitialKeypadDelay(0);
                   setMode(value);
                   setError('');
                 }}

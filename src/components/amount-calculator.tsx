@@ -1,15 +1,18 @@
 import { type ComponentProps, useEffect, useRef, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { AccessibilityInfo, Pressable, Text, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Touchable } from 'react-native-gesture-handler';
 import { SymbolView } from 'expo-symbols';
 import Animated, {
   Easing,
   ReduceMotion,
+  useAnimatedReaction,
   useAnimatedStyle,
   useSharedValue,
+  withDelay,
   withTiming,
 } from 'react-native-reanimated';
+import { scheduleOnRN } from 'react-native-worklets';
 import { theme } from '@/theme';
 
 const rows = [
@@ -36,6 +39,7 @@ export function AmountCalculator({
   onDone,
   open,
   bottomInset,
+  initialDelay = 0,
 }: {
   /** The message from the last calculation that failed. */
   error: string;
@@ -44,16 +48,52 @@ export function AmountCalculator({
   onDone: () => void;
   open: boolean;
   bottomInset: number;
+  initialDelay?: number;
 }) {
   const [contentHeight, setContentHeight] = useState(0);
+  const [hasAppeared, setHasAppeared] = useState(false);
+  const entryDeadline = useRef<number | null | undefined>(undefined);
+  const [entryMotion, setEntryMotion] = useState<ReduceMotion>();
+  const waitForEntry = initialDelay > 0 && entryMotion !== ReduceMotion.Always && !hasAppeared;
+  const interactive = open && !waitForEntry;
   const height = useSharedValue(0);
   useEffect(() => {
-    height.value = withTiming(open ? contentHeight : 0, {
+    if (initialDelay === 0) return;
+    let active = true;
+    void AccessibilityInfo.isReduceMotionEnabled()
+      .then((enabled) => {
+        if (active) setEntryMotion(enabled ? ReduceMotion.Always : ReduceMotion.Never);
+      })
+      .catch(() => {
+        if (active) setEntryMotion(ReduceMotion.System);
+      });
+    return () => {
+      active = false;
+    };
+  }, [initialDelay]);
+  useAnimatedReaction(
+    () => waitForEntry && height.value > 0,
+    (visible, wasVisible) => {
+      if (visible && !wasVisible) scheduleOnRN(setHasAppeared, true);
+    },
+    [waitForEntry, height],
+  );
+  useEffect(() => {
+    if (open && contentHeight === 0) return;
+    if (!open) entryDeadline.current = null;
+    if (open && initialDelay > 0 && entryMotion === undefined) return;
+    const now = Date.now();
+    if (entryDeadline.current === undefined) entryDeadline.current = now + initialDelay;
+    const delay =
+      entryDeadline.current === null ? 0 : Math.min(initialDelay, entryDeadline.current - now);
+    const reduceMotion = entryMotion ?? ReduceMotion.System;
+    const slide = withTiming(open ? contentHeight : 0, {
       duration: 220,
       easing: Easing.out(Easing.cubic),
-      reduceMotion: ReduceMotion.System,
+      reduceMotion,
     });
-  }, [open, contentHeight, height]);
+    height.value = delay > 0 ? withDelay(delay, slide, reduceMotion) : slide;
+  }, [open, contentHeight, height, initialDelay, entryMotion]);
   const panelStyle = useAnimatedStyle(() => ({ height: height.value }));
   function feedback() {
     if (process.env.EXPO_OS !== 'android' && process.env.EXPO_OS !== 'ios') return;
@@ -66,9 +106,9 @@ export function AmountCalculator({
   return (
     <Animated.View
       style={[{ overflow: 'hidden' }, panelStyle]}
-      pointerEvents={open ? 'auto' : 'none'}
-      accessibilityElementsHidden={!open}
-      importantForAccessibility={open ? 'auto' : 'no-hide-descendants'}
+      pointerEvents={interactive ? 'auto' : 'none'}
+      accessibilityElementsHidden={!interactive}
+      importantForAccessibility={interactive ? 'auto' : 'no-hide-descendants'}
     >
       <View
         onLayout={({ nativeEvent }) => {

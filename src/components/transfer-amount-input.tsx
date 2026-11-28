@@ -49,7 +49,7 @@ export function TransferAmountInput({
   initialReceived,
   editingTransfer = false,
   disabled = false,
-  keypadReady = true,
+  initialKeypadDelay = 0,
   onChange,
   children,
 }: {
@@ -59,7 +59,7 @@ export function TransferAmountInput({
   initialReceived?: number;
   editingTransfer?: boolean;
   disabled?: boolean;
-  keypadReady?: boolean;
+  initialKeypadDelay?: number;
   onChange: (paid: number | undefined, received: number | undefined) => void;
   children: (slots: AmountSlots) => ReactNode;
 }) {
@@ -85,6 +85,7 @@ export function TransferAmountInput({
   const [context, setContext] = useState<AmountContext>({
     cross: false,
   });
+  const [keypadDelay, setKeypadDelay] = useState(initialKeypadDelay);
   const [focus, setFocus] = useState<TransferField | null>(
     initialPaid || initialReceived ? null : 'pay',
   );
@@ -209,6 +210,7 @@ export function TransferAmountInput({
     return () => subscription.remove();
   }, [focus]);
   function select(field: TransferField) {
+    setKeypadDelay(0);
     if (focus) dismiss();
     Keyboard.dismiss();
     const value = state[field];
@@ -325,7 +327,8 @@ export function TransferAmountInput({
           change(next.amount);
         }}
         onDone={dismiss}
-        open={focus !== null && !disabled && ready && keypadReady}
+        open={focus !== null && !disabled && ready}
+        initialDelay={keypadDelay}
         bottomInset={insets.bottom}
       />
     ),
