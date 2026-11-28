@@ -1,5 +1,5 @@
 import { use, useState, useTransition, type ReactNode } from 'react';
-import { useSuspenseQueries, useSuspenseQuery } from '@tanstack/react-query';
+import { useQueryClient, useSuspenseQueries, useSuspenseQuery } from '@tanstack/react-query';
 import { Link, router, Stack, useLocalSearchParams } from 'expo-router';
 import {
   FlatList,
@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppSheet } from '@/components/app-sheet';
-import { FormButton, FormInput } from '@/components/form-controls';
+import { FormButton, FormButtonSkeleton, FormInput } from '@/components/form-controls';
 import { Skeleton } from '@/components/loading';
 import { QueryBoundary } from '@/components/query-error-boundary';
 import { QuickAddDate } from '@/components/quick-add-date';
@@ -35,6 +35,8 @@ import { WriteError } from './view';
 
 const c = theme.colors;
 const currentValueLineHeight = 40;
+const metricLineHeight = 20;
+const historyDateLineHeight = 17;
 const historyLabels = { VALUATION: 'Valuation', INCOME: 'Dividend', TRANSFER: 'Transfer' };
 
 const styles = StyleSheet.create({
@@ -47,6 +49,17 @@ const styles = StyleSheet.create({
     fontSize: 30,
     fontWeight: '700',
     lineHeight: currentValueLineHeight,
+    includeFontPadding: false,
+  },
+  metricText: {
+    fontSize: theme.type.detail,
+    lineHeight: metricLineHeight,
+    includeFontPadding: false,
+  },
+  historyDate: {
+    color: c.muted,
+    fontSize: theme.type.caption,
+    lineHeight: historyDateLineHeight,
     includeFontPadding: false,
   },
   actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
@@ -64,11 +77,14 @@ function Metric({ label, value }: { label: string; value?: string }) {
         gap: 12,
       }}
     >
-      <Text style={{ color: c.muted }}>{label}</Text>
+      <Text style={[styles.metricText, { color: c.muted }]}>{label}</Text>
       {value === undefined ? (
         <Skeleton width={76} />
       ) : (
-        <Text selectable style={{ color: c.text, flexShrink: 1, textAlign: 'right' }}>
+        <Text
+          selectable
+          style={[styles.metricText, { color: c.text, flexShrink: 1, textAlign: 'right' }]}
+        >
           {value}
         </Text>
       )}
@@ -100,20 +116,15 @@ function InvestmentSummary({ value, children }: { value?: string; children: Reac
   );
 }
 
-function ActionSkeleton({ width = '100%' }: { width?: '100%' | number }) {
-  const { fontScale } = useWindowDimensions();
-  return (
-    <Skeleton
-      width={width}
-      height={Math.max(theme.controlHeight, Math.ceil(20 * fontScale) + 18)}
-      borderRadius={theme.radius.control}
-    />
-  );
+function NeedsLiquidAccount() {
+  return <Text style={{ color: c.muted }}>Add a liquid Account to receive dividends.</Text>;
 }
 
-function InvestmentDetailSkeleton() {
+function InvestmentDetailSkeleton({ today }: { today: number }) {
   const insets = useSafeAreaInsets();
   const { fontScale } = useWindowDimensions();
+  const client = useQueryClient();
+  const overview = client.getQueryData(accountsOverviewQuery(today).queryKey);
   return (
     <ScrollView
       style={styles.screen}
@@ -133,20 +144,24 @@ function InvestmentDetailSkeleton() {
             <Metric label="Value growth" />
             <Metric label="Dividends paid" />
           </InvestmentSummary>
-          <ActionSkeleton />
+          <FormButtonSkeleton label="Update value" />
           <View style={styles.actionRow}>
-            <ActionSkeleton width={Math.ceil(66 * fontScale) + 26} />
-            <ActionSkeleton width={Math.ceil(62 * fontScale) + 26} />
+            <FormButtonSkeleton label="Dividend" />
+            <FormButtonSkeleton label="Transfer" />
           </View>
+          {overview &&
+            !overview.accounts.some((account) => !account.card && !account.isInvestment) && (
+              <NeedsLiquidAccount />
+            )}
           <Text style={styles.historyHeading}>History</Text>
         </View>
         {[0, 1].map((row) => (
           <View key={row} style={styles.historyRow}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-              <Skeleton width="32%" height={Math.ceil(21 * fontScale)} />
-              <Skeleton width="25%" height={Math.ceil(21 * fontScale)} />
+              <Skeleton width="32%" height={Math.ceil(metricLineHeight * fontScale)} />
+              <Skeleton width="25%" height={Math.ceil(metricLineHeight * fontScale)} />
             </View>
-            <Skeleton width="42%" height={Math.ceil(17 * fontScale)} />
+            <Skeleton width="42%" height={Math.ceil(historyDateLineHeight * fontScale)} />
           </View>
         ))}
       </View>
@@ -154,7 +169,7 @@ function InvestmentDetailSkeleton() {
   );
 }
 
-function ValuationActionsSkeleton({ showDelta }: { showDelta: boolean }) {
+function ValuationActionsSkeleton({ children }: { children: ReactNode }) {
   return (
     <View
       accessible
@@ -162,8 +177,8 @@ function ValuationActionsSkeleton({ showDelta }: { showDelta: boolean }) {
       accessibilityLabel="Loading balance"
       style={{ gap: 16 }}
     >
-      {showDelta && <Metric label="Value change" />}
-      <ActionSkeleton />
+      {children}
+      <FormButtonSkeleton label="Save value" />
     </View>
   );
 }
@@ -275,7 +290,11 @@ function ValuationSheet({
         {error && <WriteError message={error} />}
         <QueryBoundary
           key={day}
-          pending={<ValuationActionsSkeleton showDelta={target !== undefined} />}
+          pending={
+            <ValuationActionsSkeleton>
+              {target !== undefined && <Metric label="Value change" />}
+            </ValuationActionsSkeleton>
+          }
           error={(retry) => (
             <>
               <WriteError message="Could not load the balance." />
@@ -306,7 +325,7 @@ function HistoryRow({ row }: { row: InvestmentHistoryRow }) {
           label={historyLabels[row.kind]}
           value={formatSignedMoney(row.amountMinor, row.currencyCode)}
         />
-        <Text style={{ color: c.muted, fontSize: 12 }}>
+        <Text style={styles.historyDate}>
           {row.otherAccount ? `${row.otherAccount} · ` : ''}
           {formatEpochDay(row.date)}
         </Text>
@@ -411,9 +430,7 @@ function InvestmentDetail({ id, today }: { id: number; today: number }) {
                 }
               />
             </View>
-            {!defaultCash && (
-              <Text style={{ color: c.muted }}>Add a liquid Account to receive dividends.</Text>
-            )}
+            {!defaultCash && <NeedsLiquidAccount />}
             <Text style={styles.historyHeading}>History</Text>
             {history.isError && !history.isFetching && (
               <FormButton
@@ -447,7 +464,7 @@ export function InvestmentScreen() {
   return (
     <QueryBoundary
       resetKey={`${id}-${today}`}
-      pending={<InvestmentDetailSkeleton />}
+      pending={<InvestmentDetailSkeleton today={today} />}
       error={(retry) => <FormButton label="Retry investment" variant="secondary" onPress={retry} />}
     >
       {id ? (

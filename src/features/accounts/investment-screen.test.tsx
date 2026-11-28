@@ -63,6 +63,7 @@ test('Investment detail reserves the summary, actions and History until the read
     ).toBeOnTheScreen();
     expect(screen.getByText('Current value')).toBeOnTheScreen();
     expect(screen.getByText('History')).toBeOnTheScreen();
+    expect(screen.getByText('Add a liquid Account to receive dividends.')).toBeOnTheScreen();
     expect(screen.queryByRole('button', { name: 'Update value' })).toBeNull();
   } finally {
     await act(async () => history.resolve([]));
