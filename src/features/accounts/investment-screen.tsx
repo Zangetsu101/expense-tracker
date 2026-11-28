@@ -53,14 +53,15 @@ function ValuationActions({
   pending: boolean;
   onSave: () => void;
 }) {
-  const { data, error, isFetching, refetch } = useSuspenseQuery({
+  const { data, error, isFetching } = useSuspenseQuery({
     queryKey: ['accounts', 'balances', day],
     queryFn: () => accountBalances(day),
+    // Retry a failed refresh even when the cached balance is still fresh.
+    refetchOnMount: (query) => (query.state.status === 'error' ? 'always' : true),
   });
+  if (error && !isFetching) throw error;
   const balance = data.find(({ id }) => id === accountId)?.balanceMinor;
   const delta = target !== undefined && balance !== undefined ? target - balance : undefined;
-  if (error && !isFetching)
-    return <FormButton label="Retry balance" variant="secondary" onPress={() => void refetch()} />;
   return (
     <>
       {delta !== undefined && (
@@ -143,10 +144,13 @@ function ValuationSheet({
         {amountError && <WriteError message={amountError} />}
         {error && <WriteError message={error} />}
         <QueryBoundary
-          resetKey={String(day)}
+          key={day}
           pending={<Text style={{ color: c.muted }}>Loading balance…</Text>}
           error={(retry) => (
-            <FormButton label="Retry balance" variant="secondary" onPress={retry} />
+            <>
+              <WriteError message="Could not load the balance." />
+              <FormButton label="Retry balance" variant="secondary" onPress={retry} />
+            </>
           )}
         >
           <ValuationActions
